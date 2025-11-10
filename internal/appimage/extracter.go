@@ -418,20 +418,7 @@ func ExtractMetadata(appImagePath string) (*File, error) {
 		return df, nil
 	}
 
-	var iconSrc string
-	filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if !d.IsDir() {
-			name := strings.TrimSuffix(d.Name(), filepath.Ext(d.Name()))
-			if name == iconName {
-				iconSrc = path
-				return fs.SkipAll
-			}
-		}
-		return nil
-	})
+	iconSrc, _ := findIcon(root, iconName)
 
 	if iconSrc != "" {
 		iconDst := filepath.Join(filepath.Dir(appImagePath), filepath.Base(iconSrc))
@@ -461,4 +448,51 @@ func copyFile(src, dst string) error {
 	}
 	fi, _ := in.Stat()
 	return os.Chmod(dst, fi.Mode())
+}
+
+
+// findIcon searches under root for files named iconName with a permitted extension.
+// Example: Icon=obsidian → matches obsidian.svg, obsidian.png, ...
+func findIcon(root, iconName string) (string, error) {
+	extOrder := []string{".svg", ".png", ".xpm", ".ico", ".jpg", ".jpeg"}
+	allowed := make(map[string]int, len(extOrder))
+	for i, e := range extOrder {
+		allowed[strings.ToLower(e)] = i
+	}
+
+	iconNameLower := strings.ToLower(iconName)
+	var (
+		bestPath string
+		bestRank = 1<<30
+	)
+
+	errStop := errors.New("stop-walk")
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		ext := strings.ToLower(filepath.Ext(d.Name()))
+		rank, ok := allowed[ext]
+		if !ok {
+			return nil
+		}
+		base := strings.TrimSuffix(d.Name(), filepath.Ext(d.Name()))
+		if strings.ToLower(base) != iconNameLower {
+			return nil
+		}
+		// Keep the best-ranked extension (e.g., prefer .svg over .png)
+		if rank < bestRank {
+			bestRank, bestPath = rank, path
+			// Optional: stop immediately on first acceptable hit
+			// return errStop
+		}
+		return nil
+	})
+	if err != nil && !errors.Is(err, errStop) {
+		return "", err
+	}
+	if bestPath == "" {
+		return "", fmt.Errorf("icon %q not found under %s", iconName, root)
+	}
+	return bestPath, nil
 }
