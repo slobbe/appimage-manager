@@ -1,3 +1,3 @@
-# AppImager
+# AppImage Manager
 
-A simple AppImage manager written in Go.
+A simple AppImage manager CLI written in Go.
