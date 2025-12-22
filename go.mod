@@ -1,3 +1,3 @@
 module github.com/slobbe/appimage-manager
 
-go 1.24.9
+go 1.25.5
