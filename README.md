@@ -13,17 +13,17 @@ go build -o ./bin/aim ./cmd/aim
 Add AppImage from system:
 
 ```sh
-bin/aim add [--move] <AppImage>
+bin/aim add [--move] <appimage>
 ```
 
 Remove AppImage from system:
 
 ```sh
-bin/aim rm [--keep] <AppImage>
+bin/aim rm [--keep] <appname>
 ```
 
 List integrated AppImages:
 
 ```sh
-bin/aim list <AppImage>
+bin/aim list
 ```
