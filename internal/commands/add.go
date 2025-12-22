@@ -8,8 +8,8 @@ import (
 )
 
 
-func Extract(path string) {
-	fmt.Println("Extract", path)
+func Add(path string) {
+	fmt.Println("Add", path)
 
 	if err := core.IntegrateAppImage(path); err != nil {
 		log.Fatal(err)

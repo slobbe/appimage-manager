@@ -17,12 +17,12 @@ func Execute(args []string) {
 		Help()
 	case "list":
 		List()
-	case "extract":
+	case "add":
 		if len(args) < 2 {
 			Help()
 			return
 		}
-		Extract(args[1])
+		Add(args[1])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", args[0])
 		os.Exit(1)
