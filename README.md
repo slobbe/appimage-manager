@@ -11,5 +11,5 @@ go build -o ./bin/aim ./cmd/aim
 ## Usage
 
 ```sh
-.bin/aim [command]
+bin/aim [command]
 ```
