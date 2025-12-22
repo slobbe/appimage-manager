@@ -10,6 +10,20 @@ go build -o ./bin/aim ./cmd/aim
 
 ## Usage
 
+Add AppImage from system:
+
 ```sh
-bin/aim [command]
+bin/aim add [--move] <AppImage>
+```
+
+Remove AppImage from system:
+
+```sh
+bin/aim rm [--keep] <AppImage>
+```
+
+List integrated AppImages:
+
+```sh
+bin/aim list <AppImage>
 ```
