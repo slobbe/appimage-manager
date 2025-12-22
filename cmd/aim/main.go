@@ -3,33 +3,39 @@ package main
 import (
 	"fmt"
 	"os"
-	"strings"
+	//"strings"
+	"flag"
 
 	command "github.com/slobbe/appimage-manager/internal/commands"
 )
 
 func main() {
-
-	args := os.Args[1:]
-
-	if len(args) == 0 {
-		command.Help()
-		return
+	// declare flags
+	help := flag.Bool("help", false, "show help")
+	
+	flag.Usage = func() {
+		fmt.Fprintf(flag.CommandLine.Output(),
+			"Usage: %s <command> [options]\nCommands: add, remove, list\nOptions:\n", os.Args[0])
+		flag.PrintDefaults()
 	}
-
-	switch strings.ToLower(args[0]) {
-	case "--help", "-h", "help":
-		command.Help()
+	
+	flag.Parse()
+	
+	if *help || len(flag.Args()) < 1 {
+		flag.Usage()
+		os.Exit(0)
+	}
+	
+	switch flag.Args()[0] {
+	case "add":
+		command.Add(flag.Args()[1])
 	case "list":
 		command.List()
-	case "add":
-		if len(args) < 2 {
-			command.Help()
-			return
-		}
-		command.Add(args[1])
+	case "remove":
+		command.Remove(flag.Args()[1])
 	default:
-		fmt.Fprintf(os.Stderr, "unknown command: %s\n", args[0])
+		fmt.Fprintf(os.Stderr, "unknown command: %s\n", flag.Args()[0])
+		flag.Usage()
 		os.Exit(1)
 	}
 }

@@ -6,7 +6,7 @@ import (
 )
 
 func List() {
-	fmt.Println("list appimages")
+	fmt.Println("list added appimages")
 	/*
 		paths, _ := core.ScanDirs([]string{"Downloads", "Applications", "AppImages"})
 
