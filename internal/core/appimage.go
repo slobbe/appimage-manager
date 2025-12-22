@@ -14,7 +14,7 @@ import (
 
 // IntegrateAppImage extracts Foo.AppImage into ~/AppImages/foo and
 // links its .desktop and icon into ~/.local/share so GNOME/KDE pick it up.
-func IntegrateAppImage(appImageSrc string) error {
+func IntegrateAppImage(appImageSrc string, move bool) error {
 	home, _ := os.UserHomeDir()
 	base := strings.TrimSuffix(filepath.Base(appImageSrc), filepath.Ext(appImageSrc))
 
@@ -58,11 +58,20 @@ func IntegrateAppImage(appImageSrc string) error {
 	}
 
 	// move desktop, icon, and appimage to extract dir
-
-	newAppImageSrc, err := file.Copy(appImageSrc, filepath.Join(extractDir, base+".AppImage"))
-	if err != nil {
-		return err
+	
+	var newAppImageSrc string
+	if move {
+		newAppImageSrc, err = file.Move(appImageSrc, filepath.Join(extractDir, base+".AppImage"))
+		if err != nil {
+			return err
+		}
+	} else {
+		newAppImageSrc, err = file.Copy(appImageSrc, filepath.Join(extractDir, base+".AppImage"))
+		if err != nil {
+			return err
+		}
 	}
+	
 	newDesktopSrc, err := file.Move(desktopSrc, filepath.Join(extractDir, base+".desktop"))
 	if err != nil {
 		return err

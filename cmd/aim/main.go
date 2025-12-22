@@ -3,39 +3,43 @@ package main
 import (
 	"fmt"
 	"os"
-	//"strings"
+
 	"flag"
 
 	command "github.com/slobbe/appimage-manager/internal/commands"
 )
 
 func main() {
-	// declare flags
-	help := flag.Bool("help", false, "show help")
-	
+	// declare `add` flags
+	addCmd := flag.NewFlagSet("add", flag.ExitOnError)
+	addMove := addCmd.Bool("move", false, "move AppImage to directory instead of copy")
+
+	// declare `remove` flags
+	removeCmd := flag.NewFlagSet("rm", flag.ExitOnError)
+	removeKeep := removeCmd.Bool("keep", false, "keep AppImage file")
+
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(),
-			"Usage: %s <command> [options]\nCommands: add, remove, list\nOptions:\n", os.Args[0])
+			"Usage: %s <command> [options] {args}\nCommands: add, remove, list\nOptions:\n", os.Args[0])
 		flag.PrintDefaults()
 	}
-	
-	flag.Parse()
-	
-	if *help || len(flag.Args()) < 1 {
-		flag.Usage()
-		os.Exit(0)
+
+	if len(os.Args) < 1 {
+		fmt.Fprintf(os.Stderr, "unknown command: %s\n", os.Args[0])
 	}
-	
-	switch flag.Args()[0] {
+
+	switch os.Args[1] {
 	case "add":
-		command.Add(flag.Args()[1])
+		addCmd.Parse(os.Args[2:])
+		fmt.Println("add", addCmd.Args()[0], "|| move app?", *addMove)
+		command.Add(addCmd.Args()[0], *addMove)
 	case "list":
 		command.List()
-	case "remove":
-		command.Remove(flag.Args()[1])
+	case "rm":
+		removeCmd.Parse(os.Args[2:])
+		fmt.Println("rm", removeCmd.Args()[0], "|| keep file?", *removeKeep)
+		command.Remove(removeCmd.Args()[0], *removeKeep)
 	default:
-		fmt.Fprintf(os.Stderr, "unknown command: %s\n", flag.Args()[0])
-		flag.Usage()
-		os.Exit(1)
+		fmt.Fprintf(os.Stderr, "unknown command: %s\n", os.Args[0])
 	}
 }
