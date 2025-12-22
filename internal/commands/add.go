@@ -1,4 +1,4 @@
-package commands
+package command
 
 import (
 	"fmt"
@@ -6,7 +6,6 @@ import (
 
 	"github.com/slobbe/appimage-manager/internal/core"
 )
-
 
 func Add(path string) {
 	fmt.Println("Add", path)
