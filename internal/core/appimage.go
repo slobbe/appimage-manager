@@ -19,11 +19,13 @@ type AppInfo struct {
 
 func IntegrateAppImage(appImageSrc string, move bool) error {
 	home, _ := os.UserHomeDir()
+
+	desktopDir := filepath.Join(home, ".local/share/applications")
+	aimDir := filepath.Join(home, ".local/share/appimagemanager")
+
 	base := strings.TrimSuffix(filepath.Base(appImageSrc), filepath.Ext(appImageSrc))
 
-	tempDir := filepath.Join(home, "AppImages", ".tmp")
-	desktopDir := filepath.Join(home, ".local/share/applications")
-
+	tempDir := filepath.Join(aimDir, ".tmp")
 	tempExtractDir := filepath.Join(tempDir, base)
 	if err := os.MkdirAll(tempDir, 0755); err != nil {
 		return err
@@ -58,9 +60,8 @@ func IntegrateAppImage(appImageSrc string, move bool) error {
 	}
 	fmt.Printf("Name: %s, Version: %s\n", appName, appVersion)
 
-	extractDir := filepath.Join(home, "AppImages", appName)
+	extractDir := filepath.Join(aimDir, appName)
 
-	//iconDir := extractDir    //filepath.Join(home, ".local/share/icons/hicolor/256x256/apps")
 	if err := os.MkdirAll(extractDir, 0755); err != nil {
 		return err
 	}
