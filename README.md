@@ -13,22 +13,26 @@ go build -o bin/aim ./cmd/aim
 
 ## Usage
 
-Integrates AppImage into your desktop environment:
+Integrate AppImage into your desktop environment:
 
 ```sh
 aim add [OPTIONS] <appimage>
 ```
 
-| Option | Meaning |
-|--------|---------|
-| `-mv` | Move the AppImage instead of copying it. |
-| `-a`  | AppImage is given as an absolute path. |
+| Option | Meaning                                  |
+| ------ | ---------------------------------------- |
+| `-mv`  | Move the AppImage instead of copying it. |
+| `-a`   | AppImage is given as an absolute path.   |
 
 Remove AppImage:
 
 ```sh
 aim rm [-k] <id>
 ```
+
+| Option | Meaning                                                  |
+| ------ | -------------------------------------------------------- |
+| `-k`   | Keep the AppImage file; remove only desktop integration. |
 
 List all integrated AppImages:
 
