@@ -1,9 +1,9 @@
 package core
 
 import (
-	//"errors"
 	"bufio"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,8 +12,11 @@ import (
 	file "github.com/slobbe/appimage-manager/internal/helpers/filesystem"
 )
 
-// IntegrateAppImage extracts Foo.AppImage into ~/AppImages/foo and
-// links its .desktop and icon into ~/.local/share so GNOME/KDE pick it up.
+type AppInfo struct {
+	Name    string
+	Version string
+}
+
 func IntegrateAppImage(appImageSrc string, move bool) error {
 	home, _ := os.UserHomeDir()
 	base := strings.TrimSuffix(filepath.Base(appImageSrc), filepath.Ext(appImageSrc))
@@ -42,13 +45,18 @@ func IntegrateAppImage(appImageSrc string, move bool) error {
 		return err
 	}
 
-	// get app name if available
-	appName, err := ExtractAppName(desktopSrc)
+	info, err := ExtractAppInfo(desktopSrc)
+	var appName, appVersion string
 	if err != nil {
 		appName = base
-	}
+		appVersion = "unknown"
+		log.Fatal(err)
+	} else {
+		appName = strings.ToLower(info.Name)
+		appVersion = info.Version
 
-	appName = strings.ToLower(appName)
+	}
+	fmt.Printf("Name: %s, Version: %s\n", appName, appVersion)
 
 	extractDir := filepath.Join(home, "AppImages", appName)
 
@@ -58,21 +66,20 @@ func IntegrateAppImage(appImageSrc string, move bool) error {
 	}
 
 	// move desktop, icon, and appimage to extract dir
-	
 	var newAppImageSrc string
 	if move {
-		newAppImageSrc, err = file.Move(appImageSrc, filepath.Join(extractDir, base+".AppImage"))
+		newAppImageSrc, err = file.Move(appImageSrc, filepath.Join(extractDir, appName+".AppImage"))
 		if err != nil {
 			return err
 		}
 	} else {
-		newAppImageSrc, err = file.Copy(appImageSrc, filepath.Join(extractDir, base+".AppImage"))
+		newAppImageSrc, err = file.Copy(appImageSrc, filepath.Join(extractDir, appName+".AppImage"))
 		if err != nil {
 			return err
 		}
 	}
-	
-	newDesktopSrc, err := file.Move(desktopSrc, filepath.Join(extractDir, base+".desktop"))
+
+	newDesktopSrc, err := file.Move(desktopSrc, filepath.Join(extractDir, appName+".desktop"))
 	if err != nil {
 		return err
 	}
@@ -165,19 +172,55 @@ func UpdateDesktop(desktopSrc string, execCmd string, iconSrc string) error {
 	return os.WriteFile(desktopSrc, []byte(strings.Join(lines, "\n")), 0644)
 }
 
-func ExtractAppName(desktopSrc string) (string, error) {
-	file, err := os.Open(desktopSrc)
+func ExtractAppInfo(desktopPath string) (*AppInfo, error) {
+	file, err := os.Open(desktopPath)
 	if err != nil {
-		return "", err
+		return nil, fmt.Errorf("failed to open file: %w", err)
 	}
 	defer file.Close()
 
-	sc := bufio.NewScanner(file)
-	for sc.Scan() {
-		line := sc.Text()
-		if strings.HasPrefix(line, "Name=") {
-			return strings.TrimSpace(strings.SplitN(line, "=", 2)[1]), nil
+	info := &AppInfo{}
+	scanner := bufio.NewScanner(file)
+	inDesktopEntry := false
+
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+
+		// Check if we entered [Desktop Entry] section
+		if line == "[Desktop Entry]" {
+			inDesktopEntry = true
+			continue
+		}
+
+		// Stop if we hit another section
+		if len(line) > 0 && line[0] == '[' && line != "[Desktop Entry]" {
+			break
+		}
+
+		if !inDesktopEntry {
+			continue
+		}
+
+		// Parse key=value pairs
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+
+		key := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+
+		switch key {
+		case "Name":
+			info.Name = value
+		case "X-AppImage-Version":
+			info.Version = value
 		}
 	}
-	return "", sc.Err()
+
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("failed to read file: %w", err)
+	}
+
+	return info, nil
 }
