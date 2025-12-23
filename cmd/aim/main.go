@@ -18,7 +18,7 @@ func main() {
 
 	// declare `remove` flags
 	removeCmd := flag.NewFlagSet("rm", flag.ExitOnError)
-	removeKeep := removeCmd.Bool("keep", false, "keep AppImage file")
+	removeKeep := removeCmd.Bool("k", false, "keep AppImage file")
 
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(),

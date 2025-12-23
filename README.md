@@ -13,7 +13,7 @@ go build -o ./bin/aim ./cmd/aim
 Add AppImage from system:
 
 ```sh
-bin/aim add [OPTIONS] <app-image>
+bin/aim add [OPTIONS] <appimage>
 ```
 
 | Option | Meaning |
@@ -24,7 +24,7 @@ bin/aim add [OPTIONS] <app-image>
 Remove AppImage from system:
 
 ```sh
-bin/aim rm [-keep] <id>
+bin/aim rm [-k] <id>
 ```
 
 List integrated AppImages:
