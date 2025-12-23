@@ -21,7 +21,7 @@ func IntegrateAppImage(appImageSrc string, move bool) error {
 	home, _ := os.UserHomeDir()
 
 	desktopDir := filepath.Join(home, ".local/share/applications")
-	aimDir := filepath.Join(home, ".local/share/appimagemanager")
+	aimDir := filepath.Join(home, ".local/share/appimagemanager/apps")
 
 	base := strings.TrimSuffix(filepath.Base(appImageSrc), filepath.Ext(appImageSrc))
 
