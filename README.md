@@ -13,13 +13,18 @@ go build -o ./bin/aim ./cmd/aim
 Add AppImage from system:
 
 ```sh
-bin/aim add [--move] <appimage>
+bin/aim add [OPTIONS] <app-image>
 ```
+
+| Option | Meaning |
+|--------|---------|
+| `-move` | Move the AppImage instead of copying it. |
+| `-a`  | AppImage is given as an absolute path. |
 
 Remove AppImage from system:
 
 ```sh
-bin/aim rm [--keep] <id>
+bin/aim rm [-keep] <id>
 ```
 
 List integrated AppImages:
