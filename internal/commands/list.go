@@ -10,7 +10,7 @@ import (
 
 func List() error {
 	home, _ := os.UserHomeDir()
-	aimDir := filepath.Join(home, ".local/share/appimagemanager")
+	aimDir := filepath.Join(home, ".local/share/appimage-manager")
 	dbPath := filepath.Join(aimDir, "apps.json")
 
 	db, err := core.LoadDB(dbPath)

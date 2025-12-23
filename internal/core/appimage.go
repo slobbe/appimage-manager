@@ -22,7 +22,7 @@ func IntegrateAppImage(appImageSrc string, move bool) error {
 	home, _ := os.UserHomeDir()
 
 	desktopDir := filepath.Join(home, ".local/share/applications")
-	aimDir := filepath.Join(home, ".local/share/appimagemanager")
+	aimDir := filepath.Join(home, ".local/share/appimage-manager")
 
 	base := strings.TrimSuffix(filepath.Base(appImageSrc), filepath.Ext(appImageSrc))
 
@@ -279,7 +279,7 @@ func ExtractAppInfo(desktopPath string) (*AppInfo, error) {
 func RemoveAppImage(slug string, keep bool) error {	
 	home, _ := os.UserHomeDir()
 
-	aimDir := filepath.Join(home, ".local/share/appimagemanager")
+	aimDir := filepath.Join(home, ".local/share/appimage-manager")
 	dbPath := filepath.Join(aimDir, "apps.json")
 	unlinkedDbPath := filepath.Join(aimDir, "unlinked.json")
 
