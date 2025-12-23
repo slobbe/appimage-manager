@@ -11,7 +11,7 @@ import (
 func List() error {
 	home, _ := os.UserHomeDir()
 	aimDir := filepath.Join(home, ".local/share/appimagemanager")
-	dbPath := filepath.Join(aimDir, "db.json")
+	dbPath := filepath.Join(aimDir, "db", "apps.json")
 
 	db, err := core.LoadDB(dbPath)
 	if err != nil {

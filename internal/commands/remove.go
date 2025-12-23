@@ -1,8 +1,13 @@
 package command
 
-import "fmt"
+import (
+	"fmt"
 
-func Remove(appimage string, keep bool) {
-	fmt.Println("removing:", appimage)
+	"github.com/slobbe/appimage-manager/internal/core"
+)
+
+func Remove(appSlug string, keep bool) {
+	fmt.Println("removing:", appSlug)
 	fmt.Println("keep file:", keep)
+	core.RemoveAppImage(appSlug, keep)
 }
