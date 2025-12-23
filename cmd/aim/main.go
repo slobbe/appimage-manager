@@ -13,7 +13,7 @@ import (
 func main() {
 	// declare `add` flags
 	addCmd := flag.NewFlagSet("add", flag.ExitOnError)
-	addMove := addCmd.Bool("move", false, "move AppImage to directory instead of copy")
+	addMove := addCmd.Bool("mv", false, "move AppImage to directory instead of copy")
 	addAbsolute := addCmd.Bool("a", false, "AppImage's absolute path is given")
 
 	// declare `remove` flags
