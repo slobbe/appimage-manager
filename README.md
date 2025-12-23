@@ -1,19 +1,22 @@
-# AppImage Manager
+# AppImage Manager (aim)
 
-A simple AppImage manager CLI written in Go.
+Tiny CLI that integrates AppImages into your desktop environment.
 
-## Build
+## Build from source
 
 ```sh
-go build -o ./bin/aim ./cmd/aim
+git clone https://github.com/slobbe/appimage-manager.git
+cd appimage-manager
+go build -o bin/aim ./cmd/aim
+./install.sh          # copies binary to ~/.local/bin
 ```
 
 ## Usage
 
-Add AppImage from system:
+Integrates AppImage into your desktop environment:
 
 ```sh
-bin/aim add [OPTIONS] <appimage>
+aim add [OPTIONS] <appimage>
 ```
 
 | Option | Meaning |
@@ -21,16 +24,16 @@ bin/aim add [OPTIONS] <appimage>
 | `-mv` | Move the AppImage instead of copying it. |
 | `-a`  | AppImage is given as an absolute path. |
 
-Remove AppImage from system:
+Remove AppImage:
 
 ```sh
-bin/aim rm [-k] <id>
+aim rm [-k] <id>
 ```
 
-List integrated AppImages:
+List all integrated AppImages:
 
 ```sh
-bin/aim list
+aim list
 ```
 
 ## License
