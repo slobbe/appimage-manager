@@ -27,3 +27,7 @@ List integrated AppImages:
 ```sh
 bin/aim list
 ```
+
+## License
+
+[MIT](/LICENSE)
