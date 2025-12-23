@@ -61,7 +61,6 @@ func IntegrateAppImage(appImageSrc string, move bool) error {
 		appVersion = info.Version
 
 	}
-	
 
 	extractDir := filepath.Join(aimDir, appSlug)
 
@@ -118,7 +117,7 @@ func IntegrateAppImage(appImageSrc string, move bool) error {
 	if err != nil {
 		return err
 	}
-	
+
 	sum, err := crypt.Sha256File(newAppImageSrc)
 	if err != nil {
 		return err
@@ -126,6 +125,7 @@ func IntegrateAppImage(appImageSrc string, move bool) error {
 
 	db.Apps[appSlug] = &App{
 		Name:        appName,
+		Slug:        appSlug,
 		Version:     appVersion,
 		AppImageSrc: newAppImageSrc,
 		SHA256:      sum,
@@ -141,8 +141,8 @@ func IntegrateAppImage(appImageSrc string, move bool) error {
 
 	// refresh desktop cache best-effort
 	_ = exec.Command("update-desktop-database", desktopDir).Run()
-	
-	fmt.Printf("Successfully added %s (v%s)", appName, appVersion)
+
+	fmt.Printf("Successfully added %s (v%s)\n", appName, appVersion)
 	return nil
 }
 

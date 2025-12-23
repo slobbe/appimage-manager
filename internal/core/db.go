@@ -13,6 +13,7 @@ type DB struct {
 
 type App struct {
 	Name        string `json:"name"`
+	Slug        string `json:"slug"`
 	Version     string `json:"version"`
 	AppImageSrc string `json:"appimage_src"`
 	DesktopSrc  string `json:"desktop_src"`
@@ -21,7 +22,6 @@ type App struct {
 	AddedAt     string `json:"added_at"`
 	SHA256      string `json:"sha256"`
 }
-
 
 func LoadDB(path string) (*DB, error) {
 	b, err := os.ReadFile(path)
