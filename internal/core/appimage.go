@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	crypt "github.com/slobbe/appimage-manager/internal/helpers/crypt"
 	file "github.com/slobbe/appimage-manager/internal/helpers/filesystem"
 )
 
@@ -21,7 +22,7 @@ func IntegrateAppImage(appImageSrc string, move bool) error {
 	home, _ := os.UserHomeDir()
 
 	desktopDir := filepath.Join(home, ".local/share/applications")
-	aimDir := filepath.Join(home, ".local/share/appimagemanager/apps")
+	aimDir := filepath.Join(home, ".local/share/appimagemanager")
 
 	base := strings.TrimSuffix(filepath.Base(appImageSrc), filepath.Ext(appImageSrc))
 
@@ -48,19 +49,21 @@ func IntegrateAppImage(appImageSrc string, move bool) error {
 	}
 
 	info, err := ExtractAppInfo(desktopSrc)
-	var appName, appVersion string
+	var appName, appVersion, appSlug string
 	if err != nil {
 		appName = base
+		appSlug = strings.ToLower(base)
 		appVersion = "unknown"
 		log.Fatal(err)
 	} else {
-		appName = strings.ToLower(info.Name)
+		appName = info.Name //strings.ToLower(info.Name)
+		appSlug = strings.ToLower(info.Name)
 		appVersion = info.Version
 
 	}
-	fmt.Printf("Name: %s, Version: %s\n", appName, appVersion)
+	
 
-	extractDir := filepath.Join(aimDir, appName)
+	extractDir := filepath.Join(aimDir, appSlug)
 
 	if err := os.MkdirAll(extractDir, 0755); err != nil {
 		return err
@@ -69,23 +72,23 @@ func IntegrateAppImage(appImageSrc string, move bool) error {
 	// move desktop, icon, and appimage to extract dir
 	var newAppImageSrc string
 	if move {
-		newAppImageSrc, err = file.Move(appImageSrc, filepath.Join(extractDir, appName+".AppImage"))
+		newAppImageSrc, err = file.Move(appImageSrc, filepath.Join(extractDir, appSlug+".AppImage"))
 		if err != nil {
 			return err
 		}
 	} else {
-		newAppImageSrc, err = file.Copy(appImageSrc, filepath.Join(extractDir, appName+".AppImage"))
+		newAppImageSrc, err = file.Copy(appImageSrc, filepath.Join(extractDir, appSlug+".AppImage"))
 		if err != nil {
 			return err
 		}
 	}
 
-	newDesktopSrc, err := file.Move(desktopSrc, filepath.Join(extractDir, appName+".desktop"))
+	newDesktopSrc, err := file.Move(desktopSrc, filepath.Join(extractDir, appSlug+".desktop"))
 	if err != nil {
 		return err
 	}
 
-	newIconSrc, err := file.Move(iconSrc, filepath.Join(extractDir, appName+filepath.Ext(iconSrc)))
+	newIconSrc, err := file.Move(iconSrc, filepath.Join(extractDir, appSlug+filepath.Ext(iconSrc)))
 	if err != nil {
 		return err
 	}
@@ -102,12 +105,44 @@ func IntegrateAppImage(appImageSrc string, move bool) error {
 	}
 
 	// make desktop symlink for system integration
-	desktopLink := filepath.Join(desktopDir, "aim-"+appName+".desktop")
+	desktopLink := filepath.Join(desktopDir, "aim-"+appSlug+".desktop")
 	_ = os.Remove(desktopLink)
 	if err := os.Symlink(newDesktopSrc, desktopLink); err != nil {
 		return err
 	}
 
+	// add to db
+	dbPath := filepath.Join(aimDir, "db.json")
+
+	db, err := LoadDB(dbPath)
+	if err != nil {
+		return err
+	}
+	
+	sum, err := crypt.Sha256File(newAppImageSrc)
+	if err != nil {
+		return err
+	}
+
+	db.Apps[appSlug] = &App{
+		Name:        appName,
+		Version:     appVersion,
+		AppImageSrc: newAppImageSrc,
+		SHA256:      sum,
+		DesktopSrc:  newDesktopSrc,
+		DesktopLink: desktopLink,
+		IconSrc:     newIconSrc,
+		AddedAt:     NowISO(),
+	}
+
+	if err := SaveDB(dbPath, db); err != nil {
+		return err
+	}
+
+	// refresh desktop cache best-effort
+	_ = exec.Command("update-desktop-database", desktopDir).Run()
+	
+	fmt.Printf("Successfully added %s (v%s)", appName, appVersion)
 	return nil
 }
 
