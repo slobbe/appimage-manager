@@ -33,7 +33,6 @@ func main() {
 	switch os.Args[1] {
 	case "add":
 		addCmd.Parse(os.Args[2:])
-		fmt.Println("add", addCmd.Args()[0], "|| move app?", *addMove, "abs path?", *addAbsolute)
 
 		if *addAbsolute {
 			command.Add(addCmd.Args()[0], *addMove)
@@ -42,15 +41,13 @@ func main() {
 			if err != nil {
 				fmt.Println("Error:", err)
 			}
-			fmt.Println("Current directory:", dir)
 
 			command.Add(filepath.Join(dir, addCmd.Args()[0]), *addMove)
 		}
 	case "list":
 		command.List()
-	case "rm":
+	case "remove", "rm":
 		removeCmd.Parse(os.Args[2:])
-		fmt.Println("rm", removeCmd.Args()[0], "|| keep file?", *removeKeep)
 		command.Remove(removeCmd.Args()[0], *removeKeep)
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", os.Args[0])
