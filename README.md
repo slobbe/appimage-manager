@@ -19,7 +19,7 @@ bin/aim add [--move] <appimage>
 Remove AppImage from system:
 
 ```sh
-bin/aim rm [--keep] <appname>
+bin/aim rm [--keep] <id>
 ```
 
 List integrated AppImages:
