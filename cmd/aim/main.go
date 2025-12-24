@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 
 	"flag"
-
-	command "github.com/slobbe/appimage-manager/internal/commands"
 )
 
 func main() {
@@ -35,20 +33,20 @@ func main() {
 		addCmd.Parse(os.Args[2:])
 
 		if *addAbsolute {
-			command.Add(addCmd.Args()[0], *addMove)
+			Add(addCmd.Args()[0], *addMove)
 		} else {
 			dir, err := os.Getwd()
 			if err != nil {
 				fmt.Println("Error:", err)
 			}
 
-			command.Add(filepath.Join(dir, addCmd.Args()[0]), *addMove)
+			Add(filepath.Join(dir, addCmd.Args()[0]), *addMove)
 		}
 	case "list":
-		command.List()
+		List()
 	case "remove", "rm":
 		removeCmd.Parse(os.Args[2:])
-		command.Remove(removeCmd.Args()[0], *removeKeep)
+		Remove(removeCmd.Args()[0], *removeKeep)
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", os.Args[0])
 	}
