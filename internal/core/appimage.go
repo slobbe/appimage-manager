@@ -2,11 +2,13 @@ package core
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 
 	util "github.com/slobbe/appimage-manager/internal/helpers"
 )
@@ -110,23 +112,109 @@ func LocateIcon(dir string) (string, error) {
 	}
 }
 
-func UpdateDesktop(desktopSrc string, execCmd string, iconSrc string) error {
+func UpdateDesktopFile(desktopSrc string, execCmd string, iconSrc string) error {
+	// Validate inputs
+	if desktopSrc == "" {
+		return fmt.Errorf("desktop file path cannot be empty")
+	}
+	if execCmd == "" {
+		return fmt.Errorf("exec command cannot be empty")
+	}
+	if iconSrc == "" {
+		return fmt.Errorf("icon path cannot be empty")
+	}
+	
+	
+	// Read file content
 	content, err := os.ReadFile(desktopSrc)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to read desktop file: %w", err)
 	}
-
+	
+	// Verify it's a valid UTF-8 string
+	if !utf8.Valid(content) {
+		return fmt.Errorf("desktop file is not valid UTF-8")
+	}
+	
 	lines := strings.Split(string(content), "\n")
-	for i, l := range lines {
-		if strings.HasPrefix(l, "Exec=") {
-			lines[i] = "Exec=" + execCmd
+	inDesktopEntryGroup := false
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		// Detect group headers
+		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
+			inDesktopEntryGroup = trimmed == "[Desktop Entry]"
+			continue
 		}
-		if strings.HasPrefix(l, "Icon=") {
+
+		// Only modify lines within [Desktop Entry] group
+		if !inDesktopEntryGroup {
+			continue
+		}
+		
+		// Handle Exec= lines - preserve arguments after command
+		if strings.HasPrefix(trimmed, "Exec=") {
+			// Extract existing arguments after executable (e.g., %f, %U, %c)
+			existingArgs := ""
+			if idx := strings.Index(trimmed, " "); idx != -1 {
+				existingArgs = trimmed[idx:] // Keep space and arguments
+			}
+			lines[i] = "Exec=" + execCmd + existingArgs
+		}
+		
+		// Handle Icon= lines - handle different value types per spec
+		if strings.HasPrefix(trimmed, "Icon=") {
 			lines[i] = "Icon=" + iconSrc
 		}
 	}
+	
+	// Ensure file ends with newline
+	if len(lines) > 0 && lines[len(lines)-1] != "" {
+		lines = append(lines, "")
+	}
+	
+	// Write back with consistent permissions (preserve existing if possible)
+	info, statErr := os.Stat(desktopSrc)
+	var perm os.FileMode = 0o644
+	if statErr == nil {
+		perm = info.Mode().Perm() & 0o666 // Preserve permissions except executable bit
+	}
 
-	return os.WriteFile(desktopSrc, []byte(strings.Join(lines, "\n")), 0644)
+	if err := os.WriteFile(desktopSrc, []byte(strings.Join(lines, "\n")), perm); err != nil {
+		return fmt.Errorf("failed to write desktop file: %w", err)
+	}
+
+	return nil
+}
+
+func CreateDesktopFile(desktopSrc, name, execCmd, iconSrc, comment string) error {
+	// Validate required fields
+	if desktopSrc == "" || name == "" || execCmd == "" || iconSrc == "" {
+		return fmt.Errorf("desktopSrc, name, execCmd, and iconSrc are required")
+	}
+
+	// Ensure output directory exists
+	if err := os.MkdirAll(filepath.Dir(desktopSrc), 0o755); err != nil {
+		return fmt.Errorf("failed to create directory: %w", err)
+	}
+
+	// Build desktop file content
+	var buf bytes.Buffer
+	buf.WriteString("[Desktop Entry]\n")
+	buf.WriteString("Type=Application\n")
+	buf.WriteString("Name=" + name + "\n")
+	buf.WriteString("Exec=" + execCmd + "\n")
+	buf.WriteString("Icon=" + iconSrc + "\n")
+	if comment != "" {
+		buf.WriteString("Comment=" + comment + "\n")
+	}
+	buf.WriteString("Terminal=false\n")
+	buf.WriteString("Categories=Utility;\n")
+
+	if err := os.WriteFile(desktopSrc, buf.Bytes(), 0o644); err != nil {
+		return fmt.Errorf("failed to write desktop file: %w", err)
+	}
+
+	return nil
 }
 
 func ExtractAppInfo(desktopPath string) (*AppInfo, error) {
