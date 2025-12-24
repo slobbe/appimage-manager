@@ -11,6 +11,7 @@ import (
 
 	crypt "github.com/slobbe/appimage-manager/internal/helpers/crypt"
 	file "github.com/slobbe/appimage-manager/internal/helpers/filesystem"
+	slug "github.com/slobbe/appimage-manager/internal/helpers/utils"
 )
 
 type AppInfo struct {
@@ -52,14 +53,13 @@ func IntegrateAppImage(appImageSrc string, move bool) error {
 	var appName, appVersion, appSlug string
 	if err != nil {
 		appName = base
-		appSlug = strings.ToLower(base)
+		appSlug = slug.Slugify(base)
 		appVersion = "unknown"
 		log.Fatal(err)
 	} else {
-		appName = info.Name //strings.ToLower(info.Name)
-		appSlug = strings.ToLower(info.Name)
+		appName = info.Name
+		appSlug = slug.Slugify(info.Name)
 		appVersion = info.Version
-
 	}
 
 	extractDir := filepath.Join(aimDir, appSlug)
