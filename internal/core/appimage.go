@@ -289,28 +289,58 @@ func LocateIcon(dir string) (string, error) {
 }
 
 
-func ExtractAppInfo(desktopPath string) (*AppInfo, error) {
-	file, err := os.Open(desktopPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open file: %w", err)
-	}
-	defer file.Close()
+// AppInfo holds application metadata extracted from a .desktop file.
+type AppInfo struct {
+	Name    string
+	Version string
+}
 
-	info := &AppInfo{}
-	scanner := bufio.NewScanner(file)
+func ExtractAppInfo(desktopSrc string) (*AppInfo, error) {
+	// Validate input
+	if desktopSrc == "" {
+		return nil, fmt.Errorf("desktop file path cannot be empty")
+	}
+
+	// Check file exists
+	info, err := os.Stat(desktopSrc)
+	if err != nil {
+		return nil, fmt.Errorf("failed to access desktop file: %w", err)
+	}
+	if info.IsDir() {
+		return nil, fmt.Errorf("path is a directory, not a file: %s", desktopSrc)
+	}
+
+	// Read file content
+	content, err := os.ReadFile(desktopSrc)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read desktop file: %w", err)
+	}
+
+	// Validate UTF-8
+	if !utf8.Valid(content) {
+		return nil, fmt.Errorf("desktop file is not valid UTF-8")
+	}
+
+	result := &AppInfo{}
 	inDesktopEntry := false
 
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
+	// Parse line by line
+	for _, line := range strings.Split(string(content), "\n") {
+		trimmed := strings.TrimSpace(line)
 
-		// Check if we entered [Desktop Entry] section
-		if line == "[Desktop Entry]" {
-			inDesktopEntry = true
+		// Skip empty lines and comments
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			continue
 		}
 
-		// Stop if we hit another section
-		if len(line) > 0 && line[0] == '[' && line != "[Desktop Entry]" {
+		// Detect group headers
+		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
+			inDesktopEntry = trimmed == "[Desktop Entry]"
+			continue
+		}
+
+		// Stop if we exit Desktop Entry group
+		if inDesktopEntry && strings.HasPrefix(trimmed, "[") {
 			break
 		}
 
@@ -319,7 +349,7 @@ func ExtractAppInfo(desktopPath string) (*AppInfo, error) {
 		}
 
 		// Parse key=value pairs
-		parts := strings.SplitN(line, "=", 2)
+		parts := strings.SplitN(trimmed, "=", 2)
 		if len(parts) != 2 {
 			continue
 		}
@@ -327,17 +357,32 @@ func ExtractAppInfo(desktopPath string) (*AppInfo, error) {
 		key := strings.TrimSpace(parts[0])
 		value := strings.TrimSpace(parts[1])
 
+		// Skip localized entries (e.g., Name[en_US]) - use unlocalized only
+		if strings.Contains(key, "[") {
+			continue
+		}
+
 		switch key {
 		case "Name":
-			info.Name = value
+			if result.Name == "" {
+				result.Name = value
+			}
+		case "Version":
+			if result.Version == "" {
+				result.Version = value
+			}
 		case "X-AppImage-Version":
-			info.Version = value
+			// Fallback if no standard Version field
+			if result.Version == "" {
+				result.Version = value
+			}
 		}
 	}
 
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("failed to read file: %w", err)
+	// Validate required fields
+	if result.Name == "" {
+		return nil, fmt.Errorf("missing required Name field in: %s", desktopSrc)
 	}
 
-	return info, nil
+	return result, nil
 }
