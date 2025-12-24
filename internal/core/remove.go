@@ -4,18 +4,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/slobbe/appimage-manager/internal/config"
 )
 
 func RemoveAppImage(slug string, keep bool) error {
-	home, _ := os.UserHomeDir()
-
-	aimDir := filepath.Join(home, ".local/share/appimage-manager")
-	dbPath := filepath.Join(aimDir, "apps.json")
-	unlinkedDbPath := filepath.Join(aimDir, "unlinked.json")
-
-	fmt.Println(aimDir, dbPath, unlinkedDbPath)
-
-	db, err := LoadDB(dbPath)
+	db, err := LoadDB(config.DbSrc)
 	if err != nil {
 		return err
 	}
@@ -26,7 +20,7 @@ func RemoveAppImage(slug string, keep bool) error {
 	}
 
 	delete(db.Apps, slug)
-	if err := SaveDB(dbPath, db); err != nil {
+	if err := SaveDB(config.DbSrc, db); err != nil {
 		return err
 	}
 
@@ -35,7 +29,7 @@ func RemoveAppImage(slug string, keep bool) error {
 	}
 
 	if keep {
-		unlinkedDb, err := LoadDB(unlinkedDbPath)
+		unlinkedDb, err := LoadDB(config.UnlinkedDbSrc)
 		if err != nil {
 			return err
 		}
@@ -50,11 +44,11 @@ func RemoveAppImage(slug string, keep bool) error {
 			IconSrc:     appData.IconSrc,
 			AddedAt:     appData.AddedAt,
 		}
-		if err := SaveDB(unlinkedDbPath, unlinkedDb); err != nil {
+		if err := SaveDB(config.UnlinkedDbSrc, unlinkedDb); err != nil {
 			return err
 		}
 	} else {
-		appDir := filepath.Join(aimDir, appData.Slug)
+		appDir := filepath.Join(config.AimDir, appData.Slug)
 		if err := os.RemoveAll(appDir); err != nil {
 			return fmt.Errorf("failed to remove app dir: %w", err)
 		}

@@ -8,6 +8,7 @@ import (
 
 	"flag"
 
+	"github.com/slobbe/appimage-manager/internal/config"
 	"github.com/slobbe/appimage-manager/internal/core"
 )
 
@@ -72,19 +73,14 @@ func CmdRemove(appSlug string, keep bool) {
 }
 
 func CmdList() error {
-	home, _ := os.UserHomeDir()
-	aimDir := filepath.Join(home, ".local/share/appimage-manager")
-	dbPath := filepath.Join(aimDir, "apps.json")
-	unlinkedDbPath := filepath.Join(aimDir, "unlinked.json")
-
-	db, err := core.LoadDB(dbPath)
+	db, err := core.LoadDB(config.DbSrc)
 	if err != nil {
 		return err
 	}
 
 	apps := db.Apps
 
-	unlinkedDb, err := core.LoadDB(unlinkedDbPath)
+	unlinkedDb, err := core.LoadDB(config.UnlinkedDbSrc)
 	if err != nil {
 		return err
 	}

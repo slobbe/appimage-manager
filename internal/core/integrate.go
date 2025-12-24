@@ -8,20 +8,15 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/slobbe/appimage-manager/internal/config"
 	util "github.com/slobbe/appimage-manager/internal/helpers"
 )
 
 func IntegrateAppImage(appImageSrc string, move bool) error {
-	home, _ := os.UserHomeDir()
-
-	desktopDir := filepath.Join(home, ".local/share/applications")
-	aimDir := filepath.Join(home, ".local/share/appimage-manager")
-
 	base := strings.TrimSuffix(filepath.Base(appImageSrc), filepath.Ext(appImageSrc))
 
-	tempDir := filepath.Join(aimDir, ".tmp")
-	tempExtractDir := filepath.Join(tempDir, base)
-	if err := os.MkdirAll(tempDir, 0755); err != nil {
+	tempExtractDir := filepath.Join(config.TempDir, base)
+	if err := os.MkdirAll(config.TempDir, 0755); err != nil {
 		return err
 	}
 
@@ -54,7 +49,7 @@ func IntegrateAppImage(appImageSrc string, move bool) error {
 		appVersion = info.Version
 	}
 
-	extractDir := filepath.Join(aimDir, appSlug)
+	extractDir := filepath.Join(config.AimDir, appSlug)
 
 	if err := os.MkdirAll(extractDir, 0755); err != nil {
 		return err
@@ -96,17 +91,14 @@ func IntegrateAppImage(appImageSrc string, move bool) error {
 	}
 
 	// make desktop symlink for system integration
-	desktopLink := filepath.Join(desktopDir, "aim-"+appSlug+".desktop")
+	desktopLink := filepath.Join(config.DesktopDir, "aim-"+appSlug+".desktop")
 	_ = os.Remove(desktopLink)
 	if err := os.Symlink(newDesktopSrc, desktopLink); err != nil {
 		return err
 	}
 
 	// add to db
-	dbPath := filepath.Join(aimDir, "apps.json")
-	unlinkedDbPath := filepath.Join(aimDir, "unlinked.json")
-
-	unlinkedDb, err := LoadDB(unlinkedDbPath)
+	unlinkedDb, err := LoadDB(config.UnlinkedDbSrc)
 	if err != nil {
 		return err
 	}
@@ -114,12 +106,12 @@ func IntegrateAppImage(appImageSrc string, move bool) error {
 	_, exists := unlinkedDb.Apps[appSlug]
 	if exists {
 		delete(unlinkedDb.Apps, appSlug)
-		if err := SaveDB(unlinkedDbPath, unlinkedDb); err != nil {
+		if err := SaveDB(config.UnlinkedDbSrc, unlinkedDb); err != nil {
 			return err
 		}
 	}
 
-	db, err := LoadDB(dbPath)
+	db, err := LoadDB(config.DbSrc)
 	if err != nil {
 		return err
 	}
@@ -141,12 +133,12 @@ func IntegrateAppImage(appImageSrc string, move bool) error {
 		AddedAt:     NowISO(),
 	}
 
-	if err := SaveDB(dbPath, db); err != nil {
+	if err := SaveDB(config.DbSrc, db); err != nil {
 		return err
 	}
 
 	// refresh desktop cache best-effort
-	_ = exec.Command("update-desktop-database", desktopDir).Run()
+	_ = exec.Command("update-desktop-database", config.DesktopDir).Run()
 
 	fmt.Printf("Successfully added %s v%s (id: %s)\n", appName, appVersion, appSlug)
 	return nil
