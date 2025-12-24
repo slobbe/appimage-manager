@@ -148,6 +148,6 @@ func IntegrateAppImage(appImageSrc string, move bool) error {
 	// refresh desktop cache best-effort
 	_ = exec.Command("update-desktop-database", desktopDir).Run()
 
-	fmt.Printf("Successfully added %s (v%s)\n", appName, appVersion)
+	fmt.Printf("Successfully added %s v%s (id: %s)\n", appName, appVersion, appSlug)
 	return nil
 }

@@ -2,10 +2,13 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 
 	"flag"
+
+	"github.com/slobbe/appimage-manager/internal/core"
 )
 
 func main() {
@@ -33,21 +36,70 @@ func main() {
 		addCmd.Parse(os.Args[2:])
 
 		if *addAbsolute {
-			Add(addCmd.Args()[0], *addMove)
+			CmdAdd(addCmd.Args()[0], *addMove)
 		} else {
 			dir, err := os.Getwd()
 			if err != nil {
 				fmt.Println("Error:", err)
 			}
 
-			Add(filepath.Join(dir, addCmd.Args()[0]), *addMove)
+			CmdAdd(filepath.Join(dir, addCmd.Args()[0]), *addMove)
 		}
 	case "list":
-		List()
+		CmdList()
 	case "remove", "rm":
 		removeCmd.Parse(os.Args[2:])
-		Remove(removeCmd.Args()[0], *removeKeep)
+		CmdRemove(removeCmd.Args()[0], *removeKeep)
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", os.Args[0])
 	}
+}
+
+func CmdAdd(path string, move bool) {
+	fmt.Printf("Adding %s ...\n", path)
+
+	if err := core.IntegrateAppImage(path, move); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func CmdRemove(appSlug string, keep bool) {
+	fmt.Printf("Removing %s ...\n", appSlug)
+
+	if err := core.RemoveAppImage(appSlug, keep); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func CmdList() error {
+	home, _ := os.UserHomeDir()
+	aimDir := filepath.Join(home, ".local/share/appimage-manager")
+	dbPath := filepath.Join(aimDir, "apps.json")
+	unlinkedDbPath := filepath.Join(aimDir, "unlinked.json")
+
+	db, err := core.LoadDB(dbPath)
+	if err != nil {
+		return err
+	}
+
+	apps := db.Apps
+
+	unlinkedDb, err := core.LoadDB(unlinkedDbPath)
+	if err != nil {
+		return err
+	}
+
+	unlinkedApps := unlinkedDb.Apps
+
+	fmt.Printf("%s%-15s %-20s %-10s%s\n", "\033[1m\033[4m", "ID", "App Name", "Version", "\033[0m")
+
+	for _, app := range apps {
+		fmt.Fprintf(os.Stdout, "%-15s %-20s %-10s\n", app.Slug, app.Name, app.Version)
+	}
+
+	for _, app := range unlinkedApps {
+		fmt.Fprintf(os.Stdout, "%s%-15s %-20s %-10s%s\n", "\033[2m\033[3m", app.Slug, app.Name, app.Version, "\033[0m")
+	}
+
+	return nil
 }
