@@ -85,33 +85,6 @@ func ExtractAppImage(appImageSrc, outDir string) error {
 	return nil
 }
 
-func LocateDesktop(dir string) (string, error) {
-	desktopGlob, _ := filepath.Glob(filepath.Join(dir, "*.desktop"))
-	if len(desktopGlob) == 0 {
-		return "", fmt.Errorf("no desktop file found inside AppImage")
-	}
-	return desktopGlob[0], nil
-}
-
-func LocateIcon(dir string) (string, error) {
-	iconGlob, _ := filepath.Glob(filepath.Join(dir, "*.png"))
-	if len(iconGlob) == 0 {
-		iconGlob, _ = filepath.Glob(filepath.Join(dir, "*.svg"))
-	}
-
-	if len(iconGlob) > 0 {
-		iconSrc := iconGlob[0]
-		real, err := filepath.EvalSymlinks(iconSrc)
-		if err != nil {
-			return "", err
-		}
-
-		return real, nil
-	} else {
-		return "", fmt.Errorf("no icon found inside AppImage")
-	}
-}
-
 func UpdateDesktopFile(desktopSrc string, execCmd string, iconSrc string) error {
 	// Validate inputs
 	if desktopSrc == "" {
@@ -216,6 +189,105 @@ func CreateDesktopFile(desktopSrc, name, execCmd, iconSrc, comment string) error
 
 	return nil
 }
+
+func LocateDesktopFile(dir string) (string, error) {
+	if dir == "" {
+		return "", fmt.Errorf("directory cannot be empty")
+	}
+
+	// Ensure directory exists
+	info, err := os.Stat(dir)
+	if err != nil {
+		return "", fmt.Errorf("failed to access directory: %w", err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("path is not a directory: %s", dir)
+	}
+
+	// Find all .desktop files
+	desktopGlob, err := filepath.Glob(filepath.Join(dir, "*.desktop"))
+	if err != nil {
+		return "", fmt.Errorf("glob pattern error: %w", err)
+	}
+
+	if len(desktopGlob) == 0 {
+		return "", fmt.Errorf("no .desktop file found in: %s", dir)
+	}
+
+	// If multiple files found, prefer one matching directory name
+	if len(desktopGlob) > 1 {
+		dirName := filepath.Base(dir)
+		for _, candidate := range desktopGlob {
+			candidateName := strings.TrimSuffix(filepath.Base(candidate), ".desktop")
+			if candidateName == dirName {
+				return candidate, nil
+			}
+		}
+		// Also prefer "AppName.desktop" pattern
+		for _, candidate := range desktopGlob {
+			if strings.HasPrefix(filepath.Base(candidate), dirName) {
+				return candidate, nil
+			}
+		}
+	}
+
+	return desktopGlob[0], nil
+}
+
+func LocateIcon(dir string) (string, error) {
+	if dir == "" {
+		return "", fmt.Errorf("directory cannot be empty")
+	}
+
+	// Ensure directory exists
+	info, err := os.Stat(dir)
+	if err != nil {
+		return "", fmt.Errorf("failed to access directory: %w", err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("path is not a directory: %s", dir)
+	}
+
+	// Icon search order: SVG (vector, best quality) → PNG → ICO → XPM
+	extensions := []string{".svg", ".png", ".ico", ".xpm"}
+
+	var candidates []string
+	for _, ext := range extensions {
+		pattern := filepath.Join(dir, "*"+ext)
+		matches, err := filepath.Glob(pattern)
+		if err != nil {
+			return "", fmt.Errorf("glob pattern error for %s: %w", ext, err)
+		}
+		candidates = append(candidates, matches...)
+	}
+
+	if len(candidates) == 0 {
+		return "", fmt.Errorf("no icon file found in: %s", dir)
+	}
+
+	// Try all candidates, resolving symlinks
+	var lastErr error
+	for _, candidate := range candidates {
+		resolved, err := filepath.EvalSymlinks(candidate)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		// Verify the resolved file exists
+		if _, err := os.Stat(resolved); err == nil {
+			return resolved, nil
+		}
+		lastErr = fmt.Errorf("icon target does not exist: %s", resolved)
+	}
+
+	if lastErr != nil {
+		return "", fmt.Errorf("no valid icon found: %w", lastErr)
+	}
+
+	return "", fmt.Errorf("no icon found in: %s", dir)
+}
+
 
 func ExtractAppInfo(desktopPath string) (*AppInfo, error) {
 	file, err := os.Open(desktopPath)
