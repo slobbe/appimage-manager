@@ -1,7 +1,6 @@
 package core
 
 import (
-	"bufio"
 	"bytes"
 	"fmt"
 	"os"
@@ -96,19 +95,18 @@ func UpdateDesktopFile(desktopSrc string, execCmd string, iconSrc string) error 
 	if iconSrc == "" {
 		return fmt.Errorf("icon path cannot be empty")
 	}
-	
-	
+
 	// Read file content
 	content, err := os.ReadFile(desktopSrc)
 	if err != nil {
 		return fmt.Errorf("failed to read desktop file: %w", err)
 	}
-	
+
 	// Verify it's a valid UTF-8 string
 	if !utf8.Valid(content) {
 		return fmt.Errorf("desktop file is not valid UTF-8")
 	}
-	
+
 	lines := strings.Split(string(content), "\n")
 	inDesktopEntryGroup := false
 	for i, line := range lines {
@@ -123,7 +121,7 @@ func UpdateDesktopFile(desktopSrc string, execCmd string, iconSrc string) error 
 		if !inDesktopEntryGroup {
 			continue
 		}
-		
+
 		// Handle Exec= lines - preserve arguments after command
 		if strings.HasPrefix(trimmed, "Exec=") {
 			// Extract existing arguments after executable (e.g., %f, %U, %c)
@@ -133,18 +131,18 @@ func UpdateDesktopFile(desktopSrc string, execCmd string, iconSrc string) error 
 			}
 			lines[i] = "Exec=" + execCmd + existingArgs
 		}
-		
+
 		// Handle Icon= lines - handle different value types per spec
 		if strings.HasPrefix(trimmed, "Icon=") {
 			lines[i] = "Icon=" + iconSrc
 		}
 	}
-	
+
 	// Ensure file ends with newline
 	if len(lines) > 0 && lines[len(lines)-1] != "" {
 		lines = append(lines, "")
 	}
-	
+
 	// Write back with consistent permissions (preserve existing if possible)
 	info, statErr := os.Stat(desktopSrc)
 	var perm os.FileMode = 0o644
@@ -286,13 +284,6 @@ func LocateIcon(dir string) (string, error) {
 	}
 
 	return "", fmt.Errorf("no icon found in: %s", dir)
-}
-
-
-// AppInfo holds application metadata extracted from a .desktop file.
-type AppInfo struct {
-	Name    string
-	Version string
 }
 
 func ExtractAppInfo(desktopSrc string) (*AppInfo, error) {

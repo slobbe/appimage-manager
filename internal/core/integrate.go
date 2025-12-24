@@ -31,7 +31,7 @@ func IntegrateAppImage(appImageSrc string, move bool) error {
 	}
 
 	// locate desktop and icon files
-	desktopSrc, err := LocateDesktop(tempExtractDir)
+	desktopSrc, err := LocateDesktopFile(tempExtractDir)
 	if err != nil {
 		return err
 	}
@@ -91,7 +91,7 @@ func IntegrateAppImage(appImageSrc string, move bool) error {
 		return err
 	}
 
-	if err := UpdateDesktop(newDesktopSrc, newAppImageSrc, newIconSrc); err != nil {
+	if err := UpdateDesktopFile(newDesktopSrc, newAppImageSrc, newIconSrc); err != nil {
 		return err
 	}
 
