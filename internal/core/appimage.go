@@ -17,16 +17,67 @@ type AppInfo struct {
 }
 
 func ExtractAppImage(appImageSrc, outDir string) error {
+	// Validate inputs
+	if appImageSrc == "" {
+		return fmt.Errorf("appimage source path cannot be empty")
+	}
+	if outDir == "" {
+		return fmt.Errorf("output directory cannot be empty")
+	}
+
+	// Check source file exists and is accessible
+	info, err := os.Stat(appImageSrc)
+	if err != nil {
+		return fmt.Errorf("failed to access source file: %w", err)
+	}
+	if info.IsDir() {
+		return fmt.Errorf("source path is a directory, not a file: %s", appImageSrc)
+	}
+
+	// Ensure output directory parent exists
+	outDirParent := filepath.Dir(outDir)
+	if err := os.MkdirAll(outDirParent, 0o755); err != nil {
+		return fmt.Errorf("failed to create parent directory: %w", err)
+	}
+
+	// Remove existing output directory if present
+	if _, err := os.Stat(outDir); err == nil {
+		if err := os.RemoveAll(outDir); err != nil {
+			return fmt.Errorf("failed to remove existing output directory: %w", err)
+		}
+	}
+
+	// Ensure source file is executable
 	if err := util.MakeExecutable(appImageSrc); err != nil {
-		return err
+		return fmt.Errorf("failed to make executable: %w", err)
 	}
-	cmd := exec.Command(appImageSrc, "--appimage-extract")
-	cmd.Dir = filepath.Dir(outDir)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("extract failed: %w\n%s", err, out)
+
+	// Try extraction with Type 2 syntax first (supports both types via --appimage-help)
+	// Some AppImages use different extraction methods
+	extractCmd := exec.Command(appImageSrc, "--appimage-extract")
+	extractCmd.Dir = outDirParent
+
+	out, err := extractCmd.CombinedOutput()
+	if err != nil {
+		// Try Type 1 syntax as fallback
+		extractCmd = exec.Command(appImageSrc, "--appimage-extract-and-run")
+		out, err = extractCmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("extraction failed: %w\nOutput: %s", err, string(out))
+		}
 	}
-	if err := os.Rename(filepath.Join(filepath.Dir(outDir), "squashfs-root"), outDir); err != nil {
-		return err
+
+	// Verify extraction created the expected directory
+	squashfsPath := filepath.Join(outDirParent, "squashfs-root")
+	if _, err := os.Stat(squashfsPath); err != nil {
+		return fmt.Errorf("extraction verification failed: squashfs-root not found")
+	}
+
+	// Rename extraction directory to desired output path
+	if err := os.Rename(squashfsPath, outDir); err != nil {
+		// Clean up partial extraction on rename failure
+		os.RemoveAll(squashfsPath)
+		return fmt.Errorf("failed to rename extraction directory: %w", err)
 	}
 
 	return nil
