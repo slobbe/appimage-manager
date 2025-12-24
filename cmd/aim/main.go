@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 
 	"flag"
 
@@ -16,7 +15,6 @@ func main() {
 	// declare `add` flags
 	addCmd := flag.NewFlagSet("add", flag.ExitOnError)
 	addMove := addCmd.Bool("mv", false, "move AppImage to directory instead of copy")
-	addAbsolute := addCmd.Bool("a", false, "AppImage's absolute path is given")
 
 	// declare `remove` flags
 	removeCmd := flag.NewFlagSet("rm", flag.ExitOnError)
@@ -35,17 +33,7 @@ func main() {
 	switch os.Args[1] {
 	case "add":
 		addCmd.Parse(os.Args[2:])
-
-		if *addAbsolute {
-			CmdAdd(addCmd.Args()[0], *addMove)
-		} else {
-			dir, err := os.Getwd()
-			if err != nil {
-				fmt.Println("Error:", err)
-			}
-
-			CmdAdd(filepath.Join(dir, addCmd.Args()[0]), *addMove)
-		}
+		CmdAdd(addCmd.Args()[0], *addMove)
 	case "list":
 		CmdList()
 	case "remove", "rm":
@@ -80,21 +68,18 @@ func CmdList() error {
 
 	apps := db.Apps
 
-	unlinkedDb, err := core.LoadDB(config.UnlinkedDbSrc)
-	if err != nil {
-		return err
-	}
-
-	unlinkedApps := unlinkedDb.Apps
-
 	fmt.Printf("%s%-15s %-20s %-10s%s\n", "\033[1m\033[4m", "ID", "App Name", "Version", "\033[0m")
 
 	for _, app := range apps {
-		fmt.Fprintf(os.Stdout, "%-15s %-20s %-10s\n", app.Slug, app.Name, app.Version)
+		if len(app.DesktopLink) > 0 {
+			fmt.Fprintf(os.Stdout, "%-15s %-20s %-10s\n", app.Slug, app.Name, app.Version)
+		}
 	}
 
-	for _, app := range unlinkedApps {
-		fmt.Fprintf(os.Stdout, "%s%-15s %-20s %-10s%s\n", "\033[2m\033[3m", app.Slug, app.Name, app.Version, "\033[0m")
+	for _, app := range apps {
+		if len(app.DesktopLink) == 0 {
+			fmt.Fprintf(os.Stdout, "%s%-15s %-20s %-10s%s\n", "\033[2m\033[3m", app.Slug, app.Name, app.Version, "\033[0m")
+		}
 	}
 
 	return nil

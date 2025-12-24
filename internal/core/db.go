@@ -15,10 +15,10 @@ type App struct {
 	Name        string `json:"name"`
 	Slug        string `json:"slug"`
 	Version     string `json:"version"`
-	AppImageSrc string `json:"appimage_src"`
-	DesktopSrc  string `json:"desktop_src"`
+	AppImage    string `json:"appimage"`
+	Desktop     string `json:"desktop"`
 	DesktopLink string `json:"desktop_link"`
-	IconSrc     string `json:"icon_src"`
+	Icon        string `json:"icon"`
 	AddedAt     string `json:"added_at"`
 	SHA256      string `json:"sha256"`
 }

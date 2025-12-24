@@ -17,6 +17,13 @@ type AppInfo struct {
 	Version string
 }
 
+const (
+	InputTypeAppImage   string = "appimage"
+	InputTypeUnlinked   string = "unlinked"
+	InputTypeIntegrated string = "integrated"
+	InputTypeUnknown    string = "unknown"
+)
+
 func ExtractAppImage(appImageSrc, outDir string) error {
 	// Validate inputs
 	if appImageSrc == "" {
@@ -376,4 +383,27 @@ func ExtractAppInfo(desktopSrc string) (*AppInfo, error) {
 	}
 
 	return result, nil
+}
+
+func IdentifyInput(input string, database *DB) (string, error) {
+	if input == "" {
+		return InputTypeUnknown, fmt.Errorf("input cannot be empty")
+	}
+
+	// Check AppImage first
+	if strings.HasSuffix(strings.ToLower(input), ".appimage") {
+		return InputTypeAppImage, nil
+	}
+
+	// Check unlinked database
+	apps, exists := database.Apps[input]
+	if !exists {
+		return InputTypeUnknown, nil
+	}
+
+	if len(apps.DesktopLink) > 0 {
+		return InputTypeIntegrated, nil
+	} else {
+		return InputTypeUnlinked, nil
+	}
 }

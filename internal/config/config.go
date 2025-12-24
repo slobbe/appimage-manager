@@ -15,8 +15,7 @@ var (
 	DesktopDir string
 	TempDir    string
 
-	DbSrc         string
-	UnlinkedDbSrc string
+	DbSrc string
 )
 
 func init() {
@@ -31,5 +30,4 @@ func init() {
 	TempDir = filepath.Join(AimDir, ".tmp")
 
 	DbSrc = filepath.Join(AimDir, "apps.json")
-	UnlinkedDbSrc = filepath.Join(AimDir, "unlinked.json")
 }
