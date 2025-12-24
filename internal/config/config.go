@@ -6,8 +6,10 @@ import (
 )
 
 var (
-	AppName    = "AppImageManager"
+	AppName    = "AppImage Manager"
 	AppVersion = "0.1.0"
+	AppAuthor  = "Sebastian Lobbe <slobbe@lobbe.cc>"
+	AppRepo    = "https://github.com/slobbe/appimage-manager"
 
 	AimDir     string
 	DesktopDir string
