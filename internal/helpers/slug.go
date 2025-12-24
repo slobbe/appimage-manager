@@ -1,4 +1,4 @@
-package slug
+package util
 
 import (
 	"strings"

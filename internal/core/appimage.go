@@ -9,9 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	crypt "github.com/slobbe/appimage-manager/internal/helpers/crypt"
-	file "github.com/slobbe/appimage-manager/internal/helpers/filesystem"
-	slug "github.com/slobbe/appimage-manager/internal/helpers/utils"
+	util "github.com/slobbe/appimage-manager/internal/helpers"
 )
 
 type AppInfo struct {
@@ -53,12 +51,12 @@ func IntegrateAppImage(appImageSrc string, move bool) error {
 	var appName, appVersion, appSlug string
 	if err != nil {
 		appName = base
-		appSlug = slug.Slugify(base)
+		appSlug = util.Slugify(base)
 		appVersion = "unknown"
 		log.Fatal(err)
 	} else {
 		appName = info.Name
-		appSlug = slug.Slugify(info.Name)
+		appSlug = util.Slugify(info.Name)
 		appVersion = info.Version
 	}
 
@@ -71,23 +69,23 @@ func IntegrateAppImage(appImageSrc string, move bool) error {
 	// move desktop, icon, and appimage to extract dir
 	var newAppImageSrc string
 	if move {
-		newAppImageSrc, err = file.Move(appImageSrc, filepath.Join(extractDir, appSlug+".AppImage"))
+		newAppImageSrc, err = util.Move(appImageSrc, filepath.Join(extractDir, appSlug+".AppImage"))
 		if err != nil {
 			return err
 		}
 	} else {
-		newAppImageSrc, err = file.Copy(appImageSrc, filepath.Join(extractDir, appSlug+".AppImage"))
+		newAppImageSrc, err = util.Copy(appImageSrc, filepath.Join(extractDir, appSlug+".AppImage"))
 		if err != nil {
 			return err
 		}
 	}
 
-	newDesktopSrc, err := file.Move(desktopSrc, filepath.Join(extractDir, appSlug+".desktop"))
+	newDesktopSrc, err := util.Move(desktopSrc, filepath.Join(extractDir, appSlug+".desktop"))
 	if err != nil {
 		return err
 	}
 
-	newIconSrc, err := file.Move(iconSrc, filepath.Join(extractDir, appSlug+filepath.Ext(iconSrc)))
+	newIconSrc, err := util.Move(iconSrc, filepath.Join(extractDir, appSlug+filepath.Ext(iconSrc)))
 	if err != nil {
 		return err
 	}
@@ -95,7 +93,7 @@ func IntegrateAppImage(appImageSrc string, move bool) error {
 	os.RemoveAll(tempExtractDir)
 
 	// make appimage executable
-	if err := file.MakeExecutable(newAppImageSrc); err != nil {
+	if err := util.MakeExecutable(newAppImageSrc); err != nil {
 		return err
 	}
 
@@ -113,12 +111,12 @@ func IntegrateAppImage(appImageSrc string, move bool) error {
 	// add to db
 	dbPath := filepath.Join(aimDir, "apps.json")
 	unlinkedDbPath := filepath.Join(aimDir, "unlinked.json")
-	
+
 	unlinkedDb, err := LoadDB(unlinkedDbPath)
 	if err != nil {
 		return err
 	}
-	
+
 	_, exists := unlinkedDb.Apps[appSlug]
 	if exists {
 		delete(unlinkedDb.Apps, appSlug)
@@ -126,14 +124,13 @@ func IntegrateAppImage(appImageSrc string, move bool) error {
 			return err
 		}
 	}
-	
-	
+
 	db, err := LoadDB(dbPath)
 	if err != nil {
 		return err
 	}
 
-	sum, err := crypt.Sha256File(newAppImageSrc)
+	sum, err := util.Sha256File(newAppImageSrc)
 	if err != nil {
 		return err
 	}
@@ -162,7 +159,7 @@ func IntegrateAppImage(appImageSrc string, move bool) error {
 }
 
 func ExtractAppImage(appImageSrc, outDir string) error {
-	if err := file.MakeExecutable(appImageSrc); err != nil {
+	if err := util.MakeExecutable(appImageSrc); err != nil {
 		return err
 	}
 	cmd := exec.Command(appImageSrc, "--appimage-extract")
@@ -276,7 +273,7 @@ func ExtractAppInfo(desktopPath string) (*AppInfo, error) {
 	return info, nil
 }
 
-func RemoveAppImage(slug string, keep bool) error {	
+func RemoveAppImage(slug string, keep bool) error {
 	home, _ := os.UserHomeDir()
 
 	aimDir := filepath.Join(home, ".local/share/appimage-manager")
