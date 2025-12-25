@@ -1,6 +1,6 @@
 # AppImage Manager (aim)
 
-Tiny CLI that integrates AppImages into your desktop environment.
+A small CLI that integrates AppImages into your desktop environment.
 
 ## Build from source
 
@@ -8,7 +8,7 @@ Tiny CLI that integrates AppImages into your desktop environment.
 git clone https://github.com/slobbe/appimage-manager.git
 cd appimage-manager
 go build -o bin/aim ./cmd/aim
-./install.sh          # copies binary to ~/.local/bin
+./install.sh
 ```
 
 ## Usage
@@ -16,12 +16,14 @@ go build -o bin/aim ./cmd/aim
 Integrate AppImage into your desktop environment:
 
 ```sh
-aim add [-mv] <appimage>
+aim add [-mv] <appimage|id>
 ```
 
 | Option | Meaning                                  |
 | ------ | ---------------------------------------- |
 | `-mv`  | Move the AppImage instead of copying it. |
+
+If given an ID of an unlinked AppImage it reintegrates it.
 
 Remove AppImage:
 
@@ -29,15 +31,21 @@ Remove AppImage:
 aim rm [-k] <id>
 ```
 
-| Option | Meaning                                                  |
-| ------ | -------------------------------------------------------- |
-| `-k`   | Keep the AppImage file; remove only desktop integration. |
+| Option | Meaning                                                   |
+| ------ | --------------------------------------------------------- |
+| `-k`   | Keep the AppImage files; remove only desktop integration. |
 
 List all integrated AppImages:
 
 ```sh
-aim list
+aim list [-a|-i|-u]
 ```
+
+| Option | Meaning                       |
+| ------ | ----------------------------- |
+| `-a`   | List all AppImages (default)  |
+| `-i`   | List only intgrated AppImages |
+| `-u`   | List only unlinked AppImages  |
 
 ## License
 
