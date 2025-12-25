@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"flag"
 
@@ -19,6 +20,12 @@ func main() {
 	// declare `remove` flags
 	removeCmd := flag.NewFlagSet("rm", flag.ExitOnError)
 	removeKeep := removeCmd.Bool("k", false, "keep AppImage file")
+	
+	// declare `list` flags
+	listCmd := flag.NewFlagSet("list", flag.ExitOnError)
+	listIntegrated := listCmd.Bool("i", false, "list only integrated appimages")
+	listUnlinked := listCmd.Bool("u", false, "list only unlinked appimages")
+	listAll := listCmd.Bool("a", false, "list all appimages")
 
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(),
@@ -35,7 +42,19 @@ func main() {
 		addCmd.Parse(os.Args[2:])
 		CmdAdd(addCmd.Args()[0], *addMove)
 	case "list":
-		CmdList()
+		listCmd.Parse(os.Args[2:])
+		listCategory := "all"
+		if *listIntegrated && *listUnlinked {
+			listCategory = "all"
+		} else if *listAll {
+			listCategory = "all"
+		} else if *listIntegrated {
+			listCategory = "integrated"
+		} else if *listUnlinked {
+			listCategory = "unlinked"
+		}
+		
+		CmdList(listCategory)
 	case "remove", "rm":
 		removeCmd.Parse(os.Args[2:])
 		CmdRemove(removeCmd.Args()[0], *removeKeep)
@@ -60,7 +79,7 @@ func CmdRemove(appSlug string, keep bool) {
 	}
 }
 
-func CmdList() error {
+func CmdList(category string) error {
 	db, err := core.LoadDB(config.DbSrc)
 	if err != nil {
 		return err
@@ -68,19 +87,26 @@ func CmdList() error {
 
 	apps := db.Apps
 
-	fmt.Printf("%s%-15s %-20s %-10s%s\n", "\033[1m\033[4m", "ID", "App Name", "Version", "\033[0m")
+	fmt.Printf("\033[1m\033[4m%-15s %-20s %-15s %-10s\033[0m\n", "ID", "App Name", "Version", "Added")
 
-	for _, app := range apps {
-		if len(app.DesktopLink) > 0 {
-			fmt.Fprintf(os.Stdout, "%-15s %-20s %-10s\n", app.Slug, app.Name, app.Version)
+	addedAtFormat := time.DateOnly
+
+	if category == "all" || category == "integrated" {
+		for _, app := range apps {
+			if len(app.DesktopLink) > 0 {
+				addedAt, _ := time.Parse(time.RFC3339, app.AddedAt)
+				fmt.Fprintf(os.Stdout, "%-15s %-20s %-15s %-10s\n", app.Slug, app.Name, app.Version, addedAt.Format(addedAtFormat))
+			}
 		}
 	}
 
-	for _, app := range apps {
-		if len(app.DesktopLink) == 0 {
-			fmt.Fprintf(os.Stdout, "%s%-15s %-20s %-10s%s\n", "\033[2m\033[3m", app.Slug, app.Name, app.Version, "\033[0m")
+	if category == "all" || category == "unlinked" {
+		for _, app := range apps {
+			if len(app.DesktopLink) == 0 {
+				addedAt, _ := time.Parse(time.RFC3339, app.AddedAt)
+				fmt.Fprintf(os.Stdout, "\033[2m\033[3m%-15s %-20s %-15s %-10s\033[0m\n", app.Slug, app.Name, app.Version, addedAt.Format(addedAtFormat))
+			}
 		}
 	}
-
 	return nil
 }
