@@ -1,85 +1,117 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
 	"time"
 
-	"flag"
+	"github.com/urfave/cli/v3"
 
 	"github.com/slobbe/appimage-manager/internal/config"
 	"github.com/slobbe/appimage-manager/internal/core"
 )
 
 func main() {
-	// declare `add` flags
-	addCmd := flag.NewFlagSet("add", flag.ExitOnError)
-	addMove := addCmd.Bool("mv", false, "move AppImage to directory instead of copy")
+	cmd := &cli.Command{
+		Name:    "aim",
+		Version: "0.1.0",
+		Usage:   "Easily integrate AppImages into your desktop environment",
+		Commands: []*cli.Command{
+			{
+				Name:    "add",
+				Aliases: []string{},
+				Usage:   "Integrate AppImage",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{
+						Name:    "move",
+						Aliases: []string{"mv"},
+						Value:   false,
+						Usage:   "move the AppImage instead of copying it",
+					},
+				},
+				Action: AddCmd,
+			},
+			{
+				Name:    "remove",
+				Aliases: []string{"rm"},
+				Usage:   "Remove AppImage",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{
+						Name:    "keep",
+						Aliases: []string{"k"},
+						Value:   false,
+						Usage:   "keep AppImage files; remove only desktop integration",
+					},
+				},
+				Action: RemoveCmd,
+			},
+			{
+				Name:    "list",
+				Aliases: []string{"ls"},
+				Usage:   "List all AppImages",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{
+						Name:    "all",
+						Aliases: []string{"a"},
+						Value:   false,
+						Usage:   "list all integrated and unlinked AppImages (default)",
+					},
+					&cli.BoolFlag{
+						Name:    "integrated",
+						Aliases: []string{"i"},
+						Value:   false,
+						Usage:   "list only integrated AppImages",
+					},
+					&cli.BoolFlag{
+						Name:    "unlinked",
+						Aliases: []string{"u"},
+						Value:   false,
+						Usage:   "list only unlinked AppImages",
+					},
+				},
+				Action: ListCmd,
+			},
+		},
+	}
 
-	// declare `remove` flags
-	removeCmd := flag.NewFlagSet("rm", flag.ExitOnError)
-	removeKeep := removeCmd.Bool("k", false, "keep AppImage file")
+	if err := cmd.Run(context.Background(), os.Args); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func AddCmd(ctx context.Context, cmd *cli.Command) error {
+	appImage := cmd.Args().First()
+	move := cmd.Bool("move")
+	fmt.Printf("integrate AppImage: %s\n", appImage)
+	fmt.Printf("flags: mv %t\n", move)
+
+	return core.IntegrateAppImage(appImage, move)
+}
+
+func RemoveCmd(ctx context.Context, cmd *cli.Command) error {
+	id := cmd.Args().First()
+	keep := cmd.Bool("keep")
+
+	fmt.Printf("remove %s\n", id)
+	fmt.Printf("flags: k %t\n", keep)
+
+	return core.RemoveAppImage(id, keep)
+}
+
+func ListCmd(ctx context.Context, cmd *cli.Command) error {
+	all := cmd.Bool("all")
+	integrated := cmd.Bool("integrated")
+	unlinked := cmd.Bool("unlinked")
+
+	fmt.Println("list")
+	fmt.Printf("flags: a %t, i %t, u %t\n", all, integrated, unlinked)
 	
-	// declare `list` flags
-	listCmd := flag.NewFlagSet("list", flag.ExitOnError)
-	listIntegrated := listCmd.Bool("i", false, "list only integrated appimages")
-	listUnlinked := listCmd.Bool("u", false, "list only unlinked appimages")
-	listAll := listCmd.Bool("a", false, "list all appimages")
-
-	flag.Usage = func() {
-		fmt.Fprintf(flag.CommandLine.Output(),
-			"Usage: %s <command> [options] {args}\nCommands: add, remove, list\nOptions:\n", os.Args[0])
-		flag.PrintDefaults()
+	if all == integrated && integrated == unlinked {
+		all = true
 	}
-
-	if len(os.Args) < 1 {
-		fmt.Fprintf(os.Stderr, "unknown command: %s\n", os.Args[0])
-	}
-
-	switch os.Args[1] {
-	case "add":
-		addCmd.Parse(os.Args[2:])
-		CmdAdd(addCmd.Args()[0], *addMove)
-	case "list":
-		listCmd.Parse(os.Args[2:])
-		listCategory := "all"
-		if *listIntegrated && *listUnlinked {
-			listCategory = "all"
-		} else if *listAll {
-			listCategory = "all"
-		} else if *listIntegrated {
-			listCategory = "integrated"
-		} else if *listUnlinked {
-			listCategory = "unlinked"
-		}
-		
-		CmdList(listCategory)
-	case "remove", "rm":
-		removeCmd.Parse(os.Args[2:])
-		CmdRemove(removeCmd.Args()[0], *removeKeep)
-	default:
-		fmt.Fprintf(os.Stderr, "unknown command: %s\n", os.Args[0])
-	}
-}
-
-func CmdAdd(path string, move bool) {
-	fmt.Printf("Adding %s ...\n", path)
-
-	if err := core.IntegrateAppImage(path, move); err != nil {
-		log.Fatal(err)
-	}
-}
-
-func CmdRemove(appSlug string, keep bool) {
-	fmt.Printf("Removing %s ...\n", appSlug)
-
-	if err := core.RemoveAppImage(appSlug, keep); err != nil {
-		log.Fatal(err)
-	}
-}
-
-func CmdList(category string) error {
+	
 	db, err := core.LoadDB(config.DbSrc)
 	if err != nil {
 		return err
@@ -91,7 +123,7 @@ func CmdList(category string) error {
 
 	addedAtFormat := time.DateOnly
 
-	if category == "all" || category == "integrated" {
+	if all || integrated {
 		for _, app := range apps {
 			if len(app.DesktopLink) > 0 {
 				addedAt, _ := time.Parse(time.RFC3339, app.AddedAt)
@@ -100,7 +132,7 @@ func CmdList(category string) error {
 		}
 	}
 
-	if category == "all" || category == "unlinked" {
+	if all || unlinked {
 		for _, app := range apps {
 			if len(app.DesktopLink) == 0 {
 				addedAt, _ := time.Parse(time.RFC3339, app.AddedAt)
@@ -108,5 +140,6 @@ func CmdList(category string) error {
 			}
 		}
 	}
+
 	return nil
 }
