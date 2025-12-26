@@ -16,36 +16,36 @@ go build -o bin/aim ./cmd/aim
 **Integrate** AppImage into your desktop environment:
 
 ```sh
-aim add [-mv] <appimage|id>
+aim add [options] <.appimage|id>
 ```
 
 If given an ID of an unlinked AppImage it reintegrates it.
 
-| Option | Meaning                                  |
-| :----- | :--------------------------------------- |
-| `-mv`  | Move the AppImage instead of copying it. |
+| Option         | Meaning                                 |
+| :------------- | :-------------------------------------- |
+| `--move`, `-m` | move the AppImage instead of copying it |
 
 **Remove** AppImage:
 
 ```sh
-aim rm [-k] <id>
+aim remove [options] <id>
 ```
 
-| Option | Meaning                                                   |
-| :----- | :-------------------------------------------------------- |
-| `-k`   | Keep the AppImage files; remove only desktop integration. |
+| Option         | Meaning                                                  |
+| :------------- | :------------------------------------------------------- |
+| `--keep`, `-k` | keep the AppImage files; remove only desktop integration |
 
 **List** all integrated AppImages:
 
 ```sh
-aim list [-a|-i|-u]
+aim list [options]
 ```
 
-| Option | Meaning                       |
-| :----- | :---------------------------- |
-| `-a`   | List all AppImages (default)  |
-| `-i`   | List only intgrated AppImages |
-| `-u`   | List only unlinked AppImages  |
+| Option               | Meaning                       |
+| :------------------- | :---------------------------- |
+| `--all`, `-a`        | list all AppImages (default)  |
+| `--integrated`, `-i` | list only intgrated AppImages |
+| `--unlinked`, `-u`   | list only unlinked AppImages  |
 
 ## License
 

@@ -30,13 +30,13 @@ func main() {
 				Arguments: []cli.Argument{
 					&cli.StringArg{
 						Name:      "app",
-						UsageText: "<.AppImage | ID>",
+						UsageText: "<.appimage|id>",
 					},
 				},
 				Flags: []cli.Flag{
 					&cli.BoolFlag{
 						Name:    "move",
-						Aliases: []string{"mv"},
+						Aliases: []string{"m"},
 						Value:   false,
 						Usage:   "move the AppImage instead of copying it",
 					},
@@ -50,7 +50,7 @@ func main() {
 				Arguments: []cli.Argument{
 					&cli.StringArg{
 						Name:      "id",
-						UsageText: "<ID>",
+						UsageText: "<id>",
 					},
 				},
 				Flags: []cli.Flag{
