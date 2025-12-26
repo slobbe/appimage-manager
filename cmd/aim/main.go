@@ -14,7 +14,7 @@ import (
 )
 
 var (
-	version = "dev" // overridden by ldflags
+	version = "dev" // overridden by ldflags: `go build -ldflags "-X main.version=VERSION" -o ./bin/aim ./cmd/aim`
 )
 
 func main() {
@@ -27,6 +27,12 @@ func main() {
 				Name:    "add",
 				Aliases: []string{},
 				Usage:   "Integrate AppImage",
+				Arguments: []cli.Argument{
+					&cli.StringArg{
+						Name:      "app",
+						UsageText: "<.AppImage | ID>",
+					},
+				},
 				Flags: []cli.Flag{
 					&cli.BoolFlag{
 						Name:    "move",
@@ -41,6 +47,12 @@ func main() {
 				Name:    "remove",
 				Aliases: []string{"rm"},
 				Usage:   "Remove AppImage",
+				Arguments: []cli.Argument{
+					&cli.StringArg{
+						Name:      "id",
+						UsageText: "<ID>",
+					},
+				},
 				Flags: []cli.Flag{
 					&cli.BoolFlag{
 						Name:    "keep",
@@ -90,16 +102,16 @@ func main() {
 }
 
 func AddCmd(ctx context.Context, cmd *cli.Command) error {
-	appImage := cmd.Args().First()
+	appImage := cmd.StringArg("app") // cmd.Args().First()
 	move := cmd.Bool("move")
 	fmt.Printf("integrate AppImage: %s\n", appImage)
 	fmt.Printf("flags: mv %t\n", move)
 
-	return core.IntegrateAppImage(appImage, move)
+	return nil //core.IntegrateAppImage(appImage, move)
 }
 
 func RemoveCmd(ctx context.Context, cmd *cli.Command) error {
-	id := cmd.Args().First()
+	id := cmd.StringArg("id") //cmd.Args().First()
 	keep := cmd.Bool("keep")
 
 	fmt.Printf("remove %s\n", id)
