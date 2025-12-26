@@ -102,16 +102,16 @@ func main() {
 }
 
 func AddCmd(ctx context.Context, cmd *cli.Command) error {
-	appImage := cmd.StringArg("app") // cmd.Args().First()
+	appImage := cmd.StringArg("app")
 	move := cmd.Bool("move")
 	fmt.Printf("integrate AppImage: %s\n", appImage)
 	fmt.Printf("flags: mv %t\n", move)
 
-	return nil //core.IntegrateAppImage(appImage, move)
+	return core.IntegrateAppImage(appImage, move)
 }
 
 func RemoveCmd(ctx context.Context, cmd *cli.Command) error {
-	id := cmd.StringArg("id") //cmd.Args().First()
+	id := cmd.StringArg("id")
 	keep := cmd.Bool("keep")
 
 	fmt.Printf("remove %s\n", id)
