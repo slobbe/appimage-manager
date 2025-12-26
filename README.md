@@ -2,13 +2,21 @@
 
 A small CLI tool to easily integrate AppImages into your desktop environment.
 
+## Installation
+
+```sh
+curl -sSL https://raw.githubusercontent.com/slobbe/appimage-manager/main/install.sh | sh
+```
+
 ## Build from source
 
 ```sh
 git clone https://github.com/slobbe/appimage-manager.git
 cd appimage-manager
-go build -o ./bin/aim ./cmd/aim
-./install.sh
+```
+
+```sh
+go build ./cmd/aim
 ```
 
 ## Usage
