@@ -26,7 +26,7 @@ func main() {
 			{
 				Name:    "add",
 				Aliases: []string{},
-				Usage:   "Integrate AppImage",
+				Usage:   "Integrates AppImage",
 				Arguments: []cli.Argument{
 					&cli.StringArg{
 						Name:      "app",
@@ -46,7 +46,7 @@ func main() {
 			{
 				Name:    "remove",
 				Aliases: []string{"rm"},
-				Usage:   "Remove AppImage",
+				Usage:   "Removes AppImage",
 				Arguments: []cli.Argument{
 					&cli.StringArg{
 						Name:      "id",
@@ -66,7 +66,7 @@ func main() {
 			{
 				Name:    "list",
 				Aliases: []string{"ls"},
-				Usage:   "List all AppImages",
+				Usage:   "Lists all AppImages",
 				Flags: []cli.Flag{
 					&cli.BoolFlag{
 						Name:    "all",

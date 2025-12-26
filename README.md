@@ -1,13 +1,13 @@
 # AppImage Manager (aim)
 
-A small CLI that integrates AppImages into your desktop environment.
+A small CLI tool to easily integrate AppImages into your desktop environment.
 
 ## Build from source
 
 ```sh
 git clone https://github.com/slobbe/appimage-manager.git
 cd appimage-manager
-go build -o bin/aim ./cmd/aim
+go build -o ./bin/aim ./cmd/aim
 ./install.sh
 ```
 
