@@ -5,7 +5,7 @@ A small CLI tool to easily integrate AppImages into your desktop environment.
 ## Installation
 
 ```sh
-curl -sSL https://raw.githubusercontent.com/slobbe/appimage-manager/main/install.sh | sh
+curl -sSL https://raw.githubusercontent.com/slobbe/appimage-manager/main/install.sh | bash
 ```
 
 ## Build from source
