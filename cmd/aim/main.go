@@ -104,8 +104,6 @@ func main() {
 func AddCmd(ctx context.Context, cmd *cli.Command) error {
 	appImage := cmd.StringArg("app")
 	move := cmd.Bool("move")
-	fmt.Printf("integrate AppImage: %s\n", appImage)
-	fmt.Printf("flags: mv %t\n", move)
 
 	return core.IntegrateAppImage(appImage, move)
 }
@@ -114,9 +112,6 @@ func RemoveCmd(ctx context.Context, cmd *cli.Command) error {
 	id := cmd.StringArg("id")
 	keep := cmd.Bool("keep")
 
-	fmt.Printf("remove %s\n", id)
-	fmt.Printf("flags: k %t\n", keep)
-
 	return core.RemoveAppImage(id, keep)
 }
 
@@ -124,9 +119,6 @@ func ListCmd(ctx context.Context, cmd *cli.Command) error {
 	all := cmd.Bool("all")
 	integrated := cmd.Bool("integrated")
 	unlinked := cmd.Bool("unlinked")
-
-	fmt.Println("list")
-	fmt.Printf("flags: a %t, i %t, u %t\n", all, integrated, unlinked)
 
 	if all == integrated && integrated == unlinked {
 		all = true

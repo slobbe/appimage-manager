@@ -28,11 +28,11 @@ func init() {
 }
 
 func EnsureDirsExist() error {
-    dirs := []string{AimDir, TempDir, DesktopDir}
-    for _, dir := range dirs {
-        if err := os.MkdirAll(dir, 0755); err != nil {
-            return err
-        }
-    }
-    return nil
+	dirs := []string{AimDir, TempDir, DesktopDir}
+	for _, dir := range dirs {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return err
+		}
+	}
+	return nil
 }

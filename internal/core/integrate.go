@@ -29,12 +29,6 @@ func IntegrateAppImage(appImageSrc string, move bool) error {
 		fmt.Println("already integrated")
 		return nil
 	case InputTypeUnlinked:
-		fmt.Println("unlinked")
-		//db, err := LoadDB(config.DbSrc)
-		//if err != nil {
-		//	return err
-		//}
-
 		app, _ := db.Apps[appImageSrc]
 
 		if app == nil {
@@ -46,11 +40,8 @@ func IntegrateAppImage(appImageSrc string, move bool) error {
 			return err
 		}
 
-		fmt.Println(desktopLink)
-
 		db.Apps[appImageSrc].DesktopLink = desktopLink
 	case InputTypeAppImage:
-		fmt.Println("appimage")
 		if !filepath.IsAbs(appImageSrc) {
 			dir, err := os.Getwd()
 			if err != nil {
