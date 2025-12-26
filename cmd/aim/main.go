@@ -76,6 +76,10 @@ func main() {
 		},
 	}
 
+	if err := config.EnsureDirsExist(); err != nil {
+		log.Fatal(err)
+	}
+
 	if err := cmd.Run(context.Background(), os.Args); err != nil {
 		log.Fatal(err)
 	}
@@ -107,11 +111,11 @@ func ListCmd(ctx context.Context, cmd *cli.Command) error {
 
 	fmt.Println("list")
 	fmt.Printf("flags: a %t, i %t, u %t\n", all, integrated, unlinked)
-	
+
 	if all == integrated && integrated == unlinked {
 		all = true
 	}
-	
+
 	db, err := core.LoadDB(config.DbSrc)
 	if err != nil {
 		return err

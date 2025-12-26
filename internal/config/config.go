@@ -6,11 +6,6 @@ import (
 )
 
 var (
-	AppName    = "AppImage Manager"
-	AppVersion = "0.1.0"
-	AppAuthor  = "Sebastian Lobbe <slobbe@lobbe.cc>"
-	AppRepo    = "https://github.com/slobbe/appimage-manager"
-
 	AimDir     string
 	DesktopDir string
 	TempDir    string
@@ -30,4 +25,14 @@ func init() {
 	TempDir = filepath.Join(AimDir, ".tmp")
 
 	DbSrc = filepath.Join(AimDir, "apps.json")
+}
+
+func EnsureDirsExist() error {
+    dirs := []string{AimDir, TempDir, DesktopDir}
+    for _, dir := range dirs {
+        if err := os.MkdirAll(dir, 0755); err != nil {
+            return err
+        }
+    }
+    return nil
 }
