@@ -13,10 +13,14 @@ import (
 	"github.com/slobbe/appimage-manager/internal/core"
 )
 
+var (
+	version = "dev" // overridden by ldflags
+)
+
 func main() {
 	cmd := &cli.Command{
 		Name:    "aim",
-		Version: "0.1.0",
+		Version: version,
 		Usage:   "Easily integrate AppImages into your desktop environment",
 		Commands: []*cli.Command{
 			{
