@@ -41,15 +41,12 @@ func IntegrateAppImage(appImageSrc string, move bool) error {
 		}
 
 		db.Apps[appImageSrc].DesktopLink = desktopLink
-	case InputTypeAppImage:
-		if !filepath.IsAbs(appImageSrc) {
-			dir, err := os.Getwd()
-			if err != nil {
-				return err
-			}
-			appImageSrc = filepath.Join(dir, appImageSrc)
+	case InputTypeAppImage:		
+		appImageSrc, err := util.MakeAbsolute(appImageSrc)
+		if err != nil {
+			return err
 		}
-
+		
 		appData, err := GetAppImage(appImageSrc, move)
 		if err != nil {
 			return err
