@@ -1,4 +1,5 @@
 # ignore binaries
+/dist
 /bin/
 /aim
 

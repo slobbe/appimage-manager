@@ -90,11 +90,11 @@ func main() {
 			},
 			{
 				Name:  "check",
-				Usage: "Check AppImage for new update",
+				Usage: "Checks for new update",
 				Arguments: []cli.Argument{
 					&cli.StringArg{
 						Name:      "app",
-						UsageText: "<.appimage>",
+						UsageText: "<.appimage|id>",
 					},
 				},
 				Action: CheckCmd,
@@ -195,7 +195,7 @@ func CheckCmd(ctx context.Context, cmd *cli.Command) error {
 	}
 	
 	if updateAvailable {
-		fmt.Printf("Update Available!\n")
+		fmt.Printf("Update available!\n")
 	} else {
 		fmt.Printf("No updates found!\n")
 	}

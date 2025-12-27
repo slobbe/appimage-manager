@@ -4,8 +4,15 @@ A small CLI tool to easily integrate AppImages into your desktop environment.
 
 ## Installation
 
+Downloads the latest release for your CPU (amd64/x86_64 or arm64/aarch64) and installs it to `~/.local/bin/aim`.
+
 ```sh
-curl -sSL https://raw.githubusercontent.com/slobbe/appimage-manager/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/slobbe/appimage-manager/main/scripts/install.sh | sh
+```
+
+Verify:
+```sh
+aim --version
 ```
 
 ## Build from source
