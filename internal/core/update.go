@@ -6,9 +6,72 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 
 	util "github.com/slobbe/appimage-manager/internal/helpers"
 )
+
+type CheckResult struct {
+	HasUpdate bool
+	Link      string
+}
+
+func CheckBulk(srcs []string) {
+	var wg sync.WaitGroup
+	results := make(chan CheckResult, len(srcs))
+
+	for _, src := range srcs {
+		wg.Add(1) // Increment the counter
+		go func(s string) {
+			defer wg.Done() // Decrement when finished
+			CheckRoutine(s, results)
+		}(src)
+	}
+
+	go func() {
+		wg.Wait()
+		close(results) // Closing prevents range-locks
+	}()
+
+	for res := range results {
+		fmt.Println("Update status:", res.HasUpdate, res.Link)
+	}
+}
+
+func CheckRoutine(src string, results chan CheckResult) {
+	res, link, err := CheckForUpdate(src)
+	if err != nil {
+		results <- CheckResult{
+			HasUpdate: false,
+			Link:      "",
+		}
+	}
+
+	results <- CheckResult{
+		HasUpdate: res,
+		Link:      link,
+	}
+
+}
+
+func CheckForUpdate(src string) (bool, string, error) {
+	info, err := GetUpdateInfo(src)
+	if err != nil {
+		return false, "", err
+	}
+
+	url, err := ResolveUpdateInfo(info)
+	if err != nil {
+		return false, "", err
+	}
+
+	updateAvailable, downloadLink, err := IsUpdateAvailable(src, url)
+	if err != nil {
+		return false, "", err
+	}
+
+	return updateAvailable, downloadLink, nil
+}
 
 func GetUpdateInfo(path string) (string, error) {
 	path, err := util.MakeAbsolute(path)

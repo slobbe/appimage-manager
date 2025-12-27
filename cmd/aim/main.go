@@ -99,6 +99,23 @@ func main() {
 				},
 				Action: CheckCmd,
 			},
+			{
+				Name:  "c",
+				Usage: "Checks for new update",
+				Arguments: []cli.Argument{
+					&cli.StringArg{
+						Name:      "app",
+						UsageText: "<.appimage|id>",
+					},
+				},
+				Action: func(ctx context.Context, cmd *cli.Command) error {
+					core.CheckBulk([]string{
+						"/home/sebastian/Downloads/helium-0.7.7.1-x86_64.AppImage",
+						"/home/sebastian/Downloads/Cursor-2.2.43-x86_64.AppImage",
+					})
+					return nil
+				},
+			},
 		},
 	}
 
@@ -167,39 +184,26 @@ func ListCmd(ctx context.Context, cmd *cli.Command) error {
 }
 
 func CheckCmd(ctx context.Context, cmd *cli.Command) error {
-	app := cmd.StringArg("app")
-	
 	db, err := core.LoadDB(config.DbSrc)
 	if err != nil {
 		return err
 	}
-	
-	_, src, err := core.IdentifyInput(app, db)
-	if err != nil {
-		return err
-	}
-	
-	info, err := core.GetUpdateInfo(src)
+
+	_, src, err := core.IdentifyInput(cmd.StringArg("app"), db)
 	if err != nil {
 		return err
 	}
 
-	url, err := core.ResolveUpdateInfo(info)
+	updateAvailable, downloadLink, err := core.CheckForUpdate(src)
 	if err != nil {
 		return err
 	}
-		
-	updateAvailable, downloadLink, err := core.IsUpdateAvailable(src, url)
-	if err != nil {
-		return err
-	}
-	
-	
+
 	if updateAvailable {
-		fmt.Printf("Update available!\nGo to: %s\n", downloadLink)		
+		fmt.Printf("Update available!\nGo to: %s\n", downloadLink)
 	} else {
 		fmt.Printf("No updates found!\n")
 	}
-	
+
 	return nil
 }
