@@ -3,6 +3,7 @@ package util
 import (
 	"io"
 	"os"
+	"path/filepath"
 )
 
 func Move(file string, dest string) (string, error) {
@@ -34,8 +35,21 @@ func Copy(src, dst string) (string, error) {
 func MakeExecutable(src string) error {
 	const execPerm = 0755
 	if err := os.Chmod(src, execPerm); err != nil {
-			return err
+		return err
 	}
-	
+
 	return nil
+}
+
+func MakeAbsolute(path string) (string, error) {
+	if filepath.IsAbs(path) {
+		return path, nil
+	}
+
+	dir, err := os.Getwd()
+	if err != nil {
+		return path, err
+	}
+
+	return filepath.Join(dir, path), nil
 }
