@@ -17,7 +17,7 @@ func IntegrateAppImage(appImageSrc string, move bool) error {
 		return err
 	}
 
-	inputType, err := IdentifyInput(appImageSrc, db)
+	inputType, _, err := IdentifyInput(appImageSrc, db)
 	if err != nil {
 		return err
 	}

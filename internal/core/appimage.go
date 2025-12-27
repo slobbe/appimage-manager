@@ -385,25 +385,25 @@ func ExtractAppInfo(desktopSrc string) (*AppInfo, error) {
 	return result, nil
 }
 
-func IdentifyInput(input string, database *DB) (string, error) {
+func IdentifyInput(input string, database *DB) (string, string, error) {
 	if input == "" {
-		return InputTypeUnknown, fmt.Errorf("input cannot be empty")
+		return InputTypeUnknown, input, fmt.Errorf("input cannot be empty")
 	}
 
 	// Check AppImage first
 	if strings.HasSuffix(strings.ToLower(input), ".appimage") {
-		return InputTypeAppImage, nil
+		return InputTypeAppImage, input, nil
 	}
 
-	// Check unlinked database
-	apps, exists := database.Apps[input]
+	// Check database
+	app, exists := database.Apps[input]
 	if !exists {
-		return InputTypeUnknown, nil
+		return InputTypeUnknown, input, nil
 	}
 
-	if len(apps.DesktopLink) > 0 {
-		return InputTypeIntegrated, nil
+	if len(app.DesktopLink) > 0 {
+		return InputTypeIntegrated, (*app).AppImage, nil
 	} else {
-		return InputTypeUnlinked, nil
+		return InputTypeUnlinked, (*app).AppImage, nil
 	}
 }

@@ -169,7 +169,17 @@ func ListCmd(ctx context.Context, cmd *cli.Command) error {
 func CheckCmd(ctx context.Context, cmd *cli.Command) error {
 	app := cmd.StringArg("app")
 	
-	info, err := core.GetUpdateInfo(app)
+	db, err := core.LoadDB(config.DbSrc)
+	if err != nil {
+		return err
+	}
+	
+	_, src, err := core.IdentifyInput(app, db)
+	if err != nil {
+		return err
+	}
+	
+	info, err := core.GetUpdateInfo(src)
 	if err != nil {
 		return err
 	}
@@ -179,7 +189,7 @@ func CheckCmd(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 		
-	updateAvailable, err := core.IsUpdateAvailable(app, url)
+	updateAvailable, err := core.IsUpdateAvailable(src, url)
 	if err != nil {
 		return err
 	}
