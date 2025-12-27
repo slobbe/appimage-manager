@@ -189,13 +189,14 @@ func CheckCmd(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 		
-	updateAvailable, err := core.IsUpdateAvailable(src, url)
+	updateAvailable, downloadLink, err := core.IsUpdateAvailable(src, url)
 	if err != nil {
 		return err
 	}
 	
+	
 	if updateAvailable {
-		fmt.Printf("Update available!\n")
+		fmt.Printf("Update available!\nGo to: %s\n", downloadLink)		
 	} else {
 		fmt.Printf("No updates found!\n")
 	}

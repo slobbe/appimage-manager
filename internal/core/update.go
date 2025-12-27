@@ -98,14 +98,15 @@ func GithubLatestVersionTag(owner, repo string) (string, error) {
 	return parts[len(parts)-1], nil
 }
 
-func IsUpdateAvailable(localSrc, zsyncUrl string) (bool, error) {
+func IsUpdateAvailable(localSrc, zsyncUrl string) (bool, string, error) {
 	resp, err := http.Get(zsyncUrl)
 	if err != nil {
-		return false, err
+		return false, "", err
 	}
 	defer resp.Body.Close()
 
 	var remoteSha1 string
+	var remoteFilename string
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -114,15 +115,23 @@ func IsUpdateAvailable(localSrc, zsyncUrl string) (bool, error) {
 		}
 		if strings.HasPrefix(line, "SHA-1:") {
 			remoteSha1 = strings.TrimSpace(strings.TrimPrefix(line, "SHA-1:"))
-			break
+		}
+		if strings.HasPrefix(line, "Filename:") {
+			remoteFilename = strings.TrimSpace(strings.TrimPrefix(line, "Filename:"))
 		}
 	}
+
+	if remoteFilename == "" {
+		remoteFilename = strings.TrimSuffix(zsyncUrl, ".zsync")
+	}
+	lastSlash := strings.LastIndex(zsyncUrl, "/")
+	downloadLink := zsyncUrl[:lastSlash+1] + remoteFilename
 
 	localPath, _ := util.MakeAbsolute(localSrc)
 	localSha1, err := util.Sha1(localPath)
 	if err != nil {
-		return false, err
+		return false, "", err
 	}
 
-	return localSha1 != remoteSha1, nil
+	return localSha1 != remoteSha1, downloadLink, nil
 }
