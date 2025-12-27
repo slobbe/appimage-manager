@@ -24,9 +24,8 @@ func main() {
 		Usage:   "Easily integrate AppImages into your desktop environment",
 		Commands: []*cli.Command{
 			{
-				Name:    "add",
-				Aliases: []string{},
-				Usage:   "Integrates AppImage",
+				Name:  "add",
+				Usage: "Integrates AppImage",
 				Arguments: []cli.Argument{
 					&cli.StringArg{
 						Name:      "app",
@@ -88,6 +87,26 @@ func main() {
 					},
 				},
 				Action: ListCmd,
+			},
+			{
+				Name:  "check",
+				Usage: "Check AppImage for new update",
+				Arguments: []cli.Argument{
+					&cli.StringArg{
+						Name:      "app",
+						UsageText: "<.appimage>",
+					},
+				},
+				Action: func(ctx context.Context, cmd *cli.Command) error {
+					info, err := core.GetUpdateInfo(cmd.StringArg("app"))
+					if err != nil {
+						return err
+					}
+
+					fmt.Printf("Update Info: %s\n", info)
+
+					return nil
+				},
 			},
 		},
 	}
@@ -152,6 +171,17 @@ func ListCmd(ctx context.Context, cmd *cli.Command) error {
 			}
 		}
 	}
+
+	return nil
+}
+
+func CheckCmd(ctx context.Context, cmd *cli.Command) error {
+	info, err := core.GetUpdateInfo(cmd.StringArg("app"))
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("Update Info: %s\n", info)
 
 	return nil
 }
