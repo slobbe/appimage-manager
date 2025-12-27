@@ -97,16 +97,7 @@ func main() {
 						UsageText: "<.appimage>",
 					},
 				},
-				Action: func(ctx context.Context, cmd *cli.Command) error {
-					info, err := core.GetUpdateInfo(cmd.StringArg("app"))
-					if err != nil {
-						return err
-					}
-
-					fmt.Printf("Update Info: %s\n", info)
-
-					return nil
-				},
+				Action: CheckCmd,
 			},
 		},
 	}
@@ -176,12 +167,28 @@ func ListCmd(ctx context.Context, cmd *cli.Command) error {
 }
 
 func CheckCmd(ctx context.Context, cmd *cli.Command) error {
-	info, err := core.GetUpdateInfo(cmd.StringArg("app"))
+	app := cmd.StringArg("app")
+	
+	info, err := core.GetUpdateInfo(app)
 	if err != nil {
 		return err
 	}
 
-	fmt.Printf("Update Info: %s\n", info)
-
+	url, err := core.ResolveUpdateInfo(info)
+	if err != nil {
+		return err
+	}
+		
+	updateAvailable, err := core.IsUpdateAvailable(app, url)
+	if err != nil {
+		return err
+	}
+	
+	if updateAvailable {
+		fmt.Printf("Update Available!\n")
+	} else {
+		fmt.Printf("No updates found!\n")
+	}
+	
 	return nil
 }
