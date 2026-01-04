@@ -11,113 +11,126 @@ import (
 	util "github.com/slobbe/appimage-manager/internal/helpers"
 )
 
-func IntegrateAppImage(appImageSrc string, move bool) error {
+func IntegrateAppImage(src string) (string, error) {
 	db, err := LoadDB(config.DbSrc)
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	inputType, _, err := IdentifyInput(appImageSrc, db)
+	inputType, src, err := IdentifyInput(src, db)
 	if err != nil {
-		return err
+		return "", err
 	}
+
+	msg := ""
 
 	switch inputType {
 	case InputTypeUnknown:
-		return fmt.Errorf("invalid input")
+		return "", fmt.Errorf("invalid input: %s", src)
 	case InputTypeIntegrated:
-		fmt.Println("already integrated")
-		return nil
+		return "", fmt.Errorf("%s is already integrated", src)
 	case InputTypeUnlinked:
-		app, _ := db.Apps[appImageSrc]
-
-		if app == nil {
-			return fmt.Errorf("app entry is nil: %s", appImageSrc)
-		}
-
-		desktopLink, err := MakeDesktopLink(app.Desktop, filepath.Base("aim-"+app.Slug+".desktop"))
+		app, err := Reintegrate(src, db)
 		if err != nil {
-			return err
+			return "", err
 		}
-
-		db.Apps[appImageSrc].DesktopLink = desktopLink
-	case InputTypeAppImage:		
-		appImageSrc, err := util.MakeAbsolute(appImageSrc)
+		msg = fmt.Sprintf("successfully reintegrated %s v%s (%s)", app.Name, app.Version, app.Slug)
+	case InputTypeAppImage:
+		app, err := IntegrateNew(src, db)
 		if err != nil {
-			return err
+			return "", err
 		}
-		
-		appData, err := GetAppImage(appImageSrc, move)
-		if err != nil {
-			return err
-		}
-
-		// make appimage executable
-		if err := util.MakeExecutable(appData.AppImage); err != nil {
-			return err
-		}
-
-		if err := UpdateDesktopFile(appData.Desktop, appData.AppImage, appData.Icon); err != nil {
-			return err
-		}
-
-		// make desktop symlink for system integration
-		desktopLink, err := MakeDesktopLink(appData.Desktop, filepath.Base("aim-"+appData.Slug+".desktop"))
-		if err != nil {
-			return err
-		}
-
-		sum, err := util.Sha256File(appData.AppImage)
-		if err != nil {
-			return err
-		}
-
-		db.Apps[appData.Slug] = &App{
-			Name:        appData.Name,
-			Slug:        appData.Slug,
-			Version:     appData.Version,
-			AppImage:    appData.AppImage,
-			SHA256:      sum,
-			Desktop:     appData.Desktop,
-			DesktopLink: desktopLink,
-			Icon:        appData.Icon,
-			AddedAt:     NowISO(),
-		}
+		msg = fmt.Sprintf("successfully integrated %s v%s (%s)", app.Name, app.Version, app.Slug)
 	}
 
-	if err := SaveDB(config.DbSrc, db); err != nil {
-		return err
-	}
 	// refresh desktop cache best-effort
 	_ = exec.Command("update-desktop-database", config.DesktopDir).Run()
 
-	//fmt.Printf("Successfully added %s v%s (ID: %s)\n", appData.Name, appData.Version, appData.Slug)
-
-	return nil
+	return msg, nil
 }
 
-func MakeDesktopLink(src string, name string) (string, error) {
-	if src == "" {
-		return "", fmt.Errorf("source cannot be empty")
+func IntegrateNew(src string, db *DB) (App, error) {
+	src, err := util.MakeAbsolute(src)
+	if err != nil {
+		return App{}, err
 	}
 
-	if name == "" {
-		return "", fmt.Errorf("name cannot be empty")
+	appData, err := GetAppImage(src)
+	if err != nil {
+		return App{}, err
 	}
 
-	desktopLink := filepath.Join(config.DesktopDir, name)
-
-	_ = os.Remove(desktopLink)
-
-	if err := os.Symlink(src, desktopLink); err != nil {
-		return src, err
+	// make appimage executable
+	if err := util.MakeExecutable(appData.AppImage); err != nil {
+		return App{}, err
 	}
 
-	return desktopLink, nil
+	if err := UpdateDesktopFile(appData.Desktop, appData.AppImage, appData.Icon); err != nil {
+		return App{}, err
+	}
+
+	// make desktop symlink for system integration
+	appData.DesktopLink, err = MakeDesktopLink(appData.Desktop, filepath.Base("aim-"+appData.Slug+".desktop"))
+	if err != nil {
+		return App{}, err
+	}
+
+	appData.SHA256, err = util.Sha256File(appData.AppImage)
+	if err != nil {
+		return App{}, err
+	}
+	appData.SHA1, err = util.Sha1(appData.AppImage)
+	if err != nil {
+		return App{}, err
+	}
+
+	now := NowISO()
+	appData.AddedAt = now
+	appData.UpdatedAt = now
+
+	db.Apps[appData.Slug] = &appData
+
+	if err := SaveDB(config.DbSrc, db); err != nil {
+		return App{}, err
+	}
+
+	return appData, nil
 }
 
-func GetAppImage(appImageSrc string, move bool) (App, error) {
-	data := App{appImageSrc, "", "", "", "", "", "", "", ""}
+func Reintegrate(slug string, db *DB) (App, error) {
+	app, exists := db.Apps[slug]
+	if !exists {
+		return App{}, fmt.Errorf("%s could not be found in app registry", slug)
+	}
+
+	// make desktop symlink for system integration
+	desktopLink, err := MakeDesktopLink(app.Desktop, filepath.Base("aim-"+app.Slug+".desktop"))
+	if err != nil {
+		return *app, err
+	}
+	app.DesktopLink = desktopLink
+
+	if err := SaveDB(config.DbSrc, db); err != nil {
+		return *app, err
+	}
+
+	return *app, nil
+}
+
+func GetAppImage(appImageSrc string) (App, error) {
+	data := App{
+		AppImage:    appImageSrc,
+		Name:        "",
+		Slug:        "",
+		Version:     "",
+		Icon:        "",
+		Desktop:     "",
+		DesktopLink: "",
+		AddedAt:     "",
+		UpdatedAt:   "",
+		SHA256:      "",
+		SHA1:        "",
+	}
 
 	fileName := strings.TrimSuffix(filepath.Base(appImageSrc), filepath.Ext(appImageSrc))
 	tempExtractDir := filepath.Join(config.TempDir, fileName)
@@ -146,7 +159,7 @@ func GetAppImage(appImageSrc string, move bool) (App, error) {
 	if err != nil {
 		data.Name = fileName
 		data.Slug = util.Slugify(fileName)
-		data.Version = "N/A"
+		data.Version = "unknown"
 	} else {
 		data.Name = info.Name
 		data.Slug = util.Slugify(info.Name)
@@ -161,15 +174,8 @@ func GetAppImage(appImageSrc string, move bool) (App, error) {
 
 	// move desktop, icon, and appimage to extract dir
 	data.AppImage = filepath.Join(extractDir, data.Slug+".AppImage")
-
-	if move {
-		if _, err = util.Move(appImageSrc, data.AppImage); err != nil {
-			return data, err
-		}
-	} else {
-		if _, err = util.Copy(appImageSrc, data.AppImage); err != nil {
-			return data, err
-		}
+	if _, err = util.Copy(appImageSrc, data.AppImage); err != nil {
+		return data, err
 	}
 
 	data.Desktop = filepath.Join(extractDir, data.Slug+".desktop")
@@ -185,4 +191,24 @@ func GetAppImage(appImageSrc string, move bool) (App, error) {
 	_ = os.RemoveAll(tempExtractDir)
 
 	return data, nil
+}
+
+func MakeDesktopLink(src string, name string) (string, error) {
+	if src == "" {
+		return "", fmt.Errorf("source cannot be empty")
+	}
+
+	if name == "" {
+		return "", fmt.Errorf("name cannot be empty")
+	}
+
+	desktopLink := filepath.Join(config.DesktopDir, name)
+
+	_ = os.Remove(desktopLink)
+
+	if err := os.Symlink(src, desktopLink); err != nil {
+		return src, err
+	}
+
+	return desktopLink, nil
 }

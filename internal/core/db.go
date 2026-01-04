@@ -7,8 +7,8 @@ import (
 )
 
 type DB struct {
-	Version int             `json:"version"`
-	Apps    map[string]*App `json:"apps"`
+	SchemaVersion int             `json:"schemaVersion"`
+	Apps          map[string]*App `json:"apps"`
 }
 
 type App struct {
@@ -16,18 +16,20 @@ type App struct {
 	Slug        string `json:"slug"`
 	Version     string `json:"version"`
 	AppImage    string `json:"appimage"`
-	Desktop     string `json:"desktop"`
-	DesktopLink string `json:"desktop_link"`
 	Icon        string `json:"icon"`
-	AddedAt     string `json:"added_at"`
+	Desktop     string `json:"desktop"`
+	DesktopLink string `json:"desktopLink"`
+	AddedAt     string `json:"addedAt"`
+	UpdatedAt   string `json:"updatedAt"`
 	SHA256      string `json:"sha256"`
+	SHA1        string `json:"sha1"`
 }
 
 func LoadDB(path string) (*DB, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return &DB{Version: 1, Apps: map[string]*App{}}, nil
+			return &DB{SchemaVersion: 1, Apps: map[string]*App{}}, nil
 		}
 		return nil, err
 	}
@@ -38,8 +40,8 @@ func LoadDB(path string) (*DB, error) {
 	if db.Apps == nil {
 		db.Apps = map[string]*App{}
 	}
-	if db.Version == 0 {
-		db.Version = 1
+	if db.SchemaVersion == 0 {
+		db.SchemaVersion = 1
 	}
 	return &db, nil
 }

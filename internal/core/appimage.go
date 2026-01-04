@@ -402,8 +402,8 @@ func IdentifyInput(input string, database *DB) (string, string, error) {
 	}
 
 	if len(app.DesktopLink) > 0 {
-		return InputTypeIntegrated, (*app).AppImage, nil
+		return InputTypeIntegrated, (*app).Slug, nil
 	} else {
-		return InputTypeUnlinked, (*app).AppImage, nil
+		return InputTypeUnlinked, (*app).Slug, nil
 	}
 }

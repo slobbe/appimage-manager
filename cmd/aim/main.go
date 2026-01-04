@@ -32,14 +32,6 @@ func main() {
 						UsageText: "<.appimage|id>",
 					},
 				},
-				Flags: []cli.Flag{
-					&cli.BoolFlag{
-						Name:    "move",
-						Aliases: []string{"m"},
-						Value:   false,
-						Usage:   "move the AppImage instead of copying it",
-					},
-				},
 				Action: AddCmd,
 			},
 			{
@@ -130,9 +122,11 @@ func main() {
 
 func AddCmd(ctx context.Context, cmd *cli.Command) error {
 	appImage := cmd.StringArg("app")
-	move := cmd.Bool("move")
-
-	return core.IntegrateAppImage(appImage, move)
+	msg, err := core.IntegrateAppImage(appImage)
+	
+	fmt.Println(msg)
+	
+	return err
 }
 
 func RemoveCmd(ctx context.Context, cmd *cli.Command) error {
