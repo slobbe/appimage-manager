@@ -122,9 +122,11 @@ func main() {
 
 func AddCmd(ctx context.Context, cmd *cli.Command) error {
 	appImage := cmd.StringArg("app")
-	msg, err := core.IntegrateAppImage(appImage)
+	app, err := core.IntegrateAppImage(appImage)
 	
-	fmt.Println(msg)
+	if err == nil {
+		fmt.Printf("Successfully integrated %s v%s (ID: %s)", app.Name, app.Version, app.Slug)
+	}
 	
 	return err
 }

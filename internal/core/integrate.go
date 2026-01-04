@@ -11,42 +11,40 @@ import (
 	util "github.com/slobbe/appimage-manager/internal/helpers"
 )
 
-func IntegrateAppImage(src string) (string, error) {
+func IntegrateAppImage(src string) (App, error) {
 	db, err := LoadDB(config.DbSrc)
 	if err != nil {
-		return "", err
+		return App{}, err
 	}
 
 	inputType, src, err := IdentifyInput(src, db)
 	if err != nil {
-		return "", err
+		return App{}, err
 	}
 
-	msg := ""
-
+	var app App
+	
 	switch inputType {
 	case InputTypeUnknown:
-		return "", fmt.Errorf("invalid input: %s", src)
+		return App{}, fmt.Errorf("invalid input: %s", src)
 	case InputTypeIntegrated:
-		return "", fmt.Errorf("%s is already integrated", src)
+		return App{}, fmt.Errorf("%s is already integrated", src)
 	case InputTypeUnlinked:
-		app, err := Reintegrate(src, db)
+		app, err = Reintegrate(src, db)
 		if err != nil {
-			return "", err
+			return App{}, err
 		}
-		msg = fmt.Sprintf("successfully reintegrated %s v%s (%s)", app.Name, app.Version, app.Slug)
 	case InputTypeAppImage:
-		app, err := IntegrateNew(src, db)
+		app, err = IntegrateNew(src, db)
 		if err != nil {
-			return "", err
+			return App{}, err
 		}
-		msg = fmt.Sprintf("successfully integrated %s v%s (%s)", app.Name, app.Version, app.Slug)
 	}
 
 	// refresh desktop cache best-effort
 	_ = exec.Command("update-desktop-database", config.DesktopDir).Run()
 
-	return msg, nil
+	return app, nil
 }
 
 func IntegrateNew(src string, db *DB) (App, error) {
