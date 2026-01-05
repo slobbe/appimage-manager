@@ -58,6 +58,12 @@ aim list [options]
 | `--integrated`, `-i` | list only intgrated AppImages |
 | `--unlinked`, `-u`   | list only unlinked AppImages  |
 
+**Check** AppImage for updates:
+
+```sh
+aim check <.appimage|id>
+```
+
 ## License
 
 [MIT](/LICENSE)
