@@ -160,15 +160,12 @@ func ListCmd(ctx context.Context, cmd *cli.Command) error {
 
 	apps := db.Apps
 
-	fmt.Printf("\033[1m\033[4m%-15s %-20s %-15s %-10s\033[0m\n", "ID", "App Name", "Version", "Added")
-
-	addedAtFormat := time.DateOnly
+	fmt.Printf("\033[1m\033[4m%-15s %-20s %-15s\033[0m\n", "ID", "App Name", "Version")
 
 	if all || integrated {
 		for _, app := range apps {
 			if len(app.DesktopLink) > 0 {
-				addedAt, _ := time.Parse(time.RFC3339, app.AddedAt)
-				fmt.Fprintf(os.Stdout, "%-15s %-20s %-15s %-10s\n", app.Slug, app.Name, app.Version, addedAt.Format(addedAtFormat))
+				fmt.Fprintf(os.Stdout, "%-15s %-20s %-15s\n", app.Slug, app.Name, app.Version)
 			}
 		}
 	}
@@ -176,8 +173,7 @@ func ListCmd(ctx context.Context, cmd *cli.Command) error {
 	if all || unlinked {
 		for _, app := range apps {
 			if len(app.DesktopLink) == 0 {
-				addedAt, _ := time.Parse(time.RFC3339, app.AddedAt)
-				fmt.Fprintf(os.Stdout, "\033[2m\033[3m%-15s %-20s %-15s %-10s\033[0m\n", app.Slug, app.Name, app.Version, addedAt.Format(addedAtFormat))
+				fmt.Fprintf(os.Stdout, "\033[2m\033[3m%-15s %-20s %-15s\033[0m\n", app.Slug, app.Name, app.Version)
 			}
 		}
 	}
