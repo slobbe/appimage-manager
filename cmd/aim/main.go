@@ -134,8 +134,14 @@ func AddCmd(ctx context.Context, cmd *cli.Command) error {
 func RemoveCmd(ctx context.Context, cmd *cli.Command) error {
 	id := cmd.StringArg("id")
 	keep := cmd.Bool("keep")
-
-	return core.RemoveAppImage(id, keep)
+	
+	app, err := core.RemoveAppImage(id, keep)
+	
+	if err == nil {
+		fmt.Printf("Successfully removed %s\n", app.Name)
+	}
+	
+	return err
 }
 
 func ListCmd(ctx context.Context, cmd *cli.Command) error {
