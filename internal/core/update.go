@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/slobbe/appimage-manager/internal/config"
 	util "github.com/slobbe/appimage-manager/internal/helpers"
@@ -28,6 +29,7 @@ func CheckForUpdate(input string) (bool, string, error) {
 
 	var info string
 	var sha1 string
+	var updatedTimestamp string
 
 	switch inputType {
 	case InputTypeAppImage:
@@ -40,7 +42,7 @@ func CheckForUpdate(input string) (bool, string, error) {
 		if err != nil {
 			return false, "", err
 		}
-
+		updatedTimestamp = ""
 	case InputTypeIntegrated:
 		app := db.Apps[src]
 		if app.Type == "type-1" {
@@ -48,6 +50,7 @@ func CheckForUpdate(input string) (bool, string, error) {
 		}
 		info = app.UpdateInfo
 		sha1 = app.SHA1
+		updatedTimestamp = app.UpdatedAt
 	case InputTypeUnlinked:
 		app := db.Apps[src]
 		if app.Type == "type-1" {
@@ -55,6 +58,7 @@ func CheckForUpdate(input string) (bool, string, error) {
 		}
 		info = app.UpdateInfo
 		sha1 = app.SHA1
+		updatedTimestamp = app.UpdatedAt
 	default:
 		return false, "", fmt.Errorf("unknown input")
 	}
@@ -64,12 +68,12 @@ func CheckForUpdate(input string) (bool, string, error) {
 		return false, "", err
 	}
 
-	updateAvailable, downloadLink, err := IsUpdateAvailable(sha1, url)
+	update, err := IsUpdateAvailable(sha1, updatedTimestamp, url)
 	if err != nil {
 		return false, "", err
 	}
 
-	return updateAvailable, downloadLink, nil
+	return update.Available, update.DownloadUrl, nil
 }
 
 func GetUpdateInfo(path string) (string, error) {
@@ -160,15 +164,31 @@ func GithubLatestVersionTag(owner, repo string) (string, error) {
 	return parts[len(parts)-1], nil
 }
 
-func IsUpdateAvailable(localSha1 string, zsyncUrl string) (bool, string, error) {
+type UpdateData struct {
+	Available bool
+	DownloadUrl string
+	DownloadUrlZsync string
+	RemoteTime string
+	RemoteSha1 string
+	RemoteFilename string
+}
+
+func IsUpdateAvailable(localSha1 string, localTime string, zsyncUrl string) (UpdateData, error) {
+	update := UpdateData{
+		Available: false,
+		DownloadUrl: "",
+		DownloadUrlZsync: zsyncUrl,
+		RemoteSha1: "",
+		RemoteTime: "",
+		RemoteFilename: "",
+	}
+	
 	resp, err := http.Get(zsyncUrl)
 	if err != nil {
-		return false, "", err
+		return update, err
 	}
 	defer resp.Body.Close()
 
-	var remoteSha1 string
-	var remoteFilename string
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -176,18 +196,29 @@ func IsUpdateAvailable(localSha1 string, zsyncUrl string) (bool, string, error) 
 			break
 		}
 		if strings.HasPrefix(line, "SHA-1:") {
-			remoteSha1 = strings.TrimSpace(strings.TrimPrefix(line, "SHA-1:"))
+			update.RemoteSha1 = strings.TrimSpace(strings.TrimPrefix(line, "SHA-1:"))
 		}
 		if strings.HasPrefix(line, "Filename:") {
-			remoteFilename = strings.TrimSpace(strings.TrimPrefix(line, "Filename:"))
+			update.RemoteFilename = strings.TrimSpace(strings.TrimPrefix(line, "Filename:"))
+		}
+		if strings.HasPrefix(line, "MTime:") {
+			t, _ := time.Parse(time.RFC1123, strings.TrimSpace(strings.TrimPrefix(line, "MTime:")))
+			update.RemoteTime = t.Format(time.RFC3339)
+			fmt.Printf("Remote time %s\n", update.RemoteTime)
 		}
 	}
 
-	if remoteFilename == "" {
-		remoteFilename = strings.TrimSuffix(zsyncUrl, ".zsync")
+	if update.RemoteFilename == "" {
+		update.RemoteFilename = strings.TrimSuffix(zsyncUrl, ".zsync")
 	}
 	lastSlash := strings.LastIndex(zsyncUrl, "/")
-	downloadLink := zsyncUrl[:lastSlash+1] + remoteFilename
+	update.DownloadUrl = zsyncUrl[:lastSlash+1] + update.RemoteFilename
 
-	return localSha1 != remoteSha1, downloadLink, nil
+	localT, _ := time.Parse(time.RFC3339, localTime)
+	fmt.Printf("Local time %s\n", localT.Format(time.RFC3339))
+	remoteT, _ := time.Parse(time.RFC3339, update.RemoteTime)
+
+	update.Available = remoteT.After(localT) && update.RemoteSha1 != localSha1
+
+	return update, nil
 }

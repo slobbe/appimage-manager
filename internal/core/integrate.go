@@ -73,11 +73,18 @@ func IntegrateNew(src string, db *DB) (App, error) {
 	}
 
 	_, err = SetMetadata(&appData)
-
+	
 	now := NowISO()
 	appData.AddedAt = now
 	appData.UpdatedAt = now
-
+	
+	url, _ := ResolveUpdateInfo(appData.UpdateInfo)
+	update, _ := IsUpdateAvailable(appData.SHA1, appData.UpdatedAt, url)
+	
+	if !update.Available && len(update.RemoteTime) > 0 {
+		appData.UpdatedAt = update.RemoteTime
+	}
+	
 	db.Apps[appData.Slug] = &appData
 
 	if err := SaveDB(config.DbSrc, db); err != nil {
