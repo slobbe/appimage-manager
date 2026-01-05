@@ -7,13 +7,56 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/slobbe/appimage-manager/internal/config"
 	util "github.com/slobbe/appimage-manager/internal/helpers"
 )
 
-func CheckForUpdate(src string) (bool, string, error) {
-	info, err := GetUpdateInfo(src)
+func CheckForUpdate(input string) (bool, string, error) {
+	db, err := LoadDB(config.DbSrc)
 	if err != nil {
 		return false, "", err
+	}
+
+	inputType, src, err := IdentifyInput(input, db)
+	if err != nil {
+		return false, "", err
+	}
+
+	if inputType == InputTypeUnknown {
+		return false, "", fmt.Errorf("unknown input type")
+	}
+
+	var info string
+	var sha1 string
+
+	switch inputType {
+	case InputTypeAppImage:
+		info, err = GetUpdateInfo(src)
+		if err != nil {
+			return false, "", err
+		}
+
+		sha1, err = util.Sha1(src)
+		if err != nil {
+			return false, "", err
+		}
+
+	case InputTypeIntegrated:
+		app := db.Apps[src]
+		if app.Type == "type-1" {
+			return false, "", fmt.Errorf("%s is a type-1 appimage and doesn't contain update information", app.Name)
+		}
+		info = app.UpdateInfo
+		sha1 = app.SHA1
+	case InputTypeUnlinked:
+		app := db.Apps[src]
+		if app.Type == "type-1" {
+			return false, "", fmt.Errorf("%s is a type-1 appimage and doesn't contain update information", app.Name)
+		}
+		info = app.UpdateInfo
+		sha1 = app.SHA1
+	default:
+		return false, "", fmt.Errorf("unknown input")
 	}
 
 	url, err := ResolveUpdateInfo(info)
@@ -21,7 +64,7 @@ func CheckForUpdate(src string) (bool, string, error) {
 		return false, "", err
 	}
 
-	updateAvailable, downloadLink, err := IsUpdateAvailable(src, url)
+	updateAvailable, downloadLink, err := IsUpdateAvailable(sha1, url)
 	if err != nil {
 		return false, "", err
 	}
@@ -117,7 +160,7 @@ func GithubLatestVersionTag(owner, repo string) (string, error) {
 	return parts[len(parts)-1], nil
 }
 
-func IsUpdateAvailable(localSrc, zsyncUrl string) (bool, string, error) {
+func IsUpdateAvailable(localSha1 string, zsyncUrl string) (bool, string, error) {
 	resp, err := http.Get(zsyncUrl)
 	if err != nil {
 		return false, "", err
@@ -145,12 +188,6 @@ func IsUpdateAvailable(localSrc, zsyncUrl string) (bool, string, error) {
 	}
 	lastSlash := strings.LastIndex(zsyncUrl, "/")
 	downloadLink := zsyncUrl[:lastSlash+1] + remoteFilename
-
-	localPath, _ := util.MakeAbsolute(localSrc)
-	localSha1, err := util.Sha1(localPath)
-	if err != nil {
-		return false, "", err
-	}
 
 	return localSha1 != remoteSha1, downloadLink, nil
 }

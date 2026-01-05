@@ -164,33 +164,8 @@ func ListCmd(ctx context.Context, cmd *cli.Command) error {
 }
 
 func CheckCmd(ctx context.Context, cmd *cli.Command) error {
-	db, err := core.LoadDB(config.DbSrc)
-	if err != nil {
-		return err
-	}
+	updateAvailable, downloadLink, err := core.CheckForUpdate(cmd.StringArg("app"))
 
-	inputType, src, err := core.IdentifyInput(cmd.StringArg("app"), db)
-	if err != nil {
-		return err
-	}
-
-	if inputType == core.InputTypeUnknown {
-		return fmt.Errorf("unknown input type")
-	}
-
-	var pathToAppImage string
-	switch inputType {
-	case core.InputTypeAppImage:
-		pathToAppImage = src
-	case core.InputTypeIntegrated:
-		pathToAppImage = db.Apps[src].AppImage
-	case core.InputTypeUnlinked:
-		pathToAppImage = db.Apps[src].AppImage
-	default:
-		return fmt.Errorf("unknown input")
-	}
-
-	updateAvailable, downloadLink, err := core.CheckForUpdate(pathToAppImage)
 	if err != nil {
 		fmt.Printf("\033[0;31mUnable to retrieve update information\033[0m\n")
 		return err
