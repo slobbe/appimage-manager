@@ -83,6 +83,10 @@ func IntegrateNew(src string, db *DB) (App, error) {
 	if appData.Type, err = Type(appData.AppImage); err != nil {
 		return App{}, err
 	}
+	
+	if appData.Type == "type-2" {
+		appData.UpdateInfo, _ = GetUpdateInfo(appData.AppImage)
+	}
 
 	now := NowISO()
 	appData.AddedAt = now
