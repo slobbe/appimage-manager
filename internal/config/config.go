@@ -19,7 +19,7 @@ func init() {
 		panic("failed to get home directory: " + err.Error())
 	}
 
-	AimDir = filepath.Join(home, ".local/share/appimage-manager")
+	AimDir = filepath.Join(home, ".appimage-manager")
 	DesktopDir = filepath.Join(home, ".local/share/applications")
 
 	TempDir = filepath.Join(AimDir, ".tmp")
