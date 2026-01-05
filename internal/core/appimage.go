@@ -365,12 +365,7 @@ func ExtractAppInfo(desktopSrc string) (*AppInfo, error) {
 			if result.Name == "" {
 				result.Name = value
 			}
-		case "Version":
-			if result.Version == "" {
-				result.Version = value
-			}
 		case "X-AppImage-Version":
-			// Fallback if no standard Version field
 			if result.Version == "" {
 				result.Version = value
 			}
