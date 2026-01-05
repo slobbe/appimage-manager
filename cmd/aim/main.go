@@ -107,7 +107,7 @@ func AddCmd(ctx context.Context, cmd *cli.Command) error {
 	app, err := core.IntegrateAppImage(appImage)
 
 	if err == nil {
-		fmt.Printf("Successfully integrated %s v%s (ID: %s)\n", app.Name, app.Version, app.Slug)
+		fmt.Printf("\033[0;32mSuccessfully integrated %s v%s (ID: %s)\033[0m\n", app.Name, app.Version, app.Slug)
 	}
 
 	return err
@@ -120,7 +120,7 @@ func RemoveCmd(ctx context.Context, cmd *cli.Command) error {
 	app, err := core.RemoveAppImage(id, keep)
 
 	if err == nil {
-		fmt.Printf("Successfully removed %s\n", app.Name)
+		fmt.Printf("\033[0;32mSuccessfully removed %s\033[0m\n", app.Name)
 	}
 
 	return err
