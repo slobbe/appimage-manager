@@ -139,7 +139,7 @@ func GetAppImage(appImageSrc string) (App, error) {
 		return data, err
 	}
 
-	os.RemoveAll(tempExtractDir)
+	defer os.RemoveAll(tempExtractDir)
 
 	if err := ExtractAppImage(appImageSrc, tempExtractDir); err != nil {
 		return data, err
