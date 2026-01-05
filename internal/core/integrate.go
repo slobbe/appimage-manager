@@ -77,10 +77,7 @@ func IntegrateNew(src string, db *DB) (App, error) {
 	now := NowISO()
 	appData.AddedAt = now
 	appData.UpdatedAt = now
-	
-	//url, _ := ResolveUpdateInfo(appData.UpdateInfo)
-	//update, _ := IsUpdateAvailable(appData.SHA1, appData.UpdatedAt, url)
-	
+		
 	db.Apps[appData.Slug] = &appData
 
 	if err := SaveDB(config.DbSrc, db); err != nil {

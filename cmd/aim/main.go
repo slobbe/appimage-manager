@@ -104,10 +104,19 @@ func main() {
 
 func AddCmd(ctx context.Context, cmd *cli.Command) error {
 	appImage := cmd.StringArg("app")
+	
 	app, err := core.IntegrateAppImage(appImage)
-
-	if err == nil {
-		fmt.Printf("\033[0;32mSuccessfully integrated %s v%s (ID: %s)\033[0m\n", app.Name, app.Version, app.Slug)
+	if err != nil {
+		return err
+	}
+	
+	fmt.Printf("\033[0;32mSuccessfully integrated %s v%s (ID: %s)\033[0m\n", app.Name, app.Version, app.Slug)
+	
+	if app.Type == "type-2" {
+		updateAvailable, downloadLink, _ := core.CheckForUpdate(app.Slug)
+		if updateAvailable {
+			fmt.Printf("\n\033[0;33mNewer version found!\033[0m\nDownload from \033[1m%s\033[0m\nThen integrate it with `aim add path/to/new.AppImage`\n", downloadLink)
+		}
 	}
 
 	return err
@@ -172,7 +181,7 @@ func CheckCmd(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	if updateAvailable {
-		fmt.Printf("\033[0;33mUpdate available!\033[0m\nDownload from \033[1m%s\033[0m\nThen integrate it with `aim add path/to/.AppImage`\n", downloadLink)
+		fmt.Printf("\033[0;33mUpdate available!\033[0m\nDownload from \033[1m%s\033[0m\nThen integrate it with `aim add path/to/new.AppImage`\n", downloadLink)
 	} else {
 		fmt.Printf("\033[0;32mYou are up-to-date!\033[0m\n")
 	}
