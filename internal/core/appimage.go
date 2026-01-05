@@ -1,188 +1,241 @@
 package core
 
 import (
-	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"unicode/utf8"
+	//"unicode/utf8"
 
+	"github.com/slobbe/appimage-manager/internal/config"
 	util "github.com/slobbe/appimage-manager/internal/helpers"
-	repo "github.com/slobbe/appimage-manager/internal/repository"
+	//repo "github.com/slobbe/appimage-manager/internal/repository"
 )
 
 type AppInfo struct {
 	Name    string
+	ID string
 	Version string
 }
 
-const (
-	InputTypeAppImage   string = "appimage"
-	InputTypeUnlinked   string = "unlinked"
-	InputTypeIntegrated string = "integrated"
-	InputTypeUnknown    string = "unknown"
-)
+type ExtractionData struct {
+	Dir string
+	ExecPath string
+	DesktopEntryPath string
+	IconPath string
+}
 
-func ExtractAppImage(appImageSrc, outDir string) error {
-	if appImageSrc == "" {
-		return fmt.Errorf("appimage source cannot be empty")
-	}
-	if outDir == "" {
-		return fmt.Errorf("output directory cannot be empty")
-	}
-
-	// check source file exists and is accessible
-	info, err := os.Stat(appImageSrc)
+func NExtractAppImage(ctx context.Context, src string) (*ExtractionData, error) {	
+	srcInfo, err := os.Stat(src)
 	if err != nil {
-		return fmt.Errorf("failed to access source file: %w", err)
+		return nil, fmt.Errorf("failed to access source file: %w", err)
 	}
-	if info.IsDir() {
-		return fmt.Errorf("source path is a directory, not a file: %s", appImageSrc)
+	if srcInfo.IsDir() {
+		return nil, fmt.Errorf("source path is a directory, not a file: %s", src)
 	}
-
-	// ensure source file is executable
-	if err := util.MakeExecutable(appImageSrc); err != nil {
-		return fmt.Errorf("failed to make executable: %w", err)
+	
+	srcFileExt := filepath.Ext(src)
+	srcFileName := strings.TrimSuffix(filepath.Base(src), srcFileExt)
+	fmt.Printf("name: %s, ext: %s\n", srcFileName, srcFileExt)
+	
+	if !util.HasExtension(src, ".AppImage") {
+		return nil, fmt.Errorf("source file must be an .AppImage: %s", srcFileExt)
 	}
-
-	// ensure output dir parent exists
-	outDirParent := filepath.Dir(outDir)
-	if err := os.MkdirAll(outDirParent, 0o755); err != nil {
-		return fmt.Errorf("failed to create parent directory: %w", err)
+	
+	if src, err = util.MakeAbsolute(src); err != nil {
+		return nil, fmt.Errorf("failed to make source path absolute: %w", err)
 	}
-
-	// remove existing output directory if present
-	if _, err := os.Stat(outDir); err == nil {
-		if err := os.RemoveAll(outDir); err != nil {
-			return fmt.Errorf("failed to remove existing output directory: %w", err)
-		}
+	
+	if err := util.MakeExecutable(src); err != nil {
+		return nil, fmt.Errorf("failed to make executable: %w", err)
 	}
-
-	extractCmd := exec.Command(appImageSrc, "--appimage-extract")
-	extractCmd.Dir = outDirParent
+		
+	tmpDir := config.TempDir + "-" + srcFileName
+	if err := os.MkdirAll(tmpDir, 0o755); err != nil {
+		return nil, fmt.Errorf("failed to create temporary directory %s: %w", tmpDir, err)
+	}
+	
+	defer func() {
+		_ = os.RemoveAll(tmpDir)
+	}()
+	
+	extractCmd := exec.Command(src, "--appimage-extract")
+	extractCmd.Dir = tmpDir
 
 	out, err := extractCmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("extraction failed: %w\nOutput: %s", err, string(out))
-	}
-
-	squashfsPath := filepath.Join(outDirParent, "squashfs-root")
-	if _, err := os.Stat(squashfsPath); err != nil {
-		return fmt.Errorf("extraction verification failed: squashfs-root not found")
+		return nil, fmt.Errorf("extraction failed: %w\nOutput: %s", err, string(out))
 	}
 	
-	if err := os.Rename(squashfsPath, outDir); err != nil {
-		os.RemoveAll(squashfsPath)
-		return fmt.Errorf("failed to rename extraction directory: %w", err)
+	root := filepath.Join(tmpDir, "squashfs-root")
+	if _, err := os.Stat(root); err != nil {
+		return nil, fmt.Errorf("extraction verification failed: squashfs-root not found")
+	}
+	
+	tempDesktopSrc, err := LocateDesktopFile(root)
+	tempIconSrc, err := LocateIcon(root)
+	
+	extractDir := filepath.Join(config.AimDir, "." + srcFileName)
+	if err := os.MkdirAll(extractDir, 0o755); err != nil {
+		return nil, fmt.Errorf("failed to create temporary extracttion directory %s: %w", extractDir, err)
+	}
+	
+	execSrc := filepath.Join(extractDir, srcFileName+".AppImage")
+	if _, err = util.Copy(src, execSrc); err != nil {
+		return nil, err
 	}
 
-	return nil
+	desktopSrc := filepath.Join(extractDir, srcFileName+".desktop")
+	if _, err := util.Move(tempDesktopSrc, desktopSrc); err != nil {
+		return nil, err
+	}
+
+	iconSrc := filepath.Join(extractDir, srcFileName+filepath.Ext(tempIconSrc))
+	if _, err := util.Move(tempIconSrc, iconSrc); err != nil {
+		return nil, err
+	}
+	
+	extractionData := &ExtractionData{
+		Dir: extractDir,
+		ExecPath: execSrc,
+		DesktopEntryPath: desktopSrc,
+		IconPath: iconSrc,
+	}
+	
+	return extractionData, nil
 }
 
-func UpdateDesktopFile(desktopSrc string, execCmd string, iconSrc string) error {
-	// Validate inputs
-	if desktopSrc == "" {
-		return fmt.Errorf("desktop file path cannot be empty")
+func NUpdateDesktopEntry(ctx context.Context, src string, execSrc string, iconSrc string) error {
+	if !util.HasExtension(src, ".desktop") {
+		return fmt.Errorf("source file must be a .desktop file")
 	}
-	if execCmd == "" {
-		return fmt.Errorf("exec command cannot be empty")
+	
+	if execSrc == "" || strings.ToLower(filepath.Ext(src)) == ".appimage" {
+		return fmt.Errorf("exec source file must be a .AppImage file")
 	}
+	
 	if iconSrc == "" {
-		return fmt.Errorf("icon path cannot be empty")
+		return fmt.Errorf("icon source file cannot be empty")
 	}
 
-	// Read file content
-	content, err := os.ReadFile(desktopSrc)
+	content, err := util.ReadFileContents(src)
 	if err != nil {
-		return fmt.Errorf("failed to read desktop file: %w", err)
+		return err
 	}
 
-	// Verify it's a valid UTF-8 string
-	if !utf8.Valid(content) {
-		return fmt.Errorf("desktop file is not valid UTF-8")
-	}
-
-	lines := strings.Split(string(content), "\n")
 	inDesktopEntryGroup := false
+	lines := strings.Split(content, "\n")
 	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
-		// Detect group headers
 		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
 			inDesktopEntryGroup = trimmed == "[Desktop Entry]"
 			continue
 		}
 
-		// Only modify lines within [Desktop Entry] group
 		if !inDesktopEntryGroup {
 			continue
 		}
 
-		// Handle Exec= lines - preserve arguments after command
+		// handle Exec= lines - preserve arguments after command
 		if strings.HasPrefix(trimmed, "Exec=") {
-			// Extract existing arguments after executable (e.g., %f, %U, %c)
 			existingArgs := ""
 			if idx := strings.Index(trimmed, " "); idx != -1 {
 				existingArgs = trimmed[idx:] // Keep space and arguments
 			}
-			lines[i] = "Exec=" + execCmd + existingArgs
+			lines[i] = "Exec=" + execSrc + existingArgs
 		}
 
-		// Handle Icon= lines - handle different value types per spec
+		// handle Icon= lines
 		if strings.HasPrefix(trimmed, "Icon=") {
 			lines[i] = "Icon=" + iconSrc
 		}
 	}
 
-	// Ensure file ends with newline
 	if len(lines) > 0 && lines[len(lines)-1] != "" {
 		lines = append(lines, "")
 	}
 
-	// Write back with consistent permissions (preserve existing if possible)
-	info, statErr := os.Stat(desktopSrc)
+	info, statErr := os.Stat(src)
 	var perm os.FileMode = 0o644
 	if statErr == nil {
-		perm = info.Mode().Perm() & 0o666 // Preserve permissions except executable bit
+		perm = info.Mode().Perm() & 0o666
 	}
 
-	if err := os.WriteFile(desktopSrc, []byte(strings.Join(lines, "\n")), perm); err != nil {
+	if err := os.WriteFile(src, []byte(strings.Join(lines, "\n")), perm); err != nil {
 		return fmt.Errorf("failed to write desktop file: %w", err)
 	}
 
 	return nil
 }
 
-func CreateDesktopFile(desktopSrc, name, execCmd, iconSrc, comment string) error {
-	// Validate required fields
-	if desktopSrc == "" || name == "" || execCmd == "" || iconSrc == "" {
-		return fmt.Errorf("desktopSrc, name, execCmd, and iconSrc are required")
+func GetAppInfo(ctx context.Context, desktopSrc string) (*AppInfo, error) {
+	if !util.HasExtension(desktopSrc, ".desktop") {
+		return nil, fmt.Errorf("source file must be a .desktop file")
 	}
-
-	// Ensure output directory exists
-	if err := os.MkdirAll(filepath.Dir(desktopSrc), 0o755); err != nil {
-		return fmt.Errorf("failed to create directory: %w", err)
+	
+	content, err := util.ReadFileContents(desktopSrc)
+	if err != nil {
+		return nil, err
 	}
+	
+	
+	appInfo := AppInfo{}
+	inDesktopEntry := false
+	for line := range strings.SplitSeq(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
 
-	// Build desktop file content
-	var buf bytes.Buffer
-	buf.WriteString("[Desktop Entry]\n")
-	buf.WriteString("Type=Application\n")
-	buf.WriteString("Name=" + name + "\n")
-	buf.WriteString("Exec=" + execCmd + "\n")
-	buf.WriteString("Icon=" + iconSrc + "\n")
-	if comment != "" {
-		buf.WriteString("Comment=" + comment + "\n")
+		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
+			inDesktopEntry = trimmed == "[Desktop Entry]"
+			continue
+		}
+
+		if inDesktopEntry && strings.HasPrefix(trimmed, "[") {
+			break
+		}
+
+		if !inDesktopEntry {
+			continue
+		}
+		
+		parts := strings.SplitN(trimmed, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+
+		key := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+
+		if strings.Contains(key, "[") {
+			continue
+		}
+
+		switch key {
+		case "Name":
+			if appInfo.Name == "" {
+				appInfo.Name = value
+			}
+		case "X-AppImage-Version":
+			if appInfo.Version == "" {
+				appInfo.Version = value
+			}
+		}
 	}
-	buf.WriteString("Terminal=false\n")
-	buf.WriteString("Categories=Utility;\n")
-
-	if err := os.WriteFile(desktopSrc, buf.Bytes(), 0o644); err != nil {
-		return fmt.Errorf("failed to write desktop file: %w", err)
+	
+	if appInfo.Name == "" {
+		appInfo.Name = strings.TrimSuffix(filepath.Base(desktopSrc), filepath.Ext(desktopSrc))
 	}
-
-	return nil
+	if appInfo.Version == "" {
+		appInfo.Version = "n/a"
+	}
+	
+	appInfo.ID = util.Slugify(appInfo.Name)
+	
+	return &appInfo, nil
 }
 
 func LocateDesktopFile(dir string) (string, error) {
@@ -283,6 +336,128 @@ func LocateIcon(dir string) (string, error) {
 	return "", fmt.Errorf("no icon found in: %s", dir)
 }
 
+// =========================================================
+/* 
+func UpdateDesktopFile(src string, execSrc string, iconSrc string) error {
+	if !util.HasExtension(src, ".desktop") {
+		return fmt.Errorf("source file must be a .desktop file")
+	}
+	
+	if execSrc == "" || strings.ToLower(filepath.Ext(src)) == ".appimage" {
+		return fmt.Errorf("exec source file must be a .AppImage file")
+	}
+	
+	if iconSrc == "" {
+		return fmt.Errorf("icon source file cannot be empty")
+	}
+
+	content, err := util.ReadFileContents(src)
+	if err != nil {
+		return err
+	}
+
+	inDesktopEntryGroup := false
+	lines := strings.Split(content, "\n")
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
+			inDesktopEntryGroup = trimmed == "[Desktop Entry]"
+			continue
+		}
+
+		if !inDesktopEntryGroup {
+			continue
+		}
+
+		// handle Exec= lines - preserve arguments after command
+		if strings.HasPrefix(trimmed, "Exec=") {
+			existingArgs := ""
+			if idx := strings.Index(trimmed, " "); idx != -1 {
+				existingArgs = trimmed[idx:] // Keep space and arguments
+			}
+			lines[i] = "Exec=" + execSrc + existingArgs
+		}
+
+		// handle Icon= lines
+		if strings.HasPrefix(trimmed, "Icon=") {
+			lines[i] = "Icon=" + iconSrc
+		}
+	}
+
+	if len(lines) > 0 && lines[len(lines)-1] != "" {
+		lines = append(lines, "")
+	}
+
+	info, statErr := os.Stat(src)
+	var perm os.FileMode = 0o644
+	if statErr == nil {
+		perm = info.Mode().Perm() & 0o666
+	}
+
+	if err := os.WriteFile(src, []byte(strings.Join(lines, "\n")), perm); err != nil {
+		return fmt.Errorf("failed to write desktop file: %w", err)
+	}
+
+	return nil
+}
+
+
+func ExtractAppImage(appImageSrc, outDir string) error {
+	if appImageSrc == "" {
+		return fmt.Errorf("appimage source cannot be empty")
+	}
+	if outDir == "" {
+		return fmt.Errorf("output directory cannot be empty")
+	}
+
+	// check source file exists and is accessible
+	info, err := os.Stat(appImageSrc)
+	if err != nil {
+		return fmt.Errorf("failed to access source file: %w", err)
+	}
+	if info.IsDir() {
+		return fmt.Errorf("source path is a directory, not a file: %s", appImageSrc)
+	}
+
+	// ensure source file is executable
+	if err := util.MakeExecutable(appImageSrc); err != nil {
+		return fmt.Errorf("failed to make executable: %w", err)
+	}
+
+	// ensure output dir parent exists
+	outDirParent := filepath.Dir(outDir)
+	if err := os.MkdirAll(outDirParent, 0o755); err != nil {
+		return fmt.Errorf("failed to create parent directory: %w", err)
+	}
+
+	// remove existing output directory if present
+	if _, err := os.Stat(outDir); err == nil {
+		if err := os.RemoveAll(outDir); err != nil {
+			return fmt.Errorf("failed to remove existing output directory: %w", err)
+		}
+	}
+
+	extractCmd := exec.Command(appImageSrc, "--appimage-extract")
+	extractCmd.Dir = outDirParent
+
+	out, err := extractCmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("extraction failed: %w\nOutput: %s", err, string(out))
+	}
+
+	squashfsPath := filepath.Join(outDirParent, "squashfs-root")
+	if _, err := os.Stat(squashfsPath); err != nil {
+		return fmt.Errorf("extraction verification failed: squashfs-root not found")
+	}
+	
+	if err := os.Rename(squashfsPath, outDir); err != nil {
+		os.RemoveAll(squashfsPath)
+		return fmt.Errorf("failed to rename extraction directory: %w", err)
+	}
+
+	return nil
+}
+
 func ExtractAppInfo(desktopSrc string) (*AppInfo, error) {
 	if desktopSrc == "" {
 		return nil, fmt.Errorf("desktop file path cannot be empty")
@@ -358,6 +533,13 @@ func ExtractAppInfo(desktopSrc string) (*AppInfo, error) {
 	return result, nil
 }
 
+const (
+	InputTypeAppImage   string = "appimage"
+	InputTypeUnlinked   string = "unlinked"
+	InputTypeIntegrated string = "integrated"
+	InputTypeUnknown    string = "unknown"
+)
+
 func IdentifyInput(input string) (string, string, error) {
 	if input == "" {
 		return InputTypeUnknown, input, fmt.Errorf("input cannot be empty")
@@ -394,3 +576,4 @@ func Type(src string) (string, error) {
 		return "type-1", nil
 	}
 }
+*/

@@ -10,28 +10,28 @@ import (
 	models "github.com/slobbe/appimage-manager/internal/types"
 )
 
-func RemoveAppImage(slug string, keep bool) (*models.App, error) {
-	appData, err := repo.GetApp(slug)
+func RemoveAppImage(id string, keep bool) (*models.App, error) {
+	appData, err := repo.GetApp(id)
 	if err != nil {
-		return nil, fmt.Errorf("no app with slug %s exists", slug)
+		return nil, fmt.Errorf("no app with id %s exists", id)
 	}
 
-	if err := os.Remove(appData.DesktopLink); err != nil {
+	if err := os.Remove(appData.DesktopEntryLink); err != nil {
 		return nil, fmt.Errorf("failed to remove desktop link: %w", err)
 	}
 
 	if keep {
-		appData.DesktopLink = ""
+		appData.DesktopEntryLink = ""
 		if err := repo.AddApp(appData, true); err != nil {
 			return appData, err
 		}
 		
 	} else {
-		if err := repo.RemoveApp(appData.Slug); err != nil {
+		if err := repo.RemoveApp(appData.ID); err != nil {
 			return appData, err
 		}
 
-		appDir := filepath.Join(config.AimDir, appData.Slug)
+		appDir := filepath.Join(config.AimDir, appData.ID)
 		if err := os.RemoveAll(appDir); err != nil {
 			return appData, fmt.Errorf("failed to remove app dir: %w", err)
 		}

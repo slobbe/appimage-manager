@@ -10,7 +10,9 @@ import (
 
 	"github.com/slobbe/appimage-manager/internal/config"
 	"github.com/slobbe/appimage-manager/internal/core"
+	util "github.com/slobbe/appimage-manager/internal/helpers"
 	repo "github.com/slobbe/appimage-manager/internal/repository"
+	models "github.com/slobbe/appimage-manager/internal/types"
 )
 
 var (
@@ -23,6 +25,26 @@ func main() {
 		Version: version,
 		Usage:   "Easily integrate AppImages into your desktop environment",
 		Commands: []*cli.Command{
+			{
+				Name:  "t",
+				Usage: "test",
+				Arguments: []cli.Argument{
+					&cli.StringArg{
+						Name:      "app",
+						UsageText: "<.appimage|id>",
+					},
+				},
+				Action: func(ctx context.Context, cmd *cli.Command) error {
+					app, err := core.IntegrateFromLocalFile(ctx, cmd.StringArg("app"))
+					if err != nil {
+						return err
+					}
+					
+					fmt.Printf(app.Name)
+					
+					return nil
+				},
+			},
 			{
 				Name:  "add",
 				Usage: "Integrates AppImage",
@@ -104,23 +126,48 @@ func main() {
 }
 
 func AddCmd(ctx context.Context, cmd *cli.Command) error {
-	appImage := cmd.StringArg("app")
+	input := cmd.StringArg("app")
 	
-	app, err := core.IntegrateAppImage(appImage)
-	if err != nil {
-		return err
+	inputType := identifyInputType(input)
+	
+	var app *models.App
+	
+	switch inputType {
+	case InputTypeIntegrated:
+		appData, err := repo.GetApp(input)
+		if err != nil {
+			return err
+		}
+		app = appData
+		fmt.Printf("\033[0;32m%s v%s (ID: %s) already integrated!\033[0m\n", app.Name, app.Version, app.ID)
+	case InputTypeUnlinked:
+		appData, err := core.IntegrateExisting(ctx, input)
+		if err != nil {
+			return err
+		}
+		app = appData
+		fmt.Printf("\033[0;32mSuccessfully reintegrated %s v%s (ID: %s)\033[0m\n", app.Name, app.Version, app.ID)
+	case InputTypeAppImage:
+		appData, err := core.IntegrateFromLocalFile(ctx, input)
+		if err != nil {
+			return err
+		}
+		app = appData
+		fmt.Printf("\033[0;32mSuccessfully integrated %s v%s (ID: %s)\033[0m\n", app.Name, app.Version, app.ID)
+	default:
+		return fmt.Errorf("unkown argument %s\n", input)
 	}
-	
-	fmt.Printf("\033[0;32mSuccessfully integrated %s v%s (ID: %s)\033[0m\n", app.Name, app.Version, app.Slug)
-	
+		
+	/* 
 	if app.Type == "type-2" {
 		updateAvailable, downloadLink, _ := core.CheckForUpdate(app.Slug)
 		if updateAvailable {
 			fmt.Printf("\n\033[0;33mNewer version found!\033[0m\nDownload from \033[1m%s\033[0m\nThen integrate it with `aim add path/to/new.AppImage`\n", downloadLink)
 		}
 	}
+	*/
 
-	return err
+	return nil
 }
 
 func RemoveCmd(ctx context.Context, cmd *cli.Command) error {
@@ -155,16 +202,16 @@ func ListCmd(ctx context.Context, cmd *cli.Command) error {
 
 	if all || integrated {
 		for _, app := range apps {
-			if len(app.DesktopLink) > 0 {
-				fmt.Fprintf(os.Stdout, "%-15s %-20s %-15s\n", app.Slug, app.Name, app.Version)
+			if len(app.DesktopEntryLink) > 0 {
+				fmt.Fprintf(os.Stdout, "%-15s %-20s %-15s\n", app.ID, app.Name, app.Version)
 			}
 		}
 	}
 
 	if all || unlinked {
 		for _, app := range apps {
-			if len(app.DesktopLink) == 0 {
-				fmt.Fprintf(os.Stdout, "\033[2m\033[3m%-15s %-20s %-15s\033[0m\n", app.Slug, app.Name, app.Version)
+			if len(app.DesktopEntryLink) == 0 {
+				fmt.Fprintf(os.Stdout, "\033[2m\033[3m%-15s %-20s %-15s\033[0m\n", app.ID, app.Name, app.Version)
 			}
 		}
 	}
@@ -173,6 +220,7 @@ func ListCmd(ctx context.Context, cmd *cli.Command) error {
 }
 
 func CheckCmd(ctx context.Context, cmd *cli.Command) error {
+	/* 
 	updateAvailable, downloadLink, err := core.CheckForUpdate(cmd.StringArg("app"))
 
 	if err != nil {
@@ -185,6 +233,30 @@ func CheckCmd(ctx context.Context, cmd *cli.Command) error {
 	} else {
 		fmt.Printf("\033[0;32mYou are up-to-date!\033[0m\n")
 	}
-
+*/
 	return nil
+}
+
+const (
+	InputTypeAppImage   string = "appimage"
+	InputTypeUnlinked   string = "unlinked"
+	InputTypeIntegrated string = "integrated"
+	InputTypeUnknown    string = "unknown"
+)
+
+func identifyInputType(input string) string {
+	if util.HasExtension(input, ".AppImage") {
+		return InputTypeAppImage
+	}
+	
+	app, err := repo.GetApp(input)
+	if err != nil {
+		return InputTypeUnknown
+	}
+	
+	if app.DesktopEntryLink == "" {
+		return InputTypeUnlinked
+	} else {
+		return InputTypeIntegrated
+	}
 }

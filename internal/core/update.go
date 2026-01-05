@@ -1,17 +1,20 @@
 package core
 
 import (
-	"bufio"
+	//"bufio"
 	"debug/elf"
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
+
+	//"time"
 
 	util "github.com/slobbe/appimage-manager/internal/helpers"
-	repo "github.com/slobbe/appimage-manager/internal/repository"
+	models "github.com/slobbe/appimage-manager/internal/types"
+	//repo "github.com/slobbe/appimage-manager/internal/repository"
 )
 
+/*
 func CheckForUpdate(input string) (bool, string, error) {
 	inputType, src, err := IdentifyInput(input)
 	if err != nil {
@@ -77,14 +80,99 @@ func CheckForUpdate(input string) (bool, string, error) {
 
 	return update.Available, update.DownloadUrl, nil
 }
+*/
 
-func GetUpdateInfo(path string) (string, error) {
-	path, err := util.MakeAbsolute(path)
+
+type UpdateInfo struct {
+	Kind models.UpdateKind
+	
+	UpdateInfo string
+	UpdateUrl string
+	Transport string
+}
+
+func GetUpdateInfo(src string) (*UpdateInfo, error) {
+	info, err := extractUpdateInfo(src)
+	if err != nil {
+		return nil, err
+	}
+	
+	updateInfo := &UpdateInfo{}
+	
+	updateInfo.UpdateInfo = info
+	
+	parts := strings.Split(info, "|")
+
+	switch parts[0] {
+	case "zsync":
+		if len(parts) < 2 {
+			return nil, fmt.Errorf("invalid update info")
+		}
+		
+		updateInfo.Kind = models.UpdateZsync
+		updateInfo.Transport = "zsync"
+		updateInfo.UpdateUrl = parts[1]
+	case "gh-releases-zsync":
+		if len(parts) < 5 {
+			return nil, fmt.Errorf("invalid update info")
+		}
+		updateInfo.Kind = models.UpdateZsync
+		updateInfo.Transport = "gh-releases"
+		
+		owner := parts[1]
+		repo := parts[2]
+		tag := parts[3]
+		zsyncFile := parts[4]
+
+		if tag == "latest" {
+			latestTag, err := githubLatestVersionTag(owner, repo)
+			if err != nil {
+				return nil, err
+			}
+
+			tag = latestTag
+		}
+
+		zsyncFile = strings.Replace(zsyncFile, "*", tag, -1)
+
+		updateInfo.UpdateUrl = strings.Join(
+			[]string{"https://github.com", owner, repo, "releases/download", tag, zsyncFile},
+			"/")
+	}
+
+	return updateInfo, nil
+}
+
+func githubLatestVersionTag(owner, repo string) (string, error) {
+	url := fmt.Sprintf("https://github.com/%s/%s/releases/latest", owner, repo)
+
+	client := &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	resp, err := client.Get(url)
+	if err != nil {
+		return "", err
+	}
+	loc := resp.Header.Get("Location")
+	parts := strings.Split(loc, "/")
+
+	return parts[len(parts)-1], nil
+}
+
+func extractUpdateInfo(src string) (string, error) {
+	if !util.HasExtension(src, ".AppImage") {
+		return "", fmt.Errorf("source must be .AppImage file")
+	}
+	
+	src, err := util.MakeAbsolute(src)
 	if err != nil {
 		return "", err
 	}
 
-	f, err := elf.Open(path)
+	f, err := elf.Open(src)
 	if err != nil {
 		return "", err
 	}
@@ -108,64 +196,7 @@ func GetUpdateInfo(path string) (string, error) {
 	return strings.TrimSpace(strData), nil
 }
 
-func ResolveUpdateInfo(info string) (string, error) {
-	parts := strings.Split(info, "|")
-
-	var url string
-	switch parts[0] {
-	case "zsync":
-		if len(parts) < 2 {
-			return "", fmt.Errorf("invalid update info")
-		}
-
-		url = parts[1]
-	case "gh-releases-zsync":
-		if len(parts) < 5 {
-			return "", fmt.Errorf("invalid update info")
-		}
-		owner := parts[1]
-		repo := parts[2]
-		tag := parts[3]
-		zsyncFile := parts[4]
-
-		if tag == "latest" {
-			latestTag, err := GithubLatestVersionTag(owner, repo)
-			if err != nil {
-				return "", err
-			}
-
-			tag = latestTag
-		}
-
-		zsyncFile = strings.Replace(zsyncFile, "*", tag, -1)
-
-		url = strings.Join(
-			[]string{"https://github.com", owner, repo, "releases/download", tag, zsyncFile},
-			"/")
-	}
-
-	return url, nil
-}
-
-func GithubLatestVersionTag(owner, repo string) (string, error) {
-	url := fmt.Sprintf("https://github.com/%s/%s/releases/latest", owner, repo)
-
-	client := &http.Client{
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
-
-	resp, err := client.Get(url)
-	if err != nil {
-		return "", err
-	}
-	loc := resp.Header.Get("Location")
-	parts := strings.Split(loc, "/")
-
-	return parts[len(parts)-1], nil
-}
-
+/*
 type UpdateData struct {
 	Available        bool
 	DownloadUrl      string
@@ -222,3 +253,4 @@ func IsUpdateAvailable(localSha1 string, localTime string, zsyncUrl string) (Upd
 
 	return update, nil
 }
+ */

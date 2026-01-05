@@ -62,7 +62,7 @@ func AddApp(appData *models.App, overwrite bool) error {
 		return err
 	}
 
-	key := appData.Slug
+	key := appData.ID
 	if len(key) < 1 {
 		return fmt.Errorf("invalid app slug")
 	}
