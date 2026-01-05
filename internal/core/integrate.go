@@ -71,7 +71,7 @@ func IntegrateNew(src string, db *DB) (App, error) {
 	if appData.DesktopLink, err = MakeDesktopLink(appData.Desktop, filepath.Base("aim-"+appData.Slug+".desktop")); err != nil {
 		return App{}, err
 	}
-	
+
 	_, err = SetMetadata(&appData)
 
 	now := NowISO()
@@ -99,9 +99,9 @@ func Reintegrate(slug string, db *DB) (App, error) {
 		return *app, err
 	}
 	app.DesktopLink = desktopLink
-	
+
 	SetMetadata(app)
-	
+
 	now := NowISO()
 	app.AddedAt = now
 	app.UpdatedAt = now
@@ -209,10 +209,9 @@ func MakeDesktopLink(src string, name string) (string, error) {
 	return desktopLink, nil
 }
 
-
 func SetMetadata(appData *App) (*App, error) {
 	var err error
-	
+
 	if appData.SHA256, err = util.Sha256File(appData.AppImage); err != nil {
 		return appData, err
 	}
@@ -224,10 +223,10 @@ func SetMetadata(appData *App) (*App, error) {
 	if appData.Type, err = Type(appData.AppImage); err != nil {
 		return appData, err
 	}
-	
+
 	if appData.Type == "type-2" {
 		appData.UpdateInfo, _ = GetUpdateInfo(appData.AppImage)
 	}
-	
+
 	return appData, nil
 }
