@@ -192,13 +192,14 @@ func CheckCmd(ctx context.Context, cmd *cli.Command) error {
 
 	updateAvailable, downloadLink, err := core.CheckForUpdate(pathToAppImage)
 	if err != nil {
+		fmt.Printf("\033[0;31mUnable to retrieve update information\033[0m\n")
 		return err
 	}
 
 	if updateAvailable {
-		fmt.Printf("\033[0;32mUpdate available!\033[0m\nDownload from \033[1m%s\033[0m\nThen integrate it with `aim add path/to/.AppImage`\n", downloadLink)
+		fmt.Printf("\033[0;33mUpdate available!\033[0m\nDownload from \033[1m%s\033[0m\nThen integrate it with `aim add path/to/.AppImage`\n", downloadLink)
 	} else {
-		fmt.Printf("No updates found!\n")
+		fmt.Printf("\033[0;32mYou are up-to-date!\033[0m\n")
 	}
 
 	return nil
