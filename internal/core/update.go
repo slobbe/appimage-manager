@@ -8,17 +8,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/slobbe/appimage-manager/internal/config"
 	util "github.com/slobbe/appimage-manager/internal/helpers"
+	repo "github.com/slobbe/appimage-manager/internal/repository"
 )
 
 func CheckForUpdate(input string) (bool, string, error) {
-	db, err := LoadDB(config.DbSrc)
-	if err != nil {
-		return false, "", err
-	}
-
-	inputType, src, err := IdentifyInput(input, db)
+	inputType, src, err := IdentifyInput(input)
 	if err != nil {
 		return false, "", err
 	}
@@ -44,7 +39,11 @@ func CheckForUpdate(input string) (bool, string, error) {
 		}
 		updatedTimestamp = ""
 	case InputTypeIntegrated:
-		app := db.Apps[src]
+		app, err := repo.GetApp(src)
+		if err != nil {
+			return false, "", err
+		}
+
 		if app.Type == "type-1" {
 			return false, "", fmt.Errorf("%s is a type-1 appimage and doesn't contain update information", app.Name)
 		}
@@ -52,7 +51,10 @@ func CheckForUpdate(input string) (bool, string, error) {
 		sha1 = app.SHA1
 		updatedTimestamp = app.UpdatedAt
 	case InputTypeUnlinked:
-		app := db.Apps[src]
+		app, err := repo.GetApp(src)
+		if err != nil {
+			return false, "", err
+		}
 		if app.Type == "type-1" {
 			return false, "", fmt.Errorf("%s is a type-1 appimage and doesn't contain update information", app.Name)
 		}
@@ -165,24 +167,24 @@ func GithubLatestVersionTag(owner, repo string) (string, error) {
 }
 
 type UpdateData struct {
-	Available bool
-	DownloadUrl string
+	Available        bool
+	DownloadUrl      string
 	DownloadUrlZsync string
-	RemoteTime string
-	RemoteSha1 string
-	RemoteFilename string
+	RemoteTime       string
+	RemoteSha1       string
+	RemoteFilename   string
 }
 
 func IsUpdateAvailable(localSha1 string, localTime string, zsyncUrl string) (UpdateData, error) {
 	update := UpdateData{
-		Available: false,
-		DownloadUrl: "",
+		Available:        false,
+		DownloadUrl:      "",
 		DownloadUrlZsync: zsyncUrl,
-		RemoteSha1: "",
-		RemoteTime: "",
-		RemoteFilename: "",
+		RemoteSha1:       "",
+		RemoteTime:       "",
+		RemoteFilename:   "",
 	}
-	
+
 	resp, err := http.Get(zsyncUrl)
 	if err != nil {
 		return update, err

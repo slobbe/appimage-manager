@@ -10,6 +10,7 @@ import (
 
 	"github.com/slobbe/appimage-manager/internal/config"
 	"github.com/slobbe/appimage-manager/internal/core"
+	repo "github.com/slobbe/appimage-manager/internal/repository"
 )
 
 var (
@@ -144,12 +145,11 @@ func ListCmd(ctx context.Context, cmd *cli.Command) error {
 		all = true
 	}
 
-	db, err := core.LoadDB(config.DbSrc)
+	
+	apps, err := repo.GetAllApps()
 	if err != nil {
 		return err
 	}
-
-	apps := db.Apps
 
 	fmt.Printf("\033[1m\033[4m%-15s %-20s %-15s\033[0m\n", "ID", "App Name", "Version")
 

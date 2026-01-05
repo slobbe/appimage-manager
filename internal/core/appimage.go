@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	util "github.com/slobbe/appimage-manager/internal/helpers"
+	repo "github.com/slobbe/appimage-manager/internal/repository"
 )
 
 type AppInfo struct {
@@ -357,7 +358,7 @@ func ExtractAppInfo(desktopSrc string) (*AppInfo, error) {
 	return result, nil
 }
 
-func IdentifyInput(input string, database *DB) (string, string, error) {
+func IdentifyInput(input string) (string, string, error) {
 	if input == "" {
 		return InputTypeUnknown, input, fmt.Errorf("input cannot be empty")
 	}
@@ -368,10 +369,11 @@ func IdentifyInput(input string, database *DB) (string, string, error) {
 	}
 
 	// Check database
-	app, exists := database.Apps[input]
-	if !exists {
-		return InputTypeUnknown, input, nil
+	app, err := repo.GetApp(input)
+	if err != nil {
+		return InputTypeUnknown, input, err
 	}
+	
 
 	if len(app.DesktopLink) > 0 {
 		return InputTypeIntegrated, (*app).Slug, nil

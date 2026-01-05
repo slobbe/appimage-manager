@@ -9,35 +9,28 @@ import (
 
 	"github.com/slobbe/appimage-manager/internal/config"
 	util "github.com/slobbe/appimage-manager/internal/helpers"
+	repo "github.com/slobbe/appimage-manager/internal/repository"
+	models "github.com/slobbe/appimage-manager/internal/types"
 )
 
-func IntegrateAppImage(src string) (App, error) {
-	db, err := LoadDB(config.DbSrc)
-	if err != nil {
-		return App{}, err
-	}
-
-	inputType, src, err := IdentifyInput(src, db)
-	if err != nil {
-		return App{}, err
-	}
-
-	var app App
-
+func IntegrateAppImage(src string) (*models.App, error) {
+	inputType, src, err := IdentifyInput(src)
+	
+	var app *models.App
 	switch inputType {
 	case InputTypeUnknown:
-		return App{}, fmt.Errorf("invalid input: %s", src)
+		return nil, fmt.Errorf("invalid input: %s", src)
 	case InputTypeIntegrated:
-		return App{}, fmt.Errorf("%s is already integrated", src)
+		return nil, fmt.Errorf("%s is already integrated", src)
 	case InputTypeUnlinked:
-		app, err = Reintegrate(src, db)
+		app, err = IntegrateExisting(src)
 		if err != nil {
-			return App{}, err
+			return nil, err
 		}
 	case InputTypeAppImage:
-		app, err = IntegrateNew(src, db)
+		app, err = IntegrateNew(src)
 		if err != nil {
-			return App{}, err
+			return nil, err
 		}
 	}
 
@@ -47,74 +40,72 @@ func IntegrateAppImage(src string) (App, error) {
 	return app, nil
 }
 
-func IntegrateNew(src string, db *DB) (App, error) {
+func IntegrateNew(src string) (*models.App, error) {
 	src, err := util.MakeAbsolute(src)
 	if err != nil {
-		return App{}, err
+		return nil, err
 	}
 
 	appData, err := GetAppImage(src)
 	if err != nil {
-		return App{}, err
+		return nil, err
 	}
 
 	// make appimage executable
 	if err := util.MakeExecutable(appData.AppImage); err != nil {
-		return App{}, err
+		return nil, err
 	}
 
 	if err := UpdateDesktopFile(appData.Desktop, appData.AppImage, appData.Icon); err != nil {
-		return App{}, err
+		return nil, err
 	}
 
 	// make desktop symlink for system integration
 	if appData.DesktopLink, err = MakeDesktopLink(appData.Desktop, filepath.Base("aim-"+appData.Slug+".desktop")); err != nil {
-		return App{}, err
+		return nil, err
 	}
 
-	_, err = SetMetadata(&appData)
-	
-	now := NowISO()
+	_, err = SetMetadata(appData)
+
+	now := util.NowISO()
 	appData.AddedAt = now
 	appData.UpdatedAt = now
-		
-	db.Apps[appData.Slug] = &appData
 
-	if err := SaveDB(config.DbSrc, db); err != nil {
-		return App{}, err
+	if err := repo.AddApp(appData, true); err != nil {
+		return appData, err
 	}
 
 	return appData, nil
 }
 
-func Reintegrate(slug string, db *DB) (App, error) {
-	app, exists := db.Apps[slug]
-	if !exists {
-		return App{}, fmt.Errorf("%s could not be found in app registry", slug)
+func IntegrateExisting(slug string) (*models.App, error) {
+	app, err := repo.GetApp(slug)
+	if err != nil {
+		return nil, fmt.Errorf("%s could not be found in app registry", slug)
 	}
 
 	// make desktop symlink for system integration
 	desktopLink, err := MakeDesktopLink(app.Desktop, filepath.Base("aim-"+app.Slug+".desktop"))
 	if err != nil {
-		return *app, err
+		return app, err
 	}
 	app.DesktopLink = desktopLink
 
 	SetMetadata(app)
 
-	now := NowISO()
+	now := util.NowISO()
 	app.AddedAt = now
 	app.UpdatedAt = now
 
-	if err := SaveDB(config.DbSrc, db); err != nil {
-		return *app, err
+	if err := repo.AddApp(app, true); err != nil {
+		return app, err
 	}
 
-	return *app, nil
+	return app, nil
 }
 
-func GetAppImage(appImageSrc string) (App, error) {
-	data := App{
+func GetAppImage(appImageSrc string) (*models.App, error) {
+	data := &models.App{
 		AppImage:    appImageSrc,
 		Name:        "",
 		Slug:        "",
@@ -209,7 +200,7 @@ func MakeDesktopLink(src string, name string) (string, error) {
 	return desktopLink, nil
 }
 
-func SetMetadata(appData *App) (*App, error) {
+func SetMetadata(appData *models.App) (*models.App, error) {
 	var err error
 
 	if appData.SHA256, err = util.Sha256File(appData.AppImage); err != nil {
