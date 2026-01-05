@@ -90,23 +90,6 @@ func main() {
 				},
 				Action: CheckCmd,
 			},
-			{
-				Name:  "c",
-				Usage: "Checks for new update",
-				Arguments: []cli.Argument{
-					&cli.StringArg{
-						Name:      "app",
-						UsageText: "<.appimage|id>",
-					},
-				},
-				Action: func(ctx context.Context, cmd *cli.Command) error {
-					core.CheckBulk([]string{
-						"/home/sebastian/Downloads/helium-0.7.7.1-x86_64.AppImage",
-						"/home/sebastian/Downloads/Cursor-2.2.43-x86_64.AppImage",
-					})
-					return nil
-				},
-			},
 		},
 	}
 
@@ -186,18 +169,34 @@ func CheckCmd(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
-	_, src, err := core.IdentifyInput(cmd.StringArg("app"), db)
+	inputType, src, err := core.IdentifyInput(cmd.StringArg("app"), db)
 	if err != nil {
 		return err
 	}
 
-	updateAvailable, downloadLink, err := core.CheckForUpdate(src)
+	if inputType == core.InputTypeUnknown {
+		return fmt.Errorf("unknown input type")
+	}
+
+	var pathToAppImage string
+	switch inputType {
+	case core.InputTypeAppImage:
+		pathToAppImage = src
+	case core.InputTypeIntegrated:
+		pathToAppImage = db.Apps[src].AppImage
+	case core.InputTypeUnlinked:
+		pathToAppImage = db.Apps[src].AppImage
+	default:
+		return fmt.Errorf("unknown input")
+	}
+
+	updateAvailable, downloadLink, err := core.CheckForUpdate(pathToAppImage)
 	if err != nil {
 		return err
 	}
 
 	if updateAvailable {
-		fmt.Printf("Update available!\nGo to: %s\n", downloadLink)
+		fmt.Printf("\033[0;32mUpdate available!\033[0m\nDownload from \033[1m%s\033[0m\nThen integrate it with `aim add path/to/.AppImage`\n", downloadLink)
 	} else {
 		fmt.Printf("No updates found!\n")
 	}
