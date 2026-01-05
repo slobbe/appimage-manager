@@ -31,14 +31,10 @@ go build ./cmd/aim
 **Integrate** AppImage into your desktop environment:
 
 ```sh
-aim add [options] <.appimage|id>
+aim add <.appimage|id>
 ```
 
 If given an ID of an unlinked AppImage it reintegrates it.
-
-| Option         | Meaning                                 |
-| :------------- | :-------------------------------------- |
-| `--move`, `-m` | move the AppImage instead of copying it |
 
 **Remove** AppImage:
 
