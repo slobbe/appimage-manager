@@ -204,7 +204,6 @@ func IsUpdateAvailable(localSha1 string, localTime string, zsyncUrl string) (Upd
 		if strings.HasPrefix(line, "MTime:") {
 			t, _ := time.Parse(time.RFC1123, strings.TrimSpace(strings.TrimPrefix(line, "MTime:")))
 			update.RemoteTime = t.Format(time.RFC3339)
-			fmt.Printf("Remote time %s\n", update.RemoteTime)
 		}
 	}
 
@@ -215,7 +214,6 @@ func IsUpdateAvailable(localSha1 string, localTime string, zsyncUrl string) (Upd
 	update.DownloadUrl = zsyncUrl[:lastSlash+1] + update.RemoteFilename
 
 	localT, _ := time.Parse(time.RFC3339, localTime)
-	fmt.Printf("Local time %s\n", localT.Format(time.RFC3339))
 	remoteT, _ := time.Parse(time.RFC3339, update.RemoteTime)
 
 	update.Available = remoteT.After(localT) && update.RemoteSha1 != localSha1

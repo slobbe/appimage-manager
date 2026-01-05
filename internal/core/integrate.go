@@ -78,12 +78,8 @@ func IntegrateNew(src string, db *DB) (App, error) {
 	appData.AddedAt = now
 	appData.UpdatedAt = now
 	
-	url, _ := ResolveUpdateInfo(appData.UpdateInfo)
-	update, _ := IsUpdateAvailable(appData.SHA1, appData.UpdatedAt, url)
-	
-	if !update.Available && len(update.RemoteTime) > 0 {
-		appData.UpdatedAt = update.RemoteTime
-	}
+	//url, _ := ResolveUpdateInfo(appData.UpdateInfo)
+	//update, _ := IsUpdateAvailable(appData.SHA1, appData.UpdatedAt, url)
 	
 	db.Apps[appData.Slug] = &appData
 
