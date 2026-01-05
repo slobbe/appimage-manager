@@ -25,15 +25,14 @@ const (
 )
 
 func ExtractAppImage(appImageSrc, outDir string) error {
-	// Validate inputs
 	if appImageSrc == "" {
-		return fmt.Errorf("appimage source path cannot be empty")
+		return fmt.Errorf("appimage source cannot be empty")
 	}
 	if outDir == "" {
 		return fmt.Errorf("output directory cannot be empty")
 	}
 
-	// Check source file exists and is accessible
+	// check source file exists and is accessible
 	info, err := os.Stat(appImageSrc)
 	if err != nil {
 		return fmt.Errorf("failed to access source file: %w", err)
@@ -42,48 +41,38 @@ func ExtractAppImage(appImageSrc, outDir string) error {
 		return fmt.Errorf("source path is a directory, not a file: %s", appImageSrc)
 	}
 
-	// Ensure output directory parent exists
+	// ensure source file is executable
+	if err := util.MakeExecutable(appImageSrc); err != nil {
+		return fmt.Errorf("failed to make executable: %w", err)
+	}
+
+	// ensure output dir parent exists
 	outDirParent := filepath.Dir(outDir)
 	if err := os.MkdirAll(outDirParent, 0o755); err != nil {
 		return fmt.Errorf("failed to create parent directory: %w", err)
 	}
 
-	// Remove existing output directory if present
+	// remove existing output directory if present
 	if _, err := os.Stat(outDir); err == nil {
 		if err := os.RemoveAll(outDir); err != nil {
 			return fmt.Errorf("failed to remove existing output directory: %w", err)
 		}
 	}
 
-	// Ensure source file is executable
-	if err := util.MakeExecutable(appImageSrc); err != nil {
-		return fmt.Errorf("failed to make executable: %w", err)
-	}
-
-	// Try extraction with Type 2 syntax first (supports both types via --appimage-help)
-	// Some AppImages use different extraction methods
 	extractCmd := exec.Command(appImageSrc, "--appimage-extract")
 	extractCmd.Dir = outDirParent
 
 	out, err := extractCmd.CombinedOutput()
 	if err != nil {
-		// Try Type 1 syntax as fallback
-		extractCmd = exec.Command(appImageSrc, "--appimage-extract-and-run")
-		out, err = extractCmd.CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("extraction failed: %w\nOutput: %s", err, string(out))
-		}
+		return fmt.Errorf("extraction failed: %w\nOutput: %s", err, string(out))
 	}
 
-	// Verify extraction created the expected directory
 	squashfsPath := filepath.Join(outDirParent, "squashfs-root")
 	if _, err := os.Stat(squashfsPath); err != nil {
 		return fmt.Errorf("extraction verification failed: squashfs-root not found")
 	}
-
-	// Rename extraction directory to desired output path
+	
 	if err := os.Rename(squashfsPath, outDir); err != nil {
-		// Clean up partial extraction on rename failure
 		os.RemoveAll(squashfsPath)
 		return fmt.Errorf("failed to rename extraction directory: %w", err)
 	}
@@ -294,12 +283,10 @@ func LocateIcon(dir string) (string, error) {
 }
 
 func ExtractAppInfo(desktopSrc string) (*AppInfo, error) {
-	// Validate input
 	if desktopSrc == "" {
 		return nil, fmt.Errorf("desktop file path cannot be empty")
 	}
 
-	// Check file exists
 	info, err := os.Stat(desktopSrc)
 	if err != nil {
 		return nil, fmt.Errorf("failed to access desktop file: %w", err)
@@ -308,13 +295,11 @@ func ExtractAppInfo(desktopSrc string) (*AppInfo, error) {
 		return nil, fmt.Errorf("path is a directory, not a file: %s", desktopSrc)
 	}
 
-	// Read file content
 	content, err := os.ReadFile(desktopSrc)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read desktop file: %w", err)
 	}
 
-	// Validate UTF-8
 	if !utf8.Valid(content) {
 		return nil, fmt.Errorf("desktop file is not valid UTF-8")
 	}
@@ -322,22 +307,17 @@ func ExtractAppInfo(desktopSrc string) (*AppInfo, error) {
 	result := &AppInfo{}
 	inDesktopEntry := false
 
-	// Parse line by line
-	for _, line := range strings.Split(string(content), "\n") {
+	for line := range strings.SplitSeq(string(content), "\n") {
 		trimmed := strings.TrimSpace(line)
-
-		// Skip empty lines and comments
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			continue
 		}
 
-		// Detect group headers
 		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
 			inDesktopEntry = trimmed == "[Desktop Entry]"
 			continue
 		}
 
-		// Stop if we exit Desktop Entry group
 		if inDesktopEntry && strings.HasPrefix(trimmed, "[") {
 			break
 		}
@@ -346,7 +326,6 @@ func ExtractAppInfo(desktopSrc string) (*AppInfo, error) {
 			continue
 		}
 
-		// Parse key=value pairs
 		parts := strings.SplitN(trimmed, "=", 2)
 		if len(parts) != 2 {
 			continue
@@ -355,7 +334,6 @@ func ExtractAppInfo(desktopSrc string) (*AppInfo, error) {
 		key := strings.TrimSpace(parts[0])
 		value := strings.TrimSpace(parts[1])
 
-		// Skip localized entries (e.g., Name[en_US]) - use unlocalized only
 		if strings.Contains(key, "[") {
 			continue
 		}
@@ -372,7 +350,6 @@ func ExtractAppInfo(desktopSrc string) (*AppInfo, error) {
 		}
 	}
 
-	// Validate required fields
 	if result.Name == "" {
 		return nil, fmt.Errorf("missing required Name field in: %s", desktopSrc)
 	}
@@ -400,5 +377,18 @@ func IdentifyInput(input string, database *DB) (string, string, error) {
 		return InputTypeIntegrated, (*app).Slug, nil
 	} else {
 		return InputTypeUnlinked, (*app).Slug, nil
+	}
+}
+
+func Type(src string) (string, error) {
+	updInfo, err := GetUpdateInfo(src)
+	if err != nil {
+		return "", err
+	}
+	
+	if len(updInfo) > 0 {
+		return "type-2", nil
+	} else {
+		return "type-1", nil
 	}
 }

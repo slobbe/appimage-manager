@@ -23,6 +23,7 @@ type App struct {
 	UpdatedAt   string `json:"updatedAt"`
 	SHA256      string `json:"sha256"`
 	SHA1        string `json:"sha1"`
+	Type 		string `json:"type"`
 }
 
 func LoadDB(path string) (*DB, error) {

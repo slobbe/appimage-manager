@@ -23,7 +23,7 @@ func IntegrateAppImage(src string) (App, error) {
 	}
 
 	var app App
-	
+
 	switch inputType {
 	case InputTypeUnknown:
 		return App{}, fmt.Errorf("invalid input: %s", src)
@@ -68,17 +68,19 @@ func IntegrateNew(src string, db *DB) (App, error) {
 	}
 
 	// make desktop symlink for system integration
-	appData.DesktopLink, err = MakeDesktopLink(appData.Desktop, filepath.Base("aim-"+appData.Slug+".desktop"))
-	if err != nil {
+	if appData.DesktopLink, err = MakeDesktopLink(appData.Desktop, filepath.Base("aim-"+appData.Slug+".desktop")); err != nil {
 		return App{}, err
 	}
 
-	appData.SHA256, err = util.Sha256File(appData.AppImage)
-	if err != nil {
+	if appData.SHA256, err = util.Sha256File(appData.AppImage); err != nil {
 		return App{}, err
 	}
-	appData.SHA1, err = util.Sha1(appData.AppImage)
-	if err != nil {
+
+	if appData.SHA1, err = util.Sha1(appData.AppImage); err != nil {
+		return App{}, err
+	}
+
+	if appData.Type, err = Type(appData.AppImage); err != nil {
 		return App{}, err
 	}
 
@@ -137,6 +139,8 @@ func GetAppImage(appImageSrc string) (App, error) {
 		return data, err
 	}
 
+	os.RemoveAll(tempExtractDir)
+
 	if err := ExtractAppImage(appImageSrc, tempExtractDir); err != nil {
 		return data, err
 	}
@@ -185,8 +189,6 @@ func GetAppImage(appImageSrc string) (App, error) {
 	if _, err := util.Move(iconSrc, filepath.Join(extractDir, data.Slug+filepath.Ext(iconSrc))); err != nil {
 		return data, err
 	}
-
-	_ = os.RemoveAll(tempExtractDir)
 
 	return data, nil
 }
