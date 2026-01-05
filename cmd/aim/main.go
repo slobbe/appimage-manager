@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"time"
 
 	"github.com/urfave/cli/v3"
 
@@ -123,24 +122,24 @@ func main() {
 func AddCmd(ctx context.Context, cmd *cli.Command) error {
 	appImage := cmd.StringArg("app")
 	app, err := core.IntegrateAppImage(appImage)
-	
+
 	if err == nil {
 		fmt.Printf("Successfully integrated %s v%s (ID: %s)\n", app.Name, app.Version, app.Slug)
 	}
-	
+
 	return err
 }
 
 func RemoveCmd(ctx context.Context, cmd *cli.Command) error {
 	id := cmd.StringArg("id")
 	keep := cmd.Bool("keep")
-	
+
 	app, err := core.RemoveAppImage(id, keep)
-	
+
 	if err == nil {
 		fmt.Printf("Successfully removed %s\n", app.Name)
 	}
-	
+
 	return err
 }
 
