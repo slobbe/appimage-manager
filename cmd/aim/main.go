@@ -26,26 +26,6 @@ func main() {
 		Usage:   "Easily integrate AppImages into your desktop environment",
 		Commands: []*cli.Command{
 			{
-				Name:  "t",
-				Usage: "test",
-				Arguments: []cli.Argument{
-					&cli.StringArg{
-						Name:      "app",
-						UsageText: "<.appimage|id>",
-					},
-				},
-				Action: func(ctx context.Context, cmd *cli.Command) error {
-					app, err := core.IntegrateFromLocalFile(ctx, cmd.StringArg("app"))
-					if err != nil {
-						return err
-					}
-
-					fmt.Printf(app.Name)
-
-					return nil
-				},
-			},
-			{
 				Name:  "add",
 				Usage: "Integrates AppImage",
 				Arguments: []cli.Argument{
