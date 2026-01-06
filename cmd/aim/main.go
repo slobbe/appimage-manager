@@ -39,9 +39,9 @@ func main() {
 					if err != nil {
 						return err
 					}
-					
+
 					fmt.Printf(app.Name)
-					
+
 					return nil
 				},
 			},
@@ -127,11 +127,11 @@ func main() {
 
 func AddCmd(ctx context.Context, cmd *cli.Command) error {
 	input := cmd.StringArg("app")
-	
+
 	inputType := identifyInputType(input)
-	
+
 	var app *models.App
-	
+
 	switch inputType {
 	case InputTypeIntegrated:
 		appData, err := repo.GetApp(input)
@@ -157,15 +157,16 @@ func AddCmd(ctx context.Context, cmd *cli.Command) error {
 	default:
 		return fmt.Errorf("unkown argument %s\n", input)
 	}
-		
-	/* 
-	if app.Type == "type-2" {
-		updateAvailable, downloadLink, _ := core.CheckForUpdate(app.Slug)
-		if updateAvailable {
-			fmt.Printf("\n\033[0;33mNewer version found!\033[0m\nDownload from \033[1m%s\033[0m\nThen integrate it with `aim add path/to/new.AppImage`\n", downloadLink)
+
+	if app.Update.Kind == "zsync" {
+		update, err := core.ZsyncUpdateCheck(app.Update, app.SHA1)
+
+		if update != nil && update.Available {
+			fmt.Printf("\n\033[0;33mNewer version found!\033[0m\nDownload from \033[1m%s\033[0m\nThen integrate it with `aim add path/to/new.AppImage`\n", update.DownloadUrl)
 		}
+
+		return err
 	}
-	*/
 
 	return nil
 }
@@ -192,7 +193,6 @@ func ListCmd(ctx context.Context, cmd *cli.Command) error {
 		all = true
 	}
 
-	
 	apps, err := repo.GetAllApps()
 	if err != nil {
 		return err
@@ -220,20 +220,20 @@ func ListCmd(ctx context.Context, cmd *cli.Command) error {
 }
 
 func CheckCmd(ctx context.Context, cmd *cli.Command) error {
-	/* 
-	updateAvailable, downloadLink, err := core.CheckForUpdate(cmd.StringArg("app"))
+	/*
+		updateAvailable, downloadLink, err := core.CheckForUpdate(cmd.StringArg("app"))
 
-	if err != nil {
-		fmt.Printf("\033[0;31mUnable to retrieve update information\033[0m\n")
-		return err
-	}
+		if err != nil {
+			fmt.Printf("\033[0;31mUnable to retrieve update information\033[0m\n")
+			return err
+		}
 
-	if updateAvailable {
-		fmt.Printf("\033[0;33mUpdate available!\033[0m\nDownload from \033[1m%s\033[0m\nThen integrate it with `aim add path/to/new.AppImage`\n", downloadLink)
-	} else {
-		fmt.Printf("\033[0;32mYou are up-to-date!\033[0m\n")
-	}
-*/
+		if updateAvailable {
+			fmt.Printf("\033[0;33mUpdate available!\033[0m\nDownload from \033[1m%s\033[0m\nThen integrate it with `aim add path/to/new.AppImage`\n", downloadLink)
+		} else {
+			fmt.Printf("\033[0;32mYou are up-to-date!\033[0m\n")
+		}
+	*/
 	return nil
 }
 
@@ -248,12 +248,12 @@ func identifyInputType(input string) string {
 	if util.HasExtension(input, ".AppImage") {
 		return InputTypeAppImage
 	}
-	
+
 	app, err := repo.GetApp(input)
 	if err != nil {
 		return InputTypeUnknown
 	}
-	
+
 	if app.DesktopEntryLink == "" {
 		return InputTypeUnlinked
 	} else {
