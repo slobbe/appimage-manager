@@ -174,7 +174,7 @@ func RemoveCmd(ctx context.Context, cmd *cli.Command) error {
 	id := cmd.StringArg("id")
 	keep := cmd.Bool("keep")
 
-	app, err := core.RemoveAppImage(id, keep)
+	app, err := core.Remove(ctx, id, keep)
 
 	if err == nil {
 		fmt.Printf("\033[0;32mSuccessfully removed %s\033[0m\n", app.Name)

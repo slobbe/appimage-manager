@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,7 +11,7 @@ import (
 	models "github.com/slobbe/appimage-manager/internal/types"
 )
 
-func RemoveAppImage(id string, keep bool) (*models.App, error) {
+func Remove(ctx context.Context, id string, keep bool) (*models.App, error) {
 	appData, err := repo.GetApp(id)
 	if err != nil {
 		return nil, fmt.Errorf("no app with id %s exists", id)
@@ -25,7 +26,6 @@ func RemoveAppImage(id string, keep bool) (*models.App, error) {
 		if err := repo.AddApp(appData, true); err != nil {
 			return appData, err
 		}
-		
 	} else {
 		if err := repo.RemoveApp(appData.ID); err != nil {
 			return appData, err
