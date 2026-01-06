@@ -48,9 +48,8 @@ type App struct {
 	SHA256 string `json:"sha256"`
 	SHA1   string `json:"sha1"`
 
-	AppImageType string `json:"appimage_type"`
-
 	Source Source `json:"source"`
+	Update *UpdateSource `json:"update,omitempty"` // optional: how to update from here
 }
 
 type Source struct {
@@ -60,15 +59,12 @@ type Source struct {
 	LocalFile     *LocalFileSource     `json:"local_file,omitempty"`
 	DirectURL     *DirectURLSource     `json:"direct_url,omitempty"`
 	GitHubRelease *GitHubReleaseSource `json:"github_release,omitempty"`
-	Zsync         *ZsyncSource         `json:"zsync,omitempty"` // provenance via zsync
-
-	// optional: how to update from here
-	Update *UpdateSource `json:"update,omitempty"`
+	Zsync         *ZsyncSource         `json:"zsync,omitempty"` // provenance via zsync	
 }
 
 type UpdateSource struct {
 	Kind  UpdateKind   `json:"kind"`
-	Zsync *ZsyncSource `json:"zsync,omitempty"` // reuse your struct for updater too
+	Zsync *ZsyncSource `json:"zsync,omitempty"`
 }
 
 type LocalFileSource struct {
