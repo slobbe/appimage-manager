@@ -1,6 +1,8 @@
 # AppImage Manager (aim)
 
-A small CLI tool to easily integrate AppImages into your desktop environment.
+Integrate, remove, and update AppImages with one command.
+
+A lightweight CLI that registers AppImages with your desktop so they behave like installed apps.
 
 ## Quick start
 
