@@ -23,7 +23,7 @@ func main() {
 	cmd := &cli.Command{
 		Name:    "aim",
 		Version: version,
-		Usage:   "Easily integrate AppImages into your desktop environment",
+		Usage:   "Integrate AppImages into your desktop environment",
 		Flags: []cli.Flag{
 			&cli.BoolFlag{
 				Name:  "no-color",
@@ -33,11 +33,11 @@ func main() {
 		Commands: []*cli.Command{
 			{
 				Name:  "add",
-				Usage: "Integrates AppImage",
+				Usage: "Integrate an AppImage from a file path or existing ID",
 				Arguments: []cli.Argument{
 					&cli.StringArg{
 						Name:      "app",
-						UsageText: "<.appimage|id>",
+						UsageText: "<path-to.AppImage|id>",
 					},
 				},
 				Action: AddCmd,
@@ -45,7 +45,7 @@ func main() {
 			{
 				Name:    "remove",
 				Aliases: []string{"rm"},
-				Usage:   "Removes AppImage",
+				Usage:   "Remove an integrated AppImage by ID",
 				Arguments: []cli.Argument{
 					&cli.StringArg{
 						Name:      "id",
@@ -57,7 +57,7 @@ func main() {
 						Name:    "keep",
 						Aliases: []string{"k"},
 						Value:   false,
-						Usage:   "keep AppImage files; remove only desktop integration",
+						Usage:   "keep AppImage file; remove only desktop integration",
 					},
 				},
 				Action: RemoveCmd,
@@ -65,36 +65,36 @@ func main() {
 			{
 				Name:    "list",
 				Aliases: []string{"ls"},
-				Usage:   "Lists all AppImages",
+				Usage:   "List AppImages",
 				Flags: []cli.Flag{
 					&cli.BoolFlag{
 						Name:    "all",
 						Aliases: []string{"a"},
 						Value:   false,
-						Usage:   "list all integrated and unlinked AppImages (default)",
+						Usage:   "list all AppImages (default)",
 					},
 					&cli.BoolFlag{
 						Name:    "integrated",
 						Aliases: []string{"i"},
 						Value:   false,
-						Usage:   "list only integrated AppImages",
+						Usage:   "list integrated AppImages only",
 					},
 					&cli.BoolFlag{
 						Name:    "unlinked",
 						Aliases: []string{"u"},
 						Value:   false,
-						Usage:   "list only unlinked AppImages",
+						Usage:   "list unlinked AppImages only",
 					},
 				},
 				Action: ListCmd,
 			},
 			{
 				Name:  "check",
-				Usage: "Checks for new update",
+				Usage: "Check for updates by AppImage ID",
 				Arguments: []cli.Argument{
 					&cli.StringArg{
 						Name:      "app",
-						UsageText: "<.appimage|id>",
+						UsageText: "<id>",
 					},
 				},
 				Action: CheckCmd,
