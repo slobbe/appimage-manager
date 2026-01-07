@@ -8,8 +8,8 @@ import (
 var (
 	AimDir     string
 	DesktopDir string
+	
 	TempDir    string
-
 	DbSrc string
 )
 
@@ -21,7 +21,8 @@ func init() {
 
 	AimDir = filepath.Join(home, ".appimage-manager")
 	DesktopDir = filepath.Join(home, ".local/share/applications")
-
+	
+	TempDir = filepath.Join(AimDir, ".temp")
 	DbSrc = filepath.Join(AimDir, "apps.json")
 }
 
