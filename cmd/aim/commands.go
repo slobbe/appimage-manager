@@ -40,7 +40,10 @@ func AddCmd(ctx context.Context, cmd *cli.Command) error {
 		msg := fmt.Sprintf("Successfully reintegrated %s v%s (ID: %s)", app.Name, app.Version, app.ID)
 		fmt.Println(colorize(color, "\033[0;32m", msg))
 	case InputTypeAppImage:
-		appData, err := core.IntegrateFromLocalFile(ctx, input)
+		appData, err := core.IntegrateFromLocalFile(ctx, input, func(existing, incoming *models.UpdateSource) (bool, error) {
+			prompt := fmt.Sprintf("Update source already set to %s. Overwrite with AppImage info? [y/N]: ", existing.Kind)
+			return confirmOverwrite(prompt)
+		})
 		if err != nil {
 			return err
 		}

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/slobbe/appimage-manager/internal/config"
 	util "github.com/slobbe/appimage-manager/internal/helpers"
@@ -13,7 +14,9 @@ import (
 	models "github.com/slobbe/appimage-manager/internal/types"
 )
 
-func IntegrateFromLocalFile(ctx context.Context, src string) (*models.App, error) {
+type UpdateOverwritePrompt func(existing, incoming *models.UpdateSource) (bool, error)
+
+func IntegrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwrite UpdateOverwritePrompt) (*models.App, error) {
 	if !util.HasExtension(src, ".AppImage") {
 		return nil, fmt.Errorf("source file must be a .AppImage file")
 	}
@@ -70,19 +73,42 @@ func IntegrateFromLocalFile(ctx context.Context, src string) (*models.App, error
 		return nil, err
 	}
 
+	var existingApp *models.App
+	if appData, err := repo.GetApp(appID); err == nil {
+		existingApp = appData
+	} else if !strings.Contains(err.Error(), "does not exists in database") {
+		return nil, err
+	}
+
 	timestampNow := util.NowISO()
 
 	update := &models.UpdateSource{
-		Kind: "none",
+		Kind: models.UpdateNone,
 	}
+	updateFound := false
 	updateInfo, err := GetUpdateInfo(extractionData.ExecPath)
-	if err == nil && updateInfo.Kind == "zsync" {
-		update.Kind = "zsync"
+	if err == nil && updateInfo.Kind == models.UpdateZsync {
+		updateFound = true
+		update.Kind = models.UpdateZsync
 		update.Zsync = &models.ZsyncSource{
 			UpdateInfo:   updateInfo.UpdateInfo,
 			UpdateUrl:    updateInfo.UpdateUrl,
 			DownloadedAt: timestampNow,
 			Transport:    updateInfo.Transport,
+		}
+	}
+
+	if existingApp != nil {
+		if !updateFound {
+			update = existingApp.Update
+		} else if existingApp.Update != nil && existingApp.Update.Kind != models.UpdateNone && confirmUpdateOverwrite != nil {
+			overwrite, err := confirmUpdateOverwrite(existingApp.Update, update)
+			if err != nil {
+				return nil, err
+			}
+			if !overwrite {
+				update = existingApp.Update
+			}
 		}
 	}
 
