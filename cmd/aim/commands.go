@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/slobbe/appimage-manager/internal/core"
 	util "github.com/slobbe/appimage-manager/internal/helpers"
@@ -49,11 +51,11 @@ func AddCmd(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("unknown argument %s", input)
 	}
 
-	if app.Update.Kind == "zsync" {
+	if app.Update.Kind == models.UpdateZsync {
 		update, err := core.ZsyncUpdateCheck(app.Update, app.SHA1)
 
 		if update != nil && update.Available {
-			msg := fmt.Sprintf("Newer version found!\nDownload from %s\nThen integrate it with `aim add path/to/new.AppImage`", update.DownloadUrl)
+			msg := fmt.Sprintf("Newer version found!\nDownload from %s\nThen integrate it with %s", update.DownloadUrl, integrationHint(update.AssetName))
 			fmt.Printf("\n%s\n", colorize(color, "\033[0;33m", msg))
 		}
 
@@ -133,20 +135,49 @@ func CheckCmd(ctx context.Context, cmd *cli.Command) error {
 			return err
 		}
 
-		if app.Update.Kind == "zsync" {
+		if app.Update == nil || app.Update.Kind == models.UpdateNone {
+			fmt.Printf("No update information available!\n")
+			return nil
+		}
+
+		if app.Update.Kind == models.UpdateZsync {
 			update, err := core.ZsyncUpdateCheck(app.Update, app.SHA1)
 
 			if update != nil && update.Available {
-				msg := fmt.Sprintf("Newer version found!\nDownload from %s\nThen integrate it with `aim add path/to/new.AppImage`", update.DownloadUrl)
+				label := "Newer version found!"
+				if update.PreRelease {
+					label = "Newer pre-release version found!"
+				}
+				msg := fmt.Sprintf("%s\nDownload from %s\nThen integrate it with %s", label, update.DownloadUrl, integrationHint(update.AssetName))
 				fmt.Println(colorize(color, "\033[0;33m", msg))
 			} else {
 				fmt.Println(colorize(color, "\033[0;32m", "You are up-to-date!"))
 			}
 
 			return err
-		} else {
-			fmt.Printf("No update information available!\n")
 		}
+
+		if app.Update.Kind == models.UpdateGitHubRelease {
+			update, err := core.GitHubReleaseUpdateCheck(app.Update, app.Version)
+			if err != nil {
+				return err
+			}
+
+			if update != nil && update.Available {
+				label := "Newer version found!"
+				if update.PreRelease {
+					label = "Newer pre-release version found!"
+				}
+				msg := fmt.Sprintf("%s\nDownload from %s\nThen integrate it with %s", label, update.DownloadUrl, integrationHint(update.AssetName))
+				fmt.Println(colorize(color, "\033[0;33m", msg))
+			} else {
+				fmt.Println(colorize(color, "\033[0;32m", "You are up-to-date!"))
+			}
+
+			return nil
+		}
+
+		fmt.Printf("No update information available!\n")
 	case InputTypeAppImage:
 		// TODO: support update checks for local AppImage files.
 		return fmt.Errorf("checking updates for local AppImages is not supported yet")
@@ -154,6 +185,59 @@ func CheckCmd(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("unknown argument %s", input)
 	}
 
+	return nil
+}
+
+func UpdateSetCmd(ctx context.Context, cmd *cli.Command) error {
+	id := cmd.StringArg("id")
+	repoSlug := cmd.String("github")
+	assetPattern := cmd.String("asset")
+	preRelease := cmd.Bool("pre-release")
+	color := useColor(cmd)
+
+	if id == "" {
+		return fmt.Errorf("missing required argument <id>")
+	}
+
+	if repoSlug == "" {
+		return fmt.Errorf("missing required flag --github")
+	}
+
+	if assetPattern == "" {
+		return fmt.Errorf("missing required flag --asset")
+	}
+
+	app, err := repo.GetApp(id)
+	if err != nil {
+		return err
+	}
+
+	if app.Update != nil && app.Update.Kind != models.UpdateNone {
+		confirmed, err := confirmOverwrite(fmt.Sprintf("Update source already set to %s. Overwrite? [y/N]: ", app.Update.Kind))
+		if err != nil {
+			return err
+		}
+		if !confirmed {
+			fmt.Println(colorize(color, "\033[0;33m", "Update source unchanged."))
+			return nil
+		}
+	}
+
+	app.Update = &models.UpdateSource{
+		Kind: models.UpdateGitHubRelease,
+		GitHubRelease: &models.GitHubReleaseUpdateSource{
+			Repo:         repoSlug,
+			AssetPattern: assetPattern,
+			PreRelease:   preRelease,
+		},
+	}
+
+	if err := repo.UpdateApp(app); err != nil {
+		return err
+	}
+
+	msg := fmt.Sprintf("Update source set to GitHub releases: %s (pattern: %s)", repoSlug, assetPattern)
+	fmt.Println(colorize(color, "\033[0;32m", msg))
 	return nil
 }
 
@@ -200,4 +284,23 @@ func colorize(enabled bool, code, value string) string {
 	}
 
 	return code + value + "\033[0m"
+}
+
+func confirmOverwrite(prompt string) (bool, error) {
+	fmt.Print(prompt)
+	reader := bufio.NewReader(os.Stdin)
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		return false, err
+	}
+
+	answer := strings.TrimSpace(line)
+	return strings.EqualFold(answer, "y") || strings.EqualFold(answer, "yes"), nil
+}
+
+func integrationHint(assetName string) string {
+	if strings.TrimSpace(assetName) == "" {
+		return "`aim add path/to/new.AppImage`"
+	}
+	return fmt.Sprintf("`aim add path/to/%s`", assetName)
 }

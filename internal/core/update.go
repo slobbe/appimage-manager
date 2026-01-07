@@ -26,6 +26,8 @@ type UpdateData struct {
 	RemoteTime       string
 	RemoteSHA1       string
 	RemoteFilename   string
+	PreRelease       bool
+	AssetName        string
 }
 
 func ZsyncUpdateCheck(upd *models.UpdateSource, localSHA1 string) (*UpdateData, error) {

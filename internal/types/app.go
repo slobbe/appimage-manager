@@ -28,8 +28,9 @@ const (
 type UpdateKind string
 
 const (
-	UpdateNone  UpdateKind = "none"
-	UpdateZsync UpdateKind = "zsync"
+	UpdateNone          UpdateKind = "none"
+	UpdateZsync         UpdateKind = "zsync"
+	UpdateGitHubRelease UpdateKind = "github_release"
 )
 
 type App struct {
@@ -63,8 +64,9 @@ type Source struct {
 }
 
 type UpdateSource struct {
-	Kind  UpdateKind   `json:"kind"`
-	Zsync *ZsyncSource `json:"zsync,omitempty"`
+	Kind          UpdateKind              `json:"kind"`
+	Zsync         *ZsyncSource            `json:"zsync,omitempty"`
+	GitHubRelease *GitHubReleaseUpdateSource `json:"github_release,omitempty"`
 }
 
 type LocalFileSource struct {
@@ -87,6 +89,12 @@ type GitHubReleaseSource struct {
 	AssetID          string `json:"asset_id"`
 	AssetName        string `json:"asset_name"`
 	AssetDownloadURL string `json:"asset_download_url"`
+}
+
+type GitHubReleaseUpdateSource struct {
+	Repo         string `json:"repo"`
+	AssetPattern string `json:"asset_pattern"`
+	PreRelease   bool   `json:"pre_release,omitempty"`
 }
 
 type DirectURLSource struct {

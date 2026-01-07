@@ -94,6 +94,37 @@ func main() {
 				},
 				Action: CheckCmd,
 			},
+			{
+				Name:  "update",
+				Usage: "Manage update sources",
+				Commands: []*cli.Command{
+					{
+						Name:  "set",
+						Usage: "Set the update source for an AppImage",
+						Arguments: []cli.Argument{
+							&cli.StringArg{
+								Name:      "id",
+								UsageText: "<id>",
+							},
+						},
+						Flags: []cli.Flag{
+							&cli.StringFlag{
+								Name:  "github",
+								Usage: "GitHub repo in the form owner/repo",
+							},
+							&cli.StringFlag{
+								Name:  "asset",
+								Usage: "asset filename pattern, e.g. \"*.AppImage\"",
+							},
+							&cli.BoolFlag{
+								Name:  "pre-release",
+								Usage: "allow pre-releases when checking for updates",
+							},
+						},
+						Action: UpdateSetCmd,
+					},
+				},
+			},
 		},
 	}
 

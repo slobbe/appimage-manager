@@ -93,7 +93,19 @@ Unlinked entries are AppImages known to the database without a current desktop i
 aim check <id>
 ```
 
-Update checks currently work by ID. Local file checks are planned.
+Update checks currently work by ID. Local file checks are planned. GitHub release checks can target the latest release or pre-releases when enabled.
+
+**Set** update source for an AppImage:
+
+```sh
+aim update set <id> --github owner/repo --asset "*.AppImage"
+```
+
+| Option           | Meaning                                              |
+| :--------------- | :--------------------------------------------------- |
+| `--github`       | GitHub repo in the form owner/repo                   |
+| `--asset`        | asset filename pattern, e.g. `MyApp-*.AppImage`       |
+| `--pre-release`  | allow pre-releases when checking for updates         |
 
 ## Notes
 
