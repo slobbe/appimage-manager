@@ -2,6 +2,13 @@
 
 A small CLI tool to easily integrate AppImages into your desktop environment.
 
+## Quick start
+
+```sh
+aim add ./MyApp.AppImage
+aim list
+```
+
 ## Installation
 
 Downloads the latest release for your CPU (amd64/x86_64 or arm64/aarch64) and installs it to `~/.local/bin/aim`.
@@ -15,7 +22,11 @@ Verify:
 aim --version
 ```
 
+If `aim` is not found, make sure `~/.local/bin` is on your `PATH`.
+
 ## Build from source
+
+Requirements: Linux, Go 1.20+.
 
 ```sh
 git clone https://github.com/slobbe/appimage-manager.git
@@ -28,10 +39,18 @@ go build ./cmd/aim
 
 ## Usage
 
+Integration creates desktop entry metadata (and icon data when available) so the AppImage appears in your launcher.
+
+Global flags:
+
+| Option       | Meaning                    |
+| :----------- | :------------------------- |
+| `--no-color` | disable ANSI color output  |
+
 **Integrate** AppImage into your desktop environment:
 
 ```sh
-aim add <.appimage|id>
+aim add <path-to.AppImage|id>
 ```
 
 If given an ID of an unlinked AppImage it reintegrates it.
@@ -44,7 +63,13 @@ aim remove [options] <id>
 
 | Option         | Meaning                                                  |
 | :------------- | :------------------------------------------------------- |
-| `--keep`, `-k` | keep the AppImage files; remove only desktop integration |
+| `--keep`, `-k` | keep the AppImage file; remove only desktop integration  |
+
+Example:
+
+```sh
+aim remove --keep <id>
+```
 
 **List** all integrated AppImages:
 
@@ -55,14 +80,22 @@ aim list [options]
 | Option               | Meaning                       |
 | :------------------- | :---------------------------- |
 | `--all`, `-a`        | list all AppImages (default)  |
-| `--integrated`, `-i` | list only intgrated AppImages |
+| `--integrated`, `-i` | list integrated AppImages only |
 | `--unlinked`, `-u`   | list only unlinked AppImages  |
+
+Unlinked entries are AppImages known to the database without a current desktop integration.
 
 **Check** AppImage for updates:
 
 ```sh
-aim check <.appimage|id>
+aim check <id>
 ```
+
+Update checks currently work by ID. Local file checks are planned.
+
+## Notes
+
+- AppImages are detected by the `.AppImage` extension.
 
 ## License
 
