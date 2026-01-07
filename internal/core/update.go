@@ -35,14 +35,27 @@ func ZsyncUpdateCheck(upd *models.UpdateSource, localSHA1 string) (*UpdateData, 
 		return nil, fmt.Errorf("no zsync update information")
 	}
 
-	resp, err := http.Get(upd.Zsync.UpdateUrl)
+	if strings.TrimSpace(upd.Zsync.UpdateInfo) == "" {
+		return nil, fmt.Errorf("missing zsync update info")
+	}
+
+	updateInfo, err := parseUpdateInfoString(upd.Zsync.UpdateInfo)
+	if err != nil {
+		return nil, err
+	}
+
+	if strings.TrimSpace(updateInfo.UpdateUrl) == "" {
+		return nil, fmt.Errorf("missing zsync update url")
+	}
+
+	resp, err := http.Get(updateInfo.UpdateUrl)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	update := UpdateData{}
-	update.DownloadUrlZsync = upd.Zsync.UpdateUrl
+	update.DownloadUrlZsync = updateInfo.UpdateUrl
 
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
@@ -72,8 +85,13 @@ func ZsyncUpdateCheck(upd *models.UpdateSource, localSHA1 string) (*UpdateData, 
 		update.RemoteFilename = strings.TrimSuffix(update.RemoteFilename, ".zsync")
 	}
 
+	if update.RemoteFilename == "" || update.RemoteSHA1 == "" {
+		return nil, fmt.Errorf("invalid zsync metadata")
+	}
+
 	lastSlash := strings.LastIndex(update.DownloadUrlZsync, "/")
 	update.DownloadUrl = update.DownloadUrlZsync[:lastSlash+1] + update.RemoteFilename
+	update.AssetName = update.RemoteFilename
 
 	update.Available = update.RemoteSHA1 != localSHA1
 
@@ -86,9 +104,18 @@ func GetUpdateInfo(src string) (*UpdateInfo, error) {
 		return nil, err
 	}
 
-	updateInfo := &UpdateInfo{}
+	return parseUpdateInfoString(info)
+}
 
-	updateInfo.UpdateInfo = info
+func parseUpdateInfoString(info string) (*UpdateInfo, error) {
+	info = strings.TrimSpace(info)
+	if info == "" {
+		return nil, fmt.Errorf("empty update info")
+	}
+
+	updateInfo := &UpdateInfo{
+		UpdateInfo: info,
+	}
 
 	parts := strings.Split(info, "|")
 
@@ -127,6 +154,8 @@ func GetUpdateInfo(src string) (*UpdateInfo, error) {
 		updateInfo.UpdateUrl = strings.Join(
 			[]string{"https://github.com", owner, repo, "releases/download", tag, zsyncFile},
 			"/")
+	default:
+		return nil, fmt.Errorf("unsupported update info kind %q", parts[0])
 	}
 
 	return updateInfo, nil
@@ -145,7 +174,15 @@ func githubLatestVersionTag(owner, repo string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 300 || resp.StatusCode > 399 {
+		return "", fmt.Errorf("unexpected status %s", resp.Status)
+	}
 	loc := resp.Header.Get("Location")
+	if loc == "" {
+		return "", fmt.Errorf("missing redirect location")
+	}
 	parts := strings.Split(loc, "/")
 
 	return parts[len(parts)-1], nil

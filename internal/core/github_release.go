@@ -39,7 +39,7 @@ func GitHubReleaseUpdateCheck(update *models.UpdateSource, currentVersion string
 		return nil, fmt.Errorf("invalid github repo %q", repoSlug)
 	}
 
-	assetPattern := strings.TrimSpace(update.GitHubRelease.AssetPattern)
+	assetPattern := strings.TrimSpace(update.GitHubRelease.Asset)
 	if assetPattern == "" {
 		return nil, fmt.Errorf("missing github asset pattern")
 	}
@@ -66,7 +66,7 @@ func GitHubReleaseUpdateCheck(update *models.UpdateSource, currentVersion string
 		return nil, err
 	}
 
-	release, ok := selectRelease(payload, update.GitHubRelease.PreRelease)
+	release, ok := selectRelease(payload, releaseAllowsPrerelease(update.GitHubRelease.ReleaseKind))
 	if !ok {
 		return nil, fmt.Errorf("no matching github releases found")
 	}
@@ -131,6 +131,10 @@ func selectRelease(releases []gitHubReleaseResponse, allowPrerelease bool) (gitH
 		return release, true
 	}
 	return gitHubReleaseResponse{}, false
+}
+
+func releaseAllowsPrerelease(kind string) bool {
+	return strings.EqualFold(strings.TrimSpace(kind), "pre")
 }
 
 func selectBestAsset(matches []assetMatch, arch string) assetMatch {

@@ -41,7 +41,7 @@ func AddCmd(ctx context.Context, cmd *cli.Command) error {
 		fmt.Println(colorize(color, "\033[0;32m", msg))
 	case InputTypeAppImage:
 		appData, err := core.IntegrateFromLocalFile(ctx, input, func(existing, incoming *models.UpdateSource) (bool, error) {
-			prompt := fmt.Sprintf("Update source already set to %s. Overwrite with AppImage info? [y/N]: ", existing.Kind)
+			prompt := fmt.Sprintf("Update source already set to %s:\n%s\nWill be replaced with:\n%s\nOverwrite with AppImage info? [y/N]: ", existing.Kind, updateSummary(existing), updateSummary(incoming))
 			return confirmOverwrite(prompt)
 		})
 		if err != nil {
@@ -171,10 +171,19 @@ func CheckCmd(ctx context.Context, cmd *cli.Command) error {
 				if update.PreRelease {
 					label = "Newer pre-release version found!"
 				}
-				msg := fmt.Sprintf("%s\nDownload from %s\nThen integrate it with %s", label, update.DownloadUrl, integrationHint(update.AssetName))
+				releaseLabel := "latest"
+				if update.PreRelease {
+					releaseLabel = "pre"
+				}
+				msg := fmt.Sprintf("%s (release: %s)\nDownload from %s\nThen integrate it with %s", label, releaseLabel, update.DownloadUrl, integrationHint(update.AssetName))
 				fmt.Println(colorize(color, "\033[0;33m", msg))
 			} else {
-				fmt.Println(colorize(color, "\033[0;32m", "You are up-to-date!"))
+				releaseLabel := "latest"
+				if update != nil && update.PreRelease {
+					releaseLabel = "pre"
+				}
+				msg := fmt.Sprintf("You are up-to-date! (release: %s)", releaseLabel)
+				fmt.Println(colorize(color, "\033[0;32m", msg))
 			}
 
 			return nil
@@ -216,7 +225,19 @@ func UpdateSetCmd(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	if app.Update != nil && app.Update.Kind != models.UpdateNone {
-		confirmed, err := confirmOverwrite(fmt.Sprintf("Update source already set to %s. Overwrite? [y/N]: ", app.Update.Kind))
+		prompt := fmt.Sprintf("Update source already set to %s:\n%s\nWill be replaced with:\n%s\nOverwrite? [y/N]: ",
+			app.Update.Kind,
+			updateSummary(app.Update),
+			updateSummary(&models.UpdateSource{
+				Kind: models.UpdateGitHubRelease,
+				GitHubRelease: &models.GitHubReleaseUpdateSource{
+					Repo:        repoSlug,
+					Asset:       assetPattern,
+					ReleaseKind: releaseKind(preRelease),
+				},
+			}),
+		)
+		confirmed, err := confirmOverwrite(prompt)
 		if err != nil {
 			return err
 		}
@@ -229,9 +250,9 @@ func UpdateSetCmd(ctx context.Context, cmd *cli.Command) error {
 	app.Update = &models.UpdateSource{
 		Kind: models.UpdateGitHubRelease,
 		GitHubRelease: &models.GitHubReleaseUpdateSource{
-			Repo:         repoSlug,
-			AssetPattern: assetPattern,
-			PreRelease:   preRelease,
+			Repo:        repoSlug,
+			Asset:       assetPattern,
+			ReleaseKind: releaseKind(preRelease),
 		},
 	}
 
@@ -239,7 +260,7 @@ func UpdateSetCmd(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
-	msg := fmt.Sprintf("Update source set to GitHub releases: %s (pattern: %s)", repoSlug, assetPattern)
+	msg := fmt.Sprintf("Update source set to GitHub releases: %s (pattern: %s, release: %s)", repoSlug, assetPattern, releaseKind(preRelease))
 	fmt.Println(colorize(color, "\033[0;32m", msg))
 	return nil
 }
@@ -306,4 +327,39 @@ func integrationHint(assetName string) string {
 		return "`aim add path/to/new.AppImage`"
 	}
 	return fmt.Sprintf("`aim add path/to/%s`", assetName)
+}
+
+func updateSummary(update *models.UpdateSource) string {
+	if update == nil {
+		return ""
+	}
+
+	switch update.Kind {
+	case models.UpdateZsync:
+		if update.Zsync == nil {
+			return "| zsync: <missing>"
+		}
+		if update.Zsync.UpdateInfo != "" {
+			return fmt.Sprintf("| zsync: %s", update.Zsync.UpdateInfo)
+		}
+		return "| zsync"
+	case models.UpdateGitHubRelease:
+		if update.GitHubRelease == nil {
+			return "| github: <missing>"
+		}
+		release := update.GitHubRelease.ReleaseKind
+		if release == "" {
+			release = "latest"
+		}
+		return fmt.Sprintf("| github: %s, asset: %s, release: %s", update.GitHubRelease.Repo, update.GitHubRelease.Asset, release)
+	default:
+		return fmt.Sprintf("| %s", update.Kind)
+	}
+}
+
+func releaseKind(preRelease bool) string {
+	if preRelease {
+		return "pre"
+	}
+	return "latest"
 }

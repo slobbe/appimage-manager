@@ -90,11 +90,9 @@ func IntegrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 	if err == nil && updateInfo.Kind == models.UpdateZsync {
 		updateFound = true
 		update.Kind = models.UpdateZsync
-		update.Zsync = &models.ZsyncSource{
-			UpdateInfo:   updateInfo.UpdateInfo,
-			UpdateUrl:    updateInfo.UpdateUrl,
-			DownloadedAt: timestampNow,
-			Transport:    updateInfo.Transport,
+		update.Zsync = &models.ZsyncUpdateSource{
+			UpdateInfo: updateInfo.UpdateInfo,
+			Transport:  updateInfo.Transport,
 		}
 	}
 

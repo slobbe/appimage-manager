@@ -48,19 +48,17 @@ type LocalFileSource struct {
 
 type UpdateSource struct {
 	Kind          UpdateKind                 `json:"kind"`
-	Zsync         *ZsyncSource               `json:"zsync,omitempty"`
+	Zsync         *ZsyncUpdateSource         `json:"zsync,omitempty"`
 	GitHubRelease *GitHubReleaseUpdateSource `json:"github_release,omitempty"`
 }
 
-type ZsyncSource struct {
-	UpdateInfo   string `json:"update_info"`
-	UpdateUrl    string `json:"update_url"`
-	DownloadedAt string `json:"downloaded_at"`
-	Transport    string `json:"transport"` // zsync | gh-releases | bintray | custom
+type ZsyncUpdateSource struct {
+	UpdateInfo string `json:"update_info"`
+	Transport  string `json:"transport"` // zsync | gh-releases
 }
 
 type GitHubReleaseUpdateSource struct {
-	Repo         string `json:"repo"`
-	AssetPattern string `json:"asset_pattern"`
-	PreRelease   bool   `json:"pre_release,omitempty"`
+	Repo        string `json:"repo"`
+	Asset       string `json:"asset"`
+	ReleaseKind string `json:"release_kind,omitempty"`
 }
