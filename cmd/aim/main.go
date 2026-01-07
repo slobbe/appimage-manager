@@ -24,6 +24,12 @@ func main() {
 		Name:    "aim",
 		Version: version,
 		Usage:   "Easily integrate AppImages into your desktop environment",
+		Flags: []cli.Flag{
+			&cli.BoolFlag{
+				Name:  "no-color",
+				Usage: "disable ANSI color output",
+			},
+		},
 		Commands: []*cli.Command{
 			{
 				Name:  "add",
@@ -107,6 +113,7 @@ func main() {
 
 func AddCmd(ctx context.Context, cmd *cli.Command) error {
 	input := cmd.StringArg("app")
+	color := useColor(cmd)
 
 	inputType := identifyInputType(input)
 
@@ -119,30 +126,34 @@ func AddCmd(ctx context.Context, cmd *cli.Command) error {
 			return err
 		}
 		app = appData
-		fmt.Printf("\033[0;32m%s v%s (ID: %s) already integrated!\033[0m\n", app.Name, app.Version, app.ID)
+		msg := fmt.Sprintf("%s v%s (ID: %s) already integrated!", app.Name, app.Version, app.ID)
+		fmt.Println(colorize(color, "\033[0;32m", msg))
 	case InputTypeUnlinked:
 		appData, err := core.IntegrateExisting(ctx, input)
 		if err != nil {
 			return err
 		}
 		app = appData
-		fmt.Printf("\033[0;32mSuccessfully reintegrated %s v%s (ID: %s)\033[0m\n", app.Name, app.Version, app.ID)
+		msg := fmt.Sprintf("Successfully reintegrated %s v%s (ID: %s)", app.Name, app.Version, app.ID)
+		fmt.Println(colorize(color, "\033[0;32m", msg))
 	case InputTypeAppImage:
 		appData, err := core.IntegrateFromLocalFile(ctx, input)
 		if err != nil {
 			return err
 		}
 		app = appData
-		fmt.Printf("\033[0;32mSuccessfully integrated %s v%s (ID: %s)\033[0m\n", app.Name, app.Version, app.ID)
+		msg := fmt.Sprintf("Successfully integrated %s v%s (ID: %s)", app.Name, app.Version, app.ID)
+		fmt.Println(colorize(color, "\033[0;32m", msg))
 	default:
-		return fmt.Errorf("unkown argument %s\n", input)
+		return fmt.Errorf("unknown argument %s", input)
 	}
 
 	if app.Update.Kind == "zsync" {
 		update, err := core.ZsyncUpdateCheck(app.Update, app.SHA1)
 
 		if update != nil && update.Available {
-			fmt.Printf("\n\033[0;33mNewer version found!\033[0m\nDownload from \033[1m%s\033[0m\nThen integrate it with `aim add path/to/new.AppImage`\n", update.DownloadUrl)
+			msg := fmt.Sprintf("Newer version found!\nDownload from %s\nThen integrate it with `aim add path/to/new.AppImage`", update.DownloadUrl)
+			fmt.Printf("\n%s\n", colorize(color, "\033[0;33m", msg))
 		}
 
 		return err
@@ -154,11 +165,13 @@ func AddCmd(ctx context.Context, cmd *cli.Command) error {
 func RemoveCmd(ctx context.Context, cmd *cli.Command) error {
 	id := cmd.StringArg("id")
 	keep := cmd.Bool("keep")
+	color := useColor(cmd)
 
 	app, err := core.Remove(ctx, id, keep)
 
 	if err == nil {
-		fmt.Printf("\033[0;32mSuccessfully removed %s\033[0m\n", app.Name)
+		msg := fmt.Sprintf("Successfully removed %s", app.Name)
+		fmt.Println(colorize(color, "\033[0;32m", msg))
 	}
 
 	return err
@@ -168,8 +181,13 @@ func ListCmd(ctx context.Context, cmd *cli.Command) error {
 	all := cmd.Bool("all")
 	integrated := cmd.Bool("integrated")
 	unlinked := cmd.Bool("unlinked")
+	color := useColor(cmd)
 
-	if all == integrated && integrated == unlinked {
+	if (integrated && unlinked) || (all && (integrated || unlinked)) {
+		return fmt.Errorf("flags --all, --integrated, and --unlinked are mutually exclusive")
+	}
+
+	if !all && !integrated && !unlinked {
 		all = true
 	}
 
@@ -178,7 +196,8 @@ func ListCmd(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
-	fmt.Printf("\033[1m\033[4m%-15s %-20s %-15s\033[0m\n", "ID", "App Name", "Version")
+	header := fmt.Sprintf("%-15s %-20s %-15s", "ID", "App Name", "Version")
+	fmt.Println(colorize(color, "\033[1m\033[4m", header))
 
 	if all || integrated {
 		for _, app := range apps {
@@ -191,7 +210,8 @@ func ListCmd(ctx context.Context, cmd *cli.Command) error {
 	if all || unlinked {
 		for _, app := range apps {
 			if len(app.DesktopEntryLink) == 0 {
-				fmt.Fprintf(os.Stdout, "\033[2m\033[3m%-15s %-20s %-15s\033[0m\n", app.ID, app.Name, app.Version)
+				row := fmt.Sprintf("%-15s %-20s %-15s", app.ID, app.Name, app.Version)
+				fmt.Println(colorize(color, "\033[2m\033[3m", row))
 			}
 		}
 	}
@@ -201,6 +221,7 @@ func ListCmd(ctx context.Context, cmd *cli.Command) error {
 
 func CheckCmd(ctx context.Context, cmd *cli.Command) error {
 	input := cmd.StringArg("app")
+	color := useColor(cmd)
 
 	inputType := identifyInputType(input)
 
@@ -215,9 +236,10 @@ func CheckCmd(ctx context.Context, cmd *cli.Command) error {
 			update, err := core.ZsyncUpdateCheck(app.Update, app.SHA1)
 
 			if update != nil && update.Available {
-				fmt.Printf("\033[0;33mNewer version found!\033[0m\nDownload from \033[1m%s\033[0m\nThen integrate it with `aim add path/to/new.AppImage`\n", update.DownloadUrl)
+				msg := fmt.Sprintf("Newer version found!\nDownload from %s\nThen integrate it with `aim add path/to/new.AppImage`", update.DownloadUrl)
+				fmt.Println(colorize(color, "\033[0;33m", msg))
 			} else {
-				fmt.Printf("\033[0;32mYou are up-to-date!\033[0m\n")
+				fmt.Println(colorize(color, "\033[0;32m", "You are up-to-date!"))
 			}
 
 			return err
@@ -225,9 +247,9 @@ func CheckCmd(ctx context.Context, cmd *cli.Command) error {
 			fmt.Printf("No update information available!\n")
 		}
 	case InputTypeAppImage:
-		// TODO
+		return fmt.Errorf("checking updates for local AppImages is not supported yet")
 	default:
-		return fmt.Errorf("unkown argument %s\n", input)
+		return fmt.Errorf("unknown argument %s", input)
 	}
 
 	return nil
@@ -255,4 +277,25 @@ func identifyInputType(input string) string {
 	} else {
 		return InputTypeIntegrated
 	}
+}
+
+func useColor(cmd *cli.Command) bool {
+	if cmd.Bool("no-color") {
+		return false
+	}
+
+	stat, err := os.Stdout.Stat()
+	if err != nil {
+		return false
+	}
+
+	return (stat.Mode() & os.ModeCharDevice) != 0
+}
+
+func colorize(enabled bool, code, value string) string {
+	if !enabled {
+		return value
+	}
+
+	return code + value + "\033[0m"
 }
