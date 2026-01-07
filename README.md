@@ -90,7 +90,7 @@ Unlinked entries are AppImages known to the database without a current desktop i
 **Check** AppImage for updates:
 
 ```sh
-aim check <id>
+aim update check <id>
 ```
 
 Update checks currently work by ID. Local file checks are planned. GitHub release checks can target the latest release or pre-releases when enabled.

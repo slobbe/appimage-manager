@@ -84,20 +84,20 @@ func main() {
 				Action: ListCmd,
 			},
 			{
-				Name:  "check",
-				Usage: "Check for updates by AppImage ID",
-				Arguments: []cli.Argument{
-					&cli.StringArg{
-						Name:      "app",
-						UsageText: "<id>",
-					},
-				},
-				Action: CheckCmd,
-			},
-			{
 				Name:  "update",
 				Usage: "Manage update sources",
 				Commands: []*cli.Command{
+					{
+						Name:  "check",
+						Usage: "Check for updates by AppImage ID",
+						Arguments: []cli.Argument{
+							&cli.StringArg{
+								Name:      "app",
+								UsageText: "<id>",
+							},
+						},
+						Action: CheckCmd,
+					},
 					{
 						Name:  "set",
 						Usage: "Set the update source for an AppImage",
