@@ -125,7 +125,7 @@ func IntegrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 	}
 
 	source := models.Source{
-		Kind: "local_file",
+		Kind: models.SourceLocalFile,
 		LocalFile: &models.LocalFileSource{
 			IntegratedAt: timestampNow,
 			OriginalPath: src,

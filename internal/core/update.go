@@ -31,7 +31,7 @@ type UpdateData struct {
 }
 
 func ZsyncUpdateCheck(upd *models.UpdateSource, localSHA1 string) (*UpdateData, error) {
-	if upd.Kind != "zsync" || upd.Zsync == nil {
+	if upd.Kind != models.UpdateZsync || upd.Zsync == nil {
 		return nil, fmt.Errorf("no zsync update information")
 	}
 
