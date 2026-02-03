@@ -116,8 +116,10 @@ func matchAsset(assets []struct {
 
 func normalizeVersion(version string) string {
 	version = strings.TrimSpace(version)
+	version = strings.ToLower(version)
+	version = strings.TrimPrefix(version, "version")
 	version = strings.TrimPrefix(version, "v")
-	return version
+	return strings.TrimSpace(version)
 }
 
 func selectRelease(releases []gitHubReleaseResponse, allowPrerelease bool) (gitHubReleaseResponse, bool) {
