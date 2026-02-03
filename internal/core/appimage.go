@@ -123,15 +123,17 @@ func UpdateDesktopEntry(ctx context.Context, src string, execSrc string, iconSrc
 	}
 
 	inDesktopEntryGroup := false
+	inDesktopActionGroup := false
 	lines := strings.Split(content, "\n")
 	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
 			inDesktopEntryGroup = trimmed == "[Desktop Entry]"
+			inDesktopActionGroup = strings.HasPrefix(trimmed, "[Desktop Action ") && strings.HasSuffix(trimmed, "]")
 			continue
 		}
 
-		if !inDesktopEntryGroup {
+		if !inDesktopEntryGroup && !inDesktopActionGroup {
 			continue
 		}
 
@@ -145,7 +147,7 @@ func UpdateDesktopEntry(ctx context.Context, src string, execSrc string, iconSrc
 		}
 
 		// handle Icon= lines
-		if strings.HasPrefix(trimmed, "Icon=") {
+		if inDesktopEntryGroup && strings.HasPrefix(trimmed, "Icon=") {
 			lines[i] = "Icon=" + iconSrc
 		}
 	}
