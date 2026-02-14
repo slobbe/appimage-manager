@@ -60,7 +60,13 @@ func IntegrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 		return nil, err
 	}
 
-	if err := UpdateDesktopEntry(ctx, extractionData.DesktopEntryPath, extractionData.ExecPath, extractionData.IconPath); err != nil {
+	installedIconPath, desktopIconValue, err := InstallDesktopIcon(appID, extractionData.IconPath)
+	if err != nil {
+		return nil, err
+	}
+	extractionData.IconPath = installedIconPath
+
+	if err := UpdateDesktopEntry(ctx, extractionData.DesktopEntryPath, extractionData.ExecPath, desktopIconValue); err != nil {
 		return nil, err
 	}
 

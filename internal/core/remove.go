@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/slobbe/appimage-manager/internal/config"
 	repo "github.com/slobbe/appimage-manager/internal/repository"
@@ -32,6 +33,13 @@ func Remove(ctx context.Context, id string, keep bool) (*models.App, error) {
 		}
 
 		appDir := filepath.Join(config.AimDir, appData.ID)
+		if appData.IconPath != "" {
+			iconPath := filepath.Clean(appData.IconPath)
+			if iconPath != appDir && !strings.HasPrefix(iconPath, appDir+string(filepath.Separator)) {
+				_ = os.Remove(iconPath)
+			}
+		}
+
 		if err := os.RemoveAll(appDir); err != nil {
 			return appData, fmt.Errorf("failed to remove app dir: %w", err)
 		}

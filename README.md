@@ -113,8 +113,11 @@ aim update set <id> --github owner/repo --asset "*.AppImage"
 
 - App files: `${XDG_DATA_HOME:-~/.local/share}/appimage-manager`
 - Desktop links: `${XDG_DATA_HOME:-~/.local/share}/applications`
+- Desktop icons: `${XDG_DATA_HOME:-~/.local/share}/icons/hicolor` and `${XDG_DATA_HOME:-~/.local/share}/pixmaps`
 - Database: `${XDG_STATE_HOME:-~/.local/state}/appimage-manager/apps.json`
 - Temporary files: `${XDG_CACHE_HOME:-~/.cache}/appimage-manager/tmp`
+
+`aim` currently does not persist a user config file, so `${XDG_CONFIG_HOME}` is reserved for future configuration support.
 
 Legacy installs from `~/.appimage-manager` are migrated automatically on startup.
 
