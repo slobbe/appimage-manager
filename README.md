@@ -28,7 +28,7 @@ If `aim` is not found, make sure `~/.local/bin` is on your `PATH`.
 
 ## Build from source
 
-Requirements: Linux, Go 1.20+.
+Requirements: Linux, Go 1.25.5+.
 
 ```sh
 git clone https://github.com/slobbe/appimage-manager.git
