@@ -107,6 +107,17 @@ aim update set <id> --github owner/repo --asset "*.AppImage"
 | `--asset`        | asset filename pattern, e.g. `MyApp-*.AppImage`       |
 | `--pre-release`  | allow pre-releases when checking for updates         |
 
+## Data locations (XDG)
+
+`aim` stores files using XDG base directories:
+
+- App files: `${XDG_DATA_HOME:-~/.local/share}/appimage-manager`
+- Desktop links: `${XDG_DATA_HOME:-~/.local/share}/applications`
+- Database: `${XDG_STATE_HOME:-~/.local/state}/appimage-manager/apps.json`
+- Temporary files: `${XDG_CACHE_HOME:-~/.cache}/appimage-manager/tmp`
+
+Legacy installs from `~/.appimage-manager` are migrated automatically on startup.
+
 ## Notes
 
 - AppImages are detected by the `.AppImage` extension.

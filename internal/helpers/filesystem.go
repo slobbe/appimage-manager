@@ -73,6 +73,6 @@ func ReadFileContents(src string) (string, error) {
 	if !utf8.Valid(content) {
 		return "", fmt.Errorf("file is not valid UTF-8")
 	}
-	
+
 	return string(content), nil
 }

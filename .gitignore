@@ -1,6 +1,8 @@
-# ignore binaries
 /dist
 /bin/
 /aim
 
 !/cmd/aim
+
+/ROADMAP.md
+/AGENTS.md

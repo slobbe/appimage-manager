@@ -13,7 +13,7 @@ func HasExtension(src string, ext string) bool {
 }
 
 func RenameWithSameExt(src string, newName string) (string, error) {
-	new := filepath.Join(filepath.Dir(src), newName + filepath.Ext(src))
+	new := filepath.Join(filepath.Dir(src), newName+filepath.Ext(src))
 	if err := os.Rename(src, new); err != nil {
 		return src, err
 	}

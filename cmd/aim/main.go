@@ -8,6 +8,7 @@ import (
 	"github.com/urfave/cli/v3"
 
 	"github.com/slobbe/appimage-manager/internal/config"
+	repo "github.com/slobbe/appimage-manager/internal/repository"
 )
 
 var (
@@ -129,6 +130,10 @@ func main() {
 	}
 
 	if err := config.EnsureDirsExist(); err != nil {
+		log.Fatal(err)
+	}
+
+	if err := repo.MigrateLegacyToXDG(); err != nil {
 		log.Fatal(err)
 	}
 

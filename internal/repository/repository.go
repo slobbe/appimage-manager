@@ -10,10 +10,9 @@ import (
 )
 
 type DB struct {
-	SchemaVersion int                  `json:"schemaVersion"`
+	SchemaVersion int                    `json:"schemaVersion"`
 	Apps          map[string]*models.App `json:"apps"`
 }
-
 
 func LoadDB(path string) (*DB, error) {
 	b, err := os.ReadFile(path)
@@ -175,6 +174,6 @@ func GetAllApps() (map[string]*models.App, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return db.Apps, nil
 }
