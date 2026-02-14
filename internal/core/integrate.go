@@ -64,6 +64,10 @@ func IntegrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 		return nil, err
 	}
 
+	if err := ValidateDesktopEntry(ctx, extractionData.DesktopEntryPath); err != nil {
+		return nil, err
+	}
+
 	if err := util.MakeExecutable(extractionData.ExecPath); err != nil {
 		return nil, err
 	}
@@ -164,6 +168,10 @@ func IntegrateExisting(ctx context.Context, id string) (*models.App, error) {
 	}
 
 	if err := util.MakeExecutable(app.ExecPath); err != nil {
+		return nil, err
+	}
+
+	if err := ValidateDesktopEntry(ctx, app.DesktopEntryPath); err != nil {
 		return nil, err
 	}
 

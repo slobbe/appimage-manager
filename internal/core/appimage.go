@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/slobbe/appimage-manager/internal/config"
@@ -109,7 +110,7 @@ func UpdateDesktopEntry(ctx context.Context, src string, execSrc string, iconSrc
 		return fmt.Errorf("source file must be a .desktop file")
 	}
 
-	if execSrc == "" || strings.ToLower(filepath.Ext(src)) == ".appimage" {
+	if execSrc == "" || !util.HasExtension(execSrc, ".AppImage") {
 		return fmt.Errorf("exec source file must be a .AppImage file")
 	}
 
@@ -139,11 +140,7 @@ func UpdateDesktopEntry(ctx context.Context, src string, execSrc string, iconSrc
 
 		// handle Exec= lines - preserve arguments after command
 		if strings.HasPrefix(trimmed, "Exec=") {
-			existingArgs := ""
-			if idx := strings.Index(trimmed, " "); idx != -1 {
-				existingArgs = trimmed[idx:] // Keep space and arguments
-			}
-			lines[i] = "Exec=" + execSrc + existingArgs
+			lines[i] = rewriteExecLine(trimmed, execSrc)
 		}
 
 		// handle Icon= lines
@@ -167,6 +164,54 @@ func UpdateDesktopEntry(ctx context.Context, src string, execSrc string, iconSrc
 	}
 
 	return nil
+}
+
+func rewriteExecLine(execLine, execSrc string) string {
+	value := strings.TrimPrefix(execLine, "Exec=")
+	value = strings.TrimSpace(value)
+
+	_, args := splitDesktopExec(value)
+	return "Exec=" + quoteDesktopExecArg(execSrc) + args
+}
+
+func splitDesktopExec(value string) (string, string) {
+	if value == "" {
+		return "", ""
+	}
+
+	if value[0] == '"' {
+		escaped := false
+		for i := 1; i < len(value); i++ {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if value[i] == '\\' {
+				escaped = true
+				continue
+			}
+			if value[i] == '"' {
+				return value[:i+1], value[i+1:]
+			}
+		}
+		return value, ""
+	}
+
+	if idx := strings.IndexAny(value, " \t"); idx >= 0 {
+		return value[:idx], value[idx:]
+	}
+
+	return value, ""
+}
+
+func quoteDesktopExecArg(value string) string {
+	if value == "" {
+		return ""
+	}
+	if strings.ContainsAny(value, " \t\n\r\"") {
+		return strconv.Quote(value)
+	}
+	return value
 }
 
 func GetAppInfo(ctx context.Context, desktopSrc string) (*AppInfo, error) {
