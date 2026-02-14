@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -120,7 +119,7 @@ func IntegrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 		}
 	}
 
-	_ = exec.Command("update-desktop-database", config.DesktopDir).Run()
+	refreshDesktopIntegrationCaches(ctx)
 
 	sha256sum, err := util.Sha256File(extractionData.ExecPath)
 	if err != nil {
@@ -186,7 +185,7 @@ func IntegrateExisting(ctx context.Context, id string) (*models.App, error) {
 		return app, err
 	}
 
-	_ = exec.Command("update-desktop-database", config.DesktopDir).Run()
+	refreshDesktopIntegrationCaches(ctx)
 
 	if err := repo.AddApp(app, true); err != nil {
 		return app, err

@@ -45,5 +45,7 @@ func Remove(ctx context.Context, id string, keep bool) (*models.App, error) {
 		}
 	}
 
+	refreshDesktopIntegrationCaches(ctx)
+
 	return appData, nil
 }
