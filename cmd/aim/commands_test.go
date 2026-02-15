@@ -57,3 +57,26 @@ func TestIdentifyInputType(t *testing.T) {
 		})
 	}
 }
+
+func TestUpdateDownloadFilename(t *testing.T) {
+	tests := []struct {
+		name      string
+		assetName string
+		url       string
+		expect    string
+	}{
+		{name: "uses AppImage asset name", assetName: "MyApp-x86_64.AppImage", url: "https://example.com/file", expect: "MyApp-x86_64.AppImage"},
+		{name: "adds extension when missing", assetName: "MyApp", url: "https://example.com/file", expect: "MyApp.AppImage"},
+		{name: "falls back to URL basename", assetName: "", url: "https://example.com/download/MyApp.AppImage", expect: "MyApp.AppImage"},
+		{name: "falls back to default filename", assetName: "", url: "", expect: "update.AppImage"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := updateDownloadFilename(tt.assetName, tt.url)
+			if got != tt.expect {
+				t.Fatalf("updateDownloadFilename(%q, %q) = %q, want %q", tt.assetName, tt.url, got, tt.expect)
+			}
+		})
+	}
+}

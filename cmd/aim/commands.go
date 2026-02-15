@@ -4,7 +4,11 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/slobbe/appimage-manager/internal/core"
@@ -147,83 +151,102 @@ func ListCmd(ctx context.Context, cmd *cli.Command) error {
 	return nil
 }
 
-func CheckCmd(ctx context.Context, cmd *cli.Command) error {
-	input := cmd.StringArg("app")
+func UpdateCmd(ctx context.Context, cmd *cli.Command) error {
+	args := cmd.Args().Slice()
+	if len(args) > 0 {
+		switch args[0] {
+		case "check":
+			return UpdateCheckCmd(ctx, cmd, args[1:])
+		case "set":
+			return UpdateSetCmd(ctx, cmd, args[1:])
+		}
+	}
+
+	if cmd.IsSet("github") || cmd.IsSet("asset") || cmd.IsSet("pre-release") {
+		return fmt.Errorf("flags --github, --asset, and --pre-release can only be used with `aim update set`")
+	}
+
+	targetID := ""
+	if len(args) > 0 {
+		targetID = args[0]
+	}
+	if len(args) > 1 {
+		return fmt.Errorf("too many arguments")
+	}
+
+	return runManagedUpdate(ctx, cmd, targetID)
+}
+
+func UpdateCheckCmd(ctx context.Context, cmd *cli.Command, args []string) error {
+	if cmd.IsSet("yes") || cmd.IsSet("check-only") {
+		return fmt.Errorf("flags --yes/-y and --check-only/-c are not supported with `aim update check`")
+	}
+	if len(args) != 1 {
+		return fmt.Errorf("usage: aim update check <path-to.AppImage>")
+	}
+
+	path := strings.TrimSpace(args[0])
+	if !util.HasExtension(path, ".AppImage") {
+		return fmt.Errorf("update check only supports local AppImage files; use `aim update <id>` for installed apps")
+	}
+
+	absPath, err := util.MakeAbsolute(path)
+	if err != nil {
+		return err
+	}
+
+	info, err := core.GetUpdateInfo(absPath)
+	if err != nil {
+		return err
+	}
+
+	if info.Kind != models.UpdateZsync {
+		return fmt.Errorf("unsupported local update info kind %q", info.Kind)
+	}
+
+	localSHA1, err := util.Sha1(absPath)
+	if err != nil {
+		return err
+	}
+
+	updater := &models.UpdateSource{
+		Kind: models.UpdateZsync,
+		Zsync: &models.ZsyncUpdateSource{
+			UpdateInfo: info.UpdateInfo,
+			Transport:  info.Transport,
+		},
+	}
+
+	update, err := core.ZsyncUpdateCheck(updater, localSHA1)
+	if err != nil {
+		return err
+	}
+
 	color := useColor(cmd)
-
-	inputType := identifyInputType(input)
-
-	switch inputType {
-	case InputTypeIntegrated, InputTypeUnlinked:
-		app, err := repo.GetApp(input)
-		if err != nil {
-			return err
+	if update != nil && update.Available {
+		label := "Newer version found!"
+		if update.PreRelease {
+			label = "Newer pre-release version found!"
 		}
-
-		if app.Update == nil || app.Update.Kind == models.UpdateNone {
-			fmt.Printf("No update information available!\n")
-			return nil
-		}
-
-		if app.Update.Kind == models.UpdateZsync {
-			update, err := core.ZsyncUpdateCheck(app.Update, app.SHA1)
-
-			if update != nil && update.Available {
-				label := "Newer version found!"
-				if update.PreRelease {
-					label = "Newer pre-release version found!"
-				}
-				msg := fmt.Sprintf("%s\nDownload from %s\nThen integrate it with %s", label, update.DownloadUrl, integrationHint(update.AssetName))
-				fmt.Println(colorize(color, "\033[0;33m", msg))
-			} else {
-				fmt.Println(colorize(color, "\033[0;32m", "You are up-to-date!"))
-			}
-
-			return err
-		}
-
-		if app.Update.Kind == models.UpdateGitHubRelease {
-			update, err := core.GitHubReleaseUpdateCheck(app.Update, app.Version)
-			if err != nil {
-				return err
-			}
-
-			if update != nil && update.Available {
-				label := "Newer version found!"
-				if update.PreRelease {
-					label = "Newer pre-release version found!"
-				}
-				releaseLabel := "latest"
-				if update.PreRelease {
-					releaseLabel = "pre"
-				}
-				msg := fmt.Sprintf("%s (release: %s)\nDownload from %s\nThen integrate it with %s", label, releaseLabel, update.DownloadUrl, integrationHint(update.AssetName))
-				fmt.Println(colorize(color, "\033[0;33m", msg))
-			} else {
-				releaseLabel := "latest"
-				if update != nil && update.PreRelease {
-					releaseLabel = "pre"
-				}
-				msg := fmt.Sprintf("You are up-to-date! (release: %s)", releaseLabel)
-				fmt.Println(colorize(color, "\033[0;32m", msg))
-			}
-
-			return nil
-		}
-
-		fmt.Printf("No update information available!\n")
-	case InputTypeAppImage:
-		// TODO: support update checks for local AppImage files.
-		return fmt.Errorf("checking updates for local AppImages is not supported yet")
-	default:
-		return fmt.Errorf("unknown argument %s", input)
+		msg := fmt.Sprintf("%s\nDownload from %s\nThen integrate it with %s", label, update.DownloadUrl, integrationHint(update.AssetName))
+		fmt.Println(colorize(color, "\033[0;33m", msg))
+	} else {
+		fmt.Println(colorize(color, "\033[0;32m", "You are up-to-date!"))
 	}
 
 	return nil
 }
 
-func UpdateSetCmd(ctx context.Context, cmd *cli.Command) error {
-	id := cmd.StringArg("id")
+func UpdateSetCmd(ctx context.Context, cmd *cli.Command, args []string) error {
+	_ = ctx
+	if cmd.IsSet("yes") || cmd.IsSet("check-only") {
+		return fmt.Errorf("flags --yes/-y and --check-only/-c are not supported with `aim update set`")
+	}
+
+	id := ""
+	if len(args) > 0 {
+		id = strings.TrimSpace(args[0])
+	}
 	repoSlug := cmd.String("github")
 	assetPattern := cmd.String("asset")
 	preRelease := cmd.Bool("pre-release")
@@ -284,6 +307,262 @@ func UpdateSetCmd(ctx context.Context, cmd *cli.Command) error {
 
 	msg := fmt.Sprintf("Update source set to GitHub releases: %s (pattern: %s, release: %s)", repoSlug, assetPattern, releaseKind(preRelease))
 	fmt.Println(colorize(color, "\033[0;32m", msg))
+	return nil
+}
+
+type pendingManagedUpdate struct {
+	App      *models.App
+	URL      string
+	Asset    string
+	Label    string
+	FromKind models.UpdateKind
+}
+
+func runManagedUpdate(ctx context.Context, cmd *cli.Command, targetID string) error {
+	apps, err := collectManagedUpdateTargets(targetID)
+	if err != nil {
+		return err
+	}
+
+	color := useColor(cmd)
+	autoApply := cmd.Bool("yes")
+	checkOnly := cmd.Bool("check-only")
+
+	var pending []pendingManagedUpdate
+	checkFailures := 0
+	for _, app := range apps {
+		update, err := checkAppUpdate(app)
+		if err != nil {
+			if targetID != "" {
+				return err
+			}
+			checkFailures++
+			msg := fmt.Sprintf("%s: failed to check updates: %v", app.ID, err)
+			fmt.Println(colorize(color, "\033[0;31m", msg))
+			continue
+		}
+
+		if update == nil {
+			if targetID != "" {
+				fmt.Println(colorize(color, "\033[0;32m", "No update information available!"))
+			}
+			continue
+		}
+
+		if update.URL == "" {
+			if targetID != "" {
+				fmt.Println(colorize(color, "\033[0;32m", "You are up-to-date!"))
+			}
+			continue
+		}
+
+		msg := fmt.Sprintf("%s\nDownload from %s\nThen integrate it with %s", update.Label, update.URL, integrationHint(update.Asset))
+		if targetID == "" {
+			header := fmt.Sprintf("[%s]", app.ID)
+			fmt.Println(colorize(color, "\033[1m", header))
+		}
+		fmt.Println(colorize(color, "\033[0;33m", msg))
+		pending = append(pending, *update)
+	}
+
+	if len(pending) == 0 {
+		if checkFailures > 0 {
+			fmt.Println(colorize(color, "\033[0;33m", "No updates applied; some checks failed."))
+			return nil
+		}
+		fmt.Println(colorize(color, "\033[0;32m", "You are up-to-date!"))
+		return nil
+	}
+
+	if checkOnly {
+		return nil
+	}
+
+	if !autoApply {
+		prompt := "Apply available updates? [y/N]: "
+		if targetID != "" {
+			prompt = fmt.Sprintf("Apply update for %s? [y/N]: ", targetID)
+		} else {
+			prompt = fmt.Sprintf("Apply %d available updates? [y/N]: ", len(pending))
+		}
+
+		confirmed, err := confirmOverwrite(prompt)
+		if err != nil {
+			return err
+		}
+		if !confirmed {
+			fmt.Println(colorize(color, "\033[0;33m", "No updates applied."))
+			return nil
+		}
+	}
+
+	applyFailures := 0
+	for _, item := range pending {
+		updatedApp, err := applyManagedUpdate(ctx, item)
+		if err != nil {
+			applyFailures++
+			msg := fmt.Sprintf("%s: failed to apply update: %v", item.App.ID, err)
+			fmt.Println(colorize(color, "\033[0;31m", msg))
+			continue
+		}
+
+		msg := fmt.Sprintf("Updated %s to v%s", updatedApp.ID, updatedApp.Version)
+		fmt.Println(colorize(color, "\033[0;32m", msg))
+	}
+
+	if applyFailures > 0 {
+		return fmt.Errorf("%d update(s) failed", applyFailures)
+	}
+
+	return nil
+}
+
+func collectManagedUpdateTargets(targetID string) ([]*models.App, error) {
+	if strings.TrimSpace(targetID) != "" {
+		app, err := repo.GetApp(targetID)
+		if err != nil {
+			return nil, err
+		}
+		return []*models.App{app}, nil
+	}
+
+	allApps, err := repo.GetAllApps()
+	if err != nil {
+		return nil, err
+	}
+
+	ids := make([]string, 0, len(allApps))
+	for id := range allApps {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+
+	apps := make([]*models.App, 0, len(ids))
+	for _, id := range ids {
+		apps = append(apps, allApps[id])
+	}
+
+	return apps, nil
+}
+
+func checkAppUpdate(app *models.App) (*pendingManagedUpdate, error) {
+	if app == nil || app.Update == nil || app.Update.Kind == models.UpdateNone {
+		return nil, nil
+	}
+
+	switch app.Update.Kind {
+	case models.UpdateZsync:
+		update, err := core.ZsyncUpdateCheck(app.Update, app.SHA1)
+		if err != nil {
+			return nil, err
+		}
+		if update == nil || !update.Available {
+			return nil, nil
+		}
+		label := "Newer version found!"
+		if update.PreRelease {
+			label = "Newer pre-release version found!"
+		}
+		return &pendingManagedUpdate{
+			App:      app,
+			URL:      update.DownloadUrl,
+			Asset:    update.AssetName,
+			Label:    label,
+			FromKind: models.UpdateZsync,
+		}, nil
+	case models.UpdateGitHubRelease:
+		update, err := core.GitHubReleaseUpdateCheck(app.Update, app.Version)
+		if err != nil {
+			return nil, err
+		}
+		if update == nil || !update.Available {
+			return nil, nil
+		}
+		label := "Newer version found!"
+		if update.PreRelease {
+			label = "Newer pre-release version found!"
+		}
+		return &pendingManagedUpdate{
+			App:      app,
+			URL:      update.DownloadUrl,
+			Asset:    update.AssetName,
+			Label:    label,
+			FromKind: models.UpdateGitHubRelease,
+		}, nil
+	default:
+		return nil, fmt.Errorf("unsupported update source kind %q", app.Update.Kind)
+	}
+}
+
+func applyManagedUpdate(ctx context.Context, update pendingManagedUpdate) (*models.App, error) {
+	if strings.TrimSpace(update.URL) == "" {
+		return nil, fmt.Errorf("missing download URL")
+	}
+
+	tempDir, err := os.MkdirTemp("", "aim-update-*")
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = os.RemoveAll(tempDir)
+	}()
+
+	fileName := updateDownloadFilename(update.Asset, update.URL)
+	downloadPath := filepath.Join(tempDir, fileName)
+	if err := downloadUpdateAsset(ctx, update.URL, downloadPath); err != nil {
+		return nil, err
+	}
+
+	app, err := core.IntegrateFromLocalFile(ctx, downloadPath, func(existing, incoming *models.UpdateSource) (bool, error) {
+		return false, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return app, nil
+}
+
+func updateDownloadFilename(assetName, downloadURL string) string {
+	name := strings.TrimSpace(filepath.Base(assetName))
+	if name == "" || name == "." || name == string(filepath.Separator) {
+		name = strings.TrimSpace(filepath.Base(downloadURL))
+	}
+	if name == "" || name == "." || name == string(filepath.Separator) {
+		name = "update.AppImage"
+	}
+	if !util.HasExtension(name, ".AppImage") {
+		name = name + ".AppImage"
+	}
+	return name
+}
+
+func downloadUpdateAsset(ctx context.Context, assetURL, destination string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, assetURL, nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return fmt.Errorf("download failed with status %s", resp.Status)
+	}
+
+	f, err := os.OpenFile(destination, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	if _, err := io.Copy(f, resp.Body); err != nil {
+		return err
+	}
+
 	return nil
 }
 

@@ -94,13 +94,28 @@ aim list [options]
 
 Unlinked entries are AppImages known to the database without a current desktop integration.
 
-**Check** AppImage for updates:
+**Check** all apps for updates (and optionally apply):
 
 ```sh
-aim update check <id>
+aim update
 ```
 
-Update checks currently work by ID. Local file checks are planned. GitHub release checks can target the latest release or pre-releases when enabled.
+**Check** one installed app by ID (and optionally apply):
+
+```sh
+aim update <id>
+```
+
+| Option               | Meaning                            |
+| :------------------- | :--------------------------------- |
+| `--yes`, `-y`        | apply found updates without prompt |
+| `--check-only`, `-c` | check only; do not apply           |
+
+**Check** a local AppImage file update-info:
+
+```sh
+aim update check <path-to.AppImage>
+```
 
 **Set** update source for an AppImage:
 

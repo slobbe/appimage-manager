@@ -90,46 +90,34 @@ func main() {
 				Action: ListCmd,
 			},
 			{
-				Name:  "update",
-				Usage: "Manage update sources",
-				Commands: []*cli.Command{
-					{
-						Name:  "check",
-						Usage: "Check for updates by AppImage ID",
-						Arguments: []cli.Argument{
-							&cli.StringArg{
-								Name:      "app",
-								UsageText: "<id>",
-							},
-						},
-						Action: CheckCmd,
+				Name:      "update",
+				Usage:     "Check/apply updates, check local files, or set update source",
+				UsageText: "aim update [<id>] [--yes|-y] [--check-only|-c]\n   aim update check <path-to.AppImage>\n   aim update set <id> --github owner/repo --asset \"*.AppImage\" [--pre-release]",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{
+						Name:    "yes",
+						Aliases: []string{"y"},
+						Usage:   "apply updates without prompting",
 					},
-					{
-						Name:  "set",
-						Usage: "Set the update source for an AppImage",
-						Arguments: []cli.Argument{
-							&cli.StringArg{
-								Name:      "id",
-								UsageText: "<id>",
-							},
-						},
-						Flags: []cli.Flag{
-							&cli.StringFlag{
-								Name:  "github",
-								Usage: "GitHub repo in the form owner/repo",
-							},
-							&cli.StringFlag{
-								Name:  "asset",
-								Usage: "asset filename pattern, e.g. \"*.AppImage\"",
-							},
-							&cli.BoolFlag{
-								Name:  "pre-release",
-								Usage: "allow pre-releases when checking for updates",
-							},
-						},
-						Action: UpdateSetCmd,
+					&cli.BoolFlag{
+						Name:    "check-only",
+						Aliases: []string{"c"},
+						Usage:   "check only; do not apply updates",
+					},
+					&cli.StringFlag{
+						Name:  "github",
+						Usage: "GitHub repo in the form owner/repo (for 'update set')",
+					},
+					&cli.StringFlag{
+						Name:  "asset",
+						Usage: "asset filename pattern, e.g. \"*.AppImage\" (for 'update set')",
+					},
+					&cli.BoolFlag{
+						Name:  "pre-release",
+						Usage: "allow pre-releases when checking for updates (for 'update set')",
 					},
 				},
+				Action: UpdateCmd,
 			},
 		},
 	}
