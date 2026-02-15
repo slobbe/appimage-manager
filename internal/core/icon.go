@@ -26,15 +26,11 @@ func InstallDesktopIcon(appID, iconSrc string) (string, string, error) {
 		return "", "", fmt.Errorf("icon file extension is required")
 	}
 
-	desktopIconValue := appID
 	destDir := iconInstallDir(ext)
 	destName := appID + ext
 
-	if !isThemeLookupExtension(ext) {
-		desktopIconValue = filepath.Join(destDir, destName)
-	}
-
 	destPath := filepath.Join(destDir, destName)
+	desktopIconValue := destPath
 
 	if filepath.Clean(iconSrc) == filepath.Clean(destPath) {
 		return destPath, desktopIconValue, nil

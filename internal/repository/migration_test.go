@@ -151,8 +151,8 @@ func TestMigrateLegacyToXDG(t *testing.T) {
 	if !strings.Contains(desktopText, "Exec="+expectedExec+" %U") {
 		t.Fatalf("desktop file Exec was not rewritten correctly: %s", desktopText)
 	}
-	if !strings.Contains(desktopText, "Icon=my-app") {
-		t.Fatalf("desktop file Icon was not rewritten to icon name: %s", desktopText)
+	if !strings.Contains(desktopText, "Icon="+expectedIcon) {
+		t.Fatalf("desktop file Icon was not rewritten to absolute icon path: %s", desktopText)
 	}
 
 	linkTarget, err := os.Readlink(expectedLink)
@@ -315,7 +315,7 @@ func TestMigrateLegacyToXDGRepairsExistingXDGDB(t *testing.T) {
 	if !strings.Contains(desktopText, "Exec="+expectedExec+" %U") {
 		t.Fatalf("desktop file Exec not rewritten correctly: %s", desktopText)
 	}
-	if !strings.Contains(desktopText, "Icon=my-app") {
-		t.Fatalf("desktop file Icon not rewritten to icon name: %s", desktopText)
+	if !strings.Contains(desktopText, "Icon="+expectedIcon) {
+		t.Fatalf("desktop file Icon not rewritten to absolute icon path: %s", desktopText)
 	}
 }

@@ -273,14 +273,11 @@ func installMigratedIcon(appID, newIconPath, legacyIconPath string) (string, str
 		return newIconPath, newIconPath, nil
 	}
 
-	desktopIconValue := appID
 	destinationDir := iconInstallDir(ext)
 	destinationName := appID + ext
-	if !isThemeLookupExtension(ext) {
-		desktopIconValue = filepath.Join(destinationDir, destinationName)
-	}
 
 	destinationPath := filepath.Join(destinationDir, destinationName)
+	desktopIconValue := destinationPath
 	if err := os.MkdirAll(destinationDir, 0o755); err != nil {
 		return "", "", err
 	}

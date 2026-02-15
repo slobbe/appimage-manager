@@ -8,7 +8,7 @@ import (
 	"github.com/slobbe/appimage-manager/internal/config"
 )
 
-func TestInstallDesktopIconPNGUsesThemeName(t *testing.T) {
+func TestInstallDesktopIconPNGUsesAbsoluteThemePath(t *testing.T) {
 	tmp := t.TempDir()
 	setupIconDirsForTest(t, tmp)
 
@@ -26,15 +26,15 @@ func TestInstallDesktopIconPNGUsesThemeName(t *testing.T) {
 	if installedPath != expected {
 		t.Fatalf("installedPath = %q, want %q", installedPath, expected)
 	}
-	if iconValue != "my-app" {
-		t.Fatalf("iconValue = %q, want %q", iconValue, "my-app")
+	if iconValue != expected {
+		t.Fatalf("iconValue = %q, want %q", iconValue, expected)
 	}
 	if _, err := os.Stat(expected); err != nil {
 		t.Fatalf("expected installed icon missing: %v", err)
 	}
 }
 
-func TestInstallDesktopIconSVGUsesScalableTheme(t *testing.T) {
+func TestInstallDesktopIconSVGUsesAbsoluteScalablePath(t *testing.T) {
 	tmp := t.TempDir()
 	setupIconDirsForTest(t, tmp)
 
@@ -52,8 +52,8 @@ func TestInstallDesktopIconSVGUsesScalableTheme(t *testing.T) {
 	if installedPath != expected {
 		t.Fatalf("installedPath = %q, want %q", installedPath, expected)
 	}
-	if iconValue != "my-app" {
-		t.Fatalf("iconValue = %q, want %q", iconValue, "my-app")
+	if iconValue != expected {
+		t.Fatalf("iconValue = %q, want %q", iconValue, expected)
 	}
 }
 
