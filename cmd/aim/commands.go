@@ -505,6 +505,7 @@ func runManagedUpdate(ctx context.Context, cmd *cli.Command, targetID string) er
 	var pending []pendingManagedUpdate
 	checkFailures := 0
 	skippedPinned := 0
+	singleStatusPrinted := false
 	for _, app := range apps {
 		update, err := checkAppUpdate(app)
 		if err != nil {
@@ -528,6 +529,7 @@ func runManagedUpdate(ctx context.Context, cmd *cli.Command, targetID string) er
 		if update == nil {
 			if targetID != "" {
 				fmt.Println(colorize(color, "\033[0;32m", "No update information available!"))
+				singleStatusPrinted = true
 			}
 			continue
 		}
@@ -544,6 +546,7 @@ func runManagedUpdate(ctx context.Context, cmd *cli.Command, targetID string) er
 		if update.URL == "" {
 			if targetID != "" {
 				fmt.Println(colorize(color, "\033[0;32m", "You are up-to-date!"))
+				singleStatusPrinted = true
 			}
 			continue
 		}
@@ -566,6 +569,9 @@ func runManagedUpdate(ctx context.Context, cmd *cli.Command, targetID string) er
 	}
 
 	if len(pending) == 0 {
+		if targetID != "" && singleStatusPrinted {
+			return nil
+		}
 		if skippedPinned > 0 {
 			msg := fmt.Sprintf("No updates applied; %d app(s) are pinned.", skippedPinned)
 			fmt.Println(colorize(color, "\033[0;33m", msg))

@@ -1,7 +1,12 @@
 package main
 
 import (
+	"bytes"
+	"context"
+	"io"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/slobbe/appimage-manager/internal/config"
@@ -257,4 +262,73 @@ func newUpdateSetTestCommand(t *testing.T, values map[string]string) *cli.Comman
 	}
 
 	return cmd
+}
+
+func TestRunManagedUpdateSingleUpToDatePrintedOnce(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "apps.json")
+
+	originalDbSrc := config.DbSrc
+	config.DbSrc = dbPath
+	t.Cleanup(func() {
+		config.DbSrc = originalDbSrc
+	})
+
+	if err := repo.SaveDB(dbPath, &repo.DB{
+		SchemaVersion: 1,
+		Apps: map[string]*models.App{
+			"my-app": {
+				ID:     "my-app",
+				Name:   "My App",
+				SHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				Update: &models.UpdateSource{
+					Kind: models.UpdateDirectURL,
+					DirectURL: &models.DirectURLUpdateSource{
+						URL:    "https://example.com/MyApp.AppImage",
+						SHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+					},
+				},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("failed to write test DB: %v", err)
+	}
+
+	cmd := &cli.Command{Flags: []cli.Flag{&cli.BoolFlag{Name: "yes"}, &cli.BoolFlag{Name: "check-only"}, &cli.BoolFlag{Name: "no-color"}}}
+
+	output := captureStdout(t, func() {
+		if err := runManagedUpdate(context.Background(), cmd, "my-app"); err != nil {
+			t.Fatalf("runManagedUpdate returned error: %v", err)
+		}
+	})
+
+	if strings.Count(output, "You are up-to-date!") != 1 {
+		t.Fatalf("expected exactly one up-to-date message, got output:\n%s", output)
+	}
+}
+
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+
+	originalStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("failed creating stdout pipe: %v", err)
+	}
+
+	os.Stdout = w
+	defer func() {
+		os.Stdout = originalStdout
+	}()
+
+	done := make(chan string, 1)
+	go func() {
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, r)
+		done <- buf.String()
+	}()
+
+	fn()
+	_ = w.Close()
+	return <-done
 }
