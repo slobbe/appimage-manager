@@ -24,25 +24,6 @@ func TestNormalizeVersion(t *testing.T) {
 	}
 }
 
-func TestReleaseAllowsPrerelease(t *testing.T) {
-	tests := []struct {
-		input  string
-		expect bool
-	}{
-		{input: "pre", expect: true},
-		{input: " PRE ", expect: true},
-		{input: "latest", expect: false},
-		{input: "", expect: false},
-	}
-
-	for _, tt := range tests {
-		got := releaseAllowsPrerelease(tt.input)
-		if got != tt.expect {
-			t.Fatalf("releaseAllowsPrerelease(%q) = %v, want %v", tt.input, got, tt.expect)
-		}
-	}
-}
-
 func TestSelectRelease(t *testing.T) {
 	releases := []gitHubReleaseResponse{
 		{TagName: "v3.0.0", Draft: true},

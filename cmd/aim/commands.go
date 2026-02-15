@@ -162,8 +162,8 @@ func UpdateCmd(ctx context.Context, cmd *cli.Command) error {
 		}
 	}
 
-	if cmd.IsSet("github") || cmd.IsSet("asset") || cmd.IsSet("pre-release") {
-		return fmt.Errorf("flags --github, --asset, and --pre-release can only be used with `aim update set`")
+	if cmd.IsSet("github") || cmd.IsSet("asset") {
+		return fmt.Errorf("flags --github and --asset can only be used with `aim update set`")
 	}
 
 	targetID := ""
@@ -249,7 +249,6 @@ func UpdateSetCmd(ctx context.Context, cmd *cli.Command, args []string) error {
 	}
 	repoSlug := cmd.String("github")
 	assetPattern := cmd.String("asset")
-	preRelease := cmd.Bool("pre-release")
 	color := useColor(cmd)
 
 	if id == "" {
@@ -276,9 +275,8 @@ func UpdateSetCmd(ctx context.Context, cmd *cli.Command, args []string) error {
 			updateSummary(&models.UpdateSource{
 				Kind: models.UpdateGitHubRelease,
 				GitHubRelease: &models.GitHubReleaseUpdateSource{
-					Repo:        repoSlug,
-					Asset:       assetPattern,
-					ReleaseKind: releaseKind(preRelease),
+					Repo:  repoSlug,
+					Asset: assetPattern,
 				},
 			}),
 		)
@@ -295,9 +293,8 @@ func UpdateSetCmd(ctx context.Context, cmd *cli.Command, args []string) error {
 	app.Update = &models.UpdateSource{
 		Kind: models.UpdateGitHubRelease,
 		GitHubRelease: &models.GitHubReleaseUpdateSource{
-			Repo:        repoSlug,
-			Asset:       assetPattern,
-			ReleaseKind: releaseKind(preRelease),
+			Repo:  repoSlug,
+			Asset: assetPattern,
 		},
 	}
 
@@ -305,7 +302,7 @@ func UpdateSetCmd(ctx context.Context, cmd *cli.Command, args []string) error {
 		return err
 	}
 
-	msg := fmt.Sprintf("Update source set to GitHub releases: %s (pattern: %s, release: %s)", repoSlug, assetPattern, releaseKind(preRelease))
+	msg := fmt.Sprintf("Update source set to GitHub releases: %s (pattern: %s)", repoSlug, assetPattern)
 	fmt.Println(colorize(color, "\033[0;32m", msg))
 	return nil
 }
@@ -648,19 +645,8 @@ func updateSummary(update *models.UpdateSource) string {
 		if update.GitHubRelease == nil {
 			return "| github: <missing>"
 		}
-		release := update.GitHubRelease.ReleaseKind
-		if release == "" {
-			release = "latest"
-		}
-		return fmt.Sprintf("| github: %s, asset: %s, release: %s", update.GitHubRelease.Repo, update.GitHubRelease.Asset, release)
+		return fmt.Sprintf("| github: %s, asset: %s", update.GitHubRelease.Repo, update.GitHubRelease.Asset)
 	default:
 		return fmt.Sprintf("| %s", update.Kind)
 	}
-}
-
-func releaseKind(preRelease bool) string {
-	if preRelease {
-		return "pre"
-	}
-	return "latest"
 }

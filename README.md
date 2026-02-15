@@ -127,7 +127,8 @@ aim update set <id> --github owner/repo --asset "*.AppImage"
 | :--------------- | :--------------------------------------------------- |
 | `--github`       | GitHub repo in the form owner/repo                   |
 | `--asset`        | asset filename pattern, e.g. `MyApp-*.AppImage`       |
-| `--pre-release`  | allow pre-releases when checking for updates         |
+
+GitHub update checks use stable releases only.
 
 ## Data locations (XDG)
 

@@ -66,7 +66,7 @@ func GitHubReleaseUpdateCheck(update *models.UpdateSource, currentVersion string
 		return nil, err
 	}
 
-	release, ok := selectRelease(payload, releaseAllowsPrerelease(update.GitHubRelease.ReleaseKind))
+	release, ok := selectRelease(payload, false)
 	if !ok {
 		return nil, fmt.Errorf("no matching github releases found")
 	}
@@ -133,10 +133,6 @@ func selectRelease(releases []gitHubReleaseResponse, allowPrerelease bool) (gitH
 		return release, true
 	}
 	return gitHubReleaseResponse{}, false
-}
-
-func releaseAllowsPrerelease(kind string) bool {
-	return strings.EqualFold(strings.TrimSpace(kind), "pre")
 }
 
 func selectBestAsset(matches []assetMatch, arch string) assetMatch {

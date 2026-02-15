@@ -92,7 +92,7 @@ func main() {
 			{
 				Name:      "update",
 				Usage:     "Check/apply updates, check local files, or set update source",
-				UsageText: "aim update [<id>] [--yes|-y] [--check-only|-c]\n   aim update check <path-to.AppImage>\n   aim update set <id> --github owner/repo --asset \"*.AppImage\" [--pre-release]",
+				UsageText: "aim update [<id>] [--yes|-y] [--check-only|-c]\n   aim update check <path-to.AppImage>\n   aim update set <id> --github owner/repo --asset \"*.AppImage\"",
 				Flags: []cli.Flag{
 					&cli.BoolFlag{
 						Name:    "yes",
@@ -111,10 +111,6 @@ func main() {
 					&cli.StringFlag{
 						Name:  "asset",
 						Usage: "asset filename pattern, e.g. \"*.AppImage\" (for 'update set')",
-					},
-					&cli.BoolFlag{
-						Name:  "pre-release",
-						Usage: "allow pre-releases when checking for updates (for 'update set')",
 					},
 				},
 				Action: UpdateCmd,
