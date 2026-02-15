@@ -54,10 +54,7 @@ func TestSelectRelease(t *testing.T) {
 }
 
 func TestMatchAssetArchPreference(t *testing.T) {
-	assets := []struct {
-		Name               string `json:"name"`
-		BrowserDownloadURL string `json:"browser_download_url"`
-	}{
+	assets := []releaseAsset{
 		{Name: "MyApp-arm64.AppImage", BrowserDownloadURL: "https://example.com/arm64"},
 		{Name: "MyApp.AppImage", BrowserDownloadURL: "https://example.com/generic"},
 		{Name: "MyApp-x86_64.AppImage", BrowserDownloadURL: "https://example.com/amd64"},
@@ -80,10 +77,7 @@ func TestMatchAssetArchPreference(t *testing.T) {
 }
 
 func TestMatchAssetNoMatch(t *testing.T) {
-	assets := []struct {
-		Name               string `json:"name"`
-		BrowserDownloadURL string `json:"browser_download_url"`
-	}{
+	assets := []releaseAsset{
 		{Name: "MyApp-x86_64.AppImage", BrowserDownloadURL: "https://example.com/amd64"},
 	}
 

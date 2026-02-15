@@ -3,9 +3,11 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -162,8 +164,8 @@ func UpdateCmd(ctx context.Context, cmd *cli.Command) error {
 		}
 	}
 
-	if cmd.IsSet("github") || cmd.IsSet("asset") {
-		return fmt.Errorf("flags --github and --asset can only be used with `aim update set`")
+	if hasUpdateSetFlags(cmd) {
+		return fmt.Errorf("update source flags can only be used with `aim update set`")
 	}
 
 	targetID := ""
@@ -247,20 +249,15 @@ func UpdateSetCmd(ctx context.Context, cmd *cli.Command, args []string) error {
 	if len(args) > 0 {
 		id = strings.TrimSpace(args[0])
 	}
-	repoSlug := cmd.String("github")
-	assetPattern := cmd.String("asset")
 	color := useColor(cmd)
 
 	if id == "" {
 		return fmt.Errorf("missing required argument <id>")
 	}
 
-	if repoSlug == "" {
-		return fmt.Errorf("missing required flag --github")
-	}
-
-	if assetPattern == "" {
-		return fmt.Errorf("missing required flag --asset")
+	incomingSource, err := resolveUpdateSourceFromSetFlags(cmd)
+	if err != nil {
+		return err
 	}
 
 	app, err := repo.GetApp(id)
@@ -272,13 +269,7 @@ func UpdateSetCmd(ctx context.Context, cmd *cli.Command, args []string) error {
 		prompt := fmt.Sprintf("Update source already set to %s:\n%s\nWill be replaced with:\n%s\nOverwrite? [y/N]: ",
 			app.Update.Kind,
 			updateSummary(app.Update),
-			updateSummary(&models.UpdateSource{
-				Kind: models.UpdateGitHubRelease,
-				GitHubRelease: &models.GitHubReleaseUpdateSource{
-					Repo:  repoSlug,
-					Asset: assetPattern,
-				},
-			}),
+			updateSummary(incomingSource),
 		)
 		confirmed, err := confirmOverwrite(prompt)
 		if err != nil {
@@ -290,21 +281,139 @@ func UpdateSetCmd(ctx context.Context, cmd *cli.Command, args []string) error {
 		}
 	}
 
-	app.Update = &models.UpdateSource{
-		Kind: models.UpdateGitHubRelease,
-		GitHubRelease: &models.GitHubReleaseUpdateSource{
-			Repo:  repoSlug,
-			Asset: assetPattern,
-		},
-	}
+	app.Update = incomingSource
 
 	if err := repo.UpdateApp(app); err != nil {
 		return err
 	}
 
-	msg := fmt.Sprintf("Update source set to GitHub releases: %s (pattern: %s)", repoSlug, assetPattern)
+	msg := fmt.Sprintf("Update source set: %s", updateSummary(incomingSource))
 	fmt.Println(colorize(color, "\033[0;32m", msg))
 	return nil
+}
+
+func hasUpdateSetFlags(cmd *cli.Command) bool {
+	keys := []string{"github", "gitlab", "asset", "zsync-url", "manifest-url", "url", "sha256"}
+	for _, key := range keys {
+		if cmd.IsSet(key) {
+			return true
+		}
+	}
+	return false
+}
+
+func resolveUpdateSourceFromSetFlags(cmd *cli.Command) (*models.UpdateSource, error) {
+	githubRepo := strings.TrimSpace(cmd.String("github"))
+	gitlabProject := strings.TrimSpace(cmd.String("gitlab"))
+	assetPattern := strings.TrimSpace(cmd.String("asset"))
+	zsyncURL := strings.TrimSpace(cmd.String("zsync-url"))
+	manifestURL := strings.TrimSpace(cmd.String("manifest-url"))
+	directURL := strings.TrimSpace(cmd.String("url"))
+	sha256 := strings.ToLower(strings.TrimSpace(cmd.String("sha256")))
+
+	selectorCount := 0
+	for _, value := range []string{githubRepo, gitlabProject, zsyncURL, manifestURL, directURL} {
+		if value != "" {
+			selectorCount++
+		}
+	}
+
+	if selectorCount == 0 {
+		return nil, fmt.Errorf("missing update source; set one of --github, --gitlab, --zsync-url, --manifest-url, or --url")
+	}
+	if selectorCount > 1 {
+		return nil, fmt.Errorf("update source flags are mutually exclusive")
+	}
+
+	if githubRepo != "" {
+		if assetPattern == "" {
+			return nil, fmt.Errorf("missing required flag --asset")
+		}
+		if sha256 != "" {
+			return nil, fmt.Errorf("--sha256 is only supported with --url")
+		}
+		return &models.UpdateSource{
+			Kind: models.UpdateGitHubRelease,
+			GitHubRelease: &models.GitHubReleaseUpdateSource{
+				Repo:  githubRepo,
+				Asset: assetPattern,
+			},
+		}, nil
+	}
+
+	if gitlabProject != "" {
+		if assetPattern == "" {
+			return nil, fmt.Errorf("missing required flag --asset")
+		}
+		if sha256 != "" {
+			return nil, fmt.Errorf("--sha256 is only supported with --url")
+		}
+		return &models.UpdateSource{
+			Kind: models.UpdateGitLabRelease,
+			GitLabRelease: &models.GitLabReleaseUpdateSource{
+				Project: gitlabProject,
+				Asset:   assetPattern,
+			},
+		}, nil
+	}
+
+	if zsyncURL != "" {
+		if assetPattern != "" {
+			return nil, fmt.Errorf("--asset is only supported with --github or --gitlab")
+		}
+		if sha256 != "" {
+			return nil, fmt.Errorf("--sha256 is only supported with --url")
+		}
+		if !isHTTPSURL(zsyncURL) {
+			return nil, fmt.Errorf("--zsync-url must be a valid https URL")
+		}
+		return &models.UpdateSource{
+			Kind: models.UpdateZsync,
+			Zsync: &models.ZsyncUpdateSource{
+				UpdateInfo: "zsync|" + zsyncURL,
+				Transport:  "zsync",
+			},
+		}, nil
+	}
+
+	if manifestURL != "" {
+		if assetPattern != "" {
+			return nil, fmt.Errorf("--asset is only supported with --github or --gitlab")
+		}
+		if sha256 != "" {
+			return nil, fmt.Errorf("--sha256 is only supported with --url")
+		}
+		if !isHTTPSURL(manifestURL) {
+			return nil, fmt.Errorf("--manifest-url must be a valid https URL")
+		}
+		return &models.UpdateSource{
+			Kind: models.UpdateManifest,
+			Manifest: &models.ManifestUpdateSource{
+				URL: manifestURL,
+			},
+		}, nil
+	}
+
+	if assetPattern != "" {
+		return nil, fmt.Errorf("--asset is only supported with --github or --gitlab")
+	}
+	if !isHTTPSURL(directURL) {
+		return nil, fmt.Errorf("--url must be a valid https URL")
+	}
+	if sha256 == "" {
+		return nil, fmt.Errorf("missing required flag --sha256 for --url")
+	}
+	if !isValidSHA256(sha256) {
+		return nil, fmt.Errorf("--sha256 must be a 64-character hex value")
+	}
+
+	return &models.UpdateSource{
+		Kind: models.UpdateDirectURL,
+		DirectURL: &models.DirectURLUpdateSource{
+			URL:    directURL,
+			SHA256: sha256,
+		},
+	}, nil
 }
 
 func PinCmd(ctx context.Context, cmd *cli.Command) error {
@@ -372,13 +481,15 @@ func setPinnedState(id string, pinned bool) (*models.App, bool, error) {
 }
 
 type pendingManagedUpdate struct {
-	App       *models.App
-	URL       string
-	Asset     string
-	Label     string
-	Available bool
-	Latest    string
-	FromKind  models.UpdateKind
+	App            *models.App
+	URL            string
+	Asset          string
+	Label          string
+	Available      bool
+	Latest         string
+	ExpectedSHA1   string
+	ExpectedSHA256 string
+	FromKind       models.UpdateKind
 }
 
 func runManagedUpdate(ctx context.Context, cmd *cli.Command, targetID string) error {
@@ -576,13 +687,14 @@ func checkAppUpdate(app *models.App) (*pendingManagedUpdate, error) {
 			label = "Newer pre-release version found!"
 		}
 		return &pendingManagedUpdate{
-			App:       app,
-			URL:       update.DownloadUrl,
-			Asset:     update.AssetName,
-			Label:     label,
-			Available: true,
-			Latest:    "",
-			FromKind:  models.UpdateZsync,
+			App:          app,
+			URL:          update.DownloadUrl,
+			Asset:        update.AssetName,
+			Label:        label,
+			Available:    true,
+			Latest:       "",
+			ExpectedSHA1: strings.TrimSpace(update.RemoteSHA1),
+			FromKind:     models.UpdateZsync,
 		}, nil
 	case models.UpdateGitHubRelease:
 		update, err := core.GitHubReleaseUpdateCheck(app.Update, app.Version)
@@ -620,6 +732,106 @@ func checkAppUpdate(app *models.App) (*pendingManagedUpdate, error) {
 			Available: true,
 			Latest:    latest,
 			FromKind:  models.UpdateGitHubRelease,
+		}, nil
+	case models.UpdateGitLabRelease:
+		update, err := core.GitLabReleaseUpdateCheck(app.Update, app.Version)
+		if err != nil {
+			return nil, err
+		}
+		if update == nil {
+			return &pendingManagedUpdate{
+				App:       app,
+				Available: false,
+				Latest:    "",
+				FromKind:  models.UpdateGitLabRelease,
+			}, nil
+		}
+
+		latest := strings.TrimSpace(update.TagName)
+		if !update.Available {
+			return &pendingManagedUpdate{
+				App:       app,
+				Available: false,
+				Latest:    latest,
+				FromKind:  models.UpdateGitLabRelease,
+			}, nil
+		}
+
+		return &pendingManagedUpdate{
+			App:       app,
+			URL:       update.DownloadURL,
+			Asset:     update.AssetName,
+			Label:     "Newer version found!",
+			Available: true,
+			Latest:    latest,
+			FromKind:  models.UpdateGitLabRelease,
+		}, nil
+	case models.UpdateManifest:
+		update, err := core.ManifestUpdateCheck(app.Update, app.Version, app.SHA256)
+		if err != nil {
+			return nil, err
+		}
+		if update == nil {
+			return &pendingManagedUpdate{
+				App:       app,
+				Available: false,
+				Latest:    "",
+				FromKind:  models.UpdateManifest,
+			}, nil
+		}
+
+		latest := strings.TrimSpace(update.Version)
+		if !update.Available {
+			return &pendingManagedUpdate{
+				App:       app,
+				Available: false,
+				Latest:    latest,
+				FromKind:  models.UpdateManifest,
+			}, nil
+		}
+
+		return &pendingManagedUpdate{
+			App:            app,
+			URL:            update.DownloadURL,
+			Asset:          update.AssetName,
+			Label:          "Newer version found!",
+			Available:      true,
+			Latest:         latest,
+			ExpectedSHA256: strings.ToLower(strings.TrimSpace(update.SHA256)),
+			FromKind:       models.UpdateManifest,
+		}, nil
+	case models.UpdateDirectURL:
+		update, err := core.DirectURLUpdateCheck(app.Update, app.SHA256)
+		if err != nil {
+			return nil, err
+		}
+		if update == nil {
+			return &pendingManagedUpdate{
+				App:       app,
+				Available: false,
+				Latest:    "",
+				FromKind:  models.UpdateDirectURL,
+			}, nil
+		}
+
+		if !update.Available {
+			return &pendingManagedUpdate{
+				App:       app,
+				Available: false,
+				Latest:    "",
+				FromKind:  models.UpdateDirectURL,
+			}, nil
+		}
+
+		return &pendingManagedUpdate{
+			App:            app,
+			URL:            update.DownloadURL,
+			Asset:          update.AssetName,
+			Label:          "Newer version found!",
+			Available:      true,
+			Latest:         "",
+			ExpectedSHA256: strings.ToLower(strings.TrimSpace(update.SHA256)),
+			FromKind:       models.UpdateDirectURL,
 		}, nil
 	default:
 		return nil, fmt.Errorf("unsupported update source kind %q", app.Update.Kind)
@@ -663,6 +875,10 @@ func applyManagedUpdate(ctx context.Context, update pendingManagedUpdate) (*mode
 		return nil, err
 	}
 
+	if err := verifyDownloadedUpdate(downloadPath, update); err != nil {
+		return nil, err
+	}
+
 	app, err := core.IntegrateFromLocalFile(ctx, downloadPath, func(existing, incoming *models.UpdateSource) (bool, error) {
 		return false, nil
 	})
@@ -671,6 +887,32 @@ func applyManagedUpdate(ctx context.Context, update pendingManagedUpdate) (*mode
 	}
 
 	return app, nil
+}
+
+func verifyDownloadedUpdate(downloadPath string, update pendingManagedUpdate) error {
+	expectedSHA256 := strings.ToLower(strings.TrimSpace(update.ExpectedSHA256))
+	if expectedSHA256 != "" {
+		sum, err := util.Sha256File(downloadPath)
+		if err != nil {
+			return err
+		}
+		if strings.ToLower(sum) != expectedSHA256 {
+			return fmt.Errorf("downloaded file sha256 mismatch")
+		}
+	}
+
+	expectedSHA1 := strings.ToLower(strings.TrimSpace(update.ExpectedSHA1))
+	if expectedSHA1 != "" {
+		sum, err := util.Sha1(downloadPath)
+		if err != nil {
+			return err
+		}
+		if strings.ToLower(sum) != expectedSHA1 {
+			return fmt.Errorf("downloaded file sha1 mismatch")
+		}
+	}
+
+	return nil
 }
 
 func updateDownloadFilename(assetName, downloadURL string) string {
@@ -714,6 +956,29 @@ func downloadUpdateAsset(ctx context.Context, assetURL, destination string) erro
 	}
 
 	return nil
+}
+
+func isHTTPSURL(value string) bool {
+	u, err := url.Parse(strings.TrimSpace(value))
+	if err != nil {
+		return false
+	}
+	if !strings.EqualFold(u.Scheme, "https") {
+		return false
+	}
+	if strings.TrimSpace(u.Host) == "" {
+		return false
+	}
+	return true
+}
+
+func isValidSHA256(value string) bool {
+	v := strings.ToLower(strings.TrimSpace(value))
+	if len(v) != 64 {
+		return false
+	}
+	_, err := hex.DecodeString(v)
+	return err == nil
 }
 
 const (
@@ -799,6 +1064,21 @@ func updateSummary(update *models.UpdateSource) string {
 			return "| github: <missing>"
 		}
 		return fmt.Sprintf("| github: %s, asset: %s", update.GitHubRelease.Repo, update.GitHubRelease.Asset)
+	case models.UpdateGitLabRelease:
+		if update.GitLabRelease == nil {
+			return "| gitlab: <missing>"
+		}
+		return fmt.Sprintf("| gitlab: %s, asset: %s", update.GitLabRelease.Project, update.GitLabRelease.Asset)
+	case models.UpdateManifest:
+		if update.Manifest == nil {
+			return "| manifest: <missing>"
+		}
+		return fmt.Sprintf("| manifest: %s", update.Manifest.URL)
+	case models.UpdateDirectURL:
+		if update.DirectURL == nil {
+			return "| direct-url: <missing>"
+		}
+		return fmt.Sprintf("| direct-url: %s", update.DirectURL.URL)
 	default:
 		return fmt.Sprintf("| %s", update.Kind)
 	}

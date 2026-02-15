@@ -19,14 +19,16 @@ type GitHubReleaseUpdate struct {
 	PreRelease  bool
 }
 
+type releaseAsset struct {
+	Name               string `json:"name"`
+	BrowserDownloadURL string `json:"browser_download_url"`
+}
+
 type gitHubReleaseResponse struct {
-	TagName    string `json:"tag_name"`
-	Prerelease bool   `json:"prerelease"`
-	Draft      bool   `json:"draft"`
-	Assets     []struct {
-		Name               string `json:"name"`
-		BrowserDownloadURL string `json:"browser_download_url"`
-	} `json:"assets"`
+	TagName    string         `json:"tag_name"`
+	Prerelease bool           `json:"prerelease"`
+	Draft      bool           `json:"draft"`
+	Assets     []releaseAsset `json:"assets"`
 }
 
 func GitHubReleaseUpdateCheck(update *models.UpdateSource, currentVersion string) (*GitHubReleaseUpdate, error) {
@@ -94,10 +96,7 @@ type assetMatch struct {
 	url  string
 }
 
-func matchAsset(assets []struct {
-	Name               string `json:"name"`
-	BrowserDownloadURL string `json:"browser_download_url"`
-}, pattern, arch string) (string, string) {
+func matchAsset(assets []releaseAsset, pattern, arch string) (string, string) {
 	var matches []assetMatch
 	for _, asset := range assets {
 		ok, err := path.Match(pattern, asset.Name)

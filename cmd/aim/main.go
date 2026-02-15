@@ -92,7 +92,7 @@ func main() {
 			{
 				Name:      "update",
 				Usage:     "Check/apply updates, check local files, or set update source",
-				UsageText: "aim update [<id>] [--yes|-y] [--check-only|-c]\n   aim update check <path-to.AppImage>\n   aim update set <id> --github owner/repo --asset \"*.AppImage\"",
+				UsageText: "aim update [<id>] [--yes|-y] [--check-only|-c]\n   aim update check <path-to.AppImage>\n   aim update set <id> (--github owner/repo --asset \"*.AppImage\" | --gitlab namespace/project --asset \"*.AppImage\" | --zsync-url <https-url> | --manifest-url <https-url> | --url <https-url> --sha256 <sha256>)",
 				Flags: []cli.Flag{
 					&cli.BoolFlag{
 						Name:    "yes",
@@ -111,6 +111,26 @@ func main() {
 					&cli.StringFlag{
 						Name:  "asset",
 						Usage: "asset filename pattern, e.g. \"*.AppImage\" (for 'update set')",
+					},
+					&cli.StringFlag{
+						Name:  "gitlab",
+						Usage: "GitLab project path namespace/project (for 'update set')",
+					},
+					&cli.StringFlag{
+						Name:  "zsync-url",
+						Usage: "direct zsync metadata URL (https, for 'update set')",
+					},
+					&cli.StringFlag{
+						Name:  "manifest-url",
+						Usage: "manifest endpoint URL (https, for 'update set')",
+					},
+					&cli.StringFlag{
+						Name:  "url",
+						Usage: "direct AppImage URL (https, for 'update set')",
+					},
+					&cli.StringFlag{
+						Name:  "sha256",
+						Usage: "expected SHA-256 for direct URL updates (for 'update set --url')",
 					},
 				},
 				Action: UpdateCmd,

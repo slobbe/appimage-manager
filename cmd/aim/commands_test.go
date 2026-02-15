@@ -7,6 +7,7 @@ import (
 	"github.com/slobbe/appimage-manager/internal/config"
 	repo "github.com/slobbe/appimage-manager/internal/repository"
 	models "github.com/slobbe/appimage-manager/internal/types"
+	"github.com/urfave/cli/v3"
 )
 
 func TestIdentifyInputType(t *testing.T) {
@@ -173,4 +174,87 @@ func TestUpdateCheckMetadata(t *testing.T) {
 	if updated.LastCheckedAt == "" {
 		t.Fatal("expected last_checked_at to be set")
 	}
+}
+
+func TestResolveUpdateSourceFromSetFlags(t *testing.T) {
+	tests := []struct {
+		name      string
+		flags     map[string]string
+		expect    models.UpdateKind
+		wantError bool
+	}{
+		{
+			name:   "github source",
+			flags:  map[string]string{"github": "owner/repo", "asset": "*.AppImage"},
+			expect: models.UpdateGitHubRelease,
+		},
+		{
+			name:   "gitlab source",
+			flags:  map[string]string{"gitlab": "group/project", "asset": "*.AppImage"},
+			expect: models.UpdateGitLabRelease,
+		},
+		{
+			name:      "direct url missing sha",
+			flags:     map[string]string{"url": "https://example.com/MyApp.AppImage"},
+			wantError: true,
+		},
+		{
+			name:   "direct url source",
+			flags:  map[string]string{"url": "https://example.com/MyApp.AppImage", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+			expect: models.UpdateDirectURL,
+		},
+		{
+			name:      "mutually exclusive selectors",
+			flags:     map[string]string{"github": "owner/repo", "gitlab": "group/project", "asset": "*.AppImage"},
+			wantError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := newUpdateSetTestCommand(t, tt.flags)
+
+			source, err := resolveUpdateSourceFromSetFlags(cmd)
+			if tt.wantError {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("resolveUpdateSourceFromSetFlags returned error: %v", err)
+			}
+			if source == nil {
+				t.Fatal("expected source")
+			}
+			if source.Kind != tt.expect {
+				t.Fatalf("source.Kind = %q, want %q", source.Kind, tt.expect)
+			}
+		})
+	}
+}
+
+func newUpdateSetTestCommand(t *testing.T, values map[string]string) *cli.Command {
+	t.Helper()
+
+	cmd := &cli.Command{
+		Flags: []cli.Flag{
+			&cli.StringFlag{Name: "github"},
+			&cli.StringFlag{Name: "gitlab"},
+			&cli.StringFlag{Name: "asset"},
+			&cli.StringFlag{Name: "zsync-url"},
+			&cli.StringFlag{Name: "manifest-url"},
+			&cli.StringFlag{Name: "url"},
+			&cli.StringFlag{Name: "sha256"},
+		},
+	}
+
+	for key, value := range values {
+		if err := cmd.Set(key, value); err != nil {
+			t.Fatalf("failed to set %s: %v", key, err)
+		}
+	}
+
+	return cmd
 }

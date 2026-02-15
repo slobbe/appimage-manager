@@ -121,14 +121,23 @@ aim update check <path-to.AppImage>
 
 ```sh
 aim update set <id> --github owner/repo --asset "*.AppImage"
+aim update set <id> --gitlab namespace/project --asset "*.AppImage"
+aim update set <id> --zsync-url https://example.com/MyApp.AppImage.zsync
+aim update set <id> --manifest-url https://example.com/myapp/latest.json
+aim update set <id> --url https://example.com/MyApp.AppImage --sha256 <sha256>
 ```
 
-| Option           | Meaning                                              |
-| :--------------- | :--------------------------------------------------- |
-| `--github`       | GitHub repo in the form owner/repo                   |
-| `--asset`        | asset filename pattern, e.g. `MyApp-*.AppImage`       |
+| Option            | Meaning                                                  |
+| :---------------- | :------------------------------------------------------- |
+| `--github`        | GitHub repo in the form owner/repo                       |
+| `--gitlab`        | GitLab project path in the form namespace/project        |
+| `--asset`         | asset filename pattern, e.g. `MyApp-*.AppImage`          |
+| `--zsync-url`     | direct zsync metadata URL (HTTPS)                        |
+| `--manifest-url`  | manifest endpoint URL (HTTPS)                            |
+| `--url`           | direct AppImage URL (HTTPS)                              |
+| `--sha256`        | required with `--url`; expected SHA-256 for verification |
 
-GitHub update checks use stable releases only.
+GitHub and GitLab update checks use stable releases only.
 
 **Pin** an app to skip it during batch update apply:
 

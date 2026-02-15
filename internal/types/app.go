@@ -12,6 +12,9 @@ const (
 	UpdateNone          UpdateKind = "none"
 	UpdateZsync         UpdateKind = "zsync"
 	UpdateGitHubRelease UpdateKind = "github_release"
+	UpdateGitLabRelease UpdateKind = "gitlab_release"
+	UpdateManifest      UpdateKind = "manifest"
+	UpdateDirectURL     UpdateKind = "direct_url"
 )
 
 type App struct {
@@ -55,6 +58,9 @@ type UpdateSource struct {
 	Kind          UpdateKind                 `json:"kind"`
 	Zsync         *ZsyncUpdateSource         `json:"zsync,omitempty"`
 	GitHubRelease *GitHubReleaseUpdateSource `json:"github_release,omitempty"`
+	GitLabRelease *GitLabReleaseUpdateSource `json:"gitlab_release,omitempty"`
+	Manifest      *ManifestUpdateSource      `json:"manifest,omitempty"`
+	DirectURL     *DirectURLUpdateSource     `json:"direct_url,omitempty"`
 }
 
 type ZsyncUpdateSource struct {
@@ -66,4 +72,18 @@ type GitHubReleaseUpdateSource struct {
 	Repo        string `json:"repo"`
 	Asset       string `json:"asset"`
 	ReleaseKind string `json:"release_kind,omitempty"`
+}
+
+type GitLabReleaseUpdateSource struct {
+	Project string `json:"project"`
+	Asset   string `json:"asset"`
+}
+
+type ManifestUpdateSource struct {
+	URL string `json:"url"`
+}
+
+type DirectURLUpdateSource struct {
+	URL    string `json:"url"`
+	SHA256 string `json:"sha256"`
 }
