@@ -11,7 +11,9 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/slobbe/appimage-manager/internal/core"
 	util "github.com/slobbe/appimage-manager/internal/helpers"
@@ -608,8 +610,16 @@ func runManagedUpdate(ctx context.Context, cmd *cli.Command, targetID string) er
 	}
 
 	applyFailures := 0
-	for _, item := range pending {
-		updatedApp, err := applyManagedUpdate(ctx, item)
+	totalPending := len(pending)
+	interactiveProgress := isTerminalOutput()
+	for i, item := range pending {
+		progress := fmt.Sprintf("Updating %s (%d/%d)", item.App.ID, i+1, totalPending)
+		if transition := updateVersionTransition(item); transition != "" {
+			progress = fmt.Sprintf("%s %s", progress, transition)
+		}
+		fmt.Println(colorize(color, "\033[0;36m", progress))
+
+		updatedApp, err := applyManagedUpdate(ctx, item, interactiveProgress)
 		if err != nil {
 			applyFailures++
 			msg := fmt.Sprintf("%s: failed to apply update: %v", item.App.ID, err)
@@ -862,7 +872,7 @@ func updateCheckMetadata(app *models.App, checked, available bool, latest string
 	return nil
 }
 
-func applyManagedUpdate(ctx context.Context, update pendingManagedUpdate) (*models.App, error) {
+func applyManagedUpdate(ctx context.Context, update pendingManagedUpdate, interactiveProgress bool) (*models.App, error) {
 	if strings.TrimSpace(update.URL) == "" {
 		return nil, fmt.Errorf("missing download URL")
 	}
@@ -877,14 +887,17 @@ func applyManagedUpdate(ctx context.Context, update pendingManagedUpdate) (*mode
 
 	fileName := updateDownloadFilename(update.Asset, update.URL)
 	downloadPath := filepath.Join(tempDir, fileName)
-	if err := downloadUpdateAsset(ctx, update.URL, downloadPath); err != nil {
+	fmt.Printf("  Downloading %s\n", fileName)
+	if err := downloadUpdateAsset(ctx, update.URL, downloadPath, interactiveProgress); err != nil {
 		return nil, err
 	}
 
+	fmt.Println("  Verifying download")
 	if err := verifyDownloadedUpdate(downloadPath, update); err != nil {
 		return nil, err
 	}
 
+	fmt.Println("  Integrating update")
 	app, err := core.IntegrateFromLocalFile(ctx, downloadPath, func(existing, incoming *models.UpdateSource) (bool, error) {
 		return false, nil
 	})
@@ -974,7 +987,7 @@ func updateDownloadFilename(assetName, downloadURL string) string {
 	return name
 }
 
-func downloadUpdateAsset(ctx context.Context, assetURL, destination string) error {
+func downloadUpdateAsset(ctx context.Context, assetURL, destination string, interactive bool) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, assetURL, nil)
 	if err != nil {
 		return err
@@ -996,11 +1009,90 @@ func downloadUpdateAsset(ctx context.Context, assetURL, destination string) erro
 	}
 	defer f.Close()
 
-	if _, err := io.Copy(f, resp.Body); err != nil {
-		return err
+	var (
+		total      = resp.ContentLength
+		downloaded int64
+		buffer     = make([]byte, 32*1024)
+		frame      int
+		lastDraw   time.Time
+	)
+
+	for {
+		n, readErr := resp.Body.Read(buffer)
+		if n > 0 {
+			if _, err := f.Write(buffer[:n]); err != nil {
+				return err
+			}
+			downloaded += int64(n)
+		}
+
+		if interactive {
+			now := time.Now()
+			if now.Sub(lastDraw) >= 120*time.Millisecond || readErr == io.EOF {
+				line := buildDownloadProgressLine(downloaded, total, frame)
+				fmt.Printf("\r%s", line)
+				lastDraw = now
+				frame++
+			}
+		}
+
+		if readErr != nil {
+			if readErr == io.EOF {
+				break
+			}
+			return readErr
+		}
+	}
+
+	if interactive {
+		line := buildDownloadProgressLine(downloaded, total, frame)
+		fmt.Printf("\r%s\n", line)
+	} else {
+		fmt.Printf("  Downloaded %s\n", formatByteSize(downloaded))
 	}
 
 	return nil
+}
+
+func buildDownloadProgressLine(downloaded, total int64, frame int) string {
+	if total > 0 {
+		percent := float64(downloaded) / float64(total)
+		if percent < 0 {
+			percent = 0
+		}
+		if percent > 1 {
+			percent = 1
+		}
+
+		barWidth := 24
+		filled := int(percent * float64(barWidth))
+		if filled > barWidth {
+			filled = barWidth
+		}
+		bar := strings.Repeat("#", filled) + strings.Repeat("-", barWidth-filled)
+		return fmt.Sprintf("  Downloading [%s] %6.2f%% (%s/%s)", bar, percent*100, formatByteSize(downloaded), formatByteSize(total))
+	}
+
+	spinnerFrames := []string{"|", "/", "-", "\\"}
+	frameLabel := spinnerFrames[frame%len(spinnerFrames)]
+	return fmt.Sprintf("  Downloading %s %s", frameLabel, formatByteSize(downloaded))
+}
+
+func formatByteSize(value int64) string {
+	if value < 1024 {
+		return fmt.Sprintf("%dB", value)
+	}
+
+	units := []string{"KB", "MB", "GB", "TB"}
+	size := float64(value)
+	unit := -1
+	for size >= 1024 && unit < len(units)-1 {
+		size /= 1024
+		unit++
+	}
+
+	rounded := strconv.FormatFloat(size, 'f', 1, 64)
+	return rounded + units[unit]
 }
 
 func isHTTPSURL(value string) bool {
@@ -1054,6 +1146,11 @@ func useColor(cmd *cli.Command) bool {
 	if cmd.Bool("no-color") {
 		return false
 	}
+
+	return isTerminalOutput()
+}
+
+func isTerminalOutput() bool {
 
 	stat, err := os.Stdout.Stat()
 	if err != nil {

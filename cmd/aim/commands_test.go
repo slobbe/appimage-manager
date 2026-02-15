@@ -348,6 +348,43 @@ func TestUpdateVersionTransitionUnknownLatest(t *testing.T) {
 	}
 }
 
+func TestBuildDownloadProgressLine(t *testing.T) {
+	known := buildDownloadProgressLine(512, 1024, 0)
+	if !strings.Contains(known, "50.00%") {
+		t.Fatalf("expected known-length progress to include percent, got: %s", known)
+	}
+	if !strings.Contains(known, "1.0KB") {
+		t.Fatalf("expected known-length progress to include total bytes, got: %s", known)
+	}
+
+	unknown := buildDownloadProgressLine(1536, -1, 1)
+	if !strings.Contains(unknown, "Downloading") {
+		t.Fatalf("expected unknown-length progress to include label, got: %s", unknown)
+	}
+	if !strings.Contains(unknown, "1.5KB") {
+		t.Fatalf("expected unknown-length progress to include byte count, got: %s", unknown)
+	}
+}
+
+func TestFormatByteSize(t *testing.T) {
+	tests := []struct {
+		input  int64
+		expect string
+	}{
+		{input: 512, expect: "512B"},
+		{input: 1024, expect: "1.0KB"},
+		{input: 1536, expect: "1.5KB"},
+		{input: 1048576, expect: "1.0MB"},
+	}
+
+	for _, tt := range tests {
+		got := formatByteSize(tt.input)
+		if got != tt.expect {
+			t.Fatalf("formatByteSize(%d) = %q, want %q", tt.input, got, tt.expect)
+		}
+	}
+}
+
 func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()
 
