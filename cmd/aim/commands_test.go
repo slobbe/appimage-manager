@@ -80,3 +80,97 @@ func TestUpdateDownloadFilename(t *testing.T) {
 		})
 	}
 }
+
+func TestSetPinnedState(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "apps.json")
+
+	originalDbSrc := config.DbSrc
+	config.DbSrc = dbPath
+	t.Cleanup(func() {
+		config.DbSrc = originalDbSrc
+	})
+
+	if err := repo.SaveDB(dbPath, &repo.DB{
+		SchemaVersion: 1,
+		Apps: map[string]*models.App{
+			"my-app": {ID: "my-app", Name: "My App", Pinned: false},
+		},
+	}); err != nil {
+		t.Fatalf("failed to write test DB: %v", err)
+	}
+
+	app, changed, err := setPinnedState("my-app", true)
+	if err != nil {
+		t.Fatalf("setPinnedState returned error: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected change when pinning app")
+	}
+	if !app.Pinned {
+		t.Fatal("expected app to be pinned")
+	}
+
+	_, changed, err = setPinnedState("my-app", true)
+	if err != nil {
+		t.Fatalf("setPinnedState returned error on idempotent pin: %v", err)
+	}
+	if changed {
+		t.Fatal("did not expect change when app already pinned")
+	}
+
+	app, changed, err = setPinnedState("my-app", false)
+	if err != nil {
+		t.Fatalf("setPinnedState returned error: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected change when unpinning app")
+	}
+	if app.Pinned {
+		t.Fatal("expected app to be unpinned")
+	}
+}
+
+func TestUpdateCheckMetadata(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "apps.json")
+
+	originalDbSrc := config.DbSrc
+	config.DbSrc = dbPath
+	t.Cleanup(func() {
+		config.DbSrc = originalDbSrc
+	})
+
+	if err := repo.SaveDB(dbPath, &repo.DB{
+		SchemaVersion: 1,
+		Apps: map[string]*models.App{
+			"my-app": {ID: "my-app", Name: "My App"},
+		},
+	}); err != nil {
+		t.Fatalf("failed to write test DB: %v", err)
+	}
+
+	app, err := repo.GetApp("my-app")
+	if err != nil {
+		t.Fatalf("failed to load app: %v", err)
+	}
+
+	if err := updateCheckMetadata(app, true, true, "v2.0.0"); err != nil {
+		t.Fatalf("updateCheckMetadata returned error: %v", err)
+	}
+
+	updated, err := repo.GetApp("my-app")
+	if err != nil {
+		t.Fatalf("failed to load updated app: %v", err)
+	}
+
+	if !updated.UpdateAvailable {
+		t.Fatal("expected update_available to be true")
+	}
+	if updated.LatestVersion != "v2.0.0" {
+		t.Fatalf("latest_version = %q, want %q", updated.LatestVersion, "v2.0.0")
+	}
+	if updated.LastCheckedAt == "" {
+		t.Fatal("expected last_checked_at to be set")
+	}
+}

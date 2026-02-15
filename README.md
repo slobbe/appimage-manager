@@ -130,6 +130,18 @@ aim update set <id> --github owner/repo --asset "*.AppImage"
 
 GitHub update checks use stable releases only.
 
+**Pin** an app to skip it during batch update apply:
+
+```sh
+aim pin <id>
+```
+
+**Unpin** an app so batch update apply can include it again:
+
+```sh
+aim unpin <id>
+```
+
 ## Data locations (XDG)
 
 `aim` stores files using XDG base directories:

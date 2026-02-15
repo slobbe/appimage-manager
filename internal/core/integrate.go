@@ -90,6 +90,11 @@ func IntegrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 	}
 
 	timestampNow := util.NowISO()
+	addedAt := timestampNow
+	pinned := false
+	lastCheckedAt := ""
+	latestVersion := ""
+	updateAvailable := false
 
 	update := &models.UpdateSource{
 		Kind: models.UpdateNone,
@@ -106,6 +111,12 @@ func IntegrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 	}
 
 	if existingApp != nil {
+		if strings.TrimSpace(existingApp.AddedAt) != "" {
+			addedAt = existingApp.AddedAt
+		}
+		pinned = existingApp.Pinned
+		lastCheckedAt = existingApp.LastCheckedAt
+
 		if !updateFound {
 			update = existingApp.Update
 		} else if existingApp.Update != nil && existingApp.Update.Kind != models.UpdateNone && confirmUpdateOverwrite != nil {
@@ -147,8 +158,12 @@ func IntegrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 		DesktopEntryPath: extractionData.DesktopEntryPath,
 		DesktopEntryLink: desktopEntryLink,
 		IconPath:         extractionData.IconPath,
-		AddedAt:          timestampNow,
+		AddedAt:          addedAt,
 		UpdatedAt:        timestampNow,
+		LastCheckedAt:    lastCheckedAt,
+		UpdateAvailable:  updateAvailable,
+		LatestVersion:    latestVersion,
+		Pinned:           pinned,
 		SHA256:           sha256sum,
 		SHA1:             sha1sum,
 		Source:           source,

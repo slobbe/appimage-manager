@@ -27,6 +27,11 @@ type App struct {
 	AddedAt   string `json:"added_at"`
 	UpdatedAt string `json:"updated_at"`
 
+	LastCheckedAt   string `json:"last_checked_at,omitempty"`
+	UpdateAvailable bool   `json:"update_available"`
+	LatestVersion   string `json:"latest_version,omitempty"`
+	Pinned          bool   `json:"pinned"`
+
 	SHA256 string `json:"sha256"`
 	SHA1   string `json:"sha1"`
 

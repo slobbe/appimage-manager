@@ -115,6 +115,28 @@ func main() {
 				},
 				Action: UpdateCmd,
 			},
+			{
+				Name:  "pin",
+				Usage: "Pin an app to prevent batch update apply",
+				Arguments: []cli.Argument{
+					&cli.StringArg{
+						Name:      "id",
+						UsageText: "<id>",
+					},
+				},
+				Action: PinCmd,
+			},
+			{
+				Name:  "unpin",
+				Usage: "Unpin an app so batch update apply can include it",
+				Arguments: []cli.Argument{
+					&cli.StringArg{
+						Name:      "id",
+						UsageText: "<id>",
+					},
+				},
+				Action: UnpinCmd,
+			},
 		},
 	}
 

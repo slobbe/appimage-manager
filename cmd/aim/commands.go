@@ -307,12 +307,78 @@ func UpdateSetCmd(ctx context.Context, cmd *cli.Command, args []string) error {
 	return nil
 }
 
+func PinCmd(ctx context.Context, cmd *cli.Command) error {
+	_ = ctx
+	id := strings.TrimSpace(cmd.StringArg("id"))
+	if id == "" {
+		return fmt.Errorf("missing required argument <id>")
+	}
+
+	app, changed, err := setPinnedState(id, true)
+	if err != nil {
+		return err
+	}
+
+	color := useColor(cmd)
+	if changed {
+		fmt.Println(colorize(color, "\033[0;32m", fmt.Sprintf("Pinned %s", app.ID)))
+		return nil
+	}
+
+	fmt.Println(colorize(color, "\033[0;33m", fmt.Sprintf("%s is already pinned", app.ID)))
+	return nil
+}
+
+func UnpinCmd(ctx context.Context, cmd *cli.Command) error {
+	_ = ctx
+	id := strings.TrimSpace(cmd.StringArg("id"))
+	if id == "" {
+		return fmt.Errorf("missing required argument <id>")
+	}
+
+	app, changed, err := setPinnedState(id, false)
+	if err != nil {
+		return err
+	}
+
+	color := useColor(cmd)
+	if changed {
+		fmt.Println(colorize(color, "\033[0;32m", fmt.Sprintf("Unpinned %s", app.ID)))
+		return nil
+	}
+
+	fmt.Println(colorize(color, "\033[0;33m", fmt.Sprintf("%s is already unpinned", app.ID)))
+	return nil
+}
+
+func setPinnedState(id string, pinned bool) (*models.App, bool, error) {
+	app, err := repo.GetApp(id)
+	if err != nil {
+		return nil, false, err
+	}
+
+	if app.Pinned == pinned {
+		return app, false, nil
+	}
+
+	app.Pinned = pinned
+	app.UpdatedAt = util.NowISO()
+
+	if err := repo.UpdateApp(app); err != nil {
+		return nil, false, err
+	}
+
+	return app, true, nil
+}
+
 type pendingManagedUpdate struct {
-	App      *models.App
-	URL      string
-	Asset    string
-	Label    string
-	FromKind models.UpdateKind
+	App       *models.App
+	URL       string
+	Asset     string
+	Label     string
+	Available bool
+	Latest    string
+	FromKind  models.UpdateKind
 }
 
 func runManagedUpdate(ctx context.Context, cmd *cli.Command, targetID string) error {
@@ -327,9 +393,18 @@ func runManagedUpdate(ctx context.Context, cmd *cli.Command, targetID string) er
 
 	var pending []pendingManagedUpdate
 	checkFailures := 0
+	skippedPinned := 0
 	for _, app := range apps {
 		update, err := checkAppUpdate(app)
 		if err != nil {
+			if metaErr := updateCheckMetadata(app, false, app.UpdateAvailable, app.LatestVersion); metaErr != nil {
+				if targetID != "" {
+					return metaErr
+				}
+				checkFailures++
+				msg := fmt.Sprintf("%s: failed to persist check metadata: %v", app.ID, metaErr)
+				fmt.Println(colorize(color, "\033[0;31m", msg))
+			}
 			if targetID != "" {
 				return err
 			}
@@ -346,6 +421,15 @@ func runManagedUpdate(ctx context.Context, cmd *cli.Command, targetID string) er
 			continue
 		}
 
+		if err := updateCheckMetadata(app, true, update.Available, update.Latest); err != nil {
+			if targetID != "" {
+				return err
+			}
+			checkFailures++
+			msg := fmt.Sprintf("%s: failed to persist check metadata: %v", app.ID, err)
+			fmt.Println(colorize(color, "\033[0;31m", msg))
+		}
+
 		if update.URL == "" {
 			if targetID != "" {
 				fmt.Println(colorize(color, "\033[0;32m", "You are up-to-date!"))
@@ -359,10 +443,23 @@ func runManagedUpdate(ctx context.Context, cmd *cli.Command, targetID string) er
 			fmt.Println(colorize(color, "\033[1m", header))
 		}
 		fmt.Println(colorize(color, "\033[0;33m", msg))
+
+		if targetID == "" && app.Pinned {
+			skippedPinned++
+			info := fmt.Sprintf("%s is pinned; skipping apply", app.ID)
+			fmt.Println(colorize(color, "\033[0;33m", info))
+			continue
+		}
+
 		pending = append(pending, *update)
 	}
 
 	if len(pending) == 0 {
+		if skippedPinned > 0 {
+			msg := fmt.Sprintf("No updates applied; %d app(s) are pinned.", skippedPinned)
+			fmt.Println(colorize(color, "\033[0;33m", msg))
+			return nil
+		}
 		if checkFailures > 0 {
 			fmt.Println(colorize(color, "\033[0;33m", "No updates applied; some checks failed."))
 			return nil
@@ -411,6 +508,11 @@ func runManagedUpdate(ctx context.Context, cmd *cli.Command, targetID string) er
 		return fmt.Errorf("%d update(s) failed", applyFailures)
 	}
 
+	if skippedPinned > 0 {
+		msg := fmt.Sprintf("Skipped %d pinned app(s).", skippedPinned)
+		fmt.Println(colorize(color, "\033[0;33m", msg))
+	}
+
 	return nil
 }
 
@@ -453,42 +555,93 @@ func checkAppUpdate(app *models.App) (*pendingManagedUpdate, error) {
 		if err != nil {
 			return nil, err
 		}
-		if update == nil || !update.Available {
-			return nil, nil
+		if update == nil {
+			return &pendingManagedUpdate{
+				App:       app,
+				Available: false,
+				Latest:    "",
+				FromKind:  models.UpdateZsync,
+			}, nil
+		}
+		if !update.Available {
+			return &pendingManagedUpdate{
+				App:       app,
+				Available: false,
+				Latest:    "",
+				FromKind:  models.UpdateZsync,
+			}, nil
 		}
 		label := "Newer version found!"
 		if update.PreRelease {
 			label = "Newer pre-release version found!"
 		}
 		return &pendingManagedUpdate{
-			App:      app,
-			URL:      update.DownloadUrl,
-			Asset:    update.AssetName,
-			Label:    label,
-			FromKind: models.UpdateZsync,
+			App:       app,
+			URL:       update.DownloadUrl,
+			Asset:     update.AssetName,
+			Label:     label,
+			Available: true,
+			Latest:    "",
+			FromKind:  models.UpdateZsync,
 		}, nil
 	case models.UpdateGitHubRelease:
 		update, err := core.GitHubReleaseUpdateCheck(app.Update, app.Version)
 		if err != nil {
 			return nil, err
 		}
-		if update == nil || !update.Available {
-			return nil, nil
+		if update == nil {
+			return &pendingManagedUpdate{
+				App:       app,
+				Available: false,
+				Latest:    "",
+				FromKind:  models.UpdateGitHubRelease,
+			}, nil
+		}
+
+		latest := strings.TrimSpace(update.TagName)
+
+		if !update.Available {
+			return &pendingManagedUpdate{
+				App:       app,
+				Available: false,
+				Latest:    latest,
+				FromKind:  models.UpdateGitHubRelease,
+			}, nil
 		}
 		label := "Newer version found!"
 		if update.PreRelease {
 			label = "Newer pre-release version found!"
 		}
 		return &pendingManagedUpdate{
-			App:      app,
-			URL:      update.DownloadUrl,
-			Asset:    update.AssetName,
-			Label:    label,
-			FromKind: models.UpdateGitHubRelease,
+			App:       app,
+			URL:       update.DownloadUrl,
+			Asset:     update.AssetName,
+			Label:     label,
+			Available: true,
+			Latest:    latest,
+			FromKind:  models.UpdateGitHubRelease,
 		}, nil
 	default:
 		return nil, fmt.Errorf("unsupported update source kind %q", app.Update.Kind)
 	}
+}
+
+func updateCheckMetadata(app *models.App, checked, available bool, latest string) error {
+	if app == nil {
+		return nil
+	}
+
+	if checked {
+		app.UpdateAvailable = available
+		app.LatestVersion = strings.TrimSpace(latest)
+	}
+	app.LastCheckedAt = util.NowISO()
+
+	if err := repo.UpdateApp(app); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func applyManagedUpdate(ctx context.Context, update pendingManagedUpdate) (*models.App, error) {
