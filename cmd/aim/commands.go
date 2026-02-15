@@ -14,6 +14,28 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
+func RootCmd(ctx context.Context, cmd *cli.Command) error {
+	if !cmd.Bool("upgrade") {
+		return cli.ShowRootCommandHelp(cmd)
+	}
+
+	color := useColor(cmd)
+	result, err := core.SelfUpgrade(ctx, version)
+	if err != nil {
+		return err
+	}
+
+	if result.Updated {
+		msg := fmt.Sprintf("Updated aim from v%s to v%s", result.CurrentVersion, result.LatestVersion)
+		fmt.Println(colorize(color, "\033[0;32m", msg))
+		return nil
+	}
+
+	msg := fmt.Sprintf("aim is already up to date (v%s)", result.CurrentVersion)
+	fmt.Println(colorize(color, "\033[0;32m", msg))
+	return nil
+}
+
 func AddCmd(ctx context.Context, cmd *cli.Command) error {
 	input := cmd.StringArg("app")
 	color := useColor(cmd)

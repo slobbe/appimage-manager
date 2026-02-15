@@ -20,10 +20,15 @@ func main() {
 		Name:    "aim",
 		Version: version,
 		Usage:   "Integrate AppImages into your desktop environment",
+		Action:  RootCmd,
 		Flags: []cli.Flag{
 			&cli.BoolFlag{
 				Name:  "no-color",
 				Usage: "disable ANSI color output",
+			},
+			&cli.BoolFlag{
+				Name:  "upgrade",
+				Usage: "check and install the latest stable aim release",
 			},
 		},
 		Commands: []*cli.Command{

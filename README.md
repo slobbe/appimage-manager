@@ -48,6 +48,13 @@ Global flags:
 | Option       | Meaning                    |
 | :----------- | :------------------------- |
 | `--no-color` | disable ANSI color output  |
+| `--upgrade`  | self-update to latest stable release |
+
+**Upgrade** `aim` itself to the latest stable release:
+
+```sh
+aim --upgrade
+```
 
 **Integrate** AppImage into your desktop environment:
 
