@@ -551,14 +551,14 @@ func runManagedUpdate(ctx context.Context, cmd *cli.Command, targetID string) er
 			continue
 		}
 
-		msg := fmt.Sprintf("%s\nDownload from %s\nThen integrate it with %s", update.Label, update.URL, integrationHint(update.Asset))
+		msg := buildManagedUpdateMessage(*update, checkOnly)
 		if targetID == "" {
 			header := fmt.Sprintf("[%s]", app.ID)
 			fmt.Println(colorize(color, "\033[1m", header))
 		}
 		fmt.Println(colorize(color, "\033[0;33m", msg))
 
-		if targetID == "" && app.Pinned {
+		if targetID == "" && app.Pinned && !checkOnly {
 			skippedPinned++
 			info := fmt.Sprintf("%s is pinned; skipping apply", app.ID)
 			fmt.Println(colorize(color, "\033[0;33m", info))
@@ -919,6 +919,45 @@ func verifyDownloadedUpdate(downloadPath string, update pendingManagedUpdate) er
 	}
 
 	return nil
+}
+
+func buildManagedUpdateMessage(update pendingManagedUpdate, checkOnly bool) string {
+	base := update.Label
+	if transition := updateVersionTransition(update); transition != "" {
+		base = fmt.Sprintf("%s %s", base, transition)
+	}
+
+	if !checkOnly {
+		return base
+	}
+
+	return fmt.Sprintf("%s\nDownload from %s\nThen integrate it with %s", base, update.URL, integrationHint(update.Asset))
+}
+
+func updateVersionTransition(update pendingManagedUpdate) string {
+	if update.App == nil {
+		return ""
+	}
+
+	current := displayVersion(update.App.Version)
+	latestRaw := strings.TrimSpace(update.Latest)
+	if latestRaw == "" {
+		return fmt.Sprintf("(current: %s, latest: unknown)", current)
+	}
+
+	latest := displayVersion(latestRaw)
+	return fmt.Sprintf("(%s -> %s)", current, latest)
+}
+
+func displayVersion(value string) string {
+	v := strings.TrimSpace(value)
+	if v == "" {
+		return "unknown"
+	}
+	if strings.HasPrefix(strings.ToLower(v), "v") {
+		return v
+	}
+	return "v" + v
 }
 
 func updateDownloadFilename(assetName, downloadURL string) string {

@@ -307,6 +307,47 @@ func TestRunManagedUpdateSingleUpToDatePrintedOnce(t *testing.T) {
 	}
 }
 
+func TestBuildManagedUpdateMessage(t *testing.T) {
+	update := pendingManagedUpdate{
+		App: &models.App{
+			ID:      "obsidian",
+			Version: "1.11.6",
+		},
+		Label:  "Newer version found!",
+		Latest: "1.11.7",
+		URL:    "https://example.com/Obsidian-1.11.7.AppImage",
+		Asset:  "Obsidian-1.11.7.AppImage",
+	}
+
+	msgManaged := buildManagedUpdateMessage(update, false)
+	if strings.Contains(msgManaged, "Download from") {
+		t.Fatalf("managed update message should not include manual download hint: %s", msgManaged)
+	}
+	if !strings.Contains(msgManaged, "(v1.11.6 -> v1.11.7)") {
+		t.Fatalf("managed update message should include version transition: %s", msgManaged)
+	}
+
+	msgCheckOnly := buildManagedUpdateMessage(update, true)
+	if !strings.Contains(msgCheckOnly, "Download from https://example.com/Obsidian-1.11.7.AppImage") {
+		t.Fatalf("check-only message should include download URL: %s", msgCheckOnly)
+	}
+	if !strings.Contains(msgCheckOnly, "Then integrate it with") {
+		t.Fatalf("check-only message should include integration hint: %s", msgCheckOnly)
+	}
+}
+
+func TestUpdateVersionTransitionUnknownLatest(t *testing.T) {
+	update := pendingManagedUpdate{
+		App:    &models.App{Version: "2.0.0"},
+		Latest: "",
+	}
+
+	transition := updateVersionTransition(update)
+	if transition != "(current: v2.0.0, latest: unknown)" {
+		t.Fatalf("updateVersionTransition = %q", transition)
+	}
+}
+
 func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()
 
