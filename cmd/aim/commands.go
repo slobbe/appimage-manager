@@ -70,6 +70,14 @@ func AddCmd(ctx context.Context, cmd *cli.Command) error {
 		msg := fmt.Sprintf("Successfully reintegrated %s %s (ID: %s)", app.Name, displayVersion(app.Version), app.ID)
 		fmt.Println(colorize(color, "\033[0;32m", msg))
 	case InputTypeAppImage:
+		inputLabel := strings.TrimSpace(filepath.Base(input))
+		if inputLabel == "" || inputLabel == "." || inputLabel == string(filepath.Separator) {
+			inputLabel = strings.TrimSpace(input)
+		}
+
+		status := fmt.Sprintf("Integrating %s...", inputLabel)
+		fmt.Println(colorize(color, "\033[0;36m", status))
+
 		appData, err := core.IntegrateFromLocalFile(ctx, input, func(existing, incoming *models.UpdateSource) (bool, error) {
 			prompt := fmt.Sprintf("Update source already set to %s:\n%s\nWill be replaced with:\n%s\nOverwrite with AppImage info? [y/N]: ", existing.Kind, updateSummary(existing), updateSummary(incoming))
 			return confirmOverwrite(prompt)
