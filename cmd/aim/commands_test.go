@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -571,6 +572,69 @@ func TestManagedCheckWorkerCount(t *testing.T) {
 		if got != tt.expect {
 			t.Fatalf("managedCheckWorkerCount(%d) = %d, want %d", tt.input, got, tt.expect)
 		}
+	}
+}
+
+func TestPersistManagedAppliedAppsUsesBatch(t *testing.T) {
+	originalBatch := addAppsBatch
+	originalSingle := addSingleApp
+	t.Cleanup(func() {
+		addAppsBatch = originalBatch
+		addSingleApp = originalSingle
+	})
+
+	var batchCalls int32
+	var singleCalls int32
+	addAppsBatch = func(apps []*models.App, overwrite bool) error {
+		atomic.AddInt32(&batchCalls, 1)
+		if !overwrite {
+			t.Fatalf("expected overwrite true")
+		}
+		if len(apps) != 2 {
+			t.Fatalf("len(apps) = %d, want 2", len(apps))
+		}
+		return nil
+	}
+	addSingleApp = func(*models.App, bool) error {
+		atomic.AddInt32(&singleCalls, 1)
+		return nil
+	}
+
+	err := persistManagedAppliedApps([]*models.App{{ID: "a"}, {ID: "b"}})
+	if err != nil {
+		t.Fatalf("persistManagedAppliedApps returned error: %v", err)
+	}
+	if atomic.LoadInt32(&batchCalls) != 1 {
+		t.Fatalf("batch calls = %d, want 1", batchCalls)
+	}
+	if atomic.LoadInt32(&singleCalls) != 0 {
+		t.Fatalf("single calls = %d, want 0", singleCalls)
+	}
+}
+
+func TestPersistManagedAppliedAppsFallsBackToSingleWrites(t *testing.T) {
+	originalBatch := addAppsBatch
+	originalSingle := addSingleApp
+	t.Cleanup(func() {
+		addAppsBatch = originalBatch
+		addSingleApp = originalSingle
+	})
+
+	var singleCalls int32
+	addAppsBatch = func([]*models.App, bool) error {
+		return fmt.Errorf("batch failed")
+	}
+	addSingleApp = func(*models.App, bool) error {
+		atomic.AddInt32(&singleCalls, 1)
+		return nil
+	}
+
+	err := persistManagedAppliedApps([]*models.App{{ID: "a"}, {ID: "b"}})
+	if err != nil {
+		t.Fatalf("persistManagedAppliedApps returned error: %v", err)
+	}
+	if atomic.LoadInt32(&singleCalls) != 2 {
+		t.Fatalf("single calls = %d, want 2", singleCalls)
 	}
 }
 

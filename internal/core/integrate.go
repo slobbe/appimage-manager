@@ -17,14 +17,18 @@ import (
 type UpdateOverwritePrompt func(existing, incoming *models.UpdateSource) (bool, error)
 
 func IntegrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwrite UpdateOverwritePrompt) (*models.App, error) {
-	return integrateFromLocalFile(ctx, src, confirmUpdateOverwrite, true)
+	return integrateFromLocalFile(ctx, src, confirmUpdateOverwrite, true, true)
 }
 
 func IntegrateFromLocalFileWithoutCacheRefresh(ctx context.Context, src string, confirmUpdateOverwrite UpdateOverwritePrompt) (*models.App, error) {
-	return integrateFromLocalFile(ctx, src, confirmUpdateOverwrite, false)
+	return integrateFromLocalFile(ctx, src, confirmUpdateOverwrite, false, true)
 }
 
-func integrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwrite UpdateOverwritePrompt, refreshCaches bool) (*models.App, error) {
+func IntegrateFromLocalFileWithoutCacheRefreshOrPersist(ctx context.Context, src string, confirmUpdateOverwrite UpdateOverwritePrompt) (*models.App, error) {
+	return integrateFromLocalFile(ctx, src, confirmUpdateOverwrite, false, false)
+}
+
+func integrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwrite UpdateOverwritePrompt, refreshCaches bool, persist bool) (*models.App, error) {
 	if !util.HasExtension(src, ".AppImage") {
 		return nil, fmt.Errorf("source file must be a .AppImage file")
 	}
@@ -214,8 +218,10 @@ func integrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 		Update:           update,
 	}
 
-	if err := repo.AddApp(app, true); err != nil {
-		return nil, err
+	if persist {
+		if err := repo.AddApp(app, true); err != nil {
+			return nil, err
+		}
 	}
 
 	return app, nil

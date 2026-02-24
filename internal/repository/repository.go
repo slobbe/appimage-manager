@@ -89,6 +89,45 @@ func AddApp(appData *models.App, overwrite bool) error {
 	return nil
 }
 
+func AddAppsBatch(apps []*models.App, overwrite bool) error {
+	if len(apps) == 0 {
+		return nil
+	}
+
+	if len(config.DbSrc) < 1 {
+		return fmt.Errorf("database source cannot be empty")
+	}
+
+	db, err := LoadDB(config.DbSrc)
+	if err != nil {
+		return err
+	}
+
+	for _, appData := range apps {
+		if appData == nil {
+			return fmt.Errorf("app data cannot be empty")
+		}
+
+		key := strings.TrimSpace(appData.ID)
+		if key == "" {
+			return fmt.Errorf("invalid app slug")
+		}
+
+		_, exists := db.Apps[key]
+		if exists && !overwrite {
+			return fmt.Errorf("%s already exists in database", key)
+		}
+
+		db.Apps[key] = appData
+	}
+
+	if err := SaveDB(config.DbSrc, db); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func UpdateApp(appData *models.App) error {
 	if appData == nil {
 		return fmt.Errorf("app data cannot be empty")

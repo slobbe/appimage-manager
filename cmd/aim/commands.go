@@ -511,6 +511,8 @@ type managedCheckResult struct {
 
 var runAppUpdateCheck = checkAppUpdate
 var runZsyncUpdateCheck = core.ZsyncUpdateCheck
+var addAppsBatch = repo.AddAppsBatch
+var addSingleApp = repo.AddApp
 
 func runManagedUpdate(ctx context.Context, cmd *cli.Command, targetID string) error {
 	apps, err := collectManagedUpdateTargets(targetID)
@@ -655,6 +657,7 @@ func runManagedUpdate(ctx context.Context, cmd *cli.Command, targetID string) er
 	applyFailures := 0
 	applySuccesses := 0
 	totalPending := len(pending)
+	appliedApps := make([]*models.App, 0, totalPending)
 	interactiveProgress := isTerminalOutput()
 	for i, item := range pending {
 		progress := fmt.Sprintf("Updating %s (%d/%d)", item.App.ID, i+1, totalPending)
@@ -674,14 +677,24 @@ func runManagedUpdate(ctx context.Context, cmd *cli.Command, targetID string) er
 		msg := fmt.Sprintf("Updated %s to %s", updatedApp.ID, displayVersion(updatedApp.Version))
 		fmt.Println(colorize(color, "\033[0;32m", msg))
 		applySuccesses++
+		appliedApps = append(appliedApps, updatedApp)
 	}
 
 	if applySuccesses > 0 {
 		core.RefreshDesktopIntegrationCaches(ctx)
 	}
 
+	persistErr := persistManagedAppliedApps(appliedApps)
+
 	if applyFailures > 0 {
+		if persistErr != nil {
+			return fmt.Errorf("%d update(s) failed; failed to persist applied updates: %w", applyFailures, persistErr)
+		}
 		return fmt.Errorf("%d update(s) failed", applyFailures)
+	}
+
+	if persistErr != nil {
+		return persistErr
 	}
 
 	if skippedPinned > 0 {
@@ -819,6 +832,32 @@ func flushManagedCheckMetadata(updates []repo.CheckMetadataUpdate) error {
 	}
 
 	return repo.UpdateCheckMetadataBatch(updates)
+}
+
+func persistManagedAppliedApps(apps []*models.App) error {
+	if len(apps) == 0 {
+		return nil
+	}
+
+	if err := addAppsBatch(apps, true); err == nil {
+		return nil
+	}
+
+	fallbackErrors := make([]string, 0)
+	for _, app := range apps {
+		if app == nil {
+			continue
+		}
+		if err := addSingleApp(app, true); err != nil {
+			fallbackErrors = append(fallbackErrors, fmt.Sprintf("%s: %v", app.ID, err))
+		}
+	}
+
+	if len(fallbackErrors) > 0 {
+		return fmt.Errorf("failed to persist applied updates: %s", strings.Join(fallbackErrors, "; "))
+	}
+
+	return nil
 }
 
 func collectManagedUpdateTargets(targetID string) ([]*models.App, error) {
@@ -1084,7 +1123,7 @@ func applyManagedUpdate(ctx context.Context, update pendingManagedUpdate, intera
 	}
 
 	fmt.Println("  Integrating update")
-	app, err := core.IntegrateFromLocalFileWithoutCacheRefresh(ctx, downloadPath, func(existing, incoming *models.UpdateSource) (bool, error) {
+	app, err := core.IntegrateFromLocalFileWithoutCacheRefreshOrPersist(ctx, downloadPath, func(existing, incoming *models.UpdateSource) (bool, error) {
 		return false, nil
 	})
 	if err != nil {

@@ -96,6 +96,28 @@ func TestIntegrateFromLocalFileWithoutCacheRefreshSkipsRefresh(t *testing.T) {
 	}
 }
 
+func TestIntegrateFromLocalFileWithoutCacheRefreshOrPersistSkipsDatabaseSave(t *testing.T) {
+	tmp := t.TempDir()
+	setupIntegrationConfigForTest(t, tmp)
+	stubDesktopValidationForTest(t)
+	stubIntegrationCacheRefreshForTest(t)
+
+	appImagePath := filepath.Join(tmp, "0ad-0.28.0-x86_64.AppImage")
+	writeFakeAppImageExtractor(t, appImagePath)
+
+	app, err := IntegrateFromLocalFileWithoutCacheRefreshOrPersist(context.Background(), appImagePath, nil)
+	if err != nil {
+		t.Fatalf("IntegrateFromLocalFileWithoutCacheRefreshOrPersist returned error: %v", err)
+	}
+	if app == nil {
+		t.Fatal("expected integrated app")
+	}
+
+	if _, err := repo.GetApp(app.ID); err == nil {
+		t.Fatalf("expected app %q not to be persisted", app.ID)
+	}
+}
+
 func setupIntegrationConfigForTest(t *testing.T, tmp string) {
 	t.Helper()
 
