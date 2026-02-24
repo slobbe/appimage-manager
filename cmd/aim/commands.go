@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/slobbe/appimage-manager/internal/core"
@@ -502,6 +503,14 @@ type pendingManagedUpdate struct {
 	FromKind       models.UpdateKind
 }
 
+type managedCheckResult struct {
+	app    *models.App
+	update *pendingManagedUpdate
+	err    error
+}
+
+var runAppUpdateCheck = checkAppUpdate
+
 func runManagedUpdate(ctx context.Context, cmd *cli.Command, targetID string) error {
 	apps, err := collectManagedUpdateTargets(targetID)
 	if err != nil {
@@ -516,8 +525,12 @@ func runManagedUpdate(ctx context.Context, cmd *cli.Command, targetID string) er
 	checkFailures := 0
 	skippedPinned := 0
 	singleStatusPrinted := false
-	for _, app := range apps {
-		update, err := checkAppUpdate(app)
+	checkResults := runManagedChecks(apps)
+
+	for _, result := range checkResults {
+		app := result.app
+		update := result.update
+		err := result.err
 		if err != nil {
 			if metaErr := updateCheckMetadata(app, false, app.UpdateAvailable, app.LatestVersion); metaErr != nil {
 				if targetID != "" {
@@ -530,6 +543,7 @@ func runManagedUpdate(ctx context.Context, cmd *cli.Command, targetID string) er
 			if targetID != "" {
 				return err
 			}
+
 			checkFailures++
 			msg := fmt.Sprintf("%s: failed to check updates: %v", app.ID, err)
 			fmt.Println(colorize(color, "\033[0;31m", msg))
@@ -649,6 +663,55 @@ func runManagedUpdate(ctx context.Context, cmd *cli.Command, targetID string) er
 	}
 
 	return nil
+}
+
+func runManagedChecks(apps []*models.App) []managedCheckResult {
+	results := make([]managedCheckResult, len(apps))
+	if len(apps) == 0 {
+		return results
+	}
+
+	jobs := make(chan int, len(apps))
+	workerCount := managedCheckWorkerCount(len(apps))
+
+	var wg sync.WaitGroup
+	for i := 0; i < workerCount; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			for idx := range jobs {
+				app := apps[idx]
+				update, err := runAppUpdateCheck(app)
+				results[idx] = managedCheckResult{
+					app:    app,
+					update: update,
+					err:    err,
+				}
+			}
+		}()
+	}
+
+	for idx := range apps {
+		jobs <- idx
+	}
+	close(jobs)
+
+	wg.Wait()
+	return results
+}
+
+func managedCheckWorkerCount(total int) int {
+	if total <= 0 {
+		return 0
+	}
+
+	const maxWorkers = 4
+	if total < maxWorkers {
+		return total
+	}
+
+	return maxWorkers
 }
 
 func collectManagedUpdateTargets(targetID string) ([]*models.App, error) {

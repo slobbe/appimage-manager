@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/slobbe/appimage-manager/internal/config"
 	repo "github.com/slobbe/appimage-manager/internal/repository"
@@ -304,6 +305,70 @@ func TestRunManagedUpdateSingleUpToDatePrintedOnce(t *testing.T) {
 
 	if strings.Count(output, "You are up-to-date!") != 1 {
 		t.Fatalf("expected exactly one up-to-date message, got output:\n%s", output)
+	}
+}
+
+func TestRunManagedChecksPreservesInputOrder(t *testing.T) {
+	originalCheck := runAppUpdateCheck
+	t.Cleanup(func() {
+		runAppUpdateCheck = originalCheck
+	})
+
+	runAppUpdateCheck = func(app *models.App) (*pendingManagedUpdate, error) {
+		switch app.ID {
+		case "a":
+			time.Sleep(40 * time.Millisecond)
+		case "b":
+			time.Sleep(10 * time.Millisecond)
+		case "c":
+			time.Sleep(20 * time.Millisecond)
+		}
+
+		return &pendingManagedUpdate{
+			App:       app,
+			Available: false,
+			FromKind:  models.UpdateNone,
+		}, nil
+	}
+
+	apps := []*models.App{
+		{ID: "a"},
+		{ID: "b"},
+		{ID: "c"},
+	}
+
+	results := runManagedChecks(apps)
+	if len(results) != len(apps) {
+		t.Fatalf("len(results) = %d, want %d", len(results), len(apps))
+	}
+
+	for i, app := range apps {
+		if results[i].app == nil || results[i].app.ID != app.ID {
+			t.Fatalf("results[%d].app.ID = %q, want %q", i, results[i].app.ID, app.ID)
+		}
+		if results[i].update == nil || results[i].update.App == nil || results[i].update.App.ID != app.ID {
+			t.Fatalf("results[%d].update app mismatch", i)
+		}
+	}
+}
+
+func TestManagedCheckWorkerCount(t *testing.T) {
+	tests := []struct {
+		input  int
+		expect int
+	}{
+		{input: 0, expect: 0},
+		{input: 1, expect: 1},
+		{input: 3, expect: 3},
+		{input: 4, expect: 4},
+		{input: 12, expect: 4},
+	}
+
+	for _, tt := range tests {
+		got := managedCheckWorkerCount(tt.input)
+		if got != tt.expect {
+			t.Fatalf("managedCheckWorkerCount(%d) = %d, want %d", tt.input, got, tt.expect)
+		}
 	}
 }
 
