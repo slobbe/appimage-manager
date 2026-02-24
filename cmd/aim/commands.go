@@ -59,7 +59,7 @@ func AddCmd(ctx context.Context, cmd *cli.Command) error {
 			return err
 		}
 		app = appData
-		msg := fmt.Sprintf("%s v%s (ID: %s) already integrated!", app.Name, app.Version, app.ID)
+		msg := fmt.Sprintf("%s %s (ID: %s) already integrated!", app.Name, displayVersion(app.Version), app.ID)
 		fmt.Println(colorize(color, "\033[0;32m", msg))
 	case InputTypeUnlinked:
 		appData, err := core.IntegrateExisting(ctx, input)
@@ -67,7 +67,7 @@ func AddCmd(ctx context.Context, cmd *cli.Command) error {
 			return err
 		}
 		app = appData
-		msg := fmt.Sprintf("Successfully reintegrated %s v%s (ID: %s)", app.Name, app.Version, app.ID)
+		msg := fmt.Sprintf("Successfully reintegrated %s %s (ID: %s)", app.Name, displayVersion(app.Version), app.ID)
 		fmt.Println(colorize(color, "\033[0;32m", msg))
 	case InputTypeAppImage:
 		appData, err := core.IntegrateFromLocalFile(ctx, input, func(existing, incoming *models.UpdateSource) (bool, error) {
@@ -78,7 +78,7 @@ func AddCmd(ctx context.Context, cmd *cli.Command) error {
 			return err
 		}
 		app = appData
-		msg := fmt.Sprintf("Successfully integrated %s v%s (ID: %s)", app.Name, app.Version, app.ID)
+		msg := fmt.Sprintf("Successfully integrated %s %s (ID: %s)", app.Name, displayVersion(app.Version), app.ID)
 		fmt.Println(colorize(color, "\033[0;32m", msg))
 	default:
 		return fmt.Errorf("unknown argument %s", input)
@@ -627,7 +627,7 @@ func runManagedUpdate(ctx context.Context, cmd *cli.Command, targetID string) er
 			continue
 		}
 
-		msg := fmt.Sprintf("Updated %s to v%s", updatedApp.ID, updatedApp.Version)
+		msg := fmt.Sprintf("Updated %s to %s", updatedApp.ID, displayVersion(updatedApp.Version))
 		fmt.Println(colorize(color, "\033[0;32m", msg))
 	}
 
@@ -963,11 +963,23 @@ func updateVersionTransition(update pendingManagedUpdate) string {
 }
 
 func displayVersion(value string) string {
-	v := strings.TrimSpace(value)
+	v := strings.TrimSpace(strings.Trim(value, `"'`))
 	if v == "" {
 		return "unknown"
 	}
-	if strings.HasPrefix(strings.ToLower(v), "v") {
+
+	lower := strings.ToLower(v)
+	if strings.HasPrefix(lower, "version") {
+		v = strings.TrimSpace(v[len("version"):])
+		v = strings.TrimLeft(v, " :=-")
+	}
+
+	v = strings.TrimSpace(v)
+	lower = strings.ToLower(v)
+	if lower == "" || lower == "n/a" || lower == "na" || lower == "none" || lower == "unknown" || lower == "-" {
+		return "unknown"
+	}
+	if strings.HasPrefix(lower, "v") {
 		return v
 	}
 	return "v" + v

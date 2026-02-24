@@ -82,6 +82,51 @@ func TestUpdateDesktopEntryRejectsNonAppImageExec(t *testing.T) {
 	}
 }
 
+func TestGetAppInfoFallsBackToVersionFromFilename(t *testing.T) {
+	dir := t.TempDir()
+	desktopPath := filepath.Join(dir, "0ad-0.28.0-x86_64.desktop")
+
+	content := strings.Join([]string{
+		"[Desktop Entry]",
+		"Name=0 A.D.",
+		"X-AppImage-Version=n/a",
+	}, "\n") + "\n"
+
+	if err := os.WriteFile(desktopPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("failed to write desktop file: %v", err)
+	}
+
+	appInfo, err := GetAppInfo(context.Background(), desktopPath)
+	if err != nil {
+		t.Fatalf("GetAppInfo returned error: %v", err)
+	}
+	if appInfo.Version != "0.28.0" {
+		t.Fatalf("appInfo.Version = %q, want %q", appInfo.Version, "0.28.0")
+	}
+}
+
+func TestGetAppInfoUsesUnknownWhenVersionUnavailable(t *testing.T) {
+	dir := t.TempDir()
+	desktopPath := filepath.Join(dir, "my-app.desktop")
+
+	content := strings.Join([]string{
+		"[Desktop Entry]",
+		"Name=My App",
+	}, "\n") + "\n"
+
+	if err := os.WriteFile(desktopPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("failed to write desktop file: %v", err)
+	}
+
+	appInfo, err := GetAppInfo(context.Background(), desktopPath)
+	if err != nil {
+		t.Fatalf("GetAppInfo returned error: %v", err)
+	}
+	if appInfo.Version != "unknown" {
+		t.Fatalf("appInfo.Version = %q, want %q", appInfo.Version, "unknown")
+	}
+}
+
 func TestExtractAppImageResolvesDesktopSymlinkSource(t *testing.T) {
 	tmp := t.TempDir()
 	setupExtractionConfigForTest(t, tmp)

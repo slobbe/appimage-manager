@@ -385,6 +385,29 @@ func TestFormatByteSize(t *testing.T) {
 	}
 }
 
+func TestDisplayVersion(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  string
+		expect string
+	}{
+		{name: "numeric", input: "1.2.3", expect: "v1.2.3"},
+		{name: "already prefixed", input: "v1.2.3", expect: "v1.2.3"},
+		{name: "unknown literal", input: "unknown", expect: "unknown"},
+		{name: "na placeholder", input: "n/a", expect: "unknown"},
+		{name: "empty", input: "", expect: "unknown"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := displayVersion(tt.input)
+			if got != tt.expect {
+				t.Fatalf("displayVersion(%q) = %q, want %q", tt.input, got, tt.expect)
+			}
+		})
+	}
+}
+
 func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()
 
