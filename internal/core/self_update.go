@@ -34,7 +34,7 @@ type selfUpdateReleaseResponse struct {
 var (
 	selfUpdateRepoSlug = "slobbe/appimage-manager"
 
-	selfUpdateHTTPClient = http.DefaultClient
+	selfUpdateHTTPClient = sharedHTTPClient
 	selfUpdateGOARCH     = runtime.GOARCH
 
 	selfUpdateExecutablePath = os.Executable

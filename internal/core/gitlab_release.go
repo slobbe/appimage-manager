@@ -31,6 +31,7 @@ type gitLabReleaseResponse struct {
 }
 
 var gitLabReleaseAPIBaseURL = "https://gitlab.com/api/v4"
+var gitLabReleaseHTTPClient = sharedHTTPClient
 
 func GitLabReleaseUpdateCheck(update *models.UpdateSource, currentVersion string) (*GitLabReleaseUpdate, error) {
 	if update == nil || update.Kind != models.UpdateGitLabRelease || update.GitLabRelease == nil {
@@ -56,7 +57,7 @@ func GitLabReleaseUpdateCheck(update *models.UpdateSource, currentVersion string
 	}
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := gitLabReleaseHTTPClient.Do(req)
 	if err != nil {
 		return nil, err
 	}

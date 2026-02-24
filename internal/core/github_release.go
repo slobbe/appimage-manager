@@ -31,6 +31,8 @@ type gitHubReleaseResponse struct {
 	Assets     []releaseAsset `json:"assets"`
 }
 
+var githubReleaseHTTPClient = sharedHTTPClient
+
 func GitHubReleaseUpdateCheck(update *models.UpdateSource, currentVersion string) (*GitHubReleaseUpdate, error) {
 	if update == nil || update.Kind != models.UpdateGitHubRelease || update.GitHubRelease == nil {
 		return nil, fmt.Errorf("invalid github release update source")
@@ -53,7 +55,7 @@ func GitHubReleaseUpdateCheck(update *models.UpdateSource, currentVersion string
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := githubReleaseHTTPClient.Do(req)
 	if err != nil {
 		return nil, err
 	}

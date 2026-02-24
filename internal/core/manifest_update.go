@@ -28,7 +28,7 @@ type manifestPayload struct {
 	} `json:"assets"`
 }
 
-var manifestHTTPClient = http.DefaultClient
+var manifestHTTPClient = sharedHTTPClient
 
 func ManifestUpdateCheck(update *models.UpdateSource, currentVersion, currentSHA256 string) (*ManifestUpdate, error) {
 	if update == nil || update.Kind != models.UpdateManifest || update.Manifest == nil {
