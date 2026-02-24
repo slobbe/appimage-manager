@@ -3,9 +3,11 @@ package core
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -73,7 +75,19 @@ func ExtractAppImage(ctx context.Context, src string) (*ExtractionData, error) {
 	}
 
 	tempDesktopSrc, err := LocateDesktopFile(root)
+	if err != nil {
+		return nil, fmt.Errorf("failed to locate desktop file: %w", err)
+	}
+
+	tempDesktopSrc, err = resolveDesktopFileSource(tempDesktopSrc)
+	if err != nil {
+		return nil, err
+	}
+
 	tempIconSrc, err := LocateIcon(root)
+	if err != nil {
+		return nil, fmt.Errorf("failed to locate icon file: %w", err)
+	}
 
 	extractDir := filepath.Join(config.AimDir, "."+srcFileName)
 	if err := os.MkdirAll(extractDir, 0o755); err != nil {
@@ -302,27 +316,97 @@ func LocateDesktopFile(dir string) (string, error) {
 	}
 
 	if len(desktopGlob) == 0 {
-		return "", fmt.Errorf("no .desktop file found in: %s", dir)
-	}
-
-	// If multiple files found, prefer one matching directory name
-	if len(desktopGlob) > 1 {
-		dirName := filepath.Base(dir)
-		for _, candidate := range desktopGlob {
-			candidateName := strings.TrimSuffix(filepath.Base(candidate), ".desktop")
-			if candidateName == dirName {
-				return candidate, nil
-			}
+		desktopGlob, err = findDesktopFilesRecursive(dir)
+		if err != nil {
+			return "", err
 		}
-		// Also prefer "AppName.desktop" pattern
-		for _, candidate := range desktopGlob {
-			if strings.HasPrefix(filepath.Base(candidate), dirName) {
-				return candidate, nil
-			}
+		if len(desktopGlob) == 0 {
+			return "", fmt.Errorf("no .desktop file found in: %s", dir)
 		}
 	}
 
-	return desktopGlob[0], nil
+	return selectPreferredDesktopFile(dir, desktopGlob), nil
+}
+
+func findDesktopFilesRecursive(root string) ([]string, error) {
+	var desktopFiles []string
+
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if d.IsDir() {
+			return nil
+		}
+
+		if strings.EqualFold(filepath.Ext(d.Name()), ".desktop") {
+			desktopFiles = append(desktopFiles, path)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to search .desktop files recursively: %w", err)
+	}
+
+	return desktopFiles, nil
+}
+
+func selectPreferredDesktopFile(root string, candidates []string) string {
+	if len(candidates) == 1 {
+		return candidates[0]
+	}
+
+	sort.Strings(candidates)
+
+	dirName := filepath.Base(root)
+	for _, candidate := range candidates {
+		candidateName := strings.TrimSuffix(filepath.Base(candidate), ".desktop")
+		if candidateName == dirName {
+			return candidate
+		}
+	}
+
+	for _, candidate := range candidates {
+		if strings.HasPrefix(filepath.Base(candidate), dirName) {
+			return candidate
+		}
+	}
+
+	for _, candidate := range candidates {
+		rel, err := filepath.Rel(root, candidate)
+		if err != nil {
+			continue
+		}
+
+		rel = filepath.ToSlash(rel)
+		if strings.HasPrefix(rel, "usr/share/applications/") {
+			return candidate
+		}
+	}
+
+	return candidates[0]
+}
+
+func resolveDesktopFileSource(src string) (string, error) {
+	if strings.TrimSpace(src) == "" {
+		return "", fmt.Errorf("desktop source path cannot be empty")
+	}
+
+	resolved, err := filepath.EvalSymlinks(src)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve desktop file path %s: %w", src, err)
+	}
+
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return "", fmt.Errorf("failed to access desktop file %s: %w", resolved, err)
+	}
+	if info.IsDir() {
+		return "", fmt.Errorf("desktop source path is a directory, not a file: %s", resolved)
+	}
+
+	return resolved, nil
 }
 
 func LocateIcon(dir string) (string, error) {

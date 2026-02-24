@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/slobbe/appimage-manager/internal/config"
 )
 
 func TestUpdateDesktopEntryRewritesExecAndIconInAllowedSections(t *testing.T) {
@@ -77,5 +79,143 @@ func TestUpdateDesktopEntryRejectsNonAppImageExec(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), ".AppImage") {
 		t.Fatalf("error = %q, want AppImage hint", err.Error())
+	}
+}
+
+func TestExtractAppImageResolvesDesktopSymlinkSource(t *testing.T) {
+	tmp := t.TempDir()
+	setupExtractionConfigForTest(t, tmp)
+
+	appImagePath := filepath.Join(tmp, "0ad-0.28.0-x86_64.AppImage")
+	writeFakeAppImageExtractor(t, appImagePath)
+
+	extractionData, err := ExtractAppImage(context.Background(), appImagePath)
+	if err != nil {
+		t.Fatalf("ExtractAppImage returned error: %v", err)
+	}
+
+	info, err := os.Lstat(extractionData.DesktopEntryPath)
+	if err != nil {
+		t.Fatalf("expected extracted desktop file to exist: %v", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		t.Fatalf("expected extracted desktop file to be materialized, got symlink: %s", extractionData.DesktopEntryPath)
+	}
+
+	appInfo, err := GetAppInfo(context.Background(), extractionData.DesktopEntryPath)
+	if err != nil {
+		t.Fatalf("GetAppInfo returned error for extracted desktop file: %v", err)
+	}
+	if appInfo.Name != "0 A.D." {
+		t.Fatalf("appInfo.Name = %q, want %q", appInfo.Name, "0 A.D.")
+	}
+}
+
+func TestExtractAppImageReportsDesktopLookupFailure(t *testing.T) {
+	tmp := t.TempDir()
+	setupExtractionConfigForTest(t, tmp)
+
+	appImagePath := filepath.Join(tmp, "missing-desktop.AppImage")
+	writeFakeAppImageExtractorWithoutDesktop(t, appImagePath)
+
+	_, err := ExtractAppImage(context.Background(), appImagePath)
+	if err == nil {
+		t.Fatal("expected extraction error when no desktop file is present")
+	}
+	if !strings.Contains(err.Error(), "failed to locate desktop file") {
+		t.Fatalf("error = %q, want desktop lookup error", err.Error())
+	}
+}
+
+func TestLocateDesktopFileFallsBackToRecursiveSearch(t *testing.T) {
+	root := t.TempDir()
+
+	preferred := filepath.Join(root, "usr", "share", "applications", "my-app.desktop")
+	other := filepath.Join(root, "meta", "other.desktop")
+
+	if err := os.MkdirAll(filepath.Dir(preferred), 0o755); err != nil {
+		t.Fatalf("failed to create preferred desktop directory: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(other), 0o755); err != nil {
+		t.Fatalf("failed to create fallback desktop directory: %v", err)
+	}
+
+	if err := os.WriteFile(preferred, []byte("[Desktop Entry]\nName=Preferred\n"), 0o644); err != nil {
+		t.Fatalf("failed to write preferred desktop file: %v", err)
+	}
+	if err := os.WriteFile(other, []byte("[Desktop Entry]\nName=Other\n"), 0o644); err != nil {
+		t.Fatalf("failed to write fallback desktop file: %v", err)
+	}
+
+	got, err := LocateDesktopFile(root)
+	if err != nil {
+		t.Fatalf("LocateDesktopFile returned error: %v", err)
+	}
+	if got != preferred {
+		t.Fatalf("LocateDesktopFile returned %q, want %q", got, preferred)
+	}
+}
+
+func setupExtractionConfigForTest(t *testing.T, tmp string) {
+	t.Helper()
+
+	originalAimDir := config.AimDir
+	originalTempDir := config.TempDir
+	t.Cleanup(func() {
+		config.AimDir = originalAimDir
+		config.TempDir = originalTempDir
+	})
+
+	config.AimDir = filepath.Join(tmp, "aim")
+	config.TempDir = filepath.Join(tmp, "cache", "tmp")
+}
+
+func writeFakeAppImageExtractor(t *testing.T, dst string) {
+	t.Helper()
+
+	script := strings.Join([]string{
+		"#!/bin/sh",
+		"set -eu",
+		"if [ \"${1:-}\" != \"--appimage-extract\" ]; then",
+		"  echo \"unexpected args: $*\" >&2",
+		"  exit 1",
+		"fi",
+		"mkdir -p squashfs-root/usr/share/applications",
+		"cat > squashfs-root/usr/share/applications/0ad.desktop <<'EOF'",
+		"[Desktop Entry]",
+		"Name=0 A.D.",
+		"X-AppImage-Version=0.28.0",
+		"Exec=AppRun %U",
+		"Icon=0ad",
+		"EOF",
+		"ln -s usr/share/applications/0ad.desktop squashfs-root/0ad.desktop",
+		"cat > squashfs-root/0ad.svg <<'EOF'",
+		"<svg xmlns=\"http://www.w3.org/2000/svg\"/>",
+		"EOF",
+	}, "\n") + "\n"
+
+	if err := os.WriteFile(dst, []byte(script), 0o755); err != nil {
+		t.Fatalf("failed to write fake AppImage script: %v", err)
+	}
+}
+
+func writeFakeAppImageExtractorWithoutDesktop(t *testing.T, dst string) {
+	t.Helper()
+
+	script := strings.Join([]string{
+		"#!/bin/sh",
+		"set -eu",
+		"if [ \"${1:-}\" != \"--appimage-extract\" ]; then",
+		"  echo \"unexpected args: $*\" >&2",
+		"  exit 1",
+		"fi",
+		"mkdir -p squashfs-root",
+		"cat > squashfs-root/0ad.svg <<'EOF'",
+		"<svg xmlns=\"http://www.w3.org/2000/svg\"/>",
+		"EOF",
+	}, "\n") + "\n"
+
+	if err := os.WriteFile(dst, []byte(script), 0o755); err != nil {
+		t.Fatalf("failed to write fake AppImage script: %v", err)
 	}
 }
