@@ -319,3 +319,119 @@ func TestMigrateLegacyToXDGRepairsExistingXDGDB(t *testing.T) {
 		t.Fatalf("desktop file Icon not rewritten to absolute icon path: %s", desktopText)
 	}
 }
+
+func TestMigrateLegacyToXDGWritesMarkerOnNoop(t *testing.T) {
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+
+	originalAimDir := config.AimDir
+	originalDesktopDir := config.DesktopDir
+	originalConfigDir := config.ConfigDir
+	originalTempDir := config.TempDir
+	originalDbSrc := config.DbSrc
+	originalIconThemeDir := config.IconThemeDir
+	originalPixmapsDir := config.PixmapsDir
+	t.Cleanup(func() {
+		config.AimDir = originalAimDir
+		config.DesktopDir = originalDesktopDir
+		config.ConfigDir = originalConfigDir
+		config.TempDir = originalTempDir
+		config.DbSrc = originalDbSrc
+		config.IconThemeDir = originalIconThemeDir
+		config.PixmapsDir = originalPixmapsDir
+	})
+
+	config.AimDir = filepath.Join(homeDir, "xdg-data", "appimage-manager")
+	config.DesktopDir = filepath.Join(homeDir, "xdg-data", "applications")
+	config.ConfigDir = filepath.Join(homeDir, "xdg-config", "appimage-manager")
+	config.TempDir = filepath.Join(homeDir, "xdg-cache", "appimage-manager", "tmp")
+	config.DbSrc = filepath.Join(homeDir, "xdg-state", "appimage-manager", "apps.json")
+	config.IconThemeDir = filepath.Join(homeDir, "xdg-data", "icons", "hicolor")
+	config.PixmapsDir = filepath.Join(homeDir, "xdg-data", "pixmaps")
+
+	if err := os.MkdirAll(filepath.Dir(config.DbSrc), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := MigrateLegacyToXDG(); err != nil {
+		t.Fatalf("migration noop failed: %v", err)
+	}
+
+	payload, err := os.ReadFile(migrationMarkerPath())
+	if err != nil {
+		t.Fatalf("failed to read migration marker: %v", err)
+	}
+	if string(payload) != migrationMarkerPayload() {
+		t.Fatalf("unexpected migration marker payload:\n%s", string(payload))
+	}
+}
+
+func TestMigrateLegacyToXDGSkipsRepairWhenMarkerIsCurrent(t *testing.T) {
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+
+	originalAimDir := config.AimDir
+	originalDesktopDir := config.DesktopDir
+	originalConfigDir := config.ConfigDir
+	originalTempDir := config.TempDir
+	originalDbSrc := config.DbSrc
+	originalIconThemeDir := config.IconThemeDir
+	originalPixmapsDir := config.PixmapsDir
+	t.Cleanup(func() {
+		config.AimDir = originalAimDir
+		config.DesktopDir = originalDesktopDir
+		config.ConfigDir = originalConfigDir
+		config.TempDir = originalTempDir
+		config.DbSrc = originalDbSrc
+		config.IconThemeDir = originalIconThemeDir
+		config.PixmapsDir = originalPixmapsDir
+	})
+
+	config.AimDir = filepath.Join(homeDir, "xdg-data", "appimage-manager")
+	config.DesktopDir = filepath.Join(homeDir, "xdg-data", "applications")
+	config.ConfigDir = filepath.Join(homeDir, "xdg-config", "appimage-manager")
+	config.TempDir = filepath.Join(homeDir, "xdg-cache", "appimage-manager", "tmp")
+	config.DbSrc = filepath.Join(homeDir, "xdg-state", "appimage-manager", "apps.json")
+	config.IconThemeDir = filepath.Join(homeDir, "xdg-data", "icons", "hicolor")
+	config.PixmapsDir = filepath.Join(homeDir, "xdg-data", "pixmaps")
+
+	legacyExec := filepath.Join(homeDir, ".appimage-manager", "my-app", "my-app.AppImage")
+	legacyDesktop := filepath.Join(homeDir, ".appimage-manager", "my-app", "my-app.desktop")
+	legacyIcon := filepath.Join(homeDir, ".appimage-manager", "my-app", "my-app.png")
+
+	if err := os.MkdirAll(filepath.Dir(config.DbSrc), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveDB(config.DbSrc, &DB{
+		SchemaVersion: 1,
+		Apps: map[string]*models.App{
+			"my-app": {
+				ID:               "my-app",
+				ExecPath:         legacyExec,
+				DesktopEntryPath: legacyDesktop,
+				IconPath:         legacyIcon,
+			},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	markMigrationComplete()
+
+	if err := MigrateLegacyToXDG(); err != nil {
+		t.Fatalf("migration with marker failed: %v", err)
+	}
+
+	db, err := LoadDB(config.DbSrc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := db.Apps["my-app"]
+	if app == nil {
+		t.Fatal("app missing from db")
+	}
+
+	if app.ExecPath != legacyExec {
+		t.Fatalf("ExecPath changed despite current marker: %q", app.ExecPath)
+	}
+}

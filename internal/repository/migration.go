@@ -12,6 +12,8 @@ import (
 	models "github.com/slobbe/appimage-manager/internal/types"
 )
 
+const migrationMarkerFileName = ".migration-repair-state"
+
 func MigrateLegacyToXDG() error {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -25,14 +27,23 @@ func MigrateLegacyToXDG() error {
 		return nil
 	}
 
+	if migrationMarkerUpToDate() {
+		return nil
+	}
+
 	if _, err := os.Stat(config.DbSrc); err == nil {
-		return repairExistingXDGDB(legacyAimDir)
+		if err := repairExistingXDGDB(legacyAimDir); err != nil {
+			return err
+		}
+		markMigrationComplete()
+		return nil
 	} else if !os.IsNotExist(err) {
 		return err
 	}
 
 	if _, err := os.Stat(legacyDBPath); err != nil {
 		if os.IsNotExist(err) {
+			markMigrationComplete()
 			return nil
 		}
 		return err
@@ -73,7 +84,42 @@ func MigrateLegacyToXDG() error {
 		return fmt.Errorf("failed to write migrated database: %w", err)
 	}
 
+	markMigrationComplete()
+
 	return nil
+}
+
+func migrationMarkerPath() string {
+	return filepath.Join(filepath.Dir(config.DbSrc), migrationMarkerFileName)
+}
+
+func migrationMarkerPayload() string {
+	return strings.Join([]string{
+		"version=1",
+		"aim_dir=" + filepath.Clean(config.AimDir),
+		"desktop_dir=" + filepath.Clean(config.DesktopDir),
+		"db_src=" + filepath.Clean(config.DbSrc),
+		"icon_theme_dir=" + filepath.Clean(config.IconThemeDir),
+		"pixmaps_dir=" + filepath.Clean(config.PixmapsDir),
+	}, "\n") + "\n"
+}
+
+func migrationMarkerUpToDate() bool {
+	payload, err := os.ReadFile(migrationMarkerPath())
+	if err != nil {
+		return false
+	}
+
+	return string(payload) == migrationMarkerPayload()
+}
+
+func markMigrationComplete() {
+	path := migrationMarkerPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return
+	}
+
+	_ = os.WriteFile(path, []byte(migrationMarkerPayload()), 0o644)
 }
 
 func repairExistingXDGDB(legacyAimDir string) error {
