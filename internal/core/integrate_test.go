@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 
 	"github.com/slobbe/appimage-manager/internal/config"
@@ -57,6 +58,41 @@ func TestIntegrateFromLocalFileWithSymlinkedDesktopEntry(t *testing.T) {
 	}
 	if persisted.DesktopEntryPath != app.DesktopEntryPath {
 		t.Fatalf("persisted desktop_entry_path = %q, want %q", persisted.DesktopEntryPath, app.DesktopEntryPath)
+	}
+}
+
+func TestIntegrateFromLocalFileWithoutCacheRefreshSkipsRefresh(t *testing.T) {
+	tmp := t.TempDir()
+	setupIntegrationConfigForTest(t, tmp)
+	stubDesktopValidationForTest(t)
+
+	var lookupCalls int32
+	originalLookPath := integrationCacheLookPath
+	originalWarn := integrationCacheWarn
+	t.Cleanup(func() {
+		integrationCacheLookPath = originalLookPath
+		integrationCacheWarn = originalWarn
+	})
+
+	integrationCacheLookPath = func(string) (string, error) {
+		atomic.AddInt32(&lookupCalls, 1)
+		return "", exec.ErrNotFound
+	}
+	integrationCacheWarn = func(string) {}
+
+	appImagePath := filepath.Join(tmp, "0ad-0.28.0-x86_64.AppImage")
+	writeFakeAppImageExtractor(t, appImagePath)
+
+	app, err := IntegrateFromLocalFileWithoutCacheRefresh(context.Background(), appImagePath, nil)
+	if err != nil {
+		t.Fatalf("IntegrateFromLocalFileWithoutCacheRefresh returned error: %v", err)
+	}
+	if app == nil {
+		t.Fatal("expected integrated app")
+	}
+
+	if atomic.LoadInt32(&lookupCalls) != 0 {
+		t.Fatalf("expected no cache refresh calls, got %d", lookupCalls)
 	}
 }
 

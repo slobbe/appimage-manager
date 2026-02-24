@@ -36,6 +36,10 @@ func refreshDesktopIntegrationCaches(ctx context.Context) {
 	}
 }
 
+func RefreshDesktopIntegrationCaches(ctx context.Context) {
+	refreshDesktopIntegrationCaches(ctx)
+}
+
 func runCommandIfAvailable(ctx context.Context, name string, args ...string) (bool, error) {
 	binary, err := integrationCacheLookPath(name)
 	if err != nil {

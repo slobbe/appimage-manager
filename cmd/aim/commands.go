@@ -652,6 +652,7 @@ func runManagedUpdate(ctx context.Context, cmd *cli.Command, targetID string) er
 	}
 
 	applyFailures := 0
+	applySuccesses := 0
 	totalPending := len(pending)
 	interactiveProgress := isTerminalOutput()
 	for i, item := range pending {
@@ -671,6 +672,11 @@ func runManagedUpdate(ctx context.Context, cmd *cli.Command, targetID string) er
 
 		msg := fmt.Sprintf("Updated %s to %s", updatedApp.ID, displayVersion(updatedApp.Version))
 		fmt.Println(colorize(color, "\033[0;32m", msg))
+		applySuccesses++
+	}
+
+	if applySuccesses > 0 {
+		core.RefreshDesktopIntegrationCaches(ctx)
 	}
 
 	if applyFailures > 0 {
@@ -1005,7 +1011,7 @@ func applyManagedUpdate(ctx context.Context, update pendingManagedUpdate, intera
 	}
 
 	fmt.Println("  Integrating update")
-	app, err := core.IntegrateFromLocalFile(ctx, downloadPath, func(existing, incoming *models.UpdateSource) (bool, error) {
+	app, err := core.IntegrateFromLocalFileWithoutCacheRefresh(ctx, downloadPath, func(existing, incoming *models.UpdateSource) (bool, error) {
 		return false, nil
 	})
 	if err != nil {

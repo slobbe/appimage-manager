@@ -17,6 +17,14 @@ import (
 type UpdateOverwritePrompt func(existing, incoming *models.UpdateSource) (bool, error)
 
 func IntegrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwrite UpdateOverwritePrompt) (*models.App, error) {
+	return integrateFromLocalFile(ctx, src, confirmUpdateOverwrite, true)
+}
+
+func IntegrateFromLocalFileWithoutCacheRefresh(ctx context.Context, src string, confirmUpdateOverwrite UpdateOverwritePrompt) (*models.App, error) {
+	return integrateFromLocalFile(ctx, src, confirmUpdateOverwrite, false)
+}
+
+func integrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwrite UpdateOverwritePrompt, refreshCaches bool) (*models.App, error) {
 	if !util.HasExtension(src, ".AppImage") {
 		return nil, fmt.Errorf("source file must be a .AppImage file")
 	}
@@ -155,12 +163,18 @@ func IntegrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 	)
 
 	var postProcessWG sync.WaitGroup
-	postProcessWG.Add(2)
+	taskCount := 1
+	if refreshCaches {
+		taskCount++
+	}
+	postProcessWG.Add(taskCount)
 
-	go func() {
-		defer postProcessWG.Done()
-		refreshDesktopIntegrationCaches(ctx)
-	}()
+	if refreshCaches {
+		go func() {
+			defer postProcessWG.Done()
+			refreshDesktopIntegrationCaches(ctx)
+		}()
+	}
 
 	go func() {
 		defer postProcessWG.Done()
