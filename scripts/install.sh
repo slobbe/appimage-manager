@@ -23,9 +23,39 @@ cleanup() { rm -rf "$tmpdir"; }
 trap cleanup EXIT INT TERM
 
 tgz="${tmpdir}/aim.tgz"
-url="https://github.com/${repo}/releases/latest/download/${bin}-linux-${goarch}.tar.gz"
+api_url="https://api.github.com/repos/${repo}/releases/latest"
 
-curl -fL "$url" -o "$tgz"
+asset_url="$({
+  curl -fsSL "$api_url" | tr '{},' '\n' | awk -F'"' -v arch="$goarch" '
+    $2 == "name" {
+      asset_name = $4
+      next
+    }
+    $2 == "browser_download_url" {
+      asset_url = $4
+      if (asset_name ~ ("^aim-.+-linux-" arch "\\.tar\\.gz$")) {
+        found = 1
+        print asset_url
+        exit
+      }
+      if (asset_name == ("aim-linux-" arch ".tar.gz")) {
+        legacy_url = asset_url
+      }
+    }
+    END {
+      if (!found && legacy_url != "") {
+        print legacy_url
+      }
+    }
+  '
+})"
+
+if [ -z "$asset_url" ]; then
+  echo "error: could not find release archive for architecture ${goarch}" >&2
+  exit 1
+fi
+
+curl -fL "$asset_url" -o "$tgz"
 
 tar -xzf "$tgz" -C "$tmpdir"
 

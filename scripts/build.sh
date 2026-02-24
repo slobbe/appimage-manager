@@ -27,9 +27,9 @@ GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
 GOOS=linux GOARCH=arm64 CGO_ENABLED=0 \
   go build -trimpath -ldflags "$LDFLAGS" -o "$OUT_ARM64_VER" ./cmd/aim
 
-# Create stable-named tarballs in dist/<version>/
-TAR_AMD64="aim-linux-amd64.tar.gz"
-TAR_ARM64="aim-linux-arm64.tar.gz"
+# Create versioned tarballs in dist/<version>/
+TAR_AMD64="aim-${VERSION}-linux-amd64.tar.gz"
+TAR_ARM64="aim-${VERSION}-linux-arm64.tar.gz"
 
 tar -C "$BINDIR" -czf "${OUTDIR}/${TAR_AMD64}" "$BIN_AMD64_VER"
 tar -C "$BINDIR" -czf "${OUTDIR}/${TAR_ARM64}" "$BIN_ARM64_VER"

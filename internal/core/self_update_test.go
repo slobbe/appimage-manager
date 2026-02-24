@@ -21,7 +21,7 @@ func TestSelfUpgradeUpToDate(t *testing.T) {
 			http.NotFound(w, r)
 			return
 		}
-		_, _ = w.Write([]byte(`{"tag_name":"v0.4.1","assets":[{"name":"aim-linux-amd64.tar.gz","browser_download_url":"https://example.com/aim-linux-amd64.tar.gz"}]}`))
+		_, _ = w.Write([]byte(`{"tag_name":"v0.4.1","assets":[{"name":"aim-v0.4.1-linux-amd64.tar.gz","browser_download_url":"https://example.com/aim-v0.4.1-linux-amd64.tar.gz"}]}`))
 	}))
 	defer server.Close()
 
@@ -71,7 +71,7 @@ func TestSelfUpgradeInstallsWhenNewer(t *testing.T) {
 			http.NotFound(w, r)
 			return
 		}
-		_, _ = w.Write([]byte(`{"tag_name":"v0.4.2","assets":[{"name":"aim-linux-amd64.tar.gz","browser_download_url":"https://example.com/aim-linux-amd64.tar.gz"}]}`))
+		_, _ = w.Write([]byte(`{"tag_name":"v0.4.2","assets":[{"name":"aim-v0.4.2-linux-amd64.tar.gz","browser_download_url":"https://example.com/aim-v0.4.2-linux-amd64.tar.gz"}]}`))
 	}))
 	defer server.Close()
 
@@ -98,7 +98,7 @@ func TestSelfUpgradeInstallsWhenNewer(t *testing.T) {
 	called := false
 	selfUpdateInstall = func(_ context.Context, assetURL, releaseVersion, arch string) error {
 		called = true
-		if assetURL != "https://example.com/aim-linux-amd64.tar.gz" {
+		if assetURL != "https://example.com/aim-v0.4.2-linux-amd64.tar.gz" {
 			return fmt.Errorf("unexpected asset URL %q", assetURL)
 		}
 		if releaseVersion != "0.4.2" {
@@ -147,6 +147,67 @@ func TestReleaseAssetNameForArch(t *testing.T) {
 		if name != tt.expect {
 			t.Fatalf("releaseAssetNameForArch(%q) = %q, want %q", tt.arch, name, tt.expect)
 		}
+	}
+}
+
+func TestReleaseVersionedAssetPatternForArch(t *testing.T) {
+	tests := []struct {
+		arch   string
+		expect string
+		err    bool
+	}{
+		{arch: "amd64", expect: "aim-?*-linux-amd64.tar.gz"},
+		{arch: "arm64", expect: "aim-?*-linux-arm64.tar.gz"},
+		{arch: "s390x", err: true},
+	}
+
+	for _, tt := range tests {
+		name, err := releaseVersionedAssetPatternForArch(tt.arch)
+		if tt.err {
+			if err == nil {
+				t.Fatalf("releaseVersionedAssetPatternForArch(%q) expected error", tt.arch)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatalf("releaseVersionedAssetPatternForArch(%q) returned error: %v", tt.arch, err)
+		}
+		if name != tt.expect {
+			t.Fatalf("releaseVersionedAssetPatternForArch(%q) = %q, want %q", tt.arch, name, tt.expect)
+		}
+	}
+}
+
+func TestFindReleaseAssetURLPrefersVersionedThenLegacy(t *testing.T) {
+	assets := []struct {
+		Name               string `json:"name"`
+		BrowserDownloadURL string `json:"browser_download_url"`
+	}{
+		{Name: "aim-linux-amd64.tar.gz", BrowserDownloadURL: "https://example.com/legacy"},
+		{Name: "aim-v1.2.3-linux-amd64.tar.gz", BrowserDownloadURL: "https://example.com/versioned"},
+	}
+
+	url, err := findReleaseAssetURL(assets, "aim-?*-linux-amd64.tar.gz", "aim-linux-amd64.tar.gz")
+	if err != nil {
+		t.Fatalf("findReleaseAssetURL returned error: %v", err)
+	}
+	if url != "https://example.com/versioned" {
+		t.Fatalf("url = %q, want %q", url, "https://example.com/versioned")
+	}
+
+	onlyLegacy := []struct {
+		Name               string `json:"name"`
+		BrowserDownloadURL string `json:"browser_download_url"`
+	}{
+		{Name: "aim-linux-amd64.tar.gz", BrowserDownloadURL: "https://example.com/legacy"},
+	}
+
+	url, err = findReleaseAssetURL(onlyLegacy, "aim-?*-linux-amd64.tar.gz", "aim-linux-amd64.tar.gz")
+	if err != nil {
+		t.Fatalf("findReleaseAssetURL legacy fallback returned error: %v", err)
+	}
+	if url != "https://example.com/legacy" {
+		t.Fatalf("legacy url = %q, want %q", url, "https://example.com/legacy")
 	}
 }
 

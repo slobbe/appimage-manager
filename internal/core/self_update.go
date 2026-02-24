@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -50,7 +51,12 @@ func SelfUpgrade(ctx context.Context, currentVersion string) (*SelfUpgradeResult
 		return nil, fmt.Errorf("self-upgrade is unavailable for development builds")
 	}
 
-	assetName, err := releaseAssetNameForArch(selfUpdateGOARCH)
+	legacyAssetName, err := releaseAssetNameForArch(selfUpdateGOARCH)
+	if err != nil {
+		return nil, err
+	}
+
+	versionedAssetPattern, err := releaseVersionedAssetPatternForArch(selfUpdateGOARCH)
 	if err != nil {
 		return nil, err
 	}
@@ -78,7 +84,7 @@ func SelfUpgrade(ctx context.Context, currentVersion string) (*SelfUpgradeResult
 		}, nil
 	}
 
-	assetURL, err := findReleaseAssetURL(release.Assets, assetName)
+	assetURL, err := findReleaseAssetURL(release.Assets, versionedAssetPattern, legacyAssetName)
 	if err != nil {
 		return nil, err
 	}
@@ -131,17 +137,41 @@ func releaseAssetNameForArch(arch string) (string, error) {
 	}
 }
 
+func releaseVersionedAssetPatternForArch(arch string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(arch)) {
+	case "amd64":
+		return "aim-?*-linux-amd64.tar.gz", nil
+	case "arm64":
+		return "aim-?*-linux-arm64.tar.gz", nil
+	default:
+		return "", fmt.Errorf("unsupported architecture: %s", arch)
+	}
+}
+
 func findReleaseAssetURL(assets []struct {
 	Name               string `json:"name"`
 	BrowserDownloadURL string `json:"browser_download_url"`
-}, assetName string) (string, error) {
+}, versionedPattern, legacyAssetName string) (string, error) {
 	for _, asset := range assets {
-		if strings.TrimSpace(asset.Name) == assetName && strings.TrimSpace(asset.BrowserDownloadURL) != "" {
+		name := strings.TrimSpace(asset.Name)
+		url := strings.TrimSpace(asset.BrowserDownloadURL)
+		if url == "" {
+			continue
+		}
+
+		matched, err := path.Match(versionedPattern, name)
+		if err == nil && matched {
+			return url, nil
+		}
+	}
+
+	for _, asset := range assets {
+		if strings.TrimSpace(asset.Name) == legacyAssetName && strings.TrimSpace(asset.BrowserDownloadURL) != "" {
 			return asset.BrowserDownloadURL, nil
 		}
 	}
 
-	return "", fmt.Errorf("release asset %q not found", assetName)
+	return "", fmt.Errorf("release asset matching %q (fallback %q) not found", versionedPattern, legacyAssetName)
 }
 
 func installDownloadedRelease(ctx context.Context, assetURL, releaseVersion, arch string) error {
