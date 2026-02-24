@@ -526,21 +526,26 @@ func runManagedUpdate(ctx context.Context, cmd *cli.Command, targetID string) er
 	skippedPinned := 0
 	singleStatusPrinted := false
 	checkResults := runManagedChecks(apps)
+	metadataUpdates := make([]repo.CheckMetadataUpdate, 0, len(checkResults))
 
 	for _, result := range checkResults {
 		app := result.app
 		update := result.update
 		err := result.err
 		if err != nil {
-			if metaErr := updateCheckMetadata(app, false, app.UpdateAvailable, app.LatestVersion); metaErr != nil {
-				if targetID != "" {
+			metadataUpdates = append(metadataUpdates, repo.CheckMetadataUpdate{
+				ID:            app.ID,
+				Checked:       false,
+				Available:     app.UpdateAvailable,
+				Latest:        app.LatestVersion,
+				LastCheckedAt: util.NowISO(),
+			})
+
+			if targetID != "" {
+				if metaErr := flushManagedCheckMetadata(metadataUpdates); metaErr != nil {
 					return metaErr
 				}
-				checkFailures++
-				msg := fmt.Sprintf("%s: failed to persist check metadata: %v", app.ID, metaErr)
-				fmt.Println(colorize(color, "\033[0;31m", msg))
-			}
-			if targetID != "" {
+				metadataUpdates = metadataUpdates[:0]
 				return err
 			}
 
@@ -558,13 +563,19 @@ func runManagedUpdate(ctx context.Context, cmd *cli.Command, targetID string) er
 			continue
 		}
 
-		if err := updateCheckMetadata(app, true, update.Available, update.Latest); err != nil {
-			if targetID != "" {
-				return err
+		metadataUpdates = append(metadataUpdates, repo.CheckMetadataUpdate{
+			ID:            app.ID,
+			Checked:       true,
+			Available:     update.Available,
+			Latest:        update.Latest,
+			LastCheckedAt: util.NowISO(),
+		})
+
+		if targetID != "" {
+			if metaErr := flushManagedCheckMetadata(metadataUpdates); metaErr != nil {
+				return metaErr
 			}
-			checkFailures++
-			msg := fmt.Sprintf("%s: failed to persist check metadata: %v", app.ID, err)
-			fmt.Println(colorize(color, "\033[0;31m", msg))
+			metadataUpdates = metadataUpdates[:0]
 		}
 
 		if update.URL == "" {
@@ -590,6 +601,15 @@ func runManagedUpdate(ctx context.Context, cmd *cli.Command, targetID string) er
 		}
 
 		pending = append(pending, *update)
+	}
+
+	if err := flushManagedCheckMetadata(metadataUpdates); err != nil {
+		if targetID != "" {
+			return err
+		}
+		checkFailures++
+		msg := fmt.Sprintf("failed to persist check metadata: %v", err)
+		fmt.Println(colorize(color, "\033[0;31m", msg))
 	}
 
 	if len(pending) == 0 {
@@ -712,6 +732,14 @@ func managedCheckWorkerCount(total int) int {
 	}
 
 	return maxWorkers
+}
+
+func flushManagedCheckMetadata(updates []repo.CheckMetadataUpdate) error {
+	if len(updates) == 0 {
+		return nil
+	}
+
+	return repo.UpdateCheckMetadataBatch(updates)
 }
 
 func collectManagedUpdateTargets(targetID string) ([]*models.App, error) {
@@ -930,15 +958,23 @@ func updateCheckMetadata(app *models.App, checked, available bool, latest string
 		return nil
 	}
 
+	lastCheckedAt := util.NowISO()
+
+	if err := repo.UpdateCheckMetadataBatch([]repo.CheckMetadataUpdate{{
+		ID:            app.ID,
+		Checked:       checked,
+		Available:     available,
+		Latest:        latest,
+		LastCheckedAt: lastCheckedAt,
+	}}); err != nil {
+		return err
+	}
+
 	if checked {
 		app.UpdateAvailable = available
 		app.LatestVersion = strings.TrimSpace(latest)
 	}
-	app.LastCheckedAt = util.NowISO()
-
-	if err := repo.UpdateApp(app); err != nil {
-		return err
-	}
+	app.LastCheckedAt = lastCheckedAt
 
 	return nil
 }

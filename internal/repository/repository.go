@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/slobbe/appimage-manager/internal/config"
 	models "github.com/slobbe/appimage-manager/internal/types"
@@ -12,6 +13,14 @@ import (
 type DB struct {
 	SchemaVersion int                    `json:"schemaVersion"`
 	Apps          map[string]*models.App `json:"apps"`
+}
+
+type CheckMetadataUpdate struct {
+	ID            string
+	Checked       bool
+	Available     bool
+	Latest        string
+	LastCheckedAt string
 }
 
 func LoadDB(path string) (*DB, error) {
@@ -176,4 +185,44 @@ func GetAllApps() (map[string]*models.App, error) {
 	}
 
 	return db.Apps, nil
+}
+
+func UpdateCheckMetadataBatch(updates []CheckMetadataUpdate) error {
+	if len(updates) == 0 {
+		return nil
+	}
+
+	if len(config.DbSrc) < 1 {
+		return fmt.Errorf("database source cannot be empty")
+	}
+
+	db, err := LoadDB(config.DbSrc)
+	if err != nil {
+		return err
+	}
+
+	for _, update := range updates {
+		key := strings.TrimSpace(update.ID)
+		if key == "" {
+			return fmt.Errorf("invalid app slug")
+		}
+
+		appData, exists := db.Apps[key]
+		if !exists {
+			return fmt.Errorf("%s does not exists in database", key)
+		}
+
+		if update.Checked {
+			appData.UpdateAvailable = update.Available
+			appData.LatestVersion = strings.TrimSpace(update.Latest)
+		}
+
+		appData.LastCheckedAt = strings.TrimSpace(update.LastCheckedAt)
+	}
+
+	if err := SaveDB(config.DbSrc, db); err != nil {
+		return err
+	}
+
+	return nil
 }
