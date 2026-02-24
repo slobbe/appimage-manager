@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/slobbe/appimage-manager/internal/config"
+	"github.com/slobbe/appimage-manager/internal/core"
 	util "github.com/slobbe/appimage-manager/internal/helpers"
 	repo "github.com/slobbe/appimage-manager/internal/repository"
 	models "github.com/slobbe/appimage-manager/internal/types"
@@ -307,6 +308,108 @@ func TestRunManagedUpdateSingleUpToDatePrintedOnce(t *testing.T) {
 
 	if strings.Count(output, "You are up-to-date!") != 1 {
 		t.Fatalf("expected exactly one up-to-date message, got output:\n%s", output)
+	}
+}
+
+func TestAddCmdSkipsPostCheckByDefault(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "apps.json")
+
+	originalDbSrc := config.DbSrc
+	config.DbSrc = dbPath
+	t.Cleanup(func() {
+		config.DbSrc = originalDbSrc
+	})
+
+	if err := repo.SaveDB(dbPath, &repo.DB{
+		SchemaVersion: 1,
+		Apps: map[string]*models.App{
+			"my-app": {
+				ID:               "my-app",
+				Name:             "My App",
+				Version:          "1.0.0",
+				SHA1:             strings.Repeat("a", 40),
+				DesktopEntryLink: "/tmp/aim-my-app.desktop",
+				Update: &models.UpdateSource{
+					Kind: models.UpdateZsync,
+					Zsync: &models.ZsyncUpdateSource{
+						UpdateInfo: "https://example.com/my-app.zsync",
+					},
+				},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("failed to write test DB: %v", err)
+	}
+
+	originalZsyncCheck := runZsyncUpdateCheck
+	t.Cleanup(func() {
+		runZsyncUpdateCheck = originalZsyncCheck
+	})
+
+	var calls int32
+	runZsyncUpdateCheck = func(*models.UpdateSource, string) (*core.UpdateData, error) {
+		atomic.AddInt32(&calls, 1)
+		return nil, nil
+	}
+
+	if err := runAddCommand(context.Background(), []string{"my-app", "--no-color"}); err != nil {
+		t.Fatalf("runAddCommand returned error: %v", err)
+	}
+
+	if atomic.LoadInt32(&calls) != 0 {
+		t.Fatalf("runZsyncUpdateCheck calls = %d, want 0", calls)
+	}
+}
+
+func TestAddCmdPostCheckRunsWhenEnabled(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "apps.json")
+
+	originalDbSrc := config.DbSrc
+	config.DbSrc = dbPath
+	t.Cleanup(func() {
+		config.DbSrc = originalDbSrc
+	})
+
+	if err := repo.SaveDB(dbPath, &repo.DB{
+		SchemaVersion: 1,
+		Apps: map[string]*models.App{
+			"my-app": {
+				ID:               "my-app",
+				Name:             "My App",
+				Version:          "1.0.0",
+				SHA1:             strings.Repeat("a", 40),
+				DesktopEntryLink: "/tmp/aim-my-app.desktop",
+				Update: &models.UpdateSource{
+					Kind: models.UpdateZsync,
+					Zsync: &models.ZsyncUpdateSource{
+						UpdateInfo: "https://example.com/my-app.zsync",
+					},
+				},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("failed to write test DB: %v", err)
+	}
+
+	originalZsyncCheck := runZsyncUpdateCheck
+	t.Cleanup(func() {
+		runZsyncUpdateCheck = originalZsyncCheck
+	})
+
+	var calls int32
+	runZsyncUpdateCheck = func(*models.UpdateSource, string) (*core.UpdateData, error) {
+		atomic.AddInt32(&calls, 1)
+		return &core.UpdateData{Available: false}, nil
+	}
+
+	if err := runAddCommand(context.Background(), []string{"my-app", "--no-color", "--post-check"}); err != nil {
+		t.Fatalf("runAddCommand returned error: %v", err)
+	}
+
+	if atomic.LoadInt32(&calls) != 1 {
+		t.Fatalf("runZsyncUpdateCheck calls = %d, want 1", calls)
 	}
 }
 
@@ -628,4 +731,21 @@ func captureStdout(t *testing.T, fn func()) string {
 	fn()
 	_ = w.Close()
 	return <-done
+}
+
+func runAddCommand(ctx context.Context, args []string) error {
+	cmd := &cli.Command{
+		Name: "add",
+		Arguments: []cli.Argument{
+			&cli.StringArg{Name: "app"},
+		},
+		Flags: []cli.Flag{
+			&cli.BoolFlag{Name: "no-color"},
+			&cli.BoolFlag{Name: "post-check"},
+		},
+		Action: AddCmd,
+	}
+
+	argv := append([]string{"add"}, args...)
+	return cmd.Run(ctx, argv)
 }

@@ -41,6 +41,12 @@ func main() {
 						UsageText: "<path-to.AppImage|id>",
 					},
 				},
+				Flags: []cli.Flag{
+					&cli.BoolFlag{
+						Name:  "post-check",
+						Usage: "run post-integration update check for zsync-enabled apps",
+					},
+				},
 				Action: AddCmd,
 			},
 			{

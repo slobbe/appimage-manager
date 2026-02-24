@@ -93,8 +93,8 @@ func AddCmd(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("unknown argument %s", input)
 	}
 
-	if app.Update.Kind == models.UpdateZsync {
-		update, err := core.ZsyncUpdateCheck(app.Update, app.SHA1)
+	if app.Update.Kind == models.UpdateZsync && cmd.Bool("post-check") {
+		update, err := runZsyncUpdateCheck(app.Update, app.SHA1)
 
 		if update != nil && update.Available {
 			msg := fmt.Sprintf("Newer version found!\nDownload from %s\nThen integrate it with %s", update.DownloadUrl, integrationHint(update.AssetName))
@@ -230,7 +230,7 @@ func UpdateCheckCmd(ctx context.Context, cmd *cli.Command, args []string) error 
 		},
 	}
 
-	update, err := core.ZsyncUpdateCheck(updater, localSHA1)
+	update, err := runZsyncUpdateCheck(updater, localSHA1)
 	if err != nil {
 		return err
 	}
@@ -510,6 +510,7 @@ type managedCheckResult struct {
 }
 
 var runAppUpdateCheck = checkAppUpdate
+var runZsyncUpdateCheck = core.ZsyncUpdateCheck
 
 func runManagedUpdate(ctx context.Context, cmd *cli.Command, targetID string) error {
 	apps, err := collectManagedUpdateTargets(targetID)
@@ -855,7 +856,7 @@ func checkAppUpdate(app *models.App) (*pendingManagedUpdate, error) {
 
 	switch app.Update.Kind {
 	case models.UpdateZsync:
-		update, err := core.ZsyncUpdateCheck(app.Update, app.SHA1)
+		update, err := runZsyncUpdateCheck(app.Update, app.SHA1)
 		if err != nil {
 			return nil, err
 		}
