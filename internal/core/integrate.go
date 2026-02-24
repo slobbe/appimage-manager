@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/slobbe/appimage-manager/internal/config"
 	util "github.com/slobbe/appimage-manager/internal/helpers"
@@ -83,11 +84,34 @@ func IntegrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 	}
 
 	var existingApp *models.App
+	var updateFromAppImage *models.UpdateSource
+
+	var updateInfoWG sync.WaitGroup
+	updateInfoWG.Add(1)
+	go func() {
+		defer updateInfoWG.Done()
+
+		updateInfo, err := GetUpdateInfo(extractionData.ExecPath)
+		if err != nil || updateInfo.Kind != models.UpdateZsync {
+			return
+		}
+
+		updateFromAppImage = &models.UpdateSource{
+			Kind: models.UpdateZsync,
+			Zsync: &models.ZsyncUpdateSource{
+				UpdateInfo: updateInfo.UpdateInfo,
+				Transport:  updateInfo.Transport,
+			},
+		}
+	}()
+
 	if appData, err := repo.GetApp(appID); err == nil {
 		existingApp = appData
 	} else if !strings.Contains(err.Error(), "does not exists in database") {
 		return nil, err
 	}
+
+	updateInfoWG.Wait()
 
 	timestampNow := util.NowISO()
 	addedAt := timestampNow
@@ -99,15 +123,9 @@ func IntegrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 	update := &models.UpdateSource{
 		Kind: models.UpdateNone,
 	}
-	updateFound := false
-	updateInfo, err := GetUpdateInfo(extractionData.ExecPath)
-	if err == nil && updateInfo.Kind == models.UpdateZsync {
-		updateFound = true
-		update.Kind = models.UpdateZsync
-		update.Zsync = &models.ZsyncUpdateSource{
-			UpdateInfo: updateInfo.UpdateInfo,
-			Transport:  updateInfo.Transport,
-		}
+	updateFound := updateFromAppImage != nil
+	if updateFound {
+		update = updateFromAppImage
 	}
 
 	if existingApp != nil {
@@ -130,16 +148,28 @@ func IntegrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 		}
 	}
 
-	refreshDesktopIntegrationCaches(ctx)
+	var (
+		sha256sum string
+		sha1sum   string
+		hashErr   error
+	)
 
-	sha256sum, err := util.Sha256File(extractionData.ExecPath)
-	if err != nil {
-		return nil, err
-	}
+	var postProcessWG sync.WaitGroup
+	postProcessWG.Add(2)
 
-	sha1sum, err := util.Sha1(extractionData.ExecPath)
-	if err != nil {
-		return nil, err
+	go func() {
+		defer postProcessWG.Done()
+		refreshDesktopIntegrationCaches(ctx)
+	}()
+
+	go func() {
+		defer postProcessWG.Done()
+		sha256sum, sha1sum, hashErr = util.Sha256AndSha1(extractionData.ExecPath)
+	}()
+
+	postProcessWG.Wait()
+	if hashErr != nil {
+		return nil, hashErr
 	}
 
 	source := models.Source{

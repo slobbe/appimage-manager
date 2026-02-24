@@ -8,6 +8,23 @@ import (
 	"os"
 )
 
+func Sha256AndSha1(path string) (string, string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", "", err
+	}
+	defer f.Close()
+
+	h256 := sha256.New()
+	h1 := sha1.New()
+
+	if _, err := io.Copy(io.MultiWriter(h256, h1), f); err != nil {
+		return "", "", err
+	}
+
+	return hex.EncodeToString(h256.Sum(nil)), hex.EncodeToString(h1.Sum(nil)), nil
+}
+
 func Sha256File(path string) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
