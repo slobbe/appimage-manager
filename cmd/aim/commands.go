@@ -697,8 +697,18 @@ func runManagedChecks(apps []*models.App) []managedCheckResult {
 		return results
 	}
 
-	jobs := make(chan int, len(apps))
-	workerCount := managedCheckWorkerCount(len(apps))
+	groups := make(map[string][]int, len(apps))
+	orderedKeys := make([]string, 0, len(apps))
+	for idx, app := range apps {
+		key := managedCheckCacheKey(app, idx)
+		if _, exists := groups[key]; !exists {
+			orderedKeys = append(orderedKeys, key)
+		}
+		groups[key] = append(groups[key], idx)
+	}
+
+	jobs := make(chan int, len(orderedKeys))
+	workerCount := managedCheckWorkerCount(len(orderedKeys))
 
 	var wg sync.WaitGroup
 	for i := 0; i < workerCount; i++ {
@@ -706,25 +716,87 @@ func runManagedChecks(apps []*models.App) []managedCheckResult {
 		go func() {
 			defer wg.Done()
 
-			for idx := range jobs {
-				app := apps[idx]
-				update, err := runAppUpdateCheck(app)
-				results[idx] = managedCheckResult{
-					app:    app,
-					update: update,
-					err:    err,
+			for keyIdx := range jobs {
+				key := orderedKeys[keyIdx]
+				indices := groups[key]
+				firstIdx := indices[0]
+				primaryApp := apps[firstIdx]
+
+				update, err := runAppUpdateCheck(primaryApp)
+				for _, idx := range indices {
+					app := apps[idx]
+					results[idx] = managedCheckResult{
+						app:    app,
+						update: clonePendingManagedUpdateForApp(update, app),
+						err:    err,
+					}
 				}
 			}
 		}()
 	}
 
-	for idx := range apps {
-		jobs <- idx
+	for keyIdx := range orderedKeys {
+		jobs <- keyIdx
 	}
 	close(jobs)
 
 	wg.Wait()
 	return results
+}
+
+func managedCheckCacheKey(app *models.App, fallbackIdx int) string {
+	if app == nil || app.Update == nil {
+		return fmt.Sprintf("none:%d", fallbackIdx)
+	}
+
+	kind := strings.TrimSpace(string(app.Update.Kind))
+	version := normalizeCheckKeyValue(app.Version)
+	sha1 := normalizeCheckKeyValue(app.SHA1)
+	sha256 := normalizeCheckKeyValue(app.SHA256)
+
+	switch app.Update.Kind {
+	case models.UpdateZsync:
+		if app.Update.Zsync == nil {
+			return fmt.Sprintf("zsync:missing:%s:%s", sha1, kind)
+		}
+		return fmt.Sprintf("zsync:%s:%s:%s", normalizeCheckKeyValue(app.Update.Zsync.UpdateInfo), normalizeCheckKeyValue(app.Update.Zsync.Transport), sha1)
+	case models.UpdateGitHubRelease:
+		if app.Update.GitHubRelease == nil {
+			return fmt.Sprintf("github:missing:%s", version)
+		}
+		return fmt.Sprintf("github:%s:%s:%s", normalizeCheckKeyValue(app.Update.GitHubRelease.Repo), normalizeCheckKeyValue(app.Update.GitHubRelease.Asset), version)
+	case models.UpdateGitLabRelease:
+		if app.Update.GitLabRelease == nil {
+			return fmt.Sprintf("gitlab:missing:%s", version)
+		}
+		return fmt.Sprintf("gitlab:%s:%s:%s", normalizeCheckKeyValue(app.Update.GitLabRelease.Project), normalizeCheckKeyValue(app.Update.GitLabRelease.Asset), version)
+	case models.UpdateManifest:
+		if app.Update.Manifest == nil {
+			return fmt.Sprintf("manifest:missing:%s:%s", version, sha256)
+		}
+		return fmt.Sprintf("manifest:%s:%s:%s", normalizeCheckKeyValue(app.Update.Manifest.URL), version, sha256)
+	case models.UpdateDirectURL:
+		if app.Update.DirectURL == nil {
+			return fmt.Sprintf("direct:missing:%s", sha256)
+		}
+		return fmt.Sprintf("direct:%s:%s:%s", normalizeCheckKeyValue(app.Update.DirectURL.URL), normalizeCheckKeyValue(app.Update.DirectURL.SHA256), sha256)
+	default:
+		return fmt.Sprintf("kind:%s:%s:%s:%d", kind, version, sha256, fallbackIdx)
+	}
+}
+
+func normalizeCheckKeyValue(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
+}
+
+func clonePendingManagedUpdateForApp(update *pendingManagedUpdate, app *models.App) *pendingManagedUpdate {
+	if update == nil {
+		return nil
+	}
+
+	clone := *update
+	clone.App = app
+	return &clone
 }
 
 func managedCheckWorkerCount(total int) int {
@@ -1023,6 +1095,22 @@ func applyManagedUpdate(ctx context.Context, update pendingManagedUpdate, intera
 
 func verifyDownloadedUpdate(downloadPath string, update pendingManagedUpdate) error {
 	expectedSHA256 := strings.ToLower(strings.TrimSpace(update.ExpectedSHA256))
+	expectedSHA1 := strings.ToLower(strings.TrimSpace(update.ExpectedSHA1))
+
+	if expectedSHA256 != "" && expectedSHA1 != "" {
+		sha256sum, sha1sum, err := util.Sha256AndSha1(downloadPath)
+		if err != nil {
+			return err
+		}
+		if strings.ToLower(sha256sum) != expectedSHA256 {
+			return fmt.Errorf("downloaded file sha256 mismatch")
+		}
+		if strings.ToLower(sha1sum) != expectedSHA1 {
+			return fmt.Errorf("downloaded file sha1 mismatch")
+		}
+		return nil
+	}
+
 	if expectedSHA256 != "" {
 		sum, err := util.Sha256File(downloadPath)
 		if err != nil {
@@ -1033,7 +1121,6 @@ func verifyDownloadedUpdate(downloadPath string, update pendingManagedUpdate) er
 		}
 	}
 
-	expectedSHA1 := strings.ToLower(strings.TrimSpace(update.ExpectedSHA1))
 	if expectedSHA1 != "" {
 		sum, err := util.Sha1(downloadPath)
 		if err != nil {

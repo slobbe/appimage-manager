@@ -7,10 +7,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/slobbe/appimage-manager/internal/config"
+	util "github.com/slobbe/appimage-manager/internal/helpers"
 	repo "github.com/slobbe/appimage-manager/internal/repository"
 	models "github.com/slobbe/appimage-manager/internal/types"
 	"github.com/urfave/cli/v3"
@@ -352,6 +354,103 @@ func TestRunManagedChecksPreservesInputOrder(t *testing.T) {
 	}
 }
 
+func TestRunManagedChecksDeduplicatesEquivalentInputs(t *testing.T) {
+	originalCheck := runAppUpdateCheck
+	t.Cleanup(func() {
+		runAppUpdateCheck = originalCheck
+	})
+
+	var calls int32
+	runAppUpdateCheck = func(app *models.App) (*pendingManagedUpdate, error) {
+		atomic.AddInt32(&calls, 1)
+		return &pendingManagedUpdate{
+			App:       app,
+			Available: false,
+			FromKind:  models.UpdateGitHubRelease,
+		}, nil
+	}
+
+	apps := []*models.App{
+		{
+			ID:      "app-one",
+			Version: "1.0.0",
+			Update: &models.UpdateSource{
+				Kind: models.UpdateGitHubRelease,
+				GitHubRelease: &models.GitHubReleaseUpdateSource{
+					Repo:  "owner/repo",
+					Asset: "*.AppImage",
+				},
+			},
+		},
+		{
+			ID:      "app-two",
+			Version: "1.0.0",
+			Update: &models.UpdateSource{
+				Kind: models.UpdateGitHubRelease,
+				GitHubRelease: &models.GitHubReleaseUpdateSource{
+					Repo:  "owner/repo",
+					Asset: "*.AppImage",
+				},
+			},
+		},
+	}
+
+	results := runManagedChecks(apps)
+	if len(results) != 2 {
+		t.Fatalf("len(results) = %d, want 2", len(results))
+	}
+	if atomic.LoadInt32(&calls) != 1 {
+		t.Fatalf("runAppUpdateCheck calls = %d, want 1", calls)
+	}
+	if results[0].update == nil || results[1].update == nil {
+		t.Fatal("expected updates in both results")
+	}
+	if results[0].update.App == results[1].update.App {
+		t.Fatal("expected distinct app pointers per deduplicated result")
+	}
+}
+
+func TestRunManagedChecksDoesNotDeduplicateDifferentLocalVersion(t *testing.T) {
+	originalCheck := runAppUpdateCheck
+	t.Cleanup(func() {
+		runAppUpdateCheck = originalCheck
+	})
+
+	var calls int32
+	runAppUpdateCheck = func(app *models.App) (*pendingManagedUpdate, error) {
+		atomic.AddInt32(&calls, 1)
+		return &pendingManagedUpdate{
+			App:       app,
+			Available: false,
+			FromKind:  models.UpdateGitHubRelease,
+		}, nil
+	}
+
+	apps := []*models.App{
+		{
+			ID:      "app-one",
+			Version: "1.0.0",
+			Update: &models.UpdateSource{
+				Kind:          models.UpdateGitHubRelease,
+				GitHubRelease: &models.GitHubReleaseUpdateSource{Repo: "owner/repo", Asset: "*.AppImage"},
+			},
+		},
+		{
+			ID:      "app-two",
+			Version: "2.0.0",
+			Update: &models.UpdateSource{
+				Kind:          models.UpdateGitHubRelease,
+				GitHubRelease: &models.GitHubReleaseUpdateSource{Repo: "owner/repo", Asset: "*.AppImage"},
+			},
+		},
+	}
+
+	_ = runManagedChecks(apps)
+	if atomic.LoadInt32(&calls) != 2 {
+		t.Fatalf("runAppUpdateCheck calls = %d, want 2", calls)
+	}
+}
+
 func TestManagedCheckWorkerCount(t *testing.T) {
 	tests := []struct {
 		input  int
@@ -470,6 +569,38 @@ func TestDisplayVersion(t *testing.T) {
 				t.Fatalf("displayVersion(%q) = %q, want %q", tt.input, got, tt.expect)
 			}
 		})
+	}
+}
+
+func TestVerifyDownloadedUpdateWithBothHashes(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "update.AppImage")
+	if err := os.WriteFile(path, []byte("payload"), 0o644); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
+
+	sha256sum, sha1sum, err := util.Sha256AndSha1(path)
+	if err != nil {
+		t.Fatalf("failed to compute hashes: %v", err)
+	}
+
+	err = verifyDownloadedUpdate(path, pendingManagedUpdate{ExpectedSHA256: sha256sum, ExpectedSHA1: sha1sum})
+	if err != nil {
+		t.Fatalf("verifyDownloadedUpdate returned error: %v", err)
+	}
+}
+
+func TestVerifyDownloadedUpdateWithBothHashesMismatch(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "update.AppImage")
+	if err := os.WriteFile(path, []byte("payload"), 0o644); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
+
+	err := verifyDownloadedUpdate(path, pendingManagedUpdate{
+		ExpectedSHA256: strings.Repeat("a", 64),
+		ExpectedSHA1:   strings.Repeat("b", 40),
+	})
+	if err == nil {
+		t.Fatal("expected hash mismatch error")
 	}
 }
 
