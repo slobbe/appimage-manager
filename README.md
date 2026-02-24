@@ -1,14 +1,13 @@
 # AppImage Manager (aim)
 
-Integrate, remove, and update AppImages with one command.
+Integrate and update AppImages.
 
-A lightweight CLI that registers AppImages with your desktop so they behave like installed apps.
+A CLI that registers AppImages with your desktop so they behave like installed apps.
 
 ## Quick start
 
 ```sh
 aim add ./MyApp.AppImage
-aim list
 ```
 
 ## Installation
