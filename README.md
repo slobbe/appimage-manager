@@ -1,5 +1,8 @@
 # AppImage Manager (aim)
 
+![GitHub Release](https://img.shields.io/github/v/release/slobbe/appimage-manager?sort=semver&display_name=release&style=flat-square)
+![GitHub License](https://img.shields.io/github/license/slobbe/appimage-manager?style=flat-square)
+
 Integrate and update AppImages.
 
 A CLI that registers AppImages with your desktop so they behave like installed apps.
