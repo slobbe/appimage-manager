@@ -18,6 +18,7 @@ import (
 
 	"github.com/slobbe/appimage-manager/internal/config"
 	"github.com/slobbe/appimage-manager/internal/core"
+	"github.com/slobbe/appimage-manager/internal/discovery"
 	util "github.com/slobbe/appimage-manager/internal/helpers"
 	repo "github.com/slobbe/appimage-manager/internal/repository"
 	models "github.com/slobbe/appimage-manager/internal/types"
@@ -48,9 +49,6 @@ func AddCmd(ctx context.Context, cmd *cli.Command) error {
 	input := cmd.StringArg("app")
 	target, err := resolveAddTarget(input)
 	if err != nil {
-		return err
-	}
-	if err := validateAddTargetFlags(cmd, target); err != nil {
 		return err
 	}
 
@@ -88,27 +86,6 @@ func AddCmd(ctx context.Context, cmd *cli.Command) error {
 		}
 		app = appData
 		printSuccess(cmd, fmt.Sprintf("Integrated: %s", formatAppRef(app)))
-	case addTargetDirectURL:
-		appData, err := integrateFromDirectURL(ctx, cmd, target, strings.TrimSpace(cmd.String("sha256")))
-		if err != nil {
-			return err
-		}
-		app = appData
-		printSuccess(cmd, fmt.Sprintf("Integrated: %s", formatAppRef(app)))
-	case addTargetGitHub:
-		appData, err := integrateFromGitHubRelease(ctx, cmd, target, strings.TrimSpace(cmd.String("asset")))
-		if err != nil {
-			return err
-		}
-		app = appData
-		printSuccess(cmd, fmt.Sprintf("Integrated: %s", formatAppRef(app)))
-	case addTargetGitLab:
-		appData, err := integrateFromGitLabRelease(ctx, cmd, target, strings.TrimSpace(cmd.String("asset")))
-		if err != nil {
-			return err
-		}
-		app = appData
-		printSuccess(cmd, fmt.Sprintf("Integrated: %s", formatAppRef(app)))
 	default:
 		return fmt.Errorf("unknown argument %s", input)
 	}
@@ -141,48 +118,18 @@ const (
 	addTargetLocalFile  addTargetKind = "local_file"
 	addTargetUnlinked   addTargetKind = "unlinked"
 	addTargetIntegrated addTargetKind = "integrated"
-	addTargetDirectURL  addTargetKind = "direct_url"
-	addTargetGitHub     addTargetKind = "github_release"
-	addTargetGitLab     addTargetKind = "gitlab_release"
 )
 
 type addTarget struct {
 	Kind      addTargetKind
 	App       *models.App
 	LocalPath string
-	URL       string
-	Repo      string
-	Project   string
 }
 
 func resolveAddTarget(input string) (*addTarget, error) {
 	trimmed := strings.TrimSpace(input)
 	if trimmed == "" {
 		return nil, fmt.Errorf("missing required argument <app>")
-	}
-
-	if strings.HasPrefix(trimmed, "github:") {
-		repoSlug := strings.TrimSpace(strings.TrimPrefix(trimmed, "github:"))
-		if repoSlug == "" || strings.Count(repoSlug, "/") != 1 {
-			return nil, fmt.Errorf("github add source must be in the form github:owner/repo")
-		}
-		return &addTarget{Kind: addTargetGitHub, Repo: repoSlug}, nil
-	}
-
-	if strings.HasPrefix(trimmed, "gitlab:") {
-		project := strings.TrimSpace(strings.TrimPrefix(trimmed, "gitlab:"))
-		if project == "" || strings.Count(project, "/") < 1 || strings.HasPrefix(project, "/") || strings.HasSuffix(project, "/") {
-			return nil, fmt.Errorf("gitlab add source must be in the form gitlab:namespace/project")
-		}
-		return &addTarget{Kind: addTargetGitLab, Project: project}, nil
-	}
-
-	if strings.HasPrefix(strings.ToLower(trimmed), "http://") {
-		return nil, fmt.Errorf("direct URLs must use https")
-	}
-
-	if isHTTPSURL(trimmed) {
-		return &addTarget{Kind: addTargetDirectURL, URL: trimmed}, nil
 	}
 
 	if app, err := repo.GetApp(trimmed); err == nil {
@@ -193,6 +140,14 @@ func resolveAddTarget(input string) (*addTarget, error) {
 		return &addTarget{Kind: kind, App: app}, nil
 	}
 
+	if strings.HasPrefix(trimmed, "https://") || strings.HasPrefix(trimmed, "github:") || strings.HasPrefix(trimmed, "gitlab:") {
+		return nil, fmt.Errorf("remote sources are installed with 'aim install'")
+	}
+
+	if strings.HasPrefix(strings.ToLower(trimmed), "http://") {
+		return nil, fmt.Errorf("direct URLs must use https; use 'aim install https://...'")
+	}
+
 	if util.HasExtension(trimmed, ".AppImage") {
 		return &addTarget{Kind: addTargetLocalFile, LocalPath: trimmed}, nil
 	}
@@ -200,44 +155,95 @@ func resolveAddTarget(input string) (*addTarget, error) {
 	return nil, fmt.Errorf("unknown argument %s", input)
 }
 
-func validateAddTargetFlags(cmd *cli.Command, target *addTarget) error {
+type installTargetKind string
+
+const (
+	installTargetDirectURL installTargetKind = "direct_url"
+	installTargetGitHub    installTargetKind = "github_release"
+	installTargetGitLab    installTargetKind = "gitlab_release"
+)
+
+type installTarget struct {
+	Kind    installTargetKind
+	URL     string
+	Repo    string
+	Project string
+}
+
+func resolveInstallTarget(input string) (*installTarget, error) {
+	trimmed := strings.TrimSpace(input)
+	if trimmed == "" {
+		return nil, fmt.Errorf("missing required argument <ref>")
+	}
+
+	if strings.HasPrefix(trimmed, "github:") {
+		repoSlug := strings.TrimSpace(strings.TrimPrefix(trimmed, "github:"))
+		if repoSlug == "" || strings.Count(repoSlug, "/") != 1 {
+			return nil, fmt.Errorf("github install source must be in the form github:owner/repo")
+		}
+		return &installTarget{Kind: installTargetGitHub, Repo: repoSlug}, nil
+	}
+
+	if strings.HasPrefix(trimmed, "gitlab:") {
+		project := strings.TrimSpace(strings.TrimPrefix(trimmed, "gitlab:"))
+		if project == "" || strings.Count(project, "/") < 1 || strings.HasPrefix(project, "/") || strings.HasSuffix(project, "/") {
+			return nil, fmt.Errorf("gitlab install source must be in the form gitlab:namespace/project")
+		}
+		return &installTarget{Kind: installTargetGitLab, Project: project}, nil
+	}
+
+	if isHTTPSURL(trimmed) {
+		return &installTarget{Kind: installTargetDirectURL, URL: trimmed}, nil
+	}
+
+	if strings.HasPrefix(strings.ToLower(trimmed), "http://") {
+		return nil, fmt.Errorf("direct URLs must use https")
+	}
+
+	if app, err := repo.GetApp(trimmed); err == nil && app != nil {
+		return nil, fmt.Errorf("managed app IDs are reintegrated with 'aim add <id>'")
+	}
+
+	if util.HasExtension(trimmed, ".AppImage") {
+		return nil, fmt.Errorf("local AppImages are integrated with 'aim add <path-to.AppImage>'")
+	}
+
+	return nil, fmt.Errorf("unknown install target %s", input)
+}
+
+func validateInstallTargetFlags(cmd *cli.Command, target *installTarget) error {
 	if target == nil {
-		return fmt.Errorf("missing add target")
+		return fmt.Errorf("missing install target")
 	}
 
 	assetPattern := strings.TrimSpace(cmd.String("asset"))
 	sha256 := strings.TrimSpace(cmd.String("sha256"))
 
 	switch target.Kind {
-	case addTargetGitHub, addTargetGitLab:
+	case installTargetGitHub, installTargetGitLab:
 		if sha256 != "" {
 			return fmt.Errorf("--sha256 is only supported with direct https URLs")
 		}
-	case addTargetDirectURL:
+	case installTargetDirectURL:
 		if assetPattern != "" {
-			return fmt.Errorf("--asset is only supported with github: or gitlab: add sources")
+			return fmt.Errorf("--asset is only supported with github: or gitlab: install sources")
 		}
 		if sha256 != "" && !isSHA256Hex(sha256) {
 			return fmt.Errorf("--sha256 must be a valid 64-character hexadecimal SHA-256")
 		}
 	default:
-		if assetPattern != "" {
-			return fmt.Errorf("--asset is only supported with github: or gitlab: add sources")
-		}
-		if sha256 != "" {
-			return fmt.Errorf("--sha256 is only supported with direct https URLs")
-		}
+		return fmt.Errorf("unsupported install target")
 	}
 
 	return nil
 }
 
-func integrateFromDirectURL(ctx context.Context, cmd *cli.Command, target *addTarget, sha256 string) (*models.App, error) {
+func integrateFromDirectURL(ctx context.Context, cmd *cli.Command, target *installTarget, sha256 string) (*models.App, error) {
 	if strings.TrimSpace(sha256) == "" {
 		printWarning(cmd, "No SHA-256 provided; skipping checksum verification")
 	}
 
-	return integrateRemoteAdd(ctx, cmd, remoteAddRequest{
+	return integrateRemoteInstall(ctx, cmd, remoteInstallRequest{
 		DisplayLabel:   target.URL,
 		DownloadURL:    target.URL,
 		ExpectedSHA256: sha256,
@@ -257,7 +263,7 @@ func integrateFromDirectURL(ctx context.Context, cmd *cli.Command, target *addTa
 	})
 }
 
-func integrateFromGitHubRelease(ctx context.Context, cmd *cli.Command, target *addTarget, assetPattern string) (*models.App, error) {
+func integrateFromGitHubRelease(ctx context.Context, cmd *cli.Command, target *installTarget, assetPattern string) (*models.App, error) {
 	if strings.TrimSpace(assetPattern) == "" {
 		assetPattern = defaultReleaseAssetPattern
 	}
@@ -268,7 +274,11 @@ func integrateFromGitHubRelease(ctx context.Context, cmd *cli.Command, target *a
 		return nil, err
 	}
 
-	return integrateRemoteAdd(ctx, cmd, remoteAddRequest{
+	return integrateGitHubReleaseAsset(ctx, cmd, target, assetPattern, release)
+}
+
+func integrateGitHubReleaseAsset(ctx context.Context, cmd *cli.Command, target *installTarget, assetPattern string, release *core.GitHubReleaseAsset) (*models.App, error) {
+	return integrateRemoteInstall(ctx, cmd, remoteInstallRequest{
 		DisplayLabel: target.Repo,
 		DownloadURL:  release.DownloadURL,
 		AssetName:    release.AssetName,
@@ -296,7 +306,7 @@ func integrateFromGitHubRelease(ctx context.Context, cmd *cli.Command, target *a
 	})
 }
 
-func integrateFromGitLabRelease(ctx context.Context, cmd *cli.Command, target *addTarget, assetPattern string) (*models.App, error) {
+func integrateFromGitLabRelease(ctx context.Context, cmd *cli.Command, target *installTarget, assetPattern string) (*models.App, error) {
 	if strings.TrimSpace(assetPattern) == "" {
 		assetPattern = defaultReleaseAssetPattern
 	}
@@ -307,7 +317,11 @@ func integrateFromGitLabRelease(ctx context.Context, cmd *cli.Command, target *a
 		return nil, err
 	}
 
-	return integrateRemoteAdd(ctx, cmd, remoteAddRequest{
+	return integrateGitLabReleaseAsset(ctx, cmd, target, assetPattern, release)
+}
+
+func integrateGitLabReleaseAsset(ctx context.Context, cmd *cli.Command, target *installTarget, assetPattern string, release *core.GitLabReleaseAsset) (*models.App, error) {
+	return integrateRemoteInstall(ctx, cmd, remoteInstallRequest{
 		DisplayLabel: target.Project,
 		DownloadURL:  release.DownloadURL,
 		AssetName:    release.AssetName,
@@ -335,7 +349,7 @@ func integrateFromGitLabRelease(ctx context.Context, cmd *cli.Command, target *a
 	})
 }
 
-type remoteAddRequest struct {
+type remoteInstallRequest struct {
 	DisplayLabel   string
 	DownloadURL    string
 	AssetName      string
@@ -344,8 +358,8 @@ type remoteAddRequest struct {
 	BuildUpdate    func(app *models.App) *models.UpdateSource
 }
 
-func integrateRemoteAdd(ctx context.Context, cmd *cli.Command, req remoteAddRequest) (*models.App, error) {
-	tempDir, err := os.MkdirTemp(config.TempDir, "aim-add-*")
+func integrateRemoteInstall(ctx context.Context, cmd *cli.Command, req remoteInstallRequest) (*models.App, error) {
+	tempDir, err := os.MkdirTemp(config.TempDir, "aim-install-*")
 	if err != nil {
 		return nil, err
 	}
@@ -548,6 +562,198 @@ func ListCmd(ctx context.Context, cmd *cli.Command) error {
 	return nil
 }
 
+func ShowCmd(ctx context.Context, cmd *cli.Command) error {
+	if len(cmd.Args().Slice()) > 1 {
+		return fmt.Errorf("too many arguments")
+	}
+	refArg := strings.TrimSpace(cmd.StringArg("ref"))
+	if refArg == "" {
+		return fmt.Errorf("missing required argument <ref>")
+	}
+
+	metadata, err := resolvePackageMetadataFromInput(ctx, refArg, "")
+	if err != nil {
+		return err
+	}
+
+	printPackageMetadata(cmd, metadata)
+	return nil
+}
+
+func InstallCmd(ctx context.Context, cmd *cli.Command) error {
+	if len(cmd.Args().Slice()) > 1 {
+		return fmt.Errorf("too many arguments")
+	}
+	refArg := strings.TrimSpace(cmd.StringArg("ref"))
+	if refArg == "" {
+		return fmt.Errorf("missing required argument <ref>")
+	}
+
+	target, err := resolveInstallTarget(refArg)
+	if err != nil {
+		return err
+	}
+	if err := validateInstallTargetFlags(cmd, target); err != nil {
+		return err
+	}
+
+	assetPattern := strings.TrimSpace(cmd.String("asset"))
+	sha256 := strings.TrimSpace(cmd.String("sha256"))
+
+	var app *models.App
+	switch target.Kind {
+	case installTargetDirectURL:
+		app, err = integrateFromDirectURL(ctx, cmd, target, sha256)
+	case installTargetGitHub, installTargetGitLab:
+		var metadata *discovery.PackageMetadata
+		metadata, err = resolvePackageMetadataFromInput(ctx, refArg, assetPattern)
+		if err == nil && !metadata.Installable {
+			err = fmt.Errorf("package is not installable: %s", strings.TrimSpace(metadata.InstallReason))
+		}
+		if err == nil {
+			app, err = installPackageMetadata(ctx, cmd, metadata)
+		}
+	default:
+		err = fmt.Errorf("unsupported install target")
+	}
+	if err != nil {
+		return err
+	}
+
+	printSuccess(cmd, fmt.Sprintf("Installed: %s", formatAppRef(app)))
+	return nil
+}
+
+func resolvePackageMetadataFromInput(ctx context.Context, input, assetOverride string) (*discovery.PackageMetadata, error) {
+	ref, err := resolvePackageRefInput(input)
+	if err != nil {
+		return nil, err
+	}
+
+	backend, err := backendForRef(ref)
+	if err != nil {
+		return nil, err
+	}
+
+	metadata, err := backend.Resolve(ctx, ref, assetOverride)
+	if err != nil {
+		return nil, err
+	}
+	if metadata == nil {
+		return nil, fmt.Errorf("failed to resolve package metadata for %s", discovery.FormatPackageRef(ref))
+	}
+
+	return metadata, nil
+}
+
+func resolvePackageRefInput(input string) (discovery.PackageRef, error) {
+	trimmed := strings.TrimSpace(input)
+	if trimmed == "" {
+		return discovery.PackageRef{}, fmt.Errorf("missing package ref")
+	}
+
+	return discovery.ParsePackageRef(trimmed)
+}
+
+func backendForRef(ref discovery.PackageRef) (discovery.DiscoveryBackend, error) {
+	for _, backend := range discoveryBackends() {
+		switch {
+		case ref.Kind == discovery.ProviderGitHub && strings.EqualFold(backend.Name(), "GitHub"):
+			return backend, nil
+		case ref.Kind == discovery.ProviderGitLab && strings.EqualFold(backend.Name(), "GitLab"):
+			return backend, nil
+		}
+	}
+
+	return nil, fmt.Errorf("no discovery backend available for %s", discovery.FormatPackageRef(ref))
+}
+
+func installPackageMetadata(ctx context.Context, cmd *cli.Command, metadata *discovery.PackageMetadata) (*models.App, error) {
+	if metadata == nil {
+		return nil, fmt.Errorf("package metadata cannot be empty")
+	}
+
+	switch metadata.Ref.Kind {
+	case discovery.ProviderGitHub:
+		return installResolvedGitHubPackage(ctx, cmd, metadata)
+	case discovery.ProviderGitLab:
+		return installResolvedGitLabPackage(ctx, cmd, metadata)
+	default:
+		return nil, fmt.Errorf("unsupported install provider %q", metadata.Ref.Kind)
+	}
+}
+
+func installResolvedGitHubPackage(ctx context.Context, cmd *cli.Command, metadata *discovery.PackageMetadata) (*models.App, error) {
+	release := &core.GitHubReleaseAsset{
+		DownloadURL:       strings.TrimSpace(metadata.DownloadURL),
+		TagName:           strings.TrimSpace(metadata.ReleaseTag),
+		NormalizedVersion: strings.TrimSpace(strings.TrimPrefix(metadata.LatestVersion, "v")),
+		AssetName:         strings.TrimSpace(metadata.AssetName),
+	}
+	target := &installTarget{Kind: installTargetGitHub, Repo: metadata.Ref.ProviderRef}
+	return integrateGitHubReleaseAsset(ctx, cmd, target, metadata.AssetPattern, release)
+}
+
+func installResolvedGitLabPackage(ctx context.Context, cmd *cli.Command, metadata *discovery.PackageMetadata) (*models.App, error) {
+	release := &core.GitLabReleaseAsset{
+		DownloadURL:       strings.TrimSpace(metadata.DownloadURL),
+		TagName:           strings.TrimSpace(metadata.ReleaseTag),
+		NormalizedVersion: strings.TrimSpace(strings.TrimPrefix(metadata.LatestVersion, "v")),
+		AssetName:         strings.TrimSpace(metadata.AssetName),
+	}
+	target := &installTarget{Kind: installTargetGitLab, Project: metadata.Ref.ProviderRef}
+	return integrateGitLabReleaseAsset(ctx, cmd, target, metadata.AssetPattern, release)
+}
+
+func printPackageMetadata(cmd *cli.Command, metadata *discovery.PackageMetadata) {
+	printSection(cmd, metadata.Name)
+	fmt.Printf("Provider: %s\n", strings.TrimSpace(metadata.Provider))
+	fmt.Printf("Ref: %s\n", discovery.FormatPackageRef(metadata.Ref))
+	if strings.TrimSpace(metadata.RepoURL) != "" {
+		fmt.Printf("Source URL: %s\n", strings.TrimSpace(metadata.RepoURL))
+	}
+	fmt.Printf("Installable: %s\n", yesNo(strings.TrimSpace(metadata.InstallReason) == "" && metadata.Installable))
+	if strings.TrimSpace(metadata.LatestVersion) != "" {
+		fmt.Printf("Latest release: %s\n", displayVersion(metadata.LatestVersion))
+	}
+	if strings.TrimSpace(metadata.AssetName) != "" {
+		fmt.Printf("Selected asset: %s\n", strings.TrimSpace(metadata.AssetName))
+	}
+	if strings.TrimSpace(metadata.AssetPattern) != "" {
+		fmt.Printf("Asset pattern: %s\n", strings.TrimSpace(metadata.AssetPattern))
+	}
+	if strings.TrimSpace(metadata.UpdateSourceSummary) != "" {
+		fmt.Printf("Updates after install: %s\n", strings.TrimSpace(metadata.UpdateSourceSummary))
+	}
+	if strings.TrimSpace(metadata.Summary) != "" {
+		fmt.Printf("Summary: %s\n", strings.TrimSpace(metadata.Summary))
+	}
+
+	if !metadata.Installable && strings.TrimSpace(metadata.InstallReason) != "" {
+		fmt.Printf("Reason: %s\n", strings.TrimSpace(metadata.InstallReason))
+	}
+
+	if len(metadata.TrustSummary) > 0 {
+		printSection(cmd, "Notes")
+		for _, note := range metadata.TrustSummary {
+			if strings.TrimSpace(note) == "" {
+				continue
+			}
+			fmt.Printf("  %s\n", strings.TrimSpace(note))
+		}
+	}
+
+	printSection(cmd, "Install Command")
+	fmt.Printf("  aim install %s\n", discovery.FormatPackageRef(metadata.Ref))
+}
+
+func yesNo(value bool) string {
+	if value {
+		return "yes"
+	}
+	return "no"
+}
+
 func UpdateCmd(ctx context.Context, cmd *cli.Command) error {
 	args := cmd.Args().Slice()
 	if len(args) > 0 {
@@ -737,6 +943,12 @@ var runAppUpdateCheck = checkAppUpdate
 var runZsyncUpdateCheck = core.ZsyncUpdateCheck
 var runGitHubReleaseUpdateCheck = core.GitHubReleaseUpdateCheck
 var runGitLabReleaseUpdateCheck = core.GitLabReleaseUpdateCheck
+var discoveryBackends = func() []discovery.DiscoveryBackend {
+	return []discovery.DiscoveryBackend{
+		discovery.GitHubBackend{},
+		discovery.GitLabBackend{},
+	}
+}
 var resolveGitHubReleaseAsset = core.ResolveGitHubReleaseAsset
 var resolveGitLabReleaseAsset = core.ResolveGitLabReleaseAsset
 var downloadRemoteAsset = downloadUpdateAsset

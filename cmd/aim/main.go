@@ -30,22 +30,14 @@ func main() {
 		Commands: []*cli.Command{
 			{
 				Name:  "add",
-				Usage: "Integrate an AppImage, download from a remote source, or reintegrate an existing ID",
+				Usage: "Integrate a local AppImage or reintegrate an existing ID",
 				Arguments: []cli.Argument{
 					&cli.StringArg{
 						Name:      "app",
-						UsageText: "<path-to.AppImage|id|https-url|github:owner/repo|gitlab:namespace/project>",
+						UsageText: "<path-to.AppImage|id>",
 					},
 				},
 				Flags: []cli.Flag{
-					&cli.StringFlag{
-						Name:  "asset",
-						Usage: "asset filename pattern; defaults to \"*.AppImage\" for github:/gitlab: sources",
-					},
-					&cli.StringFlag{
-						Name:  "sha256",
-						Usage: "expected SHA-256 for direct https:// add sources",
-					},
 					&cli.BoolFlag{
 						Name:  "post-check",
 						Usage: "run post-integration update check for zsync-enabled apps",
@@ -99,7 +91,41 @@ func main() {
 				Action: ListCmd,
 			},
 			{
+				Name:  "show",
+				Usage: "Show installability details for a package ref",
+				Arguments: []cli.Argument{
+					&cli.StringArg{
+						Name:      "ref",
+						UsageText: "<github:owner/repo|gitlab:namespace/project>",
+					},
+				},
+				Action: ShowCmd,
+			},
+			{
+				Name:    "install",
+				Aliases: []string{"i"},
+				Usage:   "Install from a remote source",
+				Arguments: []cli.Argument{
+					&cli.StringArg{
+						Name:      "ref",
+						UsageText: "<https-url|github:owner/repo|gitlab:namespace/project>",
+					},
+				},
+				Flags: []cli.Flag{
+					&cli.StringFlag{
+						Name:  "asset",
+						Usage: "asset filename pattern override for github:/gitlab: install sources",
+					},
+					&cli.StringFlag{
+						Name:  "sha256",
+						Usage: "expected SHA-256 for direct https:// install sources",
+					},
+				},
+				Action: InstallCmd,
+			},
+			{
 				Name:      "update",
+				Aliases:   []string{"u"},
 				Usage:     "Check or apply updates, or set an update source",
 				UsageText: "aim update [<id>] [--yes|-y] [--check-only|-c]\n   aim update set <id> (--github owner/repo [--asset \"*.AppImage\"] | --gitlab namespace/project [--asset \"*.AppImage\"] | --zsync-url <https-url>)",
 				Flags: []cli.Flag{

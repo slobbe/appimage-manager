@@ -16,6 +16,7 @@ import (
 
 	"github.com/slobbe/appimage-manager/internal/config"
 	"github.com/slobbe/appimage-manager/internal/core"
+	"github.com/slobbe/appimage-manager/internal/discovery"
 	util "github.com/slobbe/appimage-manager/internal/helpers"
 	repo "github.com/slobbe/appimage-manager/internal/repository"
 	models "github.com/slobbe/appimage-manager/internal/types"
@@ -55,16 +56,17 @@ func TestResolveAddTarget(t *testing.T) {
 		input     string
 		expect    addTargetKind
 		wantError bool
+		errText   string
 	}{
 		{name: "local appimage path", input: "/tmp/MyApp.AppImage", expect: addTargetLocalFile},
 		{name: "integrated id", input: "integrated", expect: addTargetIntegrated},
 		{name: "unlinked id", input: "unlinked", expect: addTargetUnlinked},
-		{name: "direct url", input: "https://example.com/MyApp.AppImage", expect: addTargetDirectURL},
-		{name: "github repo", input: "github:owner/repo", expect: addTargetGitHub},
-		{name: "gitlab repo", input: "gitlab:group/project", expect: addTargetGitLab},
-		{name: "http rejected", input: "http://example.com/MyApp.AppImage", wantError: true},
-		{name: "malformed github", input: "github:owner", wantError: true},
-		{name: "malformed gitlab", input: "gitlab:group", wantError: true},
+		{name: "direct url rejected", input: "https://example.com/MyApp.AppImage", wantError: true, errText: "remote sources are installed with 'aim install'"},
+		{name: "github repo rejected", input: "github:owner/repo", wantError: true, errText: "remote sources are installed with 'aim install'"},
+		{name: "gitlab repo rejected", input: "gitlab:group/project", wantError: true, errText: "remote sources are installed with 'aim install'"},
+		{name: "http rejected", input: "http://example.com/MyApp.AppImage", wantError: true, errText: "direct URLs must use https; use 'aim install https://...'"},
+		{name: "malformed github treated as remote", input: "github:owner", wantError: true, errText: "remote sources are installed with 'aim install'"},
+		{name: "malformed gitlab treated as remote", input: "gitlab:group", wantError: true, errText: "remote sources are installed with 'aim install'"},
 		{name: "unknown id", input: "missing", wantError: true},
 	}
 
@@ -74,6 +76,9 @@ func TestResolveAddTarget(t *testing.T) {
 			if tt.wantError {
 				if err == nil {
 					t.Fatalf("resolveAddTarget(%q) expected error", tt.input)
+				}
+				if tt.errText != "" && !strings.Contains(err.Error(), tt.errText) {
+					t.Fatalf("resolveAddTarget(%q) error = %q, want substring %q", tt.input, err.Error(), tt.errText)
 				}
 				return
 			}
@@ -85,6 +90,71 @@ func TestResolveAddTarget(t *testing.T) {
 			}
 			if got.Kind != tt.expect {
 				t.Fatalf("resolveAddTarget(%q) kind = %q, want %q", tt.input, got.Kind, tt.expect)
+			}
+		})
+	}
+}
+
+func TestResolveInstallTarget(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "apps.json")
+
+	originalDbSrc := config.DbSrc
+	config.DbSrc = dbPath
+	t.Cleanup(func() {
+		config.DbSrc = originalDbSrc
+	})
+
+	db := &repo.DB{
+		SchemaVersion: 1,
+		Apps: map[string]*models.App{
+			"managed": {
+				ID: "managed",
+			},
+		},
+	}
+	if err := repo.SaveDB(dbPath, db); err != nil {
+		t.Fatalf("failed to write test DB: %v", err)
+	}
+
+	tests := []struct {
+		name      string
+		input     string
+		expect    installTargetKind
+		wantError bool
+		errText   string
+	}{
+		{name: "direct url", input: "https://example.com/MyApp.AppImage", expect: installTargetDirectURL},
+		{name: "github repo", input: "github:owner/repo", expect: installTargetGitHub},
+		{name: "gitlab repo", input: "gitlab:group/project", expect: installTargetGitLab},
+		{name: "http rejected", input: "http://example.com/MyApp.AppImage", wantError: true, errText: "direct URLs must use https"},
+		{name: "local path rejected", input: "/tmp/MyApp.AppImage", wantError: true, errText: "local AppImages are integrated with 'aim add <path-to.AppImage>'"},
+		{name: "managed id rejected", input: "managed", wantError: true, errText: "managed app IDs are reintegrated with 'aim add <id>'"},
+		{name: "malformed github", input: "github:owner", wantError: true, errText: "github install source must be in the form github:owner/repo"},
+		{name: "malformed gitlab", input: "gitlab:group", wantError: true, errText: "gitlab install source must be in the form gitlab:namespace/project"},
+		{name: "unknown target", input: "missing", wantError: true, errText: "unknown install target"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := resolveInstallTarget(tt.input)
+			if tt.wantError {
+				if err == nil {
+					t.Fatalf("resolveInstallTarget(%q) expected error", tt.input)
+				}
+				if tt.errText != "" && !strings.Contains(err.Error(), tt.errText) {
+					t.Fatalf("resolveInstallTarget(%q) error = %q, want substring %q", tt.input, err.Error(), tt.errText)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("resolveInstallTarget(%q) returned error: %v", tt.input, err)
+			}
+			if got == nil {
+				t.Fatalf("resolveInstallTarget(%q) returned nil target", tt.input)
+			}
+			if got.Kind != tt.expect {
+				t.Fatalf("resolveInstallTarget(%q) kind = %q, want %q", tt.input, got.Kind, tt.expect)
 			}
 		})
 	}
@@ -250,6 +320,94 @@ func TestRemovedCommandsAreUnavailable(t *testing.T) {
 				t.Fatalf("unexpected command registration for %q", unwanted)
 			}
 		}
+	}
+}
+
+func TestRootRegistersPackageCommands(t *testing.T) {
+	cmd := newRootTestCommand()
+
+	required := map[string]bool{
+		"show":    false,
+		"install": false,
+	}
+	for _, subcommand := range cmd.Commands {
+		if _, ok := required[subcommand.Name]; ok {
+			required[subcommand.Name] = true
+		}
+	}
+
+	for name, found := range required {
+		if !found {
+			t.Fatalf("expected command %q to be registered", name)
+		}
+	}
+}
+
+func TestRootPackageCommandFlags(t *testing.T) {
+	cmd := newRootTestCommand()
+
+	var addCmd *cli.Command
+	var installCmd *cli.Command
+	for _, subcommand := range cmd.Commands {
+		switch subcommand.Name {
+		case "add":
+			addCmd = subcommand
+		case "install":
+			installCmd = subcommand
+		}
+	}
+	if addCmd == nil || installCmd == nil {
+		t.Fatal("expected add and install commands")
+	}
+
+	if len(addCmd.Flags) != 1 {
+		t.Fatalf("add flags = %d, want 1", len(addCmd.Flags))
+	}
+	addFlag, ok := addCmd.Flags[0].(*cli.BoolFlag)
+	if !ok || addFlag.Name != "post-check" {
+		t.Fatalf("unexpected add flags: %#v", addCmd.Flags)
+	}
+
+	foundAsset := false
+	foundSHA256 := false
+	for _, flag := range installCmd.Flags {
+		switch typed := flag.(type) {
+		case *cli.StringFlag:
+			if typed.Name == "asset" {
+				foundAsset = true
+			}
+			if typed.Name == "sha256" {
+				foundSHA256 = true
+			}
+		}
+	}
+	if !foundAsset || !foundSHA256 {
+		t.Fatalf("install flags missing asset or sha256: %#v", installCmd.Flags)
+	}
+}
+
+func TestRootPackageCommandAliases(t *testing.T) {
+	cmd := newRootTestCommand()
+
+	var installCmd *cli.Command
+	var updateCmd *cli.Command
+	for _, subcommand := range cmd.Commands {
+		switch subcommand.Name {
+		case "install":
+			installCmd = subcommand
+		case "update":
+			updateCmd = subcommand
+		}
+	}
+	if installCmd == nil || updateCmd == nil {
+		t.Fatal("expected install and update commands")
+	}
+
+	if len(installCmd.Aliases) != 1 || installCmd.Aliases[0] != "i" {
+		t.Fatalf("install aliases = %v, want [i]", installCmd.Aliases)
+	}
+	if len(updateCmd.Aliases) != 1 || updateCmd.Aliases[0] != "u" {
+		t.Fatalf("update aliases = %v, want [u]", updateCmd.Aliases)
 	}
 }
 
@@ -529,93 +687,98 @@ func TestAddCmdIntegratedMessage(t *testing.T) {
 	}
 }
 
-func TestValidateAddTargetFlags(t *testing.T) {
+func TestAddCmdRejectsRemoteSources(t *testing.T) {
 	tests := []struct {
-		name      string
-		target    *addTarget
-		args      []string
-		wantError bool
+		name    string
+		args    []string
+		errText string
 	}{
-		{
-			name:      "asset rejected for local path",
-			target:    &addTarget{Kind: addTargetLocalFile},
-			args:      []string{"/tmp/MyApp.AppImage", "--asset", "*.AppImage"},
-			wantError: true,
-		},
-		{
-			name:      "asset rejected for id",
-			target:    &addTarget{Kind: addTargetIntegrated},
-			args:      []string{"my-app", "--asset", "*.AppImage"},
-			wantError: true,
-		},
-		{
-			name:      "asset rejected for direct url",
-			target:    &addTarget{Kind: addTargetDirectURL},
-			args:      []string{"https://example.com/MyApp.AppImage", "--asset", "*.AppImage"},
-			wantError: true,
-		},
-		{
-			name:      "sha256 rejected for local path",
-			target:    &addTarget{Kind: addTargetLocalFile},
-			args:      []string{"/tmp/MyApp.AppImage", "--sha256", strings.Repeat("a", 64)},
-			wantError: true,
-		},
-		{
-			name:      "sha256 rejected for id",
-			target:    &addTarget{Kind: addTargetIntegrated},
-			args:      []string{"my-app", "--sha256", strings.Repeat("a", 64)},
-			wantError: true,
-		},
-		{
-			name:      "sha256 rejected for github",
-			target:    &addTarget{Kind: addTargetGitHub},
-			args:      []string{"github:owner/repo", "--sha256", strings.Repeat("a", 64)},
-			wantError: true,
-		},
-		{
-			name:      "sha256 rejected for gitlab",
-			target:    &addTarget{Kind: addTargetGitLab},
-			args:      []string{"gitlab:group/project", "--sha256", strings.Repeat("a", 64)},
-			wantError: true,
-		},
-		{
-			name:      "invalid sha256 rejected",
-			target:    &addTarget{Kind: addTargetDirectURL},
-			args:      []string{"https://example.com/MyApp.AppImage", "--sha256", "not-a-hash"},
-			wantError: true,
-		},
-		{
-			name:   "valid direct url sha256",
-			target: &addTarget{Kind: addTargetDirectURL},
-			args:   []string{"https://example.com/MyApp.AppImage", "--sha256", strings.Repeat("a", 64)},
-		},
-		{
-			name:   "valid github asset",
-			target: &addTarget{Kind: addTargetGitHub},
-			args:   []string{"github:owner/repo", "--asset", "*.AppImage"},
-		},
+		{name: "direct url", args: []string{"https://example.com/MyApp.AppImage"}, errText: "remote sources are installed with 'aim install'"},
+		{name: "github", args: []string{"github:owner/repo"}, errText: "remote sources are installed with 'aim install'"},
+		{name: "gitlab", args: []string{"gitlab:group/project"}, errText: "remote sources are installed with 'aim install'"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cmd := newAddTestCommand()
-			argv := append([]string{"add"}, tt.args...)
-			if err := cmd.Run(context.Background(), argv); err == nil {
-				t.Fatal("expected add action placeholder error")
+			err := runAddCommand(context.Background(), tt.args)
+			if err == nil {
+				t.Fatal("expected error")
 			}
-
-			err := validateAddTargetFlags(cmd, tt.target)
-			if tt.wantError && err == nil {
-				t.Fatal("expected validation error")
-			}
-			if !tt.wantError && err != nil {
-				t.Fatalf("validateAddTargetFlags returned error: %v", err)
+			if !strings.Contains(err.Error(), tt.errText) {
+				t.Fatalf("unexpected error: %v", err)
 			}
 		})
 	}
 }
 
-func TestAddCmdDirectURLWithChecksum(t *testing.T) {
+func TestValidateInstallTargetFlags(t *testing.T) {
+	tests := []struct {
+		name      string
+		target    *installTarget
+		args      []string
+		wantError bool
+	}{
+		{
+			name:      "asset rejected for direct url",
+			target:    &installTarget{Kind: installTargetDirectURL},
+			args:      []string{"https://example.com/MyApp.AppImage", "--asset", "*.AppImage"},
+			wantError: true,
+		},
+		{
+			name:      "sha256 rejected for github",
+			target:    &installTarget{Kind: installTargetGitHub},
+			args:      []string{"github:owner/repo", "--sha256", strings.Repeat("a", 64)},
+			wantError: true,
+		},
+		{
+			name:      "sha256 rejected for gitlab",
+			target:    &installTarget{Kind: installTargetGitLab},
+			args:      []string{"gitlab:group/project", "--sha256", strings.Repeat("a", 64)},
+			wantError: true,
+		},
+		{
+			name:      "invalid sha256 rejected",
+			target:    &installTarget{Kind: installTargetDirectURL},
+			args:      []string{"https://example.com/MyApp.AppImage", "--sha256", "not-a-hash"},
+			wantError: true,
+		},
+		{
+			name:   "valid direct url sha256",
+			target: &installTarget{Kind: installTargetDirectURL},
+			args:   []string{"https://example.com/MyApp.AppImage", "--sha256", strings.Repeat("a", 64)},
+		},
+		{
+			name:   "valid github asset",
+			target: &installTarget{Kind: installTargetGitHub},
+			args:   []string{"github:owner/repo", "--asset", "*.AppImage"},
+		},
+		{
+			name:   "valid gitlab asset",
+			target: &installTarget{Kind: installTargetGitLab},
+			args:   []string{"gitlab:group/project", "--asset", "*.AppImage"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := newInstallTestCommand()
+			argv := append([]string{"install"}, tt.args...)
+			if err := cmd.Run(context.Background(), argv); err == nil {
+				t.Fatal("expected install action placeholder error")
+			}
+
+			err := validateInstallTargetFlags(cmd, tt.target)
+			if tt.wantError && err == nil {
+				t.Fatal("expected validation error")
+			}
+			if !tt.wantError && err != nil {
+				t.Fatalf("validateInstallTargetFlags returned error: %v", err)
+			}
+		})
+	}
+}
+
+func TestInstallCmdDirectURLWithChecksum(t *testing.T) {
 	tempDir := t.TempDir()
 	setupAddCommandConfigForTest(t, tempDir)
 
@@ -651,8 +814,8 @@ func TestAddCmdDirectURLWithChecksum(t *testing.T) {
 	addSingleApp = repo.AddApp
 
 	output := captureStdout(t, func() {
-		if err := runAddCommand(context.Background(), []string{"https://example.com/MyApp.AppImage", "--sha256", expectedSHA256}); err != nil {
-			t.Fatalf("runAddCommand returned error: %v", err)
+		if err := runInstallCommand(context.Background(), []string{"https://example.com/MyApp.AppImage", "--sha256", expectedSHA256}); err != nil {
+			t.Fatalf("runInstallCommand returned error: %v", err)
 		}
 	})
 
@@ -681,7 +844,7 @@ func TestAddCmdDirectURLWithChecksum(t *testing.T) {
 	}
 }
 
-func TestAddCmdDirectURLWithoutChecksumWarns(t *testing.T) {
+func TestInstallCmdDirectURLWithoutChecksumWarns(t *testing.T) {
 	tempDir := t.TempDir()
 	setupAddCommandConfigForTest(t, tempDir)
 
@@ -708,8 +871,8 @@ func TestAddCmdDirectURLWithoutChecksumWarns(t *testing.T) {
 	addSingleApp = repo.AddApp
 
 	output := captureStdout(t, func() {
-		if err := runAddCommand(context.Background(), []string{"https://example.com/MyApp.AppImage"}); err != nil {
-			t.Fatalf("runAddCommand returned error: %v", err)
+		if err := runInstallCommand(context.Background(), []string{"https://example.com/MyApp.AppImage"}); err != nil {
+			t.Fatalf("runInstallCommand returned error: %v", err)
 		}
 	})
 
@@ -718,7 +881,7 @@ func TestAddCmdDirectURLWithoutChecksumWarns(t *testing.T) {
 	}
 }
 
-func TestAddCmdDirectURLChecksumMismatch(t *testing.T) {
+func TestInstallCmdDirectURLChecksumMismatch(t *testing.T) {
 	tempDir := t.TempDir()
 	setupAddCommandConfigForTest(t, tempDir)
 
@@ -742,7 +905,7 @@ func TestAddCmdDirectURLChecksumMismatch(t *testing.T) {
 		return &models.App{ID: "my-app"}, nil
 	}
 
-	err := runAddCommand(context.Background(), []string{"https://example.com/MyApp.AppImage", "--sha256", strings.Repeat("a", 64)})
+	err := runInstallCommand(context.Background(), []string{"https://example.com/MyApp.AppImage", "--sha256", strings.Repeat("a", 64)})
 	if err == nil {
 		t.Fatal("expected checksum mismatch")
 	}
@@ -751,21 +914,44 @@ func TestAddCmdDirectURLChecksumMismatch(t *testing.T) {
 	}
 }
 
-func TestAddCmdGitHubSetsDefaultAssetSourceAndUpdate(t *testing.T) {
+func TestInstallCmdGitHubSetsDefaultAssetSourceAndUpdate(t *testing.T) {
 	tempDir := t.TempDir()
 	setupAddCommandConfigForTest(t, tempDir)
 
+	originalBackends := discoveryBackends
 	originalResolve := resolveGitHubReleaseAsset
 	originalDownload := downloadRemoteAsset
 	originalIntegrate := integrateLocalApp
 	originalAddSingle := addSingleApp
 	t.Cleanup(func() {
+		discoveryBackends = originalBackends
 		resolveGitHubReleaseAsset = originalResolve
 		downloadRemoteAsset = originalDownload
 		integrateLocalApp = originalIntegrate
 		addSingleApp = originalAddSingle
 	})
 
+	discoveryBackends = func() []discovery.DiscoveryBackend {
+		return []discovery.DiscoveryBackend{
+			&stubDiscoveryBackend{
+				name: "GitHub",
+				resolveFn: func(context.Context, discovery.PackageRef, string) (*discovery.PackageMetadata, error) {
+					return &discovery.PackageMetadata{
+						Name:                "My App",
+						Provider:            "GitHub",
+						Ref:                 discovery.PackageRef{Kind: discovery.ProviderGitHub, ProviderRef: "owner/repo"},
+						LatestVersion:       "1.2.3",
+						AssetName:           "MyApp-x86_64.AppImage",
+						AssetPattern:        "*.AppImage",
+						DownloadURL:         "https://example.com/MyApp-x86_64.AppImage",
+						UpdateSourceSummary: "github_release: owner/repo, asset: *.AppImage",
+						Installable:         true,
+						ReleaseTag:          "v1.2.3",
+					}, nil
+				},
+			},
+		}
+	}
 	resolveGitHubReleaseAsset = func(repoSlug, assetPattern string) (*core.GitHubReleaseAsset, error) {
 		if repoSlug != "owner/repo" {
 			t.Fatalf("repoSlug = %q", repoSlug)
@@ -792,8 +978,8 @@ func TestAddCmdGitHubSetsDefaultAssetSourceAndUpdate(t *testing.T) {
 	}
 	addSingleApp = repo.AddApp
 
-	if err := runAddCommand(context.Background(), []string{"github:owner/repo"}); err != nil {
-		t.Fatalf("runAddCommand returned error: %v", err)
+	if err := runInstallCommand(context.Background(), []string{"github:owner/repo"}); err != nil {
+		t.Fatalf("runInstallCommand returned error: %v", err)
 	}
 
 	app, err := repo.GetApp("my-app")
@@ -814,21 +1000,44 @@ func TestAddCmdGitHubSetsDefaultAssetSourceAndUpdate(t *testing.T) {
 	}
 }
 
-func TestAddCmdGitHubUsesCustomAsset(t *testing.T) {
+func TestInstallCmdGitHubUsesCustomAsset(t *testing.T) {
 	tempDir := t.TempDir()
 	setupAddCommandConfigForTest(t, tempDir)
 
+	originalBackends := discoveryBackends
 	originalResolve := resolveGitHubReleaseAsset
 	originalDownload := downloadRemoteAsset
 	originalIntegrate := integrateLocalApp
 	originalAddSingle := addSingleApp
 	t.Cleanup(func() {
+		discoveryBackends = originalBackends
 		resolveGitHubReleaseAsset = originalResolve
 		downloadRemoteAsset = originalDownload
 		integrateLocalApp = originalIntegrate
 		addSingleApp = originalAddSingle
 	})
 
+	discoveryBackends = func() []discovery.DiscoveryBackend {
+		return []discovery.DiscoveryBackend{
+			&stubDiscoveryBackend{
+				name: "GitHub",
+				resolveFn: func(context.Context, discovery.PackageRef, string) (*discovery.PackageMetadata, error) {
+					return &discovery.PackageMetadata{
+						Name:                "My App",
+						Provider:            "GitHub",
+						Ref:                 discovery.PackageRef{Kind: discovery.ProviderGitHub, ProviderRef: "owner/repo"},
+						LatestVersion:       "1.2.3",
+						AssetName:           "MyApp-x86_64.AppImage",
+						AssetPattern:        "MyApp-*-x86_64.AppImage",
+						DownloadURL:         "https://example.com/MyApp-x86_64.AppImage",
+						UpdateSourceSummary: "github_release: owner/repo, asset: MyApp-*-x86_64.AppImage",
+						Installable:         true,
+						ReleaseTag:          "v1.2.3",
+					}, nil
+				},
+			},
+		}
+	}
 	resolveGitHubReleaseAsset = func(repoSlug, assetPattern string) (*core.GitHubReleaseAsset, error) {
 		if assetPattern != "MyApp-*-x86_64.AppImage" {
 			t.Fatalf("assetPattern = %q", assetPattern)
@@ -845,8 +1054,8 @@ func TestAddCmdGitHubUsesCustomAsset(t *testing.T) {
 	}
 	addSingleApp = repo.AddApp
 
-	if err := runAddCommand(context.Background(), []string{"github:owner/repo", "--asset", "MyApp-*-x86_64.AppImage"}); err != nil {
-		t.Fatalf("runAddCommand returned error: %v", err)
+	if err := runInstallCommand(context.Background(), []string{"github:owner/repo", "--asset", "MyApp-*-x86_64.AppImage"}); err != nil {
+		t.Fatalf("runInstallCommand returned error: %v", err)
 	}
 
 	app, err := repo.GetApp("my-app")
@@ -858,21 +1067,44 @@ func TestAddCmdGitHubUsesCustomAsset(t *testing.T) {
 	}
 }
 
-func TestAddCmdGitLabSetsDefaultAssetSourceAndUpdate(t *testing.T) {
+func TestInstallCmdGitLabSetsDefaultAssetSourceAndUpdate(t *testing.T) {
 	tempDir := t.TempDir()
 	setupAddCommandConfigForTest(t, tempDir)
 
+	originalBackends := discoveryBackends
 	originalResolve := resolveGitLabReleaseAsset
 	originalDownload := downloadRemoteAsset
 	originalIntegrate := integrateLocalApp
 	originalAddSingle := addSingleApp
 	t.Cleanup(func() {
+		discoveryBackends = originalBackends
 		resolveGitLabReleaseAsset = originalResolve
 		downloadRemoteAsset = originalDownload
 		integrateLocalApp = originalIntegrate
 		addSingleApp = originalAddSingle
 	})
 
+	discoveryBackends = func() []discovery.DiscoveryBackend {
+		return []discovery.DiscoveryBackend{
+			&stubDiscoveryBackend{
+				name: "GitLab",
+				resolveFn: func(context.Context, discovery.PackageRef, string) (*discovery.PackageMetadata, error) {
+					return &discovery.PackageMetadata{
+						Name:                "My App",
+						Provider:            "GitLab",
+						Ref:                 discovery.PackageRef{Kind: discovery.ProviderGitLab, ProviderRef: "group/project"},
+						LatestVersion:       "2.0.0",
+						AssetName:           "MyApp-x86_64.AppImage",
+						AssetPattern:        "*.AppImage",
+						DownloadURL:         "https://example.com/MyApp-x86_64.AppImage",
+						UpdateSourceSummary: "gitlab_release: group/project, asset: *.AppImage",
+						Installable:         true,
+						ReleaseTag:          "v2.0.0",
+					}, nil
+				},
+			},
+		}
+	}
 	resolveGitLabReleaseAsset = func(project, assetPattern string) (*core.GitLabReleaseAsset, error) {
 		if project != "group/project" {
 			t.Fatalf("project = %q", project)
@@ -892,8 +1124,8 @@ func TestAddCmdGitLabSetsDefaultAssetSourceAndUpdate(t *testing.T) {
 	}
 	addSingleApp = repo.AddApp
 
-	if err := runAddCommand(context.Background(), []string{"gitlab:group/project"}); err != nil {
-		t.Fatalf("runAddCommand returned error: %v", err)
+	if err := runInstallCommand(context.Background(), []string{"gitlab:group/project"}); err != nil {
+		t.Fatalf("runInstallCommand returned error: %v", err)
 	}
 
 	app, err := repo.GetApp("my-app")
@@ -911,21 +1143,44 @@ func TestAddCmdGitLabSetsDefaultAssetSourceAndUpdate(t *testing.T) {
 	}
 }
 
-func TestAddCmdGitLabUsesCustomAsset(t *testing.T) {
+func TestInstallCmdGitLabUsesCustomAsset(t *testing.T) {
 	tempDir := t.TempDir()
 	setupAddCommandConfigForTest(t, tempDir)
 
+	originalBackends := discoveryBackends
 	originalResolve := resolveGitLabReleaseAsset
 	originalDownload := downloadRemoteAsset
 	originalIntegrate := integrateLocalApp
 	originalAddSingle := addSingleApp
 	t.Cleanup(func() {
+		discoveryBackends = originalBackends
 		resolveGitLabReleaseAsset = originalResolve
 		downloadRemoteAsset = originalDownload
 		integrateLocalApp = originalIntegrate
 		addSingleApp = originalAddSingle
 	})
 
+	discoveryBackends = func() []discovery.DiscoveryBackend {
+		return []discovery.DiscoveryBackend{
+			&stubDiscoveryBackend{
+				name: "GitLab",
+				resolveFn: func(context.Context, discovery.PackageRef, string) (*discovery.PackageMetadata, error) {
+					return &discovery.PackageMetadata{
+						Name:                "My App",
+						Provider:            "GitLab",
+						Ref:                 discovery.PackageRef{Kind: discovery.ProviderGitLab, ProviderRef: "group/project"},
+						LatestVersion:       "2.0.0",
+						AssetName:           "MyApp-x86_64.AppImage",
+						AssetPattern:        "MyApp-*-x86_64.AppImage",
+						DownloadURL:         "https://example.com/MyApp-x86_64.AppImage",
+						UpdateSourceSummary: "gitlab_release: group/project, asset: MyApp-*-x86_64.AppImage",
+						Installable:         true,
+						ReleaseTag:          "v2.0.0",
+					}, nil
+				},
+			},
+		}
+	}
 	resolveGitLabReleaseAsset = func(project, assetPattern string) (*core.GitLabReleaseAsset, error) {
 		if assetPattern != "MyApp-*-x86_64.AppImage" {
 			t.Fatalf("assetPattern = %q", assetPattern)
@@ -942,8 +1197,8 @@ func TestAddCmdGitLabUsesCustomAsset(t *testing.T) {
 	}
 	addSingleApp = repo.AddApp
 
-	if err := runAddCommand(context.Background(), []string{"gitlab:group/project", "--asset", "MyApp-*-x86_64.AppImage"}); err != nil {
-		t.Fatalf("runAddCommand returned error: %v", err)
+	if err := runInstallCommand(context.Background(), []string{"gitlab:group/project", "--asset", "MyApp-*-x86_64.AppImage"}); err != nil {
+		t.Fatalf("runInstallCommand returned error: %v", err)
 	}
 
 	app, err := repo.GetApp("my-app")
@@ -952,6 +1207,284 @@ func TestAddCmdGitLabUsesCustomAsset(t *testing.T) {
 	}
 	if app.Source.GitLabRelease == nil || app.Source.GitLabRelease.Asset != "MyApp-*-x86_64.AppImage" {
 		t.Fatalf("unexpected gitlab source: %#v", app.Source.GitLabRelease)
+	}
+}
+
+type stubDiscoveryBackend struct {
+	name      string
+	resolveFn func(context.Context, discovery.PackageRef, string) (*discovery.PackageMetadata, error)
+}
+
+func (b *stubDiscoveryBackend) Name() string {
+	return b.name
+}
+
+func (b *stubDiscoveryBackend) Resolve(ctx context.Context, ref discovery.PackageRef, asset string) (*discovery.PackageMetadata, error) {
+	return b.resolveFn(ctx, ref, asset)
+}
+
+func TestShowCmdDirectProviderRef(t *testing.T) {
+	originalBackends := discoveryBackends
+	t.Cleanup(func() {
+		discoveryBackends = originalBackends
+	})
+
+	discoveryBackends = func() []discovery.DiscoveryBackend {
+		return []discovery.DiscoveryBackend{
+			&stubDiscoveryBackend{
+				name: "GitHub",
+				resolveFn: func(context.Context, discovery.PackageRef, string) (*discovery.PackageMetadata, error) {
+					return &discovery.PackageMetadata{
+						Name:                "My App",
+						Provider:            "GitHub",
+						Ref:                 discovery.PackageRef{Kind: discovery.ProviderGitHub, ProviderRef: "owner/repo"},
+						RepoURL:             "https://github.com/owner/repo",
+						LatestVersion:       "1.2.3",
+						AssetName:           "MyApp-x86_64.AppImage",
+						AssetPattern:        "*.AppImage",
+						UpdateSourceSummary: "github_release: owner/repo, asset: *.AppImage",
+						Installable:         true,
+						TrustSummary:        []string{"Provider: GitHub", "Installable: yes"},
+					}, nil
+				},
+			},
+		}
+	}
+
+	output := captureStdout(t, func() {
+		if err := runShowCommand(context.Background(), []string{"github:owner/repo"}); err != nil {
+			t.Fatalf("runShowCommand returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "My App") || !strings.Contains(strings.ToLower(output), "install command") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+	if !strings.Contains(output, "aim install github:owner/repo") {
+		t.Fatalf("expected install preview, got:\n%s", output)
+	}
+}
+
+func TestInstallCmdDirectProviderRefDelegatesToExistingAddFlow(t *testing.T) {
+	originalBackends := discoveryBackends
+	originalResolve := resolveGitHubReleaseAsset
+	originalDownload := downloadRemoteAsset
+	originalIntegrate := integrateLocalApp
+	originalAddSingle := addSingleApp
+	t.Cleanup(func() {
+		discoveryBackends = originalBackends
+		resolveGitHubReleaseAsset = originalResolve
+		downloadRemoteAsset = originalDownload
+		integrateLocalApp = originalIntegrate
+		addSingleApp = originalAddSingle
+	})
+
+	tempDir := t.TempDir()
+	setupAddCommandConfigForTest(t, tempDir)
+
+	discoveryBackends = func() []discovery.DiscoveryBackend {
+		return []discovery.DiscoveryBackend{
+			&stubDiscoveryBackend{
+				name: "GitHub",
+				resolveFn: func(context.Context, discovery.PackageRef, string) (*discovery.PackageMetadata, error) {
+					return &discovery.PackageMetadata{
+						Name:                "My App",
+						Provider:            "GitHub",
+						Ref:                 discovery.PackageRef{Kind: discovery.ProviderGitHub, ProviderRef: "owner/repo"},
+						LatestVersion:       "1.2.3",
+						AssetName:           "MyApp-x86_64.AppImage",
+						AssetPattern:        "*.AppImage",
+						DownloadURL:         "https://example.com/MyApp-x86_64.AppImage",
+						UpdateSourceSummary: "github_release: owner/repo, asset: *.AppImage",
+						Installable:         true,
+						ReleaseTag:          "v1.2.3",
+					}, nil
+				},
+			},
+		}
+	}
+	resolveGitHubReleaseAsset = func(repoSlug, assetPattern string) (*core.GitHubReleaseAsset, error) {
+		if repoSlug != "owner/repo" || assetPattern != "*.AppImage" {
+			t.Fatalf("unexpected install resolution: %s %s", repoSlug, assetPattern)
+		}
+		return &core.GitHubReleaseAsset{
+			DownloadURL: "https://example.com/MyApp-x86_64.AppImage",
+			TagName:     "v1.2.3",
+			AssetName:   "MyApp-x86_64.AppImage",
+		}, nil
+	}
+	downloadRemoteAsset = func(context.Context, string, string, bool) error { return nil }
+	integrateLocalApp = func(context.Context, string, core.UpdateOverwritePrompt) (*models.App, error) {
+		return &models.App{ID: "my-app", Name: "My App", Version: "1.2.3", UpdatedAt: "2026-03-08T12:00:00Z"}, nil
+	}
+	addSingleApp = repo.AddApp
+
+	if err := runInstallCommand(context.Background(), []string{"github:owner/repo"}); err != nil {
+		t.Fatalf("runInstallCommand returned error: %v", err)
+	}
+
+	app, err := repo.GetApp("my-app")
+	if err != nil {
+		t.Fatalf("failed to load installed app: %v", err)
+	}
+	if app.Source.Kind != models.SourceGitHubRelease {
+		t.Fatalf("Source.Kind = %q", app.Source.Kind)
+	}
+}
+
+func TestInstallCmdDirectProviderRefAssetOverride(t *testing.T) {
+	originalBackends := discoveryBackends
+	originalResolve := resolveGitLabReleaseAsset
+	originalDownload := downloadRemoteAsset
+	originalIntegrate := integrateLocalApp
+	originalAddSingle := addSingleApp
+	t.Cleanup(func() {
+		discoveryBackends = originalBackends
+		resolveGitLabReleaseAsset = originalResolve
+		downloadRemoteAsset = originalDownload
+		integrateLocalApp = originalIntegrate
+		addSingleApp = originalAddSingle
+	})
+
+	tempDir := t.TempDir()
+	setupAddCommandConfigForTest(t, tempDir)
+
+	discoveryBackends = func() []discovery.DiscoveryBackend {
+		return []discovery.DiscoveryBackend{
+			&stubDiscoveryBackend{
+				name: "GitLab",
+				resolveFn: func(context.Context, discovery.PackageRef, string) (*discovery.PackageMetadata, error) {
+					return &discovery.PackageMetadata{
+						Name:                "Foo App",
+						Provider:            "GitLab",
+						Ref:                 discovery.PackageRef{Kind: discovery.ProviderGitLab, ProviderRef: "group/project"},
+						LatestVersion:       "2.0.0",
+						AssetName:           "Foo-x86_64.AppImage",
+						AssetPattern:        "Foo-*-x86_64.AppImage",
+						DownloadURL:         "https://example.com/Foo-x86_64.AppImage",
+						UpdateSourceSummary: "gitlab_release: group/project, asset: Foo-*-x86_64.AppImage",
+						Installable:         true,
+						ReleaseTag:          "v2.0.0",
+					}, nil
+				},
+			},
+		}
+	}
+	resolveGitLabReleaseAsset = func(project, assetPattern string) (*core.GitLabReleaseAsset, error) {
+		if assetPattern != "Foo-*-x86_64.AppImage" {
+			t.Fatalf("assetPattern = %q", assetPattern)
+		}
+		return &core.GitLabReleaseAsset{
+			DownloadURL: "https://example.com/Foo-x86_64.AppImage",
+			TagName:     "v2.0.0",
+			AssetName:   "Foo-x86_64.AppImage",
+		}, nil
+	}
+	downloadRemoteAsset = func(context.Context, string, string, bool) error { return nil }
+	integrateLocalApp = func(context.Context, string, core.UpdateOverwritePrompt) (*models.App, error) {
+		return &models.App{ID: "foo-app", Name: "Foo App", Version: "2.0.0", UpdatedAt: "2026-03-08T12:00:00Z"}, nil
+	}
+	addSingleApp = repo.AddApp
+
+	if err := runInstallCommand(context.Background(), []string{"gitlab:group/project", "--asset", "Foo-*-x86_64.AppImage"}); err != nil {
+		t.Fatalf("runInstallCommand returned error: %v", err)
+	}
+
+	app, err := repo.GetApp("foo-app")
+	if err != nil {
+		t.Fatalf("failed to load installed app: %v", err)
+	}
+	if app.Source.GitLabRelease == nil || app.Source.GitLabRelease.Asset != "Foo-*-x86_64.AppImage" {
+		t.Fatalf("unexpected gitlab source: %#v", app.Source.GitLabRelease)
+	}
+}
+
+func TestInstallCmdFailsForUninstallablePackage(t *testing.T) {
+	originalBackends := discoveryBackends
+	t.Cleanup(func() {
+		discoveryBackends = originalBackends
+	})
+
+	discoveryBackends = func() []discovery.DiscoveryBackend {
+		return []discovery.DiscoveryBackend{
+			&stubDiscoveryBackend{
+				name: "GitHub",
+				resolveFn: func(context.Context, discovery.PackageRef, string) (*discovery.PackageMetadata, error) {
+					return &discovery.PackageMetadata{
+						Provider:      "GitHub",
+						Ref:           discovery.PackageRef{Kind: discovery.ProviderGitHub, ProviderRef: "owner/repo"},
+						Installable:   false,
+						InstallReason: "no matching release asset",
+					}, nil
+				},
+			},
+		}
+	}
+
+	err := runInstallCommand(context.Background(), []string{"github:owner/repo"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "package is not installable") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestShowCmdRejectsNumericRef(t *testing.T) {
+	err := runShowCommand(context.Background(), []string{"1"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "unsupported package ref") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestInstallCmdRejectsNumericRef(t *testing.T) {
+	err := runInstallCommand(context.Background(), []string{"1"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "unknown install target") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestInstallCmdRejectsLocalPath(t *testing.T) {
+	err := runInstallCommand(context.Background(), []string{"./MyApp.AppImage"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "local AppImages are integrated with 'aim add <path-to.AppImage>'") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestInstallCmdRejectsManagedID(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "apps.json")
+
+	originalDbSrc := config.DbSrc
+	config.DbSrc = dbPath
+	t.Cleanup(func() {
+		config.DbSrc = originalDbSrc
+	})
+
+	if err := repo.SaveDB(dbPath, &repo.DB{
+		SchemaVersion: 1,
+		Apps: map[string]*models.App{
+			"my-app": {ID: "my-app"},
+		},
+	}); err != nil {
+		t.Fatalf("failed to write test DB: %v", err)
+	}
+
+	err := runInstallCommand(context.Background(), []string{"my-app"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "managed app IDs are reintegrated with 'aim add <id>'") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -1218,7 +1751,13 @@ func newRootTestCommand() *cli.Command {
 		Usage:  "Manage AppImages as desktop apps on Linux",
 		Action: RootCmd,
 		Commands: []*cli.Command{
-			{Name: "add", Action: AddCmd},
+			{
+				Name: "add",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{Name: "post-check"},
+				},
+				Action: AddCmd,
+			},
 			{
 				Name: "remove",
 				Flags: []cli.Flag{
@@ -1230,8 +1769,19 @@ func newRootTestCommand() *cli.Command {
 				Action: RemoveCmd,
 			},
 			{Name: "list", Action: ListCmd},
+			{Name: "show", Action: ShowCmd},
 			{
-				Name: "update",
+				Name:    "install",
+				Aliases: []string{"i"},
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "asset"},
+					&cli.StringFlag{Name: "sha256"},
+				},
+				Action: InstallCmd,
+			},
+			{
+				Name:    "update",
+				Aliases: []string{"u"},
 				Flags: []cli.Flag{
 					&cli.BoolFlag{Name: "yes"},
 					&cli.BoolFlag{Name: "check-only"},
@@ -2231,9 +2781,23 @@ func newAddTestCommand() *cli.Command {
 			&cli.StringArg{Name: "app"},
 		},
 		Flags: []cli.Flag{
+			&cli.BoolFlag{Name: "post-check"},
+		},
+		Action: func(context.Context, *cli.Command) error {
+			return fmt.Errorf("test sentinel")
+		},
+	}
+}
+
+func newInstallTestCommand() *cli.Command {
+	return &cli.Command{
+		Name: "install",
+		Arguments: []cli.Argument{
+			&cli.StringArg{Name: "ref"},
+		},
+		Flags: []cli.Flag{
 			&cli.StringFlag{Name: "asset"},
 			&cli.StringFlag{Name: "sha256"},
-			&cli.BoolFlag{Name: "post-check"},
 		},
 		Action: func(context.Context, *cli.Command) error {
 			return fmt.Errorf("test sentinel")
@@ -2281,6 +2845,27 @@ func runListCommand(ctx context.Context, args []string) error {
 	}
 
 	argv := append([]string{"list"}, args...)
+	return cmd.Run(ctx, argv)
+}
+
+func runShowCommand(ctx context.Context, args []string) error {
+	cmd := &cli.Command{
+		Name: "show",
+		Arguments: []cli.Argument{
+			&cli.StringArg{Name: "ref"},
+		},
+		Action: ShowCmd,
+	}
+
+	argv := append([]string{"show"}, args...)
+	return cmd.Run(ctx, argv)
+}
+
+func runInstallCommand(ctx context.Context, args []string) error {
+	cmd := newInstallTestCommand()
+	cmd.Action = InstallCmd
+
+	argv := append([]string{"install"}, args...)
 	return cmd.Run(ctx, argv)
 }
 
