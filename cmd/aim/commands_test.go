@@ -92,53 +92,59 @@ func TestUpdateDownloadFilename(t *testing.T) {
 	}
 }
 
-func TestSetPinnedState(t *testing.T) {
-	tempDir := t.TempDir()
-	dbPath := filepath.Join(tempDir, "apps.json")
+func TestUpgradeCmdUsesSelfUpgradeFlow(t *testing.T) {
+	cmd := &cli.Command{
+		Name:   "upgrade",
+		Flags:  []cli.Flag{&cli.BoolFlag{Name: "no-color"}},
+		Action: UpgradeCmd,
+	}
 
-	originalDbSrc := config.DbSrc
-	config.DbSrc = dbPath
-	t.Cleanup(func() {
-		config.DbSrc = originalDbSrc
+	err := cmd.Run(context.Background(), []string{"upgrade", "--no-color"})
+	if err == nil {
+		t.Fatal("expected dev-build self-upgrade error")
+	}
+	if !strings.Contains(err.Error(), "self-upgrade is unavailable for development builds") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRootCommandDoesNotAcceptUpgradeFlag(t *testing.T) {
+	cmd := newRootTestCommand()
+
+	err := cmd.Run(context.Background(), []string{"aim", "--upgrade"})
+	if err == nil {
+		t.Fatal("expected unknown flag error")
+	}
+	if !strings.Contains(err.Error(), "flag provided but not defined: -upgrade") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRootHelpDoesNotAdvertiseRemovedCommands(t *testing.T) {
+	cmd := newRootTestCommand()
+
+	output := captureStdout(t, func() {
+		if err := cmd.Run(context.Background(), []string{"aim"}); err != nil {
+			t.Fatalf("run returned error: %v", err)
+		}
 	})
 
-	if err := repo.SaveDB(dbPath, &repo.DB{
-		SchemaVersion: 1,
-		Apps: map[string]*models.App{
-			"my-app": {ID: "my-app", Name: "My App", Pinned: false},
-		},
-	}); err != nil {
-		t.Fatalf("failed to write test DB: %v", err)
+	for _, unwanted := range []string{"--upgrade", " pin", " unpin"} {
+		if strings.Contains(output, unwanted) {
+			t.Fatalf("root help unexpectedly contains %q:\n%s", unwanted, output)
+		}
 	}
+}
 
-	app, changed, err := setPinnedState("my-app", true)
-	if err != nil {
-		t.Fatalf("setPinnedState returned error: %v", err)
-	}
-	if !changed {
-		t.Fatal("expected change when pinning app")
-	}
-	if !app.Pinned {
-		t.Fatal("expected app to be pinned")
-	}
+func TestRemovedCommandsAreUnavailable(t *testing.T) {
+	cmd := newRootTestCommand()
 
-	_, changed, err = setPinnedState("my-app", true)
-	if err != nil {
-		t.Fatalf("setPinnedState returned error on idempotent pin: %v", err)
-	}
-	if changed {
-		t.Fatal("did not expect change when app already pinned")
-	}
-
-	app, changed, err = setPinnedState("my-app", false)
-	if err != nil {
-		t.Fatalf("setPinnedState returned error: %v", err)
-	}
-	if !changed {
-		t.Fatal("expected change when unpinning app")
-	}
-	if app.Pinned {
-		t.Fatal("expected app to be unpinned")
+	for _, unwanted := range []string{"pin", "unpin"} {
+		for _, subcommand := range cmd.Commands {
+			if subcommand.Name == unwanted {
+				t.Fatalf("unexpected command registration for %q", unwanted)
+			}
+		}
 	}
 }
 
@@ -204,14 +210,24 @@ func TestResolveUpdateSourceFromSetFlags(t *testing.T) {
 			expect: models.UpdateGitLabRelease,
 		},
 		{
-			name:      "direct url missing sha",
+			name:   "zsync source",
+			flags:  map[string]string{"zsync-url": "https://example.com/MyApp.AppImage.zsync"},
+			expect: models.UpdateZsync,
+		},
+		{
+			name:      "manifest no longer supported",
+			flags:     map[string]string{"manifest-url": "https://example.com/latest.json"},
+			wantError: true,
+		},
+		{
+			name:      "direct url no longer supported",
 			flags:     map[string]string{"url": "https://example.com/MyApp.AppImage"},
 			wantError: true,
 		},
 		{
-			name:   "direct url source",
-			flags:  map[string]string{"url": "https://example.com/MyApp.AppImage", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
-			expect: models.UpdateDirectURL,
+			name:      "sha256 no longer supported",
+			flags:     map[string]string{"sha256": strings.Repeat("a", 64)},
+			wantError: true,
 		},
 		{
 			name:      "mutually exclusive selectors",
@@ -269,6 +285,35 @@ func newUpdateSetTestCommand(t *testing.T, values map[string]string) *cli.Comman
 	return cmd
 }
 
+func newRootTestCommand() *cli.Command {
+	return &cli.Command{
+		Name:   "aim",
+		Usage:  "Integrate AppImages into your desktop environment",
+		Action: RootCmd,
+		Flags: []cli.Flag{
+			&cli.BoolFlag{Name: "no-color"},
+		},
+		Commands: []*cli.Command{
+			{Name: "add", Action: AddCmd},
+			{Name: "remove", Action: RemoveCmd},
+			{Name: "list", Action: ListCmd},
+			{
+				Name: "update",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{Name: "yes"},
+					&cli.BoolFlag{Name: "check-only"},
+					&cli.StringFlag{Name: "github"},
+					&cli.StringFlag{Name: "asset"},
+					&cli.StringFlag{Name: "gitlab"},
+					&cli.StringFlag{Name: "zsync-url"},
+				},
+				Action: UpdateCmd,
+			},
+			{Name: "upgrade", Action: UpgradeCmd},
+		},
+	}
+}
+
 func TestRunManagedUpdateSingleUpToDatePrintedOnce(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "apps.json")
@@ -283,16 +328,8 @@ func TestRunManagedUpdateSingleUpToDatePrintedOnce(t *testing.T) {
 		SchemaVersion: 1,
 		Apps: map[string]*models.App{
 			"my-app": {
-				ID:     "my-app",
-				Name:   "My App",
-				SHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-				Update: &models.UpdateSource{
-					Kind: models.UpdateDirectURL,
-					DirectURL: &models.DirectURLUpdateSource{
-						URL:    "https://example.com/MyApp.AppImage",
-						SHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-					},
-				},
+				ID:   "my-app",
+				Name: "My App",
 			},
 		},
 	}); err != nil {
@@ -300,6 +337,17 @@ func TestRunManagedUpdateSingleUpToDatePrintedOnce(t *testing.T) {
 	}
 
 	cmd := &cli.Command{Flags: []cli.Flag{&cli.BoolFlag{Name: "yes"}, &cli.BoolFlag{Name: "check-only"}, &cli.BoolFlag{Name: "no-color"}}}
+	originalCheck := runAppUpdateCheck
+	t.Cleanup(func() {
+		runAppUpdateCheck = originalCheck
+	})
+	runAppUpdateCheck = func(app *models.App) (*pendingManagedUpdate, error) {
+		return &pendingManagedUpdate{
+			App:       app,
+			Available: false,
+			FromKind:  models.UpdateGitHubRelease,
+		}, nil
+	}
 
 	output := captureStdout(t, func() {
 		if err := runManagedUpdate(context.Background(), cmd, "my-app"); err != nil {
@@ -309,6 +357,67 @@ func TestRunManagedUpdateSingleUpToDatePrintedOnce(t *testing.T) {
 
 	if strings.Count(output, "You are up-to-date!") != 1 {
 		t.Fatalf("expected exactly one up-to-date message, got output:\n%s", output)
+	}
+}
+
+func TestCheckAppUpdateUnsupportedLegacySource(t *testing.T) {
+	_, err := checkAppUpdate(&models.App{
+		ID: "my-app",
+		Update: &models.UpdateSource{
+			Kind: models.UpdateKind("manifest"),
+		},
+	})
+	if err == nil {
+		t.Fatal("expected unsupported-source error")
+	}
+	if !strings.Contains(err.Error(), "reconfigure with `aim update set`") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRunManagedUpdateBatchContinuesOnCheckFailure(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "apps.json")
+
+	originalDbSrc := config.DbSrc
+	config.DbSrc = dbPath
+	t.Cleanup(func() {
+		config.DbSrc = originalDbSrc
+	})
+
+	if err := repo.SaveDB(dbPath, &repo.DB{
+		SchemaVersion: 1,
+		Apps: map[string]*models.App{
+			"app-a": {ID: "app-a", Name: "App A"},
+			"app-b": {ID: "app-b", Name: "App B"},
+		},
+	}); err != nil {
+		t.Fatalf("failed to write test DB: %v", err)
+	}
+
+	originalCheck := runAppUpdateCheck
+	t.Cleanup(func() {
+		runAppUpdateCheck = originalCheck
+	})
+	runAppUpdateCheck = func(app *models.App) (*pendingManagedUpdate, error) {
+		if app.ID == "app-a" {
+			return nil, fmt.Errorf("boom")
+		}
+		return nil, nil
+	}
+
+	cmd := &cli.Command{Flags: []cli.Flag{&cli.BoolFlag{Name: "yes"}, &cli.BoolFlag{Name: "check-only"}, &cli.BoolFlag{Name: "no-color"}}}
+	output := captureStdout(t, func() {
+		if err := runManagedUpdate(context.Background(), cmd, ""); err != nil {
+			t.Fatalf("runManagedUpdate returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "app-a: failed to check updates: boom") {
+		t.Fatalf("expected batch failure message, got:\n%s", output)
+	}
+	if !strings.Contains(output, "No updates applied; some checks failed.") {
+		t.Fatalf("expected summary message, got:\n%s", output)
 	}
 }
 

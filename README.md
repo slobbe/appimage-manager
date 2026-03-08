@@ -47,15 +47,14 @@ Integration creates desktop entry metadata (and icon data when available) so the
 
 Global flags:
 
-| Option       | Meaning                    |
-| :----------- | :------------------------- |
-| `--no-color` | disable ANSI color output  |
-| `--upgrade`  | self-update to latest stable release |
+| Option       | Meaning                   |
+| :----------- | :------------------------ |
+| `--no-color` | disable ANSI color output |
 
 **Upgrade** `aim` itself to the latest stable release:
 
 ```sh
-aim --upgrade
+aim upgrade
 ```
 
 **Integrate** AppImage into your desktop environment:
@@ -125,8 +124,6 @@ aim update check <path-to.AppImage>
 aim update set <id> --github owner/repo --asset "*.AppImage"
 aim update set <id> --gitlab namespace/project --asset "*.AppImage"
 aim update set <id> --zsync-url https://example.com/MyApp.AppImage.zsync
-aim update set <id> --manifest-url https://example.com/myapp/latest.json
-aim update set <id> --url https://example.com/MyApp.AppImage --sha256 <sha256>
 ```
 
 | Option            | Meaning                                                  |
@@ -135,23 +132,10 @@ aim update set <id> --url https://example.com/MyApp.AppImage --sha256 <sha256>
 | `--gitlab`        | GitLab project path in the form namespace/project        |
 | `--asset`         | asset filename pattern, e.g. `MyApp-*.AppImage`          |
 | `--zsync-url`     | direct zsync metadata URL (HTTPS)                        |
-| `--manifest-url`  | manifest endpoint URL (HTTPS)                            |
-| `--url`           | direct AppImage URL (HTTPS)                              |
-| `--sha256`        | required with `--url`; expected SHA-256 for verification |
 
 GitHub and GitLab update checks use stable releases only.
 
-**Pin** an app to skip it during batch update apply:
-
-```sh
-aim pin <id>
-```
-
-**Unpin** an app so batch update apply can include it again:
-
-```sh
-aim unpin <id>
-```
+If an AppImage embeds zsync update info, `aim add` preserves it automatically.
 
 ## Data locations (XDG)
 

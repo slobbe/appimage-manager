@@ -127,7 +127,6 @@ func integrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 
 	timestampNow := util.NowISO()
 	addedAt := timestampNow
-	pinned := false
 	lastCheckedAt := ""
 	latestVersion := ""
 	updateAvailable := false
@@ -144,7 +143,6 @@ func integrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 		if strings.TrimSpace(existingApp.AddedAt) != "" {
 			addedAt = existingApp.AddedAt
 		}
-		pinned = existingApp.Pinned
 		lastCheckedAt = existingApp.LastCheckedAt
 
 		if !updateFound {
@@ -211,7 +209,6 @@ func integrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 		LastCheckedAt:    lastCheckedAt,
 		UpdateAvailable:  updateAvailable,
 		LatestVersion:    latestVersion,
-		Pinned:           pinned,
 		SHA256:           sha256sum,
 		SHA1:             sha1sum,
 		Source:           source,

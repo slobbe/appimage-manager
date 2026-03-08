@@ -13,8 +13,6 @@ const (
 	UpdateZsync         UpdateKind = "zsync"
 	UpdateGitHubRelease UpdateKind = "github_release"
 	UpdateGitLabRelease UpdateKind = "gitlab_release"
-	UpdateManifest      UpdateKind = "manifest"
-	UpdateDirectURL     UpdateKind = "direct_url"
 )
 
 type App struct {
@@ -33,7 +31,6 @@ type App struct {
 	LastCheckedAt   string `json:"last_checked_at,omitempty"`
 	UpdateAvailable bool   `json:"update_available"`
 	LatestVersion   string `json:"latest_version,omitempty"`
-	Pinned          bool   `json:"pinned"`
 
 	SHA256 string `json:"sha256"`
 	SHA1   string `json:"sha1"`
@@ -59,8 +56,6 @@ type UpdateSource struct {
 	Zsync         *ZsyncUpdateSource         `json:"zsync,omitempty"`
 	GitHubRelease *GitHubReleaseUpdateSource `json:"github_release,omitempty"`
 	GitLabRelease *GitLabReleaseUpdateSource `json:"gitlab_release,omitempty"`
-	Manifest      *ManifestUpdateSource      `json:"manifest,omitempty"`
-	DirectURL     *DirectURLUpdateSource     `json:"direct_url,omitempty"`
 }
 
 type ZsyncUpdateSource struct {
@@ -77,13 +72,4 @@ type GitHubReleaseUpdateSource struct {
 type GitLabReleaseUpdateSource struct {
 	Project string `json:"project"`
 	Asset   string `json:"asset"`
-}
-
-type ManifestUpdateSource struct {
-	URL string `json:"url"`
-}
-
-type DirectURLUpdateSource struct {
-	URL    string `json:"url"`
-	SHA256 string `json:"sha256"`
 }
