@@ -3,14 +3,14 @@
 ![GitHub Release](https://img.shields.io/github/v/release/slobbe/appimage-manager?sort=semver&display_name=release&style=flat-square)
 ![GitHub License](https://img.shields.io/github/license/slobbe/appimage-manager?style=flat-square)
 
-Integrate and update AppImages.
-
-A CLI that registers AppImages with your desktop so they behave like installed apps.
+Integrate AppImages into your desktop and keep them updated through embedded zsync metadata or explicit GitHub/GitLab release sources.
 
 ## Quick start
 
 ```sh
 aim add ./MyApp.AppImage
+aim list
+aim update --check-only
 ```
 
 ## Installation
@@ -44,6 +44,13 @@ go build ./cmd/aim
 ## Usage
 
 Integration creates desktop entry metadata (and icon data when available) so the AppImage appears in your launcher.
+
+`aim` manages local AppImages on Linux. It is intentionally scoped to:
+
+- desktop integration and removal
+- a simple local database of managed apps
+- update checks and applies for embedded zsync, GitHub releases, and GitLab releases
+- self-upgrade via `aim upgrade`
 
 Global flags:
 
@@ -99,12 +106,15 @@ Unlinked entries are AppImages known to the database without a current desktop i
 
 ```sh
 aim update
+aim update --check-only
+aim update --yes
 ```
 
 **Check** one installed app by ID (and optionally apply):
 
 ```sh
 aim update <id>
+aim update <id> --check-only
 ```
 
 | Option               | Meaning                            |
@@ -117,6 +127,8 @@ aim update <id>
 ```sh
 aim update check <path-to.AppImage>
 ```
+
+This only supports AppImages that expose embedded zsync update information.
 
 **Set** update source for an AppImage:
 
@@ -136,6 +148,15 @@ aim update set <id> --zsync-url https://example.com/MyApp.AppImage.zsync
 GitHub and GitLab update checks use stable releases only.
 
 If an AppImage embeds zsync update info, `aim add` preserves it automatically.
+
+Removed from scope:
+
+- manifest-based update sources
+- direct URL update sources
+- pin/unpin commands
+- self-upgrade via `aim --upgrade`
+
+If an older database entry still references an unsupported update source, `aim update` will tell you to reconfigure it with `aim update set`.
 
 ## Data locations (XDG)
 
