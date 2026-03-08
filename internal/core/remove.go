@@ -12,7 +12,7 @@ import (
 	models "github.com/slobbe/appimage-manager/internal/types"
 )
 
-func Remove(ctx context.Context, id string, keep bool) (*models.App, error) {
+func Remove(ctx context.Context, id string, unlink bool) (*models.App, error) {
 	appData, err := repo.GetApp(id)
 	if err != nil {
 		return nil, fmt.Errorf("no app with id %s exists", id)
@@ -22,7 +22,7 @@ func Remove(ctx context.Context, id string, keep bool) (*models.App, error) {
 		return nil, fmt.Errorf("failed to remove desktop link: %w", err)
 	}
 
-	if keep {
+	if unlink {
 		appData.DesktopEntryLink = ""
 		if err := repo.AddApp(appData, true); err != nil {
 			return appData, err

@@ -147,6 +147,51 @@ func TestRemovedCommandsAreUnavailable(t *testing.T) {
 	}
 }
 
+func TestRemoveCommandUsesUnlinkFlag(t *testing.T) {
+	cmd := newRootTestCommand()
+
+	var removeCmd *cli.Command
+	for _, subcommand := range cmd.Commands {
+		if subcommand.Name == "remove" {
+			removeCmd = subcommand
+			break
+		}
+	}
+	if removeCmd == nil {
+		t.Fatal("expected remove command")
+	}
+
+	var (
+		foundUnlink bool
+		foundKeep   bool
+	)
+	for _, flag := range removeCmd.Flags {
+		boolFlag, ok := flag.(*cli.BoolFlag)
+		if !ok {
+			continue
+		}
+		if boolFlag.Name == "unlink" {
+			foundUnlink = true
+			if len(boolFlag.Aliases) != 0 {
+				t.Fatalf("expected no aliases for --unlink, got %v", boolFlag.Aliases)
+			}
+			if boolFlag.Usage != "remove only desktop integration; keep managed AppImage files" {
+				t.Fatalf("unexpected --unlink usage: %q", boolFlag.Usage)
+			}
+		}
+		if boolFlag.Name == "keep" {
+			foundKeep = true
+		}
+	}
+
+	if !foundUnlink {
+		t.Fatal("expected --unlink flag on remove command")
+	}
+	if foundKeep {
+		t.Fatal("did not expect --keep flag on remove command")
+	}
+}
+
 func TestUpdateCheckMetadata(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "apps.json")
@@ -316,7 +361,16 @@ func newRootTestCommand() *cli.Command {
 		Action: RootCmd,
 		Commands: []*cli.Command{
 			{Name: "add", Action: AddCmd},
-			{Name: "remove", Action: RemoveCmd},
+			{
+				Name: "remove",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{
+						Name:  "unlink",
+						Usage: "remove only desktop integration; keep managed AppImage files",
+					},
+				},
+				Action: RemoveCmd,
+			},
 			{Name: "list", Action: ListCmd},
 			{
 				Name: "update",

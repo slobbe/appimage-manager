@@ -109,10 +109,10 @@ func AddCmd(ctx context.Context, cmd *cli.Command) error {
 
 func RemoveCmd(ctx context.Context, cmd *cli.Command) error {
 	id := cmd.StringArg("id")
-	keep := cmd.Bool("keep")
+	unlink := cmd.Bool("unlink")
 	color := useColor(cmd)
 
-	app, err := core.Remove(ctx, id, keep)
+	app, err := core.Remove(ctx, id, unlink)
 
 	if err == nil {
 		msg := fmt.Sprintf("Successfully removed %s", app.Name)

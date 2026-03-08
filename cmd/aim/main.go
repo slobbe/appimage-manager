@@ -51,10 +51,9 @@ func main() {
 				},
 				Flags: []cli.Flag{
 					&cli.BoolFlag{
-						Name:    "keep",
-						Aliases: []string{"k"},
-						Value:   false,
-						Usage:   "keep AppImage file; remove only desktop integration",
+						Name:  "unlink",
+						Value: false,
+						Usage: "remove only desktop integration; keep managed AppImage files",
 					},
 				},
 				Action: RemoveCmd,

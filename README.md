@@ -69,17 +69,19 @@ If given an ID of an unlinked AppImage it reintegrates it.
 **Remove** AppImage:
 
 ```sh
-aim remove [options] <id>
+aim remove [--unlink] <id>
 ```
 
 | Option         | Meaning                                                  |
 | :------------- | :------------------------------------------------------- |
-| `--keep`, `-k` | keep the AppImage file; remove only desktop integration  |
+| `--unlink`     | remove only desktop integration; keep managed AppImage files |
+
+Without `--unlink`, `aim remove` removes the managed app entry and its managed files.
 
 Example:
 
 ```sh
-aim remove --keep <id>
+aim remove --unlink <id>
 ```
 
 **List** all integrated AppImages:
@@ -127,12 +129,17 @@ This only supports AppImages that expose embedded zsync update information.
 **Set** update source for an AppImage:
 
 ```sh
-aim update set <id> --github owner/repo --asset "*.AppImage"
-aim update set <id> --gitlab namespace/project --asset "*.AppImage"
+aim update set <id> --github owner/repo
+aim update set <id> --gitlab namespace/project
 aim update set <id> --zsync-url https://example.com/MyApp.AppImage.zsync
 ```
 
 For GitHub and GitLab sources, `--asset` is optional and defaults to `*.AppImage`.
+Use `--asset` only if you need a narrower asset match, for example:
+
+```sh
+aim update set <id> --github owner/repo --asset "MyApp-*-x86_64.AppImage"
+```
 
 | Option            | Meaning                                                  |
 | :---------------- | :------------------------------------------------------- |
