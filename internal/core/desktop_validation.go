@@ -23,7 +23,7 @@ func ValidateDesktopEntry(ctx context.Context, desktopPath string) error {
 	binary, err := desktopValidateLookPath("desktop-file-validate")
 	if err != nil {
 		if errors.Is(err, exec.ErrNotFound) {
-			desktopValidateWarn(fmt.Sprintf("warning: desktop-file-validate not found; skipping desktop entry validation for %s", desktopPath))
+			desktopValidateWarn(fmt.Sprintf("Warning: desktop-file-validate not found; skipping desktop entry validation for %s", desktopPath))
 			return nil
 		}
 		return fmt.Errorf("failed to find desktop-file-validate: %w", err)

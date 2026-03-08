@@ -18,12 +18,12 @@ var (
 
 func refreshDesktopIntegrationCaches(ctx context.Context) {
 	if _, err := runCommandIfAvailable(ctx, "update-desktop-database", config.DesktopDir); err != nil {
-		integrationCacheWarn(fmt.Sprintf("warning: failed to refresh desktop database: %v", err))
+		integrationCacheWarn(fmt.Sprintf("Warning: failed to refresh desktop database: %v", err))
 	}
 
 	ranXDG, err := runCommandIfAvailable(ctx, "xdg-icon-resource", "forceupdate")
 	if err != nil {
-		integrationCacheWarn(fmt.Sprintf("warning: failed to refresh icon cache via xdg-icon-resource: %v", err))
+		integrationCacheWarn(fmt.Sprintf("Warning: failed to refresh icon cache via xdg-icon-resource: %v", err))
 		return
 	}
 
@@ -32,7 +32,7 @@ func refreshDesktopIntegrationCaches(ctx context.Context) {
 	}
 
 	if _, err := runCommandIfAvailable(ctx, "gtk-update-icon-cache", "-f", config.IconThemeDir); err != nil {
-		integrationCacheWarn(fmt.Sprintf("warning: failed to refresh icon cache via gtk-update-icon-cache: %v", err))
+		integrationCacheWarn(fmt.Sprintf("Warning: failed to refresh icon cache via gtk-update-icon-cache: %v", err))
 	}
 }
 

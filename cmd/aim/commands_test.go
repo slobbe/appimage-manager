@@ -93,6 +93,14 @@ func TestUpdateDownloadFilename(t *testing.T) {
 }
 
 func TestUpgradeCmdUsesSelfUpgradeFlow(t *testing.T) {
+	original := runSelfUpgrade
+	t.Cleanup(func() {
+		runSelfUpgrade = original
+	})
+	runSelfUpgrade = func(context.Context, string) (*core.SelfUpgradeResult, error) {
+		return nil, fmt.Errorf("self-upgrade is unavailable for development builds")
+	}
+
 	cmd := &cli.Command{
 		Name:   "upgrade",
 		Action: UpgradeCmd,
@@ -107,6 +115,56 @@ func TestUpgradeCmdUsesSelfUpgradeFlow(t *testing.T) {
 	}
 }
 
+func TestUpgradeCmdOutputsUpdatedMessage(t *testing.T) {
+	original := runSelfUpgrade
+	t.Cleanup(func() {
+		runSelfUpgrade = original
+	})
+	runSelfUpgrade = func(context.Context, string) (*core.SelfUpgradeResult, error) {
+		return &core.SelfUpgradeResult{
+			Updated:        true,
+			CurrentVersion: "0.8.0",
+			LatestVersion:  "0.8.1",
+		}, nil
+	}
+
+	cmd := &cli.Command{Name: "upgrade", Action: UpgradeCmd}
+	output := captureStdout(t, func() {
+		if err := cmd.Run(context.Background(), []string{"upgrade"}); err != nil {
+			t.Fatalf("run returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "Updated aim v0.8.0 -> v0.8.1") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+}
+
+func TestUpgradeCmdOutputsUpToDateMessage(t *testing.T) {
+	original := runSelfUpgrade
+	t.Cleanup(func() {
+		runSelfUpgrade = original
+	})
+	runSelfUpgrade = func(context.Context, string) (*core.SelfUpgradeResult, error) {
+		return &core.SelfUpgradeResult{
+			Updated:        false,
+			CurrentVersion: "0.8.1",
+			LatestVersion:  "0.8.1",
+		}, nil
+	}
+
+	cmd := &cli.Command{Name: "upgrade", Action: UpgradeCmd}
+	output := captureStdout(t, func() {
+		if err := cmd.Run(context.Background(), []string{"upgrade"}); err != nil {
+			t.Fatalf("run returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "aim is up to date (v0.8.1)") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+}
+
 func TestRootCommandDoesNotAcceptUpgradeFlag(t *testing.T) {
 	cmd := newRootTestCommand()
 
@@ -116,6 +174,33 @@ func TestRootCommandDoesNotAcceptUpgradeFlag(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "flag provided but not defined: -upgrade") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRootVersionOutputIsCompact(t *testing.T) {
+	original := cli.VersionPrinter
+	t.Cleanup(func() {
+		cli.VersionPrinter = original
+	})
+	cli.VersionPrinter = func(cmd *cli.Command) {
+		root := cmd.Root()
+		_, _ = fmt.Fprintf(root.Writer, "%s %s\n", root.Name, root.Version)
+	}
+
+	cmd := newRootTestCommand()
+	cmd.Version = "v0.8.0"
+
+	output := captureStdout(t, func() {
+		if err := cmd.Run(context.Background(), []string{"aim", "--version"}); err != nil {
+			t.Fatalf("run returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "aim v0.8.0") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+	if strings.Contains(output, "aim version v0.8.0") {
+		t.Fatalf("did not expect duplicated version label:\n%s", output)
 	}
 }
 
@@ -192,6 +277,65 @@ func TestRemoveCommandUsesUnlinkFlag(t *testing.T) {
 	}
 }
 
+func TestRemoveCmdOutputsRemovedMessage(t *testing.T) {
+	original := removeManagedApp
+	t.Cleanup(func() {
+		removeManagedApp = original
+	})
+	removeManagedApp = func(context.Context, string, bool) (*models.App, error) {
+		return &models.App{ID: "my-app", Name: "My App"}, nil
+	}
+
+	cmd := &cli.Command{
+		Name: "remove",
+		Arguments: []cli.Argument{
+			&cli.StringArg{Name: "id"},
+		},
+		Action: RemoveCmd,
+	}
+
+	output := captureStdout(t, func() {
+		if err := cmd.Run(context.Background(), []string{"remove", "my-app"}); err != nil {
+			t.Fatalf("run returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "Removed: My App [my-app]") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+}
+
+func TestRemoveCmdOutputsUnlinkedMessage(t *testing.T) {
+	original := removeManagedApp
+	t.Cleanup(func() {
+		removeManagedApp = original
+	})
+	removeManagedApp = func(context.Context, string, bool) (*models.App, error) {
+		return &models.App{ID: "my-app", Name: "My App"}, nil
+	}
+
+	cmd := &cli.Command{
+		Name: "remove",
+		Arguments: []cli.Argument{
+			&cli.StringArg{Name: "id"},
+		},
+		Flags: []cli.Flag{
+			&cli.BoolFlag{Name: "unlink"},
+		},
+		Action: RemoveCmd,
+	}
+
+	output := captureStdout(t, func() {
+		if err := cmd.Run(context.Background(), []string{"remove", "--unlink", "my-app"}); err != nil {
+			t.Fatalf("run returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "Unlinked: My App [my-app]") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+}
+
 func TestUpdateCheckSubcommandRemoved(t *testing.T) {
 	cmd := &cli.Command{
 		Name: "update",
@@ -256,6 +400,250 @@ func TestUpdateCheckMetadata(t *testing.T) {
 	}
 	if updated.LastCheckedAt == "" {
 		t.Fatal("expected last_checked_at to be set")
+	}
+}
+
+func TestAddCmdAlreadyIntegratedMessage(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "apps.json")
+
+	originalDbSrc := config.DbSrc
+	config.DbSrc = dbPath
+	t.Cleanup(func() {
+		config.DbSrc = originalDbSrc
+	})
+
+	if err := repo.SaveDB(dbPath, &repo.DB{
+		SchemaVersion: 1,
+		Apps: map[string]*models.App{
+			"my-app": {
+				ID:               "my-app",
+				Name:             "My App",
+				Version:          "1.0.0",
+				DesktopEntryLink: "/tmp/my-app.desktop",
+			},
+		},
+	}); err != nil {
+		t.Fatalf("failed to write test DB: %v", err)
+	}
+
+	output := captureStdout(t, func() {
+		if err := runAddCommand(context.Background(), []string{"my-app"}); err != nil {
+			t.Fatalf("runAddCommand returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "Already integrated: My App v1.0.0 [my-app]") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+}
+
+func TestAddCmdReintegratedMessage(t *testing.T) {
+	original := integrateExistingApp
+	t.Cleanup(func() {
+		integrateExistingApp = original
+	})
+	integrateExistingApp = func(context.Context, string) (*models.App, error) {
+		return &models.App{ID: "my-app", Name: "My App", Version: "1.0.0"}, nil
+	}
+
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "apps.json")
+
+	originalDbSrc := config.DbSrc
+	config.DbSrc = dbPath
+	t.Cleanup(func() {
+		config.DbSrc = originalDbSrc
+	})
+
+	if err := repo.SaveDB(dbPath, &repo.DB{
+		SchemaVersion: 1,
+		Apps: map[string]*models.App{
+			"my-app": {
+				ID:      "my-app",
+				Name:    "My App",
+				Version: "1.0.0",
+			},
+		},
+	}); err != nil {
+		t.Fatalf("failed to write test DB: %v", err)
+	}
+
+	output := captureStdout(t, func() {
+		if err := runAddCommand(context.Background(), []string{"my-app"}); err != nil {
+			t.Fatalf("runAddCommand returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "Reintegrated: My App v1.0.0 [my-app]") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+}
+
+func TestAddCmdIntegratedMessage(t *testing.T) {
+	original := integrateLocalApp
+	t.Cleanup(func() {
+		integrateLocalApp = original
+	})
+	integrateLocalApp = func(context.Context, string, core.UpdateOverwritePrompt) (*models.App, error) {
+		return &models.App{
+			ID:      "my-app",
+			Name:    "My App",
+			Version: "1.0.0",
+			Update:  &models.UpdateSource{Kind: models.UpdateNone},
+		}, nil
+	}
+
+	output := captureStdout(t, func() {
+		if err := runAddCommand(context.Background(), []string{"/tmp/MyApp.AppImage"}); err != nil {
+			t.Fatalf("runAddCommand returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "Integrating MyApp.AppImage") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+	if !strings.Contains(output, "Integrated: My App v1.0.0 [my-app]") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+}
+
+func TestListCmdEmptyStates(t *testing.T) {
+	t.Run("no managed apps", func(t *testing.T) {
+		tempDir := t.TempDir()
+		dbPath := filepath.Join(tempDir, "apps.json")
+
+		originalDbSrc := config.DbSrc
+		config.DbSrc = dbPath
+		t.Cleanup(func() {
+			config.DbSrc = originalDbSrc
+		})
+
+		if err := repo.SaveDB(dbPath, &repo.DB{SchemaVersion: 1, Apps: map[string]*models.App{}}); err != nil {
+			t.Fatalf("failed to write test DB: %v", err)
+		}
+
+		output := captureStdout(t, func() {
+			if err := runListCommand(context.Background(), nil); err != nil {
+				t.Fatalf("runListCommand returned error: %v", err)
+			}
+		})
+
+		if !strings.Contains(output, "No managed AppImages") {
+			t.Fatalf("unexpected output:\n%s", output)
+		}
+	})
+
+	t.Run("no integrated apps", func(t *testing.T) {
+		tempDir := t.TempDir()
+		dbPath := filepath.Join(tempDir, "apps.json")
+
+		originalDbSrc := config.DbSrc
+		config.DbSrc = dbPath
+		t.Cleanup(func() {
+			config.DbSrc = originalDbSrc
+		})
+
+		if err := repo.SaveDB(dbPath, &repo.DB{
+			SchemaVersion: 1,
+			Apps: map[string]*models.App{
+				"my-app": {ID: "my-app", Name: "My App"},
+			},
+		}); err != nil {
+			t.Fatalf("failed to write test DB: %v", err)
+		}
+
+		output := captureStdout(t, func() {
+			if err := runListCommand(context.Background(), []string{"--integrated"}); err != nil {
+				t.Fatalf("runListCommand returned error: %v", err)
+			}
+		})
+
+		if !strings.Contains(output, "No integrated AppImages") {
+			t.Fatalf("unexpected output:\n%s", output)
+		}
+	})
+
+	t.Run("no unlinked apps", func(t *testing.T) {
+		tempDir := t.TempDir()
+		dbPath := filepath.Join(tempDir, "apps.json")
+
+		originalDbSrc := config.DbSrc
+		config.DbSrc = dbPath
+		t.Cleanup(func() {
+			config.DbSrc = originalDbSrc
+		})
+
+		if err := repo.SaveDB(dbPath, &repo.DB{
+			SchemaVersion: 1,
+			Apps: map[string]*models.App{
+				"my-app": {ID: "my-app", Name: "My App", DesktopEntryLink: "/tmp/my-app.desktop"},
+			},
+		}); err != nil {
+			t.Fatalf("failed to write test DB: %v", err)
+		}
+
+		output := captureStdout(t, func() {
+			if err := runListCommand(context.Background(), []string{"--unlinked"}); err != nil {
+				t.Fatalf("runListCommand returned error: %v", err)
+			}
+		})
+
+		if !strings.Contains(output, "No unlinked AppImages") {
+			t.Fatalf("unexpected output:\n%s", output)
+		}
+	})
+}
+
+func TestListCmdUsesDynamicIDWidthAndTruncatesLongNames(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "apps.json")
+
+	originalDbSrc := config.DbSrc
+	config.DbSrc = dbPath
+	t.Cleanup(func() {
+		config.DbSrc = originalDbSrc
+	})
+
+	if err := repo.SaveDB(dbPath, &repo.DB{
+		SchemaVersion: 1,
+		Apps: map[string]*models.App{
+			"obsidian": {
+				ID:               "obsidian",
+				Name:             "Obsidian",
+				Version:          "1.12.4",
+				DesktopEntryLink: "/tmp/obsidian.desktop",
+			},
+			"raspberry-pi-imager": {
+				ID:               "raspberry-pi-imager",
+				Name:             "Raspberry Pi Imager With An Extremely Long Name",
+				Version:          "2.0.6",
+				DesktopEntryLink: "/tmp/rpi.desktop",
+			},
+		},
+	}); err != nil {
+		t.Fatalf("failed to write test DB: %v", err)
+	}
+
+	output := captureStdout(t, func() {
+		if err := runListCommand(context.Background(), nil); err != nil {
+			t.Fatalf("runListCommand returned error: %v", err)
+		}
+	})
+
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	if len(lines) < 3 {
+		t.Fatalf("expected at least 3 lines, got:\n%s", output)
+	}
+
+	if !strings.Contains(lines[0], "ID") || !strings.Contains(lines[0], "App Name") || !strings.Contains(lines[0], "Version") {
+		t.Fatalf("unexpected header:\n%s", lines[0])
+	}
+	if !strings.Contains(output, "raspberry-pi-imager Raspberry Pi Imager With ... 2.0.6") {
+		t.Fatalf("expected dynamic ID width and truncated name, got:\n%s", output)
+	}
+	if !strings.Contains(output, "obsidian            Obsidian") {
+		t.Fatalf("expected shorter ID to align within dynamic ID column, got:\n%s", output)
 	}
 }
 
@@ -380,7 +768,7 @@ func newUpdateSetTestCommand(t *testing.T, values map[string]string) *cli.Comman
 func newRootTestCommand() *cli.Command {
 	return &cli.Command{
 		Name:   "aim",
-		Usage:  "Integrate AppImages into your desktop environment",
+		Usage:  "Manage AppImages as desktop apps on Linux",
 		Action: RootCmd,
 		Commands: []*cli.Command{
 			{Name: "add", Action: AddCmd},
@@ -453,8 +841,50 @@ func TestRunManagedUpdateSingleUpToDatePrintedOnce(t *testing.T) {
 		}
 	})
 
-	if strings.Count(output, "You are up-to-date!") != 1 {
+	if strings.Contains(output, "You are up-to-date!") {
+		t.Fatalf("expected old up-to-date output to be absent, got output:\n%s", output)
+	}
+	if strings.Count(output, "Up to date: my-app unknown") != 1 {
 		t.Fatalf("expected exactly one up-to-date message, got output:\n%s", output)
+	}
+}
+
+func TestRunManagedUpdateSingleNoSourceConfigured(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "apps.json")
+
+	originalDbSrc := config.DbSrc
+	config.DbSrc = dbPath
+	t.Cleanup(func() {
+		config.DbSrc = originalDbSrc
+	})
+
+	if err := repo.SaveDB(dbPath, &repo.DB{
+		SchemaVersion: 1,
+		Apps: map[string]*models.App{
+			"my-app": {ID: "my-app", Name: "My App"},
+		},
+	}); err != nil {
+		t.Fatalf("failed to write test DB: %v", err)
+	}
+
+	cmd := &cli.Command{Flags: []cli.Flag{&cli.BoolFlag{Name: "yes"}, &cli.BoolFlag{Name: "check-only"}}}
+	originalCheck := runAppUpdateCheck
+	t.Cleanup(func() {
+		runAppUpdateCheck = originalCheck
+	})
+	runAppUpdateCheck = func(*models.App) (*pendingManagedUpdate, error) {
+		return nil, nil
+	}
+
+	output := captureStdout(t, func() {
+		if err := runManagedUpdate(context.Background(), cmd, "my-app"); err != nil {
+			t.Fatalf("runManagedUpdate returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "No update source configured for my-app") {
+		t.Fatalf("unexpected output:\n%s", output)
 	}
 }
 
@@ -468,7 +898,7 @@ func TestCheckAppUpdateUnsupportedLegacySource(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected unsupported-source error")
 	}
-	if !strings.Contains(err.Error(), "reconfigure with `aim update set`") {
+	if !strings.Contains(err.Error(), "Reconfigure with `aim update set`") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -511,11 +941,206 @@ func TestRunManagedUpdateBatchContinuesOnCheckFailure(t *testing.T) {
 		}
 	})
 
-	if !strings.Contains(output, "app-a: failed to check updates: boom") {
+	if !strings.Contains(output, "Failed to check updates for app-a: boom") {
 		t.Fatalf("expected batch failure message, got:\n%s", output)
 	}
-	if !strings.Contains(output, "No updates applied; some checks failed.") {
+	if !strings.Contains(output, "No updates applied; some checks failed") {
 		t.Fatalf("expected summary message, got:\n%s", output)
+	}
+}
+
+func TestRunManagedUpdateBatchAllUpToDateSummary(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "apps.json")
+
+	originalDbSrc := config.DbSrc
+	config.DbSrc = dbPath
+	t.Cleanup(func() {
+		config.DbSrc = originalDbSrc
+	})
+
+	if err := repo.SaveDB(dbPath, &repo.DB{
+		SchemaVersion: 1,
+		Apps: map[string]*models.App{
+			"app-a": {ID: "app-a", Name: "App A"},
+			"app-b": {ID: "app-b", Name: "App B"},
+		},
+	}); err != nil {
+		t.Fatalf("failed to write test DB: %v", err)
+	}
+
+	originalCheck := runAppUpdateCheck
+	t.Cleanup(func() {
+		runAppUpdateCheck = originalCheck
+	})
+	runAppUpdateCheck = func(app *models.App) (*pendingManagedUpdate, error) {
+		return &pendingManagedUpdate{App: app, Available: false}, nil
+	}
+
+	cmd := &cli.Command{Flags: []cli.Flag{&cli.BoolFlag{Name: "check-only"}}}
+	output := captureStdout(t, func() {
+		if err := runManagedUpdate(context.Background(), cmd, ""); err != nil {
+			t.Fatalf("runManagedUpdate returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "All apps are up to date") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+	if strings.Contains(output, "Up to date: app-a") || strings.Contains(output, "Up to date: app-b") {
+		t.Fatalf("did not expect per-app up-to-date noise:\n%s", output)
+	}
+}
+
+func TestRunManagedUpdateCheckOnlyShowsDownloadAndAsset(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "apps.json")
+
+	originalDbSrc := config.DbSrc
+	config.DbSrc = dbPath
+	t.Cleanup(func() {
+		config.DbSrc = originalDbSrc
+	})
+
+	if err := repo.SaveDB(dbPath, &repo.DB{
+		SchemaVersion: 1,
+		Apps: map[string]*models.App{
+			"my-app": {ID: "my-app", Name: "My App", Version: "1.0.0"},
+		},
+	}); err != nil {
+		t.Fatalf("failed to write test DB: %v", err)
+	}
+
+	originalCheck := runAppUpdateCheck
+	t.Cleanup(func() {
+		runAppUpdateCheck = originalCheck
+	})
+	runAppUpdateCheck = func(app *models.App) (*pendingManagedUpdate, error) {
+		return &pendingManagedUpdate{
+			App:       app,
+			Label:     "Update available",
+			Available: true,
+			Latest:    "1.1.0",
+			URL:       "https://example.com/MyApp.AppImage",
+			Asset:     "MyApp-x86_64.AppImage",
+		}, nil
+	}
+
+	cmd := &cli.Command{Flags: []cli.Flag{&cli.BoolFlag{Name: "check-only"}}}
+	if err := cmd.Set("check-only", "true"); err != nil {
+		t.Fatalf("failed to set check-only: %v", err)
+	}
+	output := captureStdout(t, func() {
+		if err := runManagedUpdate(context.Background(), cmd, "my-app"); err != nil {
+			t.Fatalf("runManagedUpdate returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "Update available: my-app v1.0.0 -> v1.1.0") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+	if !strings.Contains(output, "  Download: https://example.com/MyApp.AppImage") {
+		t.Fatalf("expected download line, got:\n%s", output)
+	}
+	if !strings.Contains(output, "  Asset: MyApp-x86_64.AppImage") {
+		t.Fatalf("expected asset line, got:\n%s", output)
+	}
+}
+
+func TestRunManagedUpdateSinglePromptText(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "apps.json")
+
+	originalDbSrc := config.DbSrc
+	config.DbSrc = dbPath
+	t.Cleanup(func() {
+		config.DbSrc = originalDbSrc
+	})
+
+	if err := repo.SaveDB(dbPath, &repo.DB{
+		SchemaVersion: 1,
+		Apps: map[string]*models.App{
+			"my-app": {ID: "my-app", Name: "My App", Version: "1.0.0"},
+		},
+	}); err != nil {
+		t.Fatalf("failed to write test DB: %v", err)
+	}
+
+	originalCheck := runAppUpdateCheck
+	t.Cleanup(func() {
+		runAppUpdateCheck = originalCheck
+	})
+	runAppUpdateCheck = func(app *models.App) (*pendingManagedUpdate, error) {
+		return &pendingManagedUpdate{
+			App:       app,
+			Label:     "Update available",
+			Available: true,
+			Latest:    "1.1.0",
+			URL:       "https://example.com/MyApp.AppImage",
+		}, nil
+	}
+
+	cmd := &cli.Command{Flags: []cli.Flag{&cli.BoolFlag{Name: "yes"}, &cli.BoolFlag{Name: "check-only"}}}
+	output := captureStdoutWithInput(t, "n\n", func() {
+		if err := runManagedUpdate(context.Background(), cmd, "my-app"); err != nil {
+			t.Fatalf("runManagedUpdate returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "Apply update for my-app? [y/N]: ") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+	if !strings.Contains(output, "No updates applied") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+}
+
+func TestRunManagedUpdateBatchPromptText(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "apps.json")
+
+	originalDbSrc := config.DbSrc
+	config.DbSrc = dbPath
+	t.Cleanup(func() {
+		config.DbSrc = originalDbSrc
+	})
+
+	if err := repo.SaveDB(dbPath, &repo.DB{
+		SchemaVersion: 1,
+		Apps: map[string]*models.App{
+			"app-a": {ID: "app-a", Name: "App A", Version: "1.0.0"},
+			"app-b": {ID: "app-b", Name: "App B", Version: "2.0.0"},
+		},
+	}); err != nil {
+		t.Fatalf("failed to write test DB: %v", err)
+	}
+
+	originalCheck := runAppUpdateCheck
+	t.Cleanup(func() {
+		runAppUpdateCheck = originalCheck
+	})
+	runAppUpdateCheck = func(app *models.App) (*pendingManagedUpdate, error) {
+		return &pendingManagedUpdate{
+			App:       app,
+			Label:     "Update available",
+			Available: true,
+			Latest:    "9.9.9",
+			URL:       "https://example.com/MyApp.AppImage",
+		}, nil
+	}
+
+	cmd := &cli.Command{Flags: []cli.Flag{&cli.BoolFlag{Name: "yes"}, &cli.BoolFlag{Name: "check-only"}}}
+	output := captureStdoutWithInput(t, "n\n", func() {
+		if err := runManagedUpdate(context.Background(), cmd, ""); err != nil {
+			t.Fatalf("runManagedUpdate returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "Apply 2 updates? [y/N]: ") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+	if !strings.Contains(output, "No updates applied") {
+		t.Fatalf("unexpected output:\n%s", output)
 	}
 }
 
@@ -596,7 +1221,7 @@ func TestCheckAppUpdateGitHubDisplaysNormalizedLatest(t *testing.T) {
 	}
 
 	msg := buildManagedUpdateMessage(*result, false)
-	if !strings.Contains(msg, "(v3.201.19 -> v3.202.0)") {
+	if !strings.Contains(msg, "Update available: standard-notes v3.201.19 -> v3.202.0") {
 		t.Fatalf("expected normalized version transition, got:\n%s", msg)
 	}
 	if strings.Contains(msg, "@standardnotes/desktop@3.202.0") {
@@ -936,26 +1561,23 @@ func TestBuildManagedUpdateMessage(t *testing.T) {
 			ID:      "obsidian",
 			Version: "1.11.6",
 		},
-		Label:  "Newer version found!",
+		Label:  "Update available",
 		Latest: "1.11.7",
 		URL:    "https://example.com/Obsidian-1.11.7.AppImage",
 		Asset:  "Obsidian-1.11.7.AppImage",
 	}
 
 	msgManaged := buildManagedUpdateMessage(update, false)
-	if strings.Contains(msgManaged, "Download from") {
+	if strings.Contains(msgManaged, "Download:") {
 		t.Fatalf("managed update message should not include manual download hint: %s", msgManaged)
 	}
-	if !strings.Contains(msgManaged, "(v1.11.6 -> v1.11.7)") {
+	if !strings.Contains(msgManaged, "Update available: obsidian v1.11.6 -> v1.11.7") {
 		t.Fatalf("managed update message should include version transition: %s", msgManaged)
 	}
 
 	msgCheckOnly := buildManagedUpdateMessage(update, true)
-	if !strings.Contains(msgCheckOnly, "Download from https://example.com/Obsidian-1.11.7.AppImage") {
-		t.Fatalf("check-only message should include download URL: %s", msgCheckOnly)
-	}
-	if !strings.Contains(msgCheckOnly, "Then integrate it with") {
-		t.Fatalf("check-only message should include integration hint: %s", msgCheckOnly)
+	if msgCheckOnly != msgManaged {
+		t.Fatalf("check-only message should use the same summary line, got %q want %q", msgCheckOnly, msgManaged)
 	}
 }
 
@@ -966,7 +1588,7 @@ func TestUpdateVersionTransitionUnknownLatest(t *testing.T) {
 	}
 
 	transition := updateVersionTransition(update)
-	if transition != "(current: v2.0.0, latest: unknown)" {
+	if transition != "v2.0.0 -> unknown" {
 		t.Fatalf("updateVersionTransition = %q", transition)
 	}
 }
@@ -1063,6 +1685,49 @@ func TestVerifyDownloadedUpdateWithBothHashesMismatch(t *testing.T) {
 	}
 }
 
+func TestUpdateSetPromptText(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "apps.json")
+
+	originalDbSrc := config.DbSrc
+	config.DbSrc = dbPath
+	t.Cleanup(func() {
+		config.DbSrc = originalDbSrc
+	})
+
+	if err := repo.SaveDB(dbPath, &repo.DB{
+		SchemaVersion: 1,
+		Apps: map[string]*models.App{
+			"my-app": {
+				ID:   "my-app",
+				Name: "My App",
+				Update: &models.UpdateSource{
+					Kind: models.UpdateGitHubRelease,
+					GitHubRelease: &models.GitHubReleaseUpdateSource{
+						Repo:  "owner/repo",
+						Asset: "*.AppImage",
+					},
+				},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("failed to write test DB: %v", err)
+	}
+
+	output := captureStdoutWithInput(t, "n\n", func() {
+		if err := runUpdateSetCommand(context.Background(), []string{"my-app", "--gitlab", "group/project"}); err != nil {
+			t.Fatalf("runUpdateSetCommand returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "Replace update source for my-app? [y/N]: ") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+	if !strings.Contains(output, "Update source unchanged") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+}
+
 func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()
 
@@ -1089,6 +1754,29 @@ func captureStdout(t *testing.T, fn func()) string {
 	return <-done
 }
 
+func captureStdoutWithInput(t *testing.T, input string, fn func()) string {
+	t.Helper()
+
+	originalStdin := os.Stdin
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("failed creating stdin pipe: %v", err)
+	}
+
+	if _, err := io.WriteString(w, input); err != nil {
+		t.Fatalf("failed writing stdin input: %v", err)
+	}
+	_ = w.Close()
+
+	os.Stdin = r
+	defer func() {
+		os.Stdin = originalStdin
+		_ = r.Close()
+	}()
+
+	return captureStdout(t, fn)
+}
+
 func runAddCommand(ctx context.Context, args []string) error {
 	cmd := &cli.Command{
 		Name: "add",
@@ -1102,5 +1790,38 @@ func runAddCommand(ctx context.Context, args []string) error {
 	}
 
 	argv := append([]string{"add"}, args...)
+	return cmd.Run(ctx, argv)
+}
+
+func runListCommand(ctx context.Context, args []string) error {
+	cmd := &cli.Command{
+		Name: "list",
+		Flags: []cli.Flag{
+			&cli.BoolFlag{Name: "all"},
+			&cli.BoolFlag{Name: "integrated"},
+			&cli.BoolFlag{Name: "unlinked"},
+		},
+		Action: ListCmd,
+	}
+
+	argv := append([]string{"list"}, args...)
+	return cmd.Run(ctx, argv)
+}
+
+func runUpdateSetCommand(ctx context.Context, args []string) error {
+	cmd := &cli.Command{
+		Name: "update",
+		Flags: []cli.Flag{
+			&cli.BoolFlag{Name: "yes"},
+			&cli.BoolFlag{Name: "check-only"},
+			&cli.StringFlag{Name: "github"},
+			&cli.StringFlag{Name: "asset"},
+			&cli.StringFlag{Name: "gitlab"},
+			&cli.StringFlag{Name: "zsync-url"},
+		},
+		Action: UpdateCmd,
+	}
+
+	argv := append([]string{"update", "set"}, args...)
 	return cmd.Run(ctx, argv)
 }

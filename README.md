@@ -3,7 +3,7 @@
 ![GitHub Release](https://img.shields.io/github/v/release/slobbe/appimage-manager?sort=semver&display_name=release&style=flat-square)
 ![GitHub License](https://img.shields.io/github/license/slobbe/appimage-manager?style=flat-square)
 
-Integrate AppImages into your desktop and keep them updated.
+Manage AppImages as desktop apps on Linux.
 
 ## Quick start
 
@@ -37,7 +37,7 @@ Requirements: Linux, Go 1.25.5+.
 
 ## Usage
 
-Integration creates desktop entry metadata (and icon data when available) so the AppImage appears in your launcher.
+Integration installs desktop entry metadata and icons so the AppImage appears in your launcher.
 
 `aim` manages local AppImages on Linux. It is intentionally scoped to:
 
@@ -46,21 +46,21 @@ Integration creates desktop entry metadata (and icon data when available) so the
 - update checks and applies for managed apps using embedded zsync, GitHub releases, and GitLab releases
 - self-upgrade via `aim upgrade`
 
-**Upgrade** `aim` itself to the latest stable release:
+**Upgrade** `aim` to the latest stable release:
 
 ```sh
 aim upgrade
 ```
 
-**Integrate** AppImage into your desktop environment:
+**Integrate** an AppImage or reintegrate an existing ID:
 
 ```sh
 aim add <path-to.AppImage|id>
 ```
 
-If given an ID of an unlinked AppImage it reintegrates it.
+If the argument is the ID of an unlinked app, `aim` reintegrates it.
 
-**Remove** AppImage:
+**Remove** or unlink a managed AppImage:
 
 ```sh
 aim remove [--unlink] <id>
@@ -78,7 +78,7 @@ Example:
 aim remove --unlink <id>
 ```
 
-**List** all integrated AppImages:
+**List** managed AppImages:
 
 ```sh
 aim list [options]
@@ -90,9 +90,9 @@ aim list [options]
 | `--integrated`, `-i` | list integrated AppImages only |
 | `--unlinked`, `-u`   | list only unlinked AppImages  |
 
-Unlinked entries are AppImages known to the database without a current desktop integration.
+Unlinked entries are still managed by `aim`, but currently have no desktop integration.
 
-**Check** all apps for updates (and optionally apply):
+**Check** all managed apps for updates:
 
 ```sh
 aim update
@@ -100,11 +100,24 @@ aim update --check-only
 aim update --yes
 ```
 
-**Check** one installed app by ID (and optionally apply):
+**Check** one managed app by ID:
 
 ```sh
 aim update <id>
 aim update <id> --check-only
+```
+
+Normal update flow:
+
+```sh
+# check all managed apps
+aim update
+
+# check one managed app
+aim update <id>
+
+# apply available updates without prompting
+aim update --yes
 ```
 
 | Option               | Meaning                            |

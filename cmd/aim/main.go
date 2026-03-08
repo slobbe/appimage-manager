@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 
@@ -16,15 +17,20 @@ var (
 )
 
 func main() {
+	cli.VersionPrinter = func(cmd *cli.Command) {
+		root := cmd.Root()
+		_, _ = fmt.Fprintf(root.Writer, "%s %s\n", root.Name, root.Version)
+	}
+
 	cmd := &cli.Command{
 		Name:    "aim",
 		Version: version,
-		Usage:   "Integrate AppImages into your desktop environment",
+		Usage:   "Manage AppImages as desktop apps on Linux",
 		Action:  RootCmd,
 		Commands: []*cli.Command{
 			{
 				Name:  "add",
-				Usage: "Integrate an AppImage from a file path or existing ID",
+				Usage: "Integrate an AppImage or reintegrate an existing ID",
 				Arguments: []cli.Argument{
 					&cli.StringArg{
 						Name:      "app",
@@ -42,7 +48,7 @@ func main() {
 			{
 				Name:    "remove",
 				Aliases: []string{"rm"},
-				Usage:   "Remove an integrated AppImage by ID",
+				Usage:   "Remove or unlink a managed AppImage",
 				Arguments: []cli.Argument{
 					&cli.StringArg{
 						Name:      "id",
@@ -61,7 +67,7 @@ func main() {
 			{
 				Name:    "list",
 				Aliases: []string{"ls"},
-				Usage:   "List AppImages",
+				Usage:   "List managed AppImages",
 				Flags: []cli.Flag{
 					&cli.BoolFlag{
 						Name:    "all",
@@ -86,7 +92,7 @@ func main() {
 			},
 			{
 				Name:      "update",
-				Usage:     "Check/apply updates or set update source",
+				Usage:     "Check or apply updates, or set an update source",
 				UsageText: "aim update [<id>] [--yes|-y] [--check-only|-c]\n   aim update set <id> (--github owner/repo [--asset \"*.AppImage\"] | --gitlab namespace/project [--asset \"*.AppImage\"] | --zsync-url <https-url>)",
 				Flags: []cli.Flag{
 					&cli.BoolFlag{
@@ -120,7 +126,7 @@ func main() {
 			},
 			{
 				Name:   "upgrade",
-				Usage:  "Check and install the latest stable aim release",
+				Usage:  "Upgrade aim to the latest stable release",
 				Action: UpgradeCmd,
 			},
 		},

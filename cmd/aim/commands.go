@@ -28,26 +28,22 @@ func RootCmd(ctx context.Context, cmd *cli.Command) error {
 }
 
 func UpgradeCmd(ctx context.Context, cmd *cli.Command) error {
-	color := useColor(cmd)
-	result, err := core.SelfUpgrade(ctx, version)
+	result, err := runSelfUpgrade(ctx, version)
 	if err != nil {
 		return err
 	}
 
 	if result.Updated {
-		msg := fmt.Sprintf("Updated aim from v%s to v%s", result.CurrentVersion, result.LatestVersion)
-		fmt.Println(colorize(color, "\033[0;32m", msg))
+		printSuccess(cmd, fmt.Sprintf("Updated aim %s -> %s", displayVersion(result.CurrentVersion), displayVersion(result.LatestVersion)))
 		return nil
 	}
 
-	msg := fmt.Sprintf("aim is already up to date (v%s)", result.CurrentVersion)
-	fmt.Println(colorize(color, "\033[0;32m", msg))
+	printSuccess(cmd, fmt.Sprintf("aim is up to date (%s)", displayVersion(result.CurrentVersion)))
 	return nil
 }
 
 func AddCmd(ctx context.Context, cmd *cli.Command) error {
 	input := cmd.StringArg("app")
-	color := useColor(cmd)
 
 	inputType := identifyInputType(input)
 
@@ -60,45 +56,53 @@ func AddCmd(ctx context.Context, cmd *cli.Command) error {
 			return err
 		}
 		app = appData
-		msg := fmt.Sprintf("%s %s (ID: %s) already integrated!", app.Name, displayVersion(app.Version), app.ID)
-		fmt.Println(colorize(color, "\033[0;32m", msg))
+		printSuccess(cmd, fmt.Sprintf("Already integrated: %s", formatAppRef(app)))
 	case InputTypeUnlinked:
-		appData, err := core.IntegrateExisting(ctx, input)
+		appData, err := integrateExistingApp(ctx, input)
 		if err != nil {
 			return err
 		}
 		app = appData
-		msg := fmt.Sprintf("Successfully reintegrated %s %s (ID: %s)", app.Name, displayVersion(app.Version), app.ID)
-		fmt.Println(colorize(color, "\033[0;32m", msg))
+		printSuccess(cmd, fmt.Sprintf("Reintegrated: %s", formatAppRef(app)))
 	case InputTypeAppImage:
 		inputLabel := strings.TrimSpace(filepath.Base(input))
 		if inputLabel == "" || inputLabel == "." || inputLabel == string(filepath.Separator) {
 			inputLabel = strings.TrimSpace(input)
 		}
 
-		status := fmt.Sprintf("Integrating %s...", inputLabel)
-		fmt.Println(colorize(color, "\033[0;36m", status))
+		printInfo(cmd, fmt.Sprintf("Integrating %s", inputLabel))
 
-		appData, err := core.IntegrateFromLocalFile(ctx, input, func(existing, incoming *models.UpdateSource) (bool, error) {
-			prompt := fmt.Sprintf("Update source already set to %s:\n%s\nWill be replaced with:\n%s\nOverwrite with AppImage info? [y/N]: ", existing.Kind, updateSummary(existing), updateSummary(incoming))
+		appData, err := integrateLocalApp(ctx, input, func(existing, incoming *models.UpdateSource) (bool, error) {
+			fmt.Println("Current update source:")
+			fmt.Println("  " + updateSummary(existing))
+			fmt.Println("Incoming AppImage update info:")
+			fmt.Println("  " + updateSummary(incoming))
+			prompt := fmt.Sprintf("Replace update source %s with AppImage update info? [y/N]: ", existing.Kind)
 			return confirmOverwrite(prompt)
 		})
 		if err != nil {
 			return err
 		}
 		app = appData
-		msg := fmt.Sprintf("Successfully integrated %s %s (ID: %s)", app.Name, displayVersion(app.Version), app.ID)
-		fmt.Println(colorize(color, "\033[0;32m", msg))
+		printSuccess(cmd, fmt.Sprintf("Integrated: %s", formatAppRef(app)))
 	default:
 		return fmt.Errorf("unknown argument %s", input)
 	}
 
-	if app.Update.Kind == models.UpdateZsync && cmd.Bool("post-check") {
+	if app.Update != nil && app.Update.Kind == models.UpdateZsync && cmd.Bool("post-check") {
 		update, err := runZsyncUpdateCheck(app.Update, app.SHA1)
 
 		if update != nil && update.Available {
-			msg := fmt.Sprintf("Newer version found!\nDownload from %s\nThen integrate it with %s", update.DownloadUrl, integrationHint(update.AssetName))
-			fmt.Printf("\n%s\n", colorize(color, "\033[0;33m", msg))
+			latest := ""
+			if update.PreRelease {
+				printWarning(cmd, fmt.Sprintf("Pre-release update available: %s %s", app.Name, formatVersionTransition(app.Version, latest)))
+			} else {
+				printWarning(cmd, fmt.Sprintf("Update available: %s %s", app.Name, formatVersionTransition(app.Version, latest)))
+			}
+			if strings.TrimSpace(update.DownloadUrl) != "" {
+				fmt.Printf("  Download: %s\n", strings.TrimSpace(update.DownloadUrl))
+			}
+			fmt.Printf("  Reintegrate with: %s\n", integrationHint(update.AssetName))
 		}
 
 		return err
@@ -110,13 +114,15 @@ func AddCmd(ctx context.Context, cmd *cli.Command) error {
 func RemoveCmd(ctx context.Context, cmd *cli.Command) error {
 	id := cmd.StringArg("id")
 	unlink := cmd.Bool("unlink")
-	color := useColor(cmd)
 
-	app, err := core.Remove(ctx, id, unlink)
+	app, err := removeManagedApp(ctx, id, unlink)
 
 	if err == nil {
-		msg := fmt.Sprintf("Successfully removed %s", app.Name)
-		fmt.Println(colorize(color, "\033[0;32m", msg))
+		label := "Removed"
+		if unlink {
+			label = "Unlinked"
+		}
+		printSuccess(cmd, fmt.Sprintf("%s: %s [%s]", label, app.Name, app.ID))
 	}
 
 	return err
@@ -126,7 +132,6 @@ func ListCmd(ctx context.Context, cmd *cli.Command) error {
 	all := cmd.Bool("all")
 	integrated := cmd.Bool("integrated")
 	unlinked := cmd.Bool("unlinked")
-	color := useColor(cmd)
 
 	if (integrated && unlinked) || (all && (integrated || unlinked)) {
 		return fmt.Errorf("flags --all, --integrated, and --unlinked are mutually exclusive")
@@ -141,23 +146,45 @@ func ListCmd(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 
-	header := fmt.Sprintf("%-15s %-20s %-15s", "ID", "App Name", "Version")
-	fmt.Println(colorize(color, "\033[1m\033[4m", header))
+	if len(apps) == 0 {
+		printSuccess(cmd, "No managed AppImages")
+		return nil
+	}
+
+	integratedRows := make([]*models.App, 0, len(apps))
+	unlinkedRows := make([]*models.App, 0, len(apps))
+	for _, app := range apps {
+		if len(app.DesktopEntryLink) > 0 {
+			integratedRows = append(integratedRows, app)
+			continue
+		}
+		unlinkedRows = append(unlinkedRows, app)
+	}
+
+	if integrated && len(integratedRows) == 0 {
+		printSuccess(cmd, "No integrated AppImages")
+		return nil
+	}
+	if unlinked && len(unlinkedRows) == 0 {
+		printSuccess(cmd, "No unlinked AppImages")
+		return nil
+	}
+
+	idWidth := listIDColumnWidth(integratedRows, unlinkedRows)
+	nameWidth := listNameDisplayWidth(integratedRows, unlinkedRows)
+	header := fmt.Sprintf("%-*s %-*s %s", idWidth, "ID", nameWidth, "App Name", "Version")
+	printSection(cmd, header)
 
 	if all || integrated {
-		for _, app := range apps {
-			if len(app.DesktopEntryLink) > 0 {
-				fmt.Fprintf(os.Stdout, "%-15s %-20s %-15s\n", app.ID, app.Name, app.Version)
-			}
+		for _, app := range integratedRows {
+			fmt.Fprintln(os.Stdout, formatListRow(app, idWidth, nameWidth))
 		}
 	}
 
 	if all || unlinked {
-		for _, app := range apps {
-			if len(app.DesktopEntryLink) == 0 {
-				row := fmt.Sprintf("%-15s %-20s %-15s", app.ID, app.Name, app.Version)
-				fmt.Println(colorize(color, "\033[2m\033[3m", row))
-			}
+		for _, app := range unlinkedRows {
+			row := formatListRow(app, idWidth, nameWidth)
+			fmt.Println(colorize(useColor(cmd), "\033[2m\033[3m", row))
 		}
 	}
 
@@ -200,8 +227,6 @@ func UpdateSetCmd(ctx context.Context, cmd *cli.Command, args []string) error {
 	if len(args) > 0 {
 		id = strings.TrimSpace(args[0])
 	}
-	color := useColor(cmd)
-
 	if id == "" {
 		return fmt.Errorf("missing required argument <id>")
 	}
@@ -217,17 +242,17 @@ func UpdateSetCmd(ctx context.Context, cmd *cli.Command, args []string) error {
 	}
 
 	if app.Update != nil && app.Update.Kind != models.UpdateNone {
-		prompt := fmt.Sprintf("Update source already set to %s:\n%s\nWill be replaced with:\n%s\nOverwrite? [y/N]: ",
-			app.Update.Kind,
-			updateSummary(app.Update),
-			updateSummary(incomingSource),
-		)
+		fmt.Printf("Current update source for %s:\n", id)
+		fmt.Println("  " + updateSummary(app.Update))
+		fmt.Println("New update source:")
+		fmt.Println("  " + updateSummary(incomingSource))
+		prompt := fmt.Sprintf("Replace update source for %s? [y/N]: ", id)
 		confirmed, err := confirmOverwrite(prompt)
 		if err != nil {
 			return err
 		}
 		if !confirmed {
-			fmt.Println(colorize(color, "\033[0;33m", "Update source unchanged."))
+			printWarning(cmd, "Update source unchanged")
 			return nil
 		}
 	}
@@ -238,8 +263,7 @@ func UpdateSetCmd(ctx context.Context, cmd *cli.Command, args []string) error {
 		return err
 	}
 
-	msg := fmt.Sprintf("Update source set: %s", updateSummary(incomingSource))
-	fmt.Println(colorize(color, "\033[0;32m", msg))
+	printSuccess(cmd, fmt.Sprintf("Update source set: %s", updateSummary(incomingSource)))
 	return nil
 }
 
@@ -356,6 +380,10 @@ var runAppUpdateCheck = checkAppUpdate
 var runZsyncUpdateCheck = core.ZsyncUpdateCheck
 var runGitHubReleaseUpdateCheck = core.GitHubReleaseUpdateCheck
 var runGitLabReleaseUpdateCheck = core.GitLabReleaseUpdateCheck
+var runSelfUpgrade = core.SelfUpgrade
+var integrateExistingApp = core.IntegrateExisting
+var integrateLocalApp = core.IntegrateFromLocalFile
+var removeManagedApp = core.Remove
 var addAppsBatch = repo.AddAppsBatch
 var addSingleApp = repo.AddApp
 
@@ -367,7 +395,6 @@ func runManagedUpdate(ctx context.Context, cmd *cli.Command, targetID string) er
 		return err
 	}
 
-	color := useColor(cmd)
 	autoApply := cmd.Bool("yes")
 	checkOnly := cmd.Bool("check-only")
 
@@ -395,18 +422,21 @@ func runManagedUpdate(ctx context.Context, cmd *cli.Command, targetID string) er
 					return metaErr
 				}
 				metadataUpdates = metadataUpdates[:0]
-				return err
+				return fmt.Errorf("failed to check updates for %s: %w", app.ID, err)
 			}
 
 			checkFailures++
-			msg := fmt.Sprintf("%s: failed to check updates: %v", app.ID, err)
-			fmt.Println(colorize(color, "\033[0;31m", msg))
+			printError(cmd, fmt.Sprintf("Failed to check updates for %s: %v", app.ID, err))
 			continue
 		}
 
 		if update == nil {
 			if targetID != "" {
-				fmt.Println(colorize(color, "\033[0;32m", "No update information available!"))
+				if app.Update == nil || app.Update.Kind == models.UpdateNone {
+					printSuccess(cmd, fmt.Sprintf("No update source configured for %s", app.ID))
+				} else {
+					printSuccess(cmd, fmt.Sprintf("No update information for %s", app.ID))
+				}
 				singleStatusPrinted = true
 			}
 			continue
@@ -429,7 +459,7 @@ func runManagedUpdate(ctx context.Context, cmd *cli.Command, targetID string) er
 
 		if update.URL == "" {
 			if targetID != "" {
-				fmt.Println(colorize(color, "\033[0;32m", "You are up-to-date!"))
+				printSuccess(cmd, fmt.Sprintf("Up to date: %s %s", app.ID, displayVersion(app.Version)))
 				singleStatusPrinted = true
 			}
 			continue
@@ -438,9 +468,15 @@ func runManagedUpdate(ctx context.Context, cmd *cli.Command, targetID string) er
 		msg := buildManagedUpdateMessage(*update, checkOnly)
 		if targetID == "" {
 			header := fmt.Sprintf("[%s]", app.ID)
-			fmt.Println(colorize(color, "\033[1m", header))
+			printSection(cmd, header)
 		}
-		fmt.Println(colorize(color, "\033[0;33m", msg))
+		printWarning(cmd, msg)
+		if checkOnly {
+			fmt.Printf("  Download: %s\n", update.URL)
+			if showManagedUpdateAsset(update.Asset) {
+				fmt.Printf("  Asset: %s\n", strings.TrimSpace(update.Asset))
+			}
+		}
 
 		pending = append(pending, *update)
 	}
@@ -450,8 +486,7 @@ func runManagedUpdate(ctx context.Context, cmd *cli.Command, targetID string) er
 			return err
 		}
 		checkFailures++
-		msg := fmt.Sprintf("failed to persist check metadata: %v", err)
-		fmt.Println(colorize(color, "\033[0;31m", msg))
+		printError(cmd, fmt.Sprintf("Failed to persist update state: %v", err))
 	}
 
 	if len(pending) == 0 {
@@ -459,10 +494,10 @@ func runManagedUpdate(ctx context.Context, cmd *cli.Command, targetID string) er
 			return nil
 		}
 		if checkFailures > 0 {
-			fmt.Println(colorize(color, "\033[0;33m", "No updates applied; some checks failed."))
+			printWarning(cmd, "No updates applied; some checks failed")
 			return nil
 		}
-		fmt.Println(colorize(color, "\033[0;32m", "You are up-to-date!"))
+		printSuccess(cmd, "All apps are up to date")
 		return nil
 	}
 
@@ -471,11 +506,9 @@ func runManagedUpdate(ctx context.Context, cmd *cli.Command, targetID string) er
 	}
 
 	if !autoApply {
-		prompt := "Apply available updates? [y/N]: "
+		prompt := fmt.Sprintf("Apply %d updates? [y/N]: ", len(pending))
 		if targetID != "" {
 			prompt = fmt.Sprintf("Apply update for %s? [y/N]: ", targetID)
-		} else {
-			prompt = fmt.Sprintf("Apply %d available updates? [y/N]: ", len(pending))
 		}
 
 		confirmed, err := confirmOverwrite(prompt)
@@ -483,7 +516,7 @@ func runManagedUpdate(ctx context.Context, cmd *cli.Command, targetID string) er
 			return err
 		}
 		if !confirmed {
-			fmt.Println(colorize(color, "\033[0;33m", "No updates applied."))
+			printWarning(cmd, "No updates applied")
 			return nil
 		}
 	}
@@ -498,18 +531,16 @@ func runManagedUpdate(ctx context.Context, cmd *cli.Command, targetID string) er
 		if transition := updateVersionTransition(item); transition != "" {
 			progress = fmt.Sprintf("%s %s", progress, transition)
 		}
-		fmt.Println(colorize(color, "\033[0;36m", progress))
+		printInfo(cmd, progress)
 
 		updatedApp, err := applyManagedUpdate(ctx, item, interactiveProgress)
 		if err != nil {
 			applyFailures++
-			msg := fmt.Sprintf("%s: failed to apply update: %v", item.App.ID, err)
-			fmt.Println(colorize(color, "\033[0;31m", msg))
+			printError(cmd, fmt.Sprintf("Failed to update %s: %v", item.App.ID, err))
 			continue
 		}
 
-		msg := fmt.Sprintf("Updated %s to %s", updatedApp.ID, displayVersion(updatedApp.Version))
-		fmt.Println(colorize(color, "\033[0;32m", msg))
+		printSuccess(cmd, fmt.Sprintf("Updated: %s %s", updatedApp.ID, displayVersion(updatedApp.Version)))
 		applySuccesses++
 		appliedApps = append(appliedApps, updatedApp)
 	}
@@ -733,9 +764,9 @@ func checkAppUpdate(app *models.App) (*pendingManagedUpdate, error) {
 				FromKind:  models.UpdateZsync,
 			}, nil
 		}
-		label := "Newer version found!"
+		label := "Update available"
 		if update.PreRelease {
-			label = "Newer pre-release version found!"
+			label = "Pre-release update available"
 		}
 		return &pendingManagedUpdate{
 			App:          app,
@@ -774,9 +805,9 @@ func checkAppUpdate(app *models.App) (*pendingManagedUpdate, error) {
 				FromKind:  models.UpdateGitHubRelease,
 			}, nil
 		}
-		label := "Newer version found!"
+		label := "Update available"
 		if update.PreRelease {
-			label = "Newer pre-release version found!"
+			label = "Pre-release update available"
 		}
 		return &pendingManagedUpdate{
 			App:       app,
@@ -818,13 +849,13 @@ func checkAppUpdate(app *models.App) (*pendingManagedUpdate, error) {
 			App:       app,
 			URL:       update.DownloadURL,
 			Asset:     update.AssetName,
-			Label:     "Newer version found!",
+			Label:     "Update available",
 			Available: true,
 			Latest:    latest,
 			FromKind:  models.UpdateGitLabRelease,
 		}, nil
 	default:
-		return nil, fmt.Errorf("unsupported update source kind %q; reconfigure with `aim update set`", app.Update.Kind)
+		return nil, fmt.Errorf("unsupported update source for %s: %q. Reconfigure with `aim update set`", app.ID, app.Update.Kind)
 	}
 }
 
@@ -874,12 +905,12 @@ func applyManagedUpdate(ctx context.Context, update pendingManagedUpdate, intera
 		return nil, err
 	}
 
-	fmt.Println("  Verifying download")
+	fmt.Println("  Verifying")
 	if err := verifyDownloadedUpdate(downloadPath, update); err != nil {
 		return nil, err
 	}
 
-	fmt.Println("  Integrating update")
+	fmt.Println("  Integrating")
 	app, err := core.IntegrateFromLocalFileWithoutCacheRefreshOrPersist(ctx, downloadPath, func(existing, incoming *models.UpdateSource) (bool, error) {
 		return false, nil
 	})
@@ -933,7 +964,12 @@ func verifyDownloadedUpdate(downloadPath string, update pendingManagedUpdate) er
 
 func buildManagedUpdateMessage(update pendingManagedUpdate, checkOnly bool) string {
 	base := update.Label
-	if transition := updateVersionTransition(update); transition != "" {
+	if update.App != nil {
+		base = fmt.Sprintf("%s: %s", base, update.App.ID)
+		if transition := updateVersionTransition(update); transition != "" {
+			base = fmt.Sprintf("%s %s", base, transition)
+		}
+	} else if transition := updateVersionTransition(update); transition != "" {
 		base = fmt.Sprintf("%s %s", base, transition)
 	}
 
@@ -941,7 +977,7 @@ func buildManagedUpdateMessage(update pendingManagedUpdate, checkOnly bool) stri
 		return base
 	}
 
-	return fmt.Sprintf("%s\nDownload from %s\nThen integrate it with %s", base, update.URL, integrationHint(update.Asset))
+	return base
 }
 
 func updateVersionTransition(update pendingManagedUpdate) string {
@@ -952,11 +988,11 @@ func updateVersionTransition(update pendingManagedUpdate) string {
 	current := displayVersion(update.App.Version)
 	latestRaw := strings.TrimSpace(update.Latest)
 	if latestRaw == "" {
-		return fmt.Sprintf("(current: %s, latest: unknown)", current)
+		return formatVersionTransition(current, "unknown")
 	}
 
 	latest := displayVersion(latestRaw)
-	return fmt.Sprintf("(%s -> %s)", current, latest)
+	return formatVersionTransition(current, latest)
 }
 
 func displayVersion(value string) string {
@@ -1165,6 +1201,26 @@ func colorize(enabled bool, code, value string) string {
 	return code + value + "\033[0m"
 }
 
+func printSuccess(cmd *cli.Command, text string) {
+	fmt.Println(colorize(useColor(cmd), "\033[0;32m", text))
+}
+
+func printWarning(cmd *cli.Command, text string) {
+	fmt.Println(colorize(useColor(cmd), "\033[0;33m", text))
+}
+
+func printError(cmd *cli.Command, text string) {
+	fmt.Println(colorize(useColor(cmd), "\033[0;31m", text))
+}
+
+func printInfo(cmd *cli.Command, text string) {
+	fmt.Println(colorize(useColor(cmd), "\033[0;36m", text))
+}
+
+func printSection(cmd *cli.Command, text string) {
+	fmt.Println(colorize(useColor(cmd), "\033[1m", text))
+}
+
 func confirmOverwrite(prompt string) (bool, error) {
 	fmt.Print(prompt)
 	reader := bufio.NewReader(os.Stdin)
@@ -1179,9 +1235,9 @@ func confirmOverwrite(prompt string) (bool, error) {
 
 func integrationHint(assetName string) string {
 	if strings.TrimSpace(assetName) == "" {
-		return "`aim add path/to/new.AppImage`"
+		return "aim add path/to/new.AppImage"
 	}
-	return fmt.Sprintf("`aim add path/to/%s`", assetName)
+	return fmt.Sprintf("aim add path/to/%s", assetName)
 }
 
 func updateSummary(update *models.UpdateSource) string {
@@ -1192,23 +1248,114 @@ func updateSummary(update *models.UpdateSource) string {
 	switch update.Kind {
 	case models.UpdateZsync:
 		if update.Zsync == nil {
-			return "| zsync: <missing>"
+			return "zsync: <missing>"
 		}
 		if update.Zsync.UpdateInfo != "" {
-			return fmt.Sprintf("| zsync: %s", update.Zsync.UpdateInfo)
+			return fmt.Sprintf("zsync: %s", update.Zsync.UpdateInfo)
 		}
-		return "| zsync"
+		return "zsync"
 	case models.UpdateGitHubRelease:
 		if update.GitHubRelease == nil {
-			return "| github: <missing>"
+			return "github: <missing>"
 		}
-		return fmt.Sprintf("| github: %s, asset: %s", update.GitHubRelease.Repo, update.GitHubRelease.Asset)
+		return fmt.Sprintf("github: %s, asset: %s", update.GitHubRelease.Repo, update.GitHubRelease.Asset)
 	case models.UpdateGitLabRelease:
 		if update.GitLabRelease == nil {
-			return "| gitlab: <missing>"
+			return "gitlab: <missing>"
 		}
-		return fmt.Sprintf("| gitlab: %s, asset: %s", update.GitLabRelease.Project, update.GitLabRelease.Asset)
+		return fmt.Sprintf("gitlab: %s, asset: %s", update.GitLabRelease.Project, update.GitLabRelease.Asset)
 	default:
-		return fmt.Sprintf("| %s", update.Kind)
+		return string(update.Kind)
 	}
+}
+
+func formatAppRef(app *models.App) string {
+	if app == nil {
+		return "unknown"
+	}
+	return fmt.Sprintf("%s %s [%s]", app.Name, displayVersion(app.Version), app.ID)
+}
+
+func formatVersionTransition(current, latest string) string {
+	current = strings.TrimSpace(current)
+	if current == "" {
+		current = "unknown"
+	}
+	latest = strings.TrimSpace(latest)
+	if latest == "" {
+		latest = "unknown"
+	}
+	return fmt.Sprintf("%s -> %s", current, latest)
+}
+
+func showManagedUpdateAsset(asset string) bool {
+	trimmed := strings.TrimSpace(asset)
+	return trimmed != "" && trimmed != "update.AppImage"
+}
+
+const maxListNameColumnWidth = 28
+
+func listIDColumnWidth(groups ...[]*models.App) int {
+	width := len("ID")
+	for _, group := range groups {
+		for _, app := range group {
+			if app == nil {
+				continue
+			}
+			if l := len(app.ID); l > width {
+				width = l
+			}
+		}
+	}
+
+	return width
+}
+
+func listNameDisplayWidth(groups ...[]*models.App) int {
+	width := len("App Name")
+	for _, group := range groups {
+		for _, app := range group {
+			if app == nil {
+				continue
+			}
+			if l := len([]rune(strings.TrimSpace(app.Name))); l > width {
+				width = l
+			}
+		}
+	}
+	if width > maxListNameColumnWidth {
+		return maxListNameColumnWidth
+	}
+	return width
+}
+
+func formatListRow(app *models.App, idWidth, nameWidth int) string {
+	if app == nil {
+		return ""
+	}
+
+	return fmt.Sprintf(
+		"%-*s %-*s %s",
+		idWidth,
+		app.ID,
+		nameWidth,
+		truncateForDisplay(app.Name, nameWidth),
+		app.Version,
+	)
+}
+
+func truncateForDisplay(value string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+
+	runes := []rune(strings.TrimSpace(value))
+	if len(runes) <= width {
+		return string(runes)
+	}
+	if width <= 3 {
+		return strings.Repeat(".", width)
+	}
+
+	return string(runes[:width-3]) + "..."
 }
