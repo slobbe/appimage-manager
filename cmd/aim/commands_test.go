@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
@@ -20,7 +22,7 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-func TestIdentifyInputType(t *testing.T) {
+func TestResolveAddTarget(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "apps.json")
 
@@ -49,21 +51,40 @@ func TestIdentifyInputType(t *testing.T) {
 	}
 
 	tests := []struct {
-		name   string
-		input  string
-		expect string
+		name      string
+		input     string
+		expect    addTargetKind
+		wantError bool
 	}{
-		{name: "local appimage path", input: "/tmp/MyApp.AppImage", expect: InputTypeAppImage},
-		{name: "integrated id", input: "integrated", expect: InputTypeIntegrated},
-		{name: "unlinked id", input: "unlinked", expect: InputTypeUnlinked},
-		{name: "unknown id", input: "missing", expect: InputTypeUnknown},
+		{name: "local appimage path", input: "/tmp/MyApp.AppImage", expect: addTargetLocalFile},
+		{name: "integrated id", input: "integrated", expect: addTargetIntegrated},
+		{name: "unlinked id", input: "unlinked", expect: addTargetUnlinked},
+		{name: "direct url", input: "https://example.com/MyApp.AppImage", expect: addTargetDirectURL},
+		{name: "github repo", input: "github:owner/repo", expect: addTargetGitHub},
+		{name: "gitlab repo", input: "gitlab:group/project", expect: addTargetGitLab},
+		{name: "http rejected", input: "http://example.com/MyApp.AppImage", wantError: true},
+		{name: "malformed github", input: "github:owner", wantError: true},
+		{name: "malformed gitlab", input: "gitlab:group", wantError: true},
+		{name: "unknown id", input: "missing", wantError: true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := identifyInputType(tt.input)
-			if got != tt.expect {
-				t.Fatalf("identifyInputType(%q) = %q, want %q", tt.input, got, tt.expect)
+			got, err := resolveAddTarget(tt.input)
+			if tt.wantError {
+				if err == nil {
+					t.Fatalf("resolveAddTarget(%q) expected error", tt.input)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("resolveAddTarget(%q) returned error: %v", tt.input, err)
+			}
+			if got == nil {
+				t.Fatalf("resolveAddTarget(%q) returned nil target", tt.input)
+			}
+			if got.Kind != tt.expect {
+				t.Fatalf("resolveAddTarget(%q) kind = %q, want %q", tt.input, got.Kind, tt.expect)
 			}
 		})
 	}
@@ -505,6 +526,432 @@ func TestAddCmdIntegratedMessage(t *testing.T) {
 	}
 	if !strings.Contains(output, "Integrated: My App v1.0.0 [my-app]") {
 		t.Fatalf("unexpected output:\n%s", output)
+	}
+}
+
+func TestValidateAddTargetFlags(t *testing.T) {
+	tests := []struct {
+		name      string
+		target    *addTarget
+		args      []string
+		wantError bool
+	}{
+		{
+			name:      "asset rejected for local path",
+			target:    &addTarget{Kind: addTargetLocalFile},
+			args:      []string{"/tmp/MyApp.AppImage", "--asset", "*.AppImage"},
+			wantError: true,
+		},
+		{
+			name:      "asset rejected for id",
+			target:    &addTarget{Kind: addTargetIntegrated},
+			args:      []string{"my-app", "--asset", "*.AppImage"},
+			wantError: true,
+		},
+		{
+			name:      "asset rejected for direct url",
+			target:    &addTarget{Kind: addTargetDirectURL},
+			args:      []string{"https://example.com/MyApp.AppImage", "--asset", "*.AppImage"},
+			wantError: true,
+		},
+		{
+			name:      "sha256 rejected for local path",
+			target:    &addTarget{Kind: addTargetLocalFile},
+			args:      []string{"/tmp/MyApp.AppImage", "--sha256", strings.Repeat("a", 64)},
+			wantError: true,
+		},
+		{
+			name:      "sha256 rejected for id",
+			target:    &addTarget{Kind: addTargetIntegrated},
+			args:      []string{"my-app", "--sha256", strings.Repeat("a", 64)},
+			wantError: true,
+		},
+		{
+			name:      "sha256 rejected for github",
+			target:    &addTarget{Kind: addTargetGitHub},
+			args:      []string{"github:owner/repo", "--sha256", strings.Repeat("a", 64)},
+			wantError: true,
+		},
+		{
+			name:      "sha256 rejected for gitlab",
+			target:    &addTarget{Kind: addTargetGitLab},
+			args:      []string{"gitlab:group/project", "--sha256", strings.Repeat("a", 64)},
+			wantError: true,
+		},
+		{
+			name:      "invalid sha256 rejected",
+			target:    &addTarget{Kind: addTargetDirectURL},
+			args:      []string{"https://example.com/MyApp.AppImage", "--sha256", "not-a-hash"},
+			wantError: true,
+		},
+		{
+			name:   "valid direct url sha256",
+			target: &addTarget{Kind: addTargetDirectURL},
+			args:   []string{"https://example.com/MyApp.AppImage", "--sha256", strings.Repeat("a", 64)},
+		},
+		{
+			name:   "valid github asset",
+			target: &addTarget{Kind: addTargetGitHub},
+			args:   []string{"github:owner/repo", "--asset", "*.AppImage"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := newAddTestCommand()
+			argv := append([]string{"add"}, tt.args...)
+			if err := cmd.Run(context.Background(), argv); err == nil {
+				t.Fatal("expected add action placeholder error")
+			}
+
+			err := validateAddTargetFlags(cmd, tt.target)
+			if tt.wantError && err == nil {
+				t.Fatal("expected validation error")
+			}
+			if !tt.wantError && err != nil {
+				t.Fatalf("validateAddTargetFlags returned error: %v", err)
+			}
+		})
+	}
+}
+
+func TestAddCmdDirectURLWithChecksum(t *testing.T) {
+	tempDir := t.TempDir()
+	setupAddCommandConfigForTest(t, tempDir)
+
+	originalDownload := downloadRemoteAsset
+	originalIntegrate := integrateLocalApp
+	originalAddSingle := addSingleApp
+	t.Cleanup(func() {
+		downloadRemoteAsset = originalDownload
+		integrateLocalApp = originalIntegrate
+		addSingleApp = originalAddSingle
+	})
+
+	payload := []byte("remote-appimage")
+	sum := sha256.Sum256(payload)
+	expectedSHA256 := hex.EncodeToString(sum[:])
+
+	downloadRemoteAsset = func(ctx context.Context, assetURL, destination string, interactive bool) error {
+		_ = ctx
+		_ = interactive
+		if assetURL != "https://example.com/MyApp.AppImage" {
+			t.Fatalf("assetURL = %q", assetURL)
+		}
+		return os.WriteFile(destination, payload, 0o644)
+	}
+	integrateLocalApp = func(context.Context, string, core.UpdateOverwritePrompt) (*models.App, error) {
+		return &models.App{
+			ID:        "my-app",
+			Name:      "My App",
+			Version:   "1.0.0",
+			UpdatedAt: "2026-03-08T12:00:00Z",
+		}, nil
+	}
+	addSingleApp = repo.AddApp
+
+	output := captureStdout(t, func() {
+		if err := runAddCommand(context.Background(), []string{"https://example.com/MyApp.AppImage", "--sha256", expectedSHA256}); err != nil {
+			t.Fatalf("runAddCommand returned error: %v", err)
+		}
+	})
+
+	if strings.Contains(output, "skipping checksum verification") {
+		t.Fatalf("did not expect checksum warning:\n%s", output)
+	}
+
+	app, err := repo.GetApp("my-app")
+	if err != nil {
+		t.Fatalf("failed to load persisted app: %v", err)
+	}
+	if app.Source.Kind != models.SourceDirectURL {
+		t.Fatalf("Source.Kind = %q", app.Source.Kind)
+	}
+	if app.Source.DirectURL == nil {
+		t.Fatal("expected direct URL source")
+	}
+	if app.Source.DirectURL.URL != "https://example.com/MyApp.AppImage" {
+		t.Fatalf("direct URL source URL = %q", app.Source.DirectURL.URL)
+	}
+	if app.Source.DirectURL.SHA256 != expectedSHA256 {
+		t.Fatalf("direct URL source SHA256 = %q", app.Source.DirectURL.SHA256)
+	}
+	if app.Update == nil || app.Update.Kind != models.UpdateNone {
+		t.Fatalf("Update.Kind = %v, want none", app.Update)
+	}
+}
+
+func TestAddCmdDirectURLWithoutChecksumWarns(t *testing.T) {
+	tempDir := t.TempDir()
+	setupAddCommandConfigForTest(t, tempDir)
+
+	originalDownload := downloadRemoteAsset
+	originalIntegrate := integrateLocalApp
+	originalAddSingle := addSingleApp
+	t.Cleanup(func() {
+		downloadRemoteAsset = originalDownload
+		integrateLocalApp = originalIntegrate
+		addSingleApp = originalAddSingle
+	})
+
+	downloadRemoteAsset = func(context.Context, string, string, bool) error {
+		return nil
+	}
+	integrateLocalApp = func(context.Context, string, core.UpdateOverwritePrompt) (*models.App, error) {
+		return &models.App{
+			ID:        "my-app",
+			Name:      "My App",
+			Version:   "1.0.0",
+			UpdatedAt: "2026-03-08T12:00:00Z",
+		}, nil
+	}
+	addSingleApp = repo.AddApp
+
+	output := captureStdout(t, func() {
+		if err := runAddCommand(context.Background(), []string{"https://example.com/MyApp.AppImage"}); err != nil {
+			t.Fatalf("runAddCommand returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "No SHA-256 provided; skipping checksum verification") {
+		t.Fatalf("expected checksum warning, got:\n%s", output)
+	}
+}
+
+func TestAddCmdDirectURLChecksumMismatch(t *testing.T) {
+	tempDir := t.TempDir()
+	setupAddCommandConfigForTest(t, tempDir)
+
+	originalDownload := downloadRemoteAsset
+	originalIntegrate := integrateLocalApp
+	t.Cleanup(func() {
+		downloadRemoteAsset = originalDownload
+		integrateLocalApp = originalIntegrate
+	})
+
+	downloadRemoteAsset = func(ctx context.Context, assetURL, destination string, interactive bool) error {
+		_ = ctx
+		_ = assetURL
+		_ = interactive
+		return os.WriteFile(destination, []byte("payload"), 0o644)
+	}
+
+	var calls int32
+	integrateLocalApp = func(context.Context, string, core.UpdateOverwritePrompt) (*models.App, error) {
+		atomic.AddInt32(&calls, 1)
+		return &models.App{ID: "my-app"}, nil
+	}
+
+	err := runAddCommand(context.Background(), []string{"https://example.com/MyApp.AppImage", "--sha256", strings.Repeat("a", 64)})
+	if err == nil {
+		t.Fatal("expected checksum mismatch")
+	}
+	if atomic.LoadInt32(&calls) != 0 {
+		t.Fatalf("integrateLocalApp calls = %d, want 0", calls)
+	}
+}
+
+func TestAddCmdGitHubSetsDefaultAssetSourceAndUpdate(t *testing.T) {
+	tempDir := t.TempDir()
+	setupAddCommandConfigForTest(t, tempDir)
+
+	originalResolve := resolveGitHubReleaseAsset
+	originalDownload := downloadRemoteAsset
+	originalIntegrate := integrateLocalApp
+	originalAddSingle := addSingleApp
+	t.Cleanup(func() {
+		resolveGitHubReleaseAsset = originalResolve
+		downloadRemoteAsset = originalDownload
+		integrateLocalApp = originalIntegrate
+		addSingleApp = originalAddSingle
+	})
+
+	resolveGitHubReleaseAsset = func(repoSlug, assetPattern string) (*core.GitHubReleaseAsset, error) {
+		if repoSlug != "owner/repo" {
+			t.Fatalf("repoSlug = %q", repoSlug)
+		}
+		if assetPattern != "*.AppImage" {
+			t.Fatalf("assetPattern = %q", assetPattern)
+		}
+		return &core.GitHubReleaseAsset{
+			DownloadURL: "https://example.com/MyApp-x86_64.AppImage",
+			TagName:     "v1.2.3",
+			AssetName:   "MyApp-x86_64.AppImage",
+		}, nil
+	}
+	downloadRemoteAsset = func(context.Context, string, string, bool) error {
+		return nil
+	}
+	integrateLocalApp = func(context.Context, string, core.UpdateOverwritePrompt) (*models.App, error) {
+		return &models.App{
+			ID:        "my-app",
+			Name:      "My App",
+			Version:   "1.2.3",
+			UpdatedAt: "2026-03-08T12:00:00Z",
+		}, nil
+	}
+	addSingleApp = repo.AddApp
+
+	if err := runAddCommand(context.Background(), []string{"github:owner/repo"}); err != nil {
+		t.Fatalf("runAddCommand returned error: %v", err)
+	}
+
+	app, err := repo.GetApp("my-app")
+	if err != nil {
+		t.Fatalf("failed to load persisted app: %v", err)
+	}
+	if app.Source.Kind != models.SourceGitHubRelease {
+		t.Fatalf("Source.Kind = %q", app.Source.Kind)
+	}
+	if app.Source.GitHubRelease == nil || app.Source.GitHubRelease.Asset != "*.AppImage" || app.Source.GitHubRelease.Tag != "v1.2.3" {
+		t.Fatalf("unexpected github source: %#v", app.Source.GitHubRelease)
+	}
+	if app.Update == nil || app.Update.Kind != models.UpdateGitHubRelease || app.Update.GitHubRelease == nil {
+		t.Fatalf("unexpected update source: %#v", app.Update)
+	}
+	if app.Update.GitHubRelease.Asset != "*.AppImage" {
+		t.Fatalf("update asset = %q", app.Update.GitHubRelease.Asset)
+	}
+}
+
+func TestAddCmdGitHubUsesCustomAsset(t *testing.T) {
+	tempDir := t.TempDir()
+	setupAddCommandConfigForTest(t, tempDir)
+
+	originalResolve := resolveGitHubReleaseAsset
+	originalDownload := downloadRemoteAsset
+	originalIntegrate := integrateLocalApp
+	originalAddSingle := addSingleApp
+	t.Cleanup(func() {
+		resolveGitHubReleaseAsset = originalResolve
+		downloadRemoteAsset = originalDownload
+		integrateLocalApp = originalIntegrate
+		addSingleApp = originalAddSingle
+	})
+
+	resolveGitHubReleaseAsset = func(repoSlug, assetPattern string) (*core.GitHubReleaseAsset, error) {
+		if assetPattern != "MyApp-*-x86_64.AppImage" {
+			t.Fatalf("assetPattern = %q", assetPattern)
+		}
+		return &core.GitHubReleaseAsset{
+			DownloadURL: "https://example.com/MyApp-x86_64.AppImage",
+			TagName:     "v1.2.3",
+			AssetName:   "MyApp-x86_64.AppImage",
+		}, nil
+	}
+	downloadRemoteAsset = func(context.Context, string, string, bool) error { return nil }
+	integrateLocalApp = func(context.Context, string, core.UpdateOverwritePrompt) (*models.App, error) {
+		return &models.App{ID: "my-app", Name: "My App", Version: "1.2.3", UpdatedAt: "2026-03-08T12:00:00Z"}, nil
+	}
+	addSingleApp = repo.AddApp
+
+	if err := runAddCommand(context.Background(), []string{"github:owner/repo", "--asset", "MyApp-*-x86_64.AppImage"}); err != nil {
+		t.Fatalf("runAddCommand returned error: %v", err)
+	}
+
+	app, err := repo.GetApp("my-app")
+	if err != nil {
+		t.Fatalf("failed to load persisted app: %v", err)
+	}
+	if app.Source.GitHubRelease == nil || app.Source.GitHubRelease.Asset != "MyApp-*-x86_64.AppImage" {
+		t.Fatalf("unexpected github source: %#v", app.Source.GitHubRelease)
+	}
+}
+
+func TestAddCmdGitLabSetsDefaultAssetSourceAndUpdate(t *testing.T) {
+	tempDir := t.TempDir()
+	setupAddCommandConfigForTest(t, tempDir)
+
+	originalResolve := resolveGitLabReleaseAsset
+	originalDownload := downloadRemoteAsset
+	originalIntegrate := integrateLocalApp
+	originalAddSingle := addSingleApp
+	t.Cleanup(func() {
+		resolveGitLabReleaseAsset = originalResolve
+		downloadRemoteAsset = originalDownload
+		integrateLocalApp = originalIntegrate
+		addSingleApp = originalAddSingle
+	})
+
+	resolveGitLabReleaseAsset = func(project, assetPattern string) (*core.GitLabReleaseAsset, error) {
+		if project != "group/project" {
+			t.Fatalf("project = %q", project)
+		}
+		if assetPattern != "*.AppImage" {
+			t.Fatalf("assetPattern = %q", assetPattern)
+		}
+		return &core.GitLabReleaseAsset{
+			DownloadURL: "https://example.com/MyApp-x86_64.AppImage",
+			TagName:     "v2.0.0",
+			AssetName:   "MyApp-x86_64.AppImage",
+		}, nil
+	}
+	downloadRemoteAsset = func(context.Context, string, string, bool) error { return nil }
+	integrateLocalApp = func(context.Context, string, core.UpdateOverwritePrompt) (*models.App, error) {
+		return &models.App{ID: "my-app", Name: "My App", Version: "2.0.0", UpdatedAt: "2026-03-08T12:00:00Z"}, nil
+	}
+	addSingleApp = repo.AddApp
+
+	if err := runAddCommand(context.Background(), []string{"gitlab:group/project"}); err != nil {
+		t.Fatalf("runAddCommand returned error: %v", err)
+	}
+
+	app, err := repo.GetApp("my-app")
+	if err != nil {
+		t.Fatalf("failed to load persisted app: %v", err)
+	}
+	if app.Source.Kind != models.SourceGitLabRelease {
+		t.Fatalf("Source.Kind = %q", app.Source.Kind)
+	}
+	if app.Source.GitLabRelease == nil || app.Source.GitLabRelease.Asset != "*.AppImage" || app.Source.GitLabRelease.Tag != "v2.0.0" {
+		t.Fatalf("unexpected gitlab source: %#v", app.Source.GitLabRelease)
+	}
+	if app.Update == nil || app.Update.Kind != models.UpdateGitLabRelease || app.Update.GitLabRelease == nil {
+		t.Fatalf("unexpected update source: %#v", app.Update)
+	}
+}
+
+func TestAddCmdGitLabUsesCustomAsset(t *testing.T) {
+	tempDir := t.TempDir()
+	setupAddCommandConfigForTest(t, tempDir)
+
+	originalResolve := resolveGitLabReleaseAsset
+	originalDownload := downloadRemoteAsset
+	originalIntegrate := integrateLocalApp
+	originalAddSingle := addSingleApp
+	t.Cleanup(func() {
+		resolveGitLabReleaseAsset = originalResolve
+		downloadRemoteAsset = originalDownload
+		integrateLocalApp = originalIntegrate
+		addSingleApp = originalAddSingle
+	})
+
+	resolveGitLabReleaseAsset = func(project, assetPattern string) (*core.GitLabReleaseAsset, error) {
+		if assetPattern != "MyApp-*-x86_64.AppImage" {
+			t.Fatalf("assetPattern = %q", assetPattern)
+		}
+		return &core.GitLabReleaseAsset{
+			DownloadURL: "https://example.com/MyApp-x86_64.AppImage",
+			TagName:     "v2.0.0",
+			AssetName:   "MyApp-x86_64.AppImage",
+		}, nil
+	}
+	downloadRemoteAsset = func(context.Context, string, string, bool) error { return nil }
+	integrateLocalApp = func(context.Context, string, core.UpdateOverwritePrompt) (*models.App, error) {
+		return &models.App{ID: "my-app", Name: "My App", Version: "2.0.0", UpdatedAt: "2026-03-08T12:00:00Z"}, nil
+	}
+	addSingleApp = repo.AddApp
+
+	if err := runAddCommand(context.Background(), []string{"gitlab:group/project", "--asset", "MyApp-*-x86_64.AppImage"}); err != nil {
+		t.Fatalf("runAddCommand returned error: %v", err)
+	}
+
+	app, err := repo.GetApp("my-app")
+	if err != nil {
+		t.Fatalf("failed to load persisted app: %v", err)
+	}
+	if app.Source.GitLabRelease == nil || app.Source.GitLabRelease.Asset != "MyApp-*-x86_64.AppImage" {
+		t.Fatalf("unexpected gitlab source: %#v", app.Source.GitLabRelease)
 	}
 }
 
@@ -1777,17 +2224,46 @@ func captureStdoutWithInput(t *testing.T, input string, fn func()) string {
 	return captureStdout(t, fn)
 }
 
-func runAddCommand(ctx context.Context, args []string) error {
-	cmd := &cli.Command{
+func newAddTestCommand() *cli.Command {
+	return &cli.Command{
 		Name: "add",
 		Arguments: []cli.Argument{
 			&cli.StringArg{Name: "app"},
 		},
 		Flags: []cli.Flag{
+			&cli.StringFlag{Name: "asset"},
+			&cli.StringFlag{Name: "sha256"},
 			&cli.BoolFlag{Name: "post-check"},
 		},
-		Action: AddCmd,
+		Action: func(context.Context, *cli.Command) error {
+			return fmt.Errorf("test sentinel")
+		},
 	}
+}
+
+func setupAddCommandConfigForTest(t *testing.T, tmp string) {
+	t.Helper()
+
+	originalDbSrc := config.DbSrc
+	originalTempDir := config.TempDir
+	t.Cleanup(func() {
+		config.DbSrc = originalDbSrc
+		config.TempDir = originalTempDir
+	})
+
+	config.DbSrc = filepath.Join(tmp, "state", "appimage-manager", "apps.json")
+	config.TempDir = filepath.Join(tmp, "cache", "appimage-manager", "tmp")
+
+	for _, dir := range []string{filepath.Dir(config.DbSrc), config.TempDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("failed to create test dir %q: %v", dir, err)
+		}
+	}
+}
+
+func runAddCommand(ctx context.Context, args []string) error {
+	cmd := newAddTestCommand()
+	cmd.Action = AddCmd
 
 	argv := append([]string{"add"}, args...)
 	return cmd.Run(ctx, argv)

@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/slobbe/appimage-manager/internal/config"
 	"github.com/slobbe/appimage-manager/internal/core"
 	util "github.com/slobbe/appimage-manager/internal/helpers"
 	repo "github.com/slobbe/appimage-manager/internal/repository"
@@ -44,35 +46,36 @@ func UpgradeCmd(ctx context.Context, cmd *cli.Command) error {
 
 func AddCmd(ctx context.Context, cmd *cli.Command) error {
 	input := cmd.StringArg("app")
-
-	inputType := identifyInputType(input)
+	target, err := resolveAddTarget(input)
+	if err != nil {
+		return err
+	}
+	if err := validateAddTargetFlags(cmd, target); err != nil {
+		return err
+	}
 
 	var app *models.App
 
-	switch inputType {
-	case InputTypeIntegrated:
-		appData, err := repo.GetApp(input)
-		if err != nil {
-			return err
-		}
-		app = appData
+	switch target.Kind {
+	case addTargetIntegrated:
+		app = target.App
 		printSuccess(cmd, fmt.Sprintf("Already integrated: %s", formatAppRef(app)))
-	case InputTypeUnlinked:
-		appData, err := integrateExistingApp(ctx, input)
+	case addTargetUnlinked:
+		appData, err := integrateExistingApp(ctx, target.App.ID)
 		if err != nil {
 			return err
 		}
 		app = appData
 		printSuccess(cmd, fmt.Sprintf("Reintegrated: %s", formatAppRef(app)))
-	case InputTypeAppImage:
-		inputLabel := strings.TrimSpace(filepath.Base(input))
+	case addTargetLocalFile:
+		inputLabel := strings.TrimSpace(filepath.Base(target.LocalPath))
 		if inputLabel == "" || inputLabel == "." || inputLabel == string(filepath.Separator) {
-			inputLabel = strings.TrimSpace(input)
+			inputLabel = strings.TrimSpace(target.LocalPath)
 		}
 
 		printInfo(cmd, fmt.Sprintf("Integrating %s", inputLabel))
 
-		appData, err := integrateLocalApp(ctx, input, func(existing, incoming *models.UpdateSource) (bool, error) {
+		appData, err := integrateLocalApp(ctx, target.LocalPath, func(existing, incoming *models.UpdateSource) (bool, error) {
 			fmt.Println("Current update source:")
 			fmt.Println("  " + updateSummary(existing))
 			fmt.Println("Incoming AppImage update info:")
@@ -80,6 +83,27 @@ func AddCmd(ctx context.Context, cmd *cli.Command) error {
 			prompt := fmt.Sprintf("Replace update source %s with AppImage update info? [y/N]: ", existing.Kind)
 			return confirmOverwrite(prompt)
 		})
+		if err != nil {
+			return err
+		}
+		app = appData
+		printSuccess(cmd, fmt.Sprintf("Integrated: %s", formatAppRef(app)))
+	case addTargetDirectURL:
+		appData, err := integrateFromDirectURL(ctx, cmd, target, strings.TrimSpace(cmd.String("sha256")))
+		if err != nil {
+			return err
+		}
+		app = appData
+		printSuccess(cmd, fmt.Sprintf("Integrated: %s", formatAppRef(app)))
+	case addTargetGitHub:
+		appData, err := integrateFromGitHubRelease(ctx, cmd, target, strings.TrimSpace(cmd.String("asset")))
+		if err != nil {
+			return err
+		}
+		app = appData
+		printSuccess(cmd, fmt.Sprintf("Integrated: %s", formatAppRef(app)))
+	case addTargetGitLab:
+		appData, err := integrateFromGitLabRelease(ctx, cmd, target, strings.TrimSpace(cmd.String("asset")))
 		if err != nil {
 			return err
 		}
@@ -109,6 +133,339 @@ func AddCmd(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	return nil
+}
+
+type addTargetKind string
+
+const (
+	addTargetLocalFile  addTargetKind = "local_file"
+	addTargetUnlinked   addTargetKind = "unlinked"
+	addTargetIntegrated addTargetKind = "integrated"
+	addTargetDirectURL  addTargetKind = "direct_url"
+	addTargetGitHub     addTargetKind = "github_release"
+	addTargetGitLab     addTargetKind = "gitlab_release"
+)
+
+type addTarget struct {
+	Kind      addTargetKind
+	App       *models.App
+	LocalPath string
+	URL       string
+	Repo      string
+	Project   string
+}
+
+func resolveAddTarget(input string) (*addTarget, error) {
+	trimmed := strings.TrimSpace(input)
+	if trimmed == "" {
+		return nil, fmt.Errorf("missing required argument <app>")
+	}
+
+	if strings.HasPrefix(trimmed, "github:") {
+		repoSlug := strings.TrimSpace(strings.TrimPrefix(trimmed, "github:"))
+		if repoSlug == "" || strings.Count(repoSlug, "/") != 1 {
+			return nil, fmt.Errorf("github add source must be in the form github:owner/repo")
+		}
+		return &addTarget{Kind: addTargetGitHub, Repo: repoSlug}, nil
+	}
+
+	if strings.HasPrefix(trimmed, "gitlab:") {
+		project := strings.TrimSpace(strings.TrimPrefix(trimmed, "gitlab:"))
+		if project == "" || strings.Count(project, "/") < 1 || strings.HasPrefix(project, "/") || strings.HasSuffix(project, "/") {
+			return nil, fmt.Errorf("gitlab add source must be in the form gitlab:namespace/project")
+		}
+		return &addTarget{Kind: addTargetGitLab, Project: project}, nil
+	}
+
+	if strings.HasPrefix(strings.ToLower(trimmed), "http://") {
+		return nil, fmt.Errorf("direct URLs must use https")
+	}
+
+	if isHTTPSURL(trimmed) {
+		return &addTarget{Kind: addTargetDirectURL, URL: trimmed}, nil
+	}
+
+	if app, err := repo.GetApp(trimmed); err == nil {
+		kind := addTargetIntegrated
+		if strings.TrimSpace(app.DesktopEntryLink) == "" {
+			kind = addTargetUnlinked
+		}
+		return &addTarget{Kind: kind, App: app}, nil
+	}
+
+	if util.HasExtension(trimmed, ".AppImage") {
+		return &addTarget{Kind: addTargetLocalFile, LocalPath: trimmed}, nil
+	}
+
+	return nil, fmt.Errorf("unknown argument %s", input)
+}
+
+func validateAddTargetFlags(cmd *cli.Command, target *addTarget) error {
+	if target == nil {
+		return fmt.Errorf("missing add target")
+	}
+
+	assetPattern := strings.TrimSpace(cmd.String("asset"))
+	sha256 := strings.TrimSpace(cmd.String("sha256"))
+
+	switch target.Kind {
+	case addTargetGitHub, addTargetGitLab:
+		if sha256 != "" {
+			return fmt.Errorf("--sha256 is only supported with direct https URLs")
+		}
+	case addTargetDirectURL:
+		if assetPattern != "" {
+			return fmt.Errorf("--asset is only supported with github: or gitlab: add sources")
+		}
+		if sha256 != "" && !isSHA256Hex(sha256) {
+			return fmt.Errorf("--sha256 must be a valid 64-character hexadecimal SHA-256")
+		}
+	default:
+		if assetPattern != "" {
+			return fmt.Errorf("--asset is only supported with github: or gitlab: add sources")
+		}
+		if sha256 != "" {
+			return fmt.Errorf("--sha256 is only supported with direct https URLs")
+		}
+	}
+
+	return nil
+}
+
+func integrateFromDirectURL(ctx context.Context, cmd *cli.Command, target *addTarget, sha256 string) (*models.App, error) {
+	if strings.TrimSpace(sha256) == "" {
+		printWarning(cmd, "No SHA-256 provided; skipping checksum verification")
+	}
+
+	return integrateRemoteAdd(ctx, cmd, remoteAddRequest{
+		DisplayLabel:   target.URL,
+		DownloadURL:    target.URL,
+		ExpectedSHA256: sha256,
+		BuildSource: func(app *models.App) models.Source {
+			return models.Source{
+				Kind: models.SourceDirectURL,
+				DirectURL: &models.DirectURLSource{
+					URL:          target.URL,
+					SHA256:       sha256,
+					DownloadedAt: app.UpdatedAt,
+				},
+			}
+		},
+		BuildUpdate: func(*models.App) *models.UpdateSource {
+			return &models.UpdateSource{Kind: models.UpdateNone}
+		},
+	})
+}
+
+func integrateFromGitHubRelease(ctx context.Context, cmd *cli.Command, target *addTarget, assetPattern string) (*models.App, error) {
+	if strings.TrimSpace(assetPattern) == "" {
+		assetPattern = defaultReleaseAssetPattern
+	}
+
+	printInfo(cmd, fmt.Sprintf("Resolving GitHub release for %s", target.Repo))
+	release, err := resolveGitHubReleaseAsset(target.Repo, assetPattern)
+	if err != nil {
+		return nil, err
+	}
+
+	return integrateRemoteAdd(ctx, cmd, remoteAddRequest{
+		DisplayLabel: target.Repo,
+		DownloadURL:  release.DownloadURL,
+		AssetName:    release.AssetName,
+		BuildSource: func(app *models.App) models.Source {
+			return models.Source{
+				Kind: models.SourceGitHubRelease,
+				GitHubRelease: &models.GitHubReleaseSource{
+					Repo:         target.Repo,
+					Asset:        assetPattern,
+					Tag:          release.TagName,
+					AssetName:    release.AssetName,
+					DownloadedAt: app.UpdatedAt,
+				},
+			}
+		},
+		BuildUpdate: func(*models.App) *models.UpdateSource {
+			return &models.UpdateSource{
+				Kind: models.UpdateGitHubRelease,
+				GitHubRelease: &models.GitHubReleaseUpdateSource{
+					Repo:  target.Repo,
+					Asset: assetPattern,
+				},
+			}
+		},
+	})
+}
+
+func integrateFromGitLabRelease(ctx context.Context, cmd *cli.Command, target *addTarget, assetPattern string) (*models.App, error) {
+	if strings.TrimSpace(assetPattern) == "" {
+		assetPattern = defaultReleaseAssetPattern
+	}
+
+	printInfo(cmd, fmt.Sprintf("Resolving GitLab release for %s", target.Project))
+	release, err := resolveGitLabReleaseAsset(target.Project, assetPattern)
+	if err != nil {
+		return nil, err
+	}
+
+	return integrateRemoteAdd(ctx, cmd, remoteAddRequest{
+		DisplayLabel: target.Project,
+		DownloadURL:  release.DownloadURL,
+		AssetName:    release.AssetName,
+		BuildSource: func(app *models.App) models.Source {
+			return models.Source{
+				Kind: models.SourceGitLabRelease,
+				GitLabRelease: &models.GitLabReleaseSource{
+					Project:      target.Project,
+					Asset:        assetPattern,
+					Tag:          release.TagName,
+					AssetName:    release.AssetName,
+					DownloadedAt: app.UpdatedAt,
+				},
+			}
+		},
+		BuildUpdate: func(*models.App) *models.UpdateSource {
+			return &models.UpdateSource{
+				Kind: models.UpdateGitLabRelease,
+				GitLabRelease: &models.GitLabReleaseUpdateSource{
+					Project: target.Project,
+					Asset:   assetPattern,
+				},
+			}
+		},
+	})
+}
+
+type remoteAddRequest struct {
+	DisplayLabel   string
+	DownloadURL    string
+	AssetName      string
+	ExpectedSHA256 string
+	BuildSource    func(app *models.App) models.Source
+	BuildUpdate    func(app *models.App) *models.UpdateSource
+}
+
+func integrateRemoteAdd(ctx context.Context, cmd *cli.Command, req remoteAddRequest) (*models.App, error) {
+	tempDir, err := os.MkdirTemp(config.TempDir, "aim-add-*")
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = os.RemoveAll(tempDir)
+	}()
+
+	fileName := updateDownloadFilename(req.AssetName, req.DownloadURL)
+	downloadPath := filepath.Join(tempDir, fileName)
+
+	printInfo(cmd, fmt.Sprintf("Downloading %s", strings.TrimSpace(req.DisplayLabel)))
+	if err := downloadRemoteAsset(ctx, req.DownloadURL, downloadPath, isTerminalOutput()); err != nil {
+		return nil, err
+	}
+
+	if strings.TrimSpace(req.ExpectedSHA256) != "" {
+		fmt.Println("  Verifying")
+		if err := verifyDownloadedUpdate(downloadPath, pendingManagedUpdate{ExpectedSHA256: req.ExpectedSHA256}); err != nil {
+			return nil, err
+		}
+	}
+
+	printInfo(cmd, fmt.Sprintf("Integrating %s", fileName))
+	app, err := integrateLocalApp(ctx, downloadPath, func(existing, incoming *models.UpdateSource) (bool, error) {
+		_ = existing
+		_ = incoming
+		return false, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	incomingUpdate := req.BuildUpdate(app)
+	finalUpdate, err := chooseRemoteUpdateSource(app.ID, incomingUpdate)
+	if err != nil {
+		return nil, err
+	}
+
+	app.Source = req.BuildSource(app)
+	app.Update = finalUpdate
+
+	if err := addSingleApp(app, true); err != nil {
+		return nil, err
+	}
+
+	return app, nil
+}
+
+func chooseRemoteUpdateSource(id string, incoming *models.UpdateSource) (*models.UpdateSource, error) {
+	if incoming == nil {
+		incoming = &models.UpdateSource{Kind: models.UpdateNone}
+	}
+
+	existingApp, err := repo.GetApp(id)
+	if err != nil {
+		return incoming, nil
+	}
+
+	existing := existingApp.Update
+	if existing == nil || existing.Kind == models.UpdateNone {
+		return incoming, nil
+	}
+	if updateSourcesEqual(existing, incoming) {
+		return incoming, nil
+	}
+
+	fmt.Printf("Current update source for %s:\n", id)
+	fmt.Println("  " + updateSummary(existing))
+	fmt.Println("New update source:")
+	fmt.Println("  " + updateSummary(incoming))
+	prompt := fmt.Sprintf("Replace update source for %s? [y/N]: ", id)
+	confirmed, err := confirmOverwrite(prompt)
+	if err != nil {
+		return nil, err
+	}
+	if !confirmed {
+		return existing, nil
+	}
+
+	return incoming, nil
+}
+
+func updateSourcesEqual(a, b *models.UpdateSource) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	if a.Kind != b.Kind {
+		return false
+	}
+
+	switch a.Kind {
+	case models.UpdateNone:
+		return true
+	case models.UpdateGitHubRelease:
+		return a.GitHubRelease != nil && b.GitHubRelease != nil &&
+			strings.TrimSpace(a.GitHubRelease.Repo) == strings.TrimSpace(b.GitHubRelease.Repo) &&
+			strings.TrimSpace(a.GitHubRelease.Asset) == strings.TrimSpace(b.GitHubRelease.Asset)
+	case models.UpdateGitLabRelease:
+		return a.GitLabRelease != nil && b.GitLabRelease != nil &&
+			strings.TrimSpace(a.GitLabRelease.Project) == strings.TrimSpace(b.GitLabRelease.Project) &&
+			strings.TrimSpace(a.GitLabRelease.Asset) == strings.TrimSpace(b.GitLabRelease.Asset)
+	case models.UpdateZsync:
+		return a.Zsync != nil && b.Zsync != nil &&
+			strings.TrimSpace(a.Zsync.UpdateInfo) == strings.TrimSpace(b.Zsync.UpdateInfo) &&
+			strings.TrimSpace(a.Zsync.Transport) == strings.TrimSpace(b.Zsync.Transport)
+	default:
+		return false
+	}
+}
+
+func isSHA256Hex(value string) bool {
+	trimmed := strings.TrimSpace(value)
+	if len(trimmed) != 64 {
+		return false
+	}
+	_, err := hex.DecodeString(trimmed)
+	return err == nil
 }
 
 func RemoveCmd(ctx context.Context, cmd *cli.Command) error {
@@ -380,6 +737,9 @@ var runAppUpdateCheck = checkAppUpdate
 var runZsyncUpdateCheck = core.ZsyncUpdateCheck
 var runGitHubReleaseUpdateCheck = core.GitHubReleaseUpdateCheck
 var runGitLabReleaseUpdateCheck = core.GitLabReleaseUpdateCheck
+var resolveGitHubReleaseAsset = core.ResolveGitHubReleaseAsset
+var resolveGitLabReleaseAsset = core.ResolveGitLabReleaseAsset
+var downloadRemoteAsset = downloadUpdateAsset
 var runSelfUpgrade = core.SelfUpgrade
 var integrateExistingApp = core.IntegrateExisting
 var integrateLocalApp = core.IntegrateFromLocalFile
@@ -1152,30 +1512,6 @@ func isHTTPSURL(value string) bool {
 		return false
 	}
 	return true
-}
-
-const (
-	InputTypeAppImage   string = "appimage"
-	InputTypeUnlinked   string = "unlinked"
-	InputTypeIntegrated string = "integrated"
-	InputTypeUnknown    string = "unknown"
-)
-
-func identifyInputType(input string) string {
-	if util.HasExtension(input, ".AppImage") {
-		return InputTypeAppImage
-	}
-
-	app, err := repo.GetApp(input)
-	if err != nil {
-		return InputTypeUnknown
-	}
-
-	if app.DesktopEntryLink == "" {
-		return InputTypeUnlinked
-	} else {
-		return InputTypeIntegrated
-	}
 }
 
 func useColor(cmd *cli.Command) bool {

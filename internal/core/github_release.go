@@ -20,6 +20,14 @@ type GitHubReleaseUpdate struct {
 	PreRelease        bool
 }
 
+type GitHubReleaseAsset struct {
+	DownloadURL       string
+	TagName           string
+	NormalizedVersion string
+	AssetName         string
+	PreRelease        bool
+}
+
 type releaseAsset struct {
 	Name               string `json:"name"`
 	BrowserDownloadURL string `json:"browser_download_url"`
@@ -39,16 +47,61 @@ func GitHubReleaseUpdateCheck(update *models.UpdateSource, currentVersion string
 		return nil, fmt.Errorf("invalid github release update source")
 	}
 
-	repoSlug := strings.TrimSpace(update.GitHubRelease.Repo)
+	release, err := ResolveGitHubReleaseAsset(update.GitHubRelease.Repo, update.GitHubRelease.Asset)
+	if err != nil {
+		return nil, err
+	}
+
+	latest := normalizeVersion(release.TagName)
+	current := normalizeVersion(currentVersion)
+	available := latest != "" && latest != current
+
+	return &GitHubReleaseUpdate{
+		Available:         available,
+		DownloadUrl:       release.DownloadURL,
+		TagName:           release.TagName,
+		NormalizedVersion: latest,
+		AssetName:         release.AssetName,
+		PreRelease:        release.PreRelease,
+	}, nil
+}
+
+func ResolveGitHubReleaseAsset(repoSlug, assetPattern string) (*GitHubReleaseAsset, error) {
+	repoSlug = strings.TrimSpace(repoSlug)
 	if repoSlug == "" || strings.Count(repoSlug, "/") != 1 {
 		return nil, fmt.Errorf("invalid github repo %q", repoSlug)
 	}
 
-	assetPattern := strings.TrimSpace(update.GitHubRelease.Asset)
+	assetPattern = strings.TrimSpace(assetPattern)
 	if assetPattern == "" {
 		return nil, fmt.Errorf("missing github asset pattern")
 	}
 
+	payload, err := fetchGitHubReleases(repoSlug)
+	if err != nil {
+		return nil, err
+	}
+
+	release, ok := selectRelease(payload, false)
+	if !ok {
+		return nil, fmt.Errorf("no matching github releases found")
+	}
+
+	assetName, downloadURL := matchAsset(release.Assets, assetPattern, runtime.GOARCH)
+	if downloadURL == "" {
+		return nil, fmt.Errorf("no assets match pattern %q", assetPattern)
+	}
+
+	return &GitHubReleaseAsset{
+		DownloadURL:       downloadURL,
+		TagName:           release.TagName,
+		NormalizedVersion: normalizeVersion(release.TagName),
+		AssetName:         assetName,
+		PreRelease:        release.Prerelease,
+	}, nil
+}
+
+func fetchGitHubReleases(repoSlug string) ([]gitHubReleaseResponse, error) {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/releases", repoSlug)
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
@@ -71,28 +124,7 @@ func GitHubReleaseUpdateCheck(update *models.UpdateSource, currentVersion string
 		return nil, err
 	}
 
-	release, ok := selectRelease(payload, false)
-	if !ok {
-		return nil, fmt.Errorf("no matching github releases found")
-	}
-
-	assetName, downloadURL := matchAsset(release.Assets, assetPattern, runtime.GOARCH)
-	if downloadURL == "" {
-		return nil, fmt.Errorf("no assets match pattern %q", assetPattern)
-	}
-
-	latest := normalizeVersion(release.TagName)
-	current := normalizeVersion(currentVersion)
-	available := latest != "" && latest != current
-
-	return &GitHubReleaseUpdate{
-		Available:         available,
-		DownloadUrl:       downloadURL,
-		TagName:           release.TagName,
-		NormalizedVersion: latest,
-		AssetName:         assetName,
-		PreRelease:        release.Prerelease,
-	}, nil
+	return payload, nil
 }
 
 type assetMatch struct {

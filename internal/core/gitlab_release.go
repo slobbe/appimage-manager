@@ -19,6 +19,13 @@ type GitLabReleaseUpdate struct {
 	AssetName         string
 }
 
+type GitLabReleaseAsset struct {
+	DownloadURL       string
+	TagName           string
+	NormalizedVersion string
+	AssetName         string
+}
+
 type gitLabReleaseResponse struct {
 	TagName         string `json:"tag_name"`
 	UpcomingRelease bool   `json:"upcoming_release"`
@@ -39,16 +46,60 @@ func GitLabReleaseUpdateCheck(update *models.UpdateSource, currentVersion string
 		return nil, fmt.Errorf("invalid gitlab release update source")
 	}
 
-	project := strings.TrimSpace(update.GitLabRelease.Project)
+	release, err := ResolveGitLabReleaseAsset(update.GitLabRelease.Project, update.GitLabRelease.Asset)
+	if err != nil {
+		return nil, err
+	}
+
+	latest := normalizeVersion(release.TagName)
+	current := normalizeVersion(currentVersion)
+	available := latest != "" && latest != current
+
+	return &GitLabReleaseUpdate{
+		Available:         available,
+		DownloadURL:       release.DownloadURL,
+		TagName:           release.TagName,
+		NormalizedVersion: latest,
+		AssetName:         release.AssetName,
+	}, nil
+}
+
+func ResolveGitLabReleaseAsset(project, assetPattern string) (*GitLabReleaseAsset, error) {
+	project = strings.TrimSpace(project)
 	if project == "" {
 		return nil, fmt.Errorf("invalid gitlab project")
 	}
 
-	assetPattern := strings.TrimSpace(update.GitLabRelease.Asset)
+	assetPattern = strings.TrimSpace(assetPattern)
 	if assetPattern == "" {
 		return nil, fmt.Errorf("missing gitlab asset pattern")
 	}
 
+	payload, err := fetchGitLabReleases(project)
+	if err != nil {
+		return nil, err
+	}
+
+	release, ok := selectGitLabRelease(payload)
+	if !ok {
+		return nil, fmt.Errorf("no matching gitlab releases found")
+	}
+
+	assets := gitLabAssetsAsReleaseAssets(release.Assets.Links)
+	assetName, downloadURL := matchAsset(assets, assetPattern, runtime.GOARCH)
+	if downloadURL == "" {
+		return nil, fmt.Errorf("no assets match pattern %q", assetPattern)
+	}
+
+	return &GitLabReleaseAsset{
+		DownloadURL:       downloadURL,
+		TagName:           release.TagName,
+		NormalizedVersion: normalizeVersion(release.TagName),
+		AssetName:         assetName,
+	}, nil
+}
+
+func fetchGitLabReleases(project string) ([]gitLabReleaseResponse, error) {
 	projectEscaped := url.PathEscape(project)
 	requestURL := fmt.Sprintf("%s/projects/%s/releases", strings.TrimRight(gitLabReleaseAPIBaseURL, "/"), projectEscaped)
 
@@ -73,28 +124,7 @@ func GitLabReleaseUpdateCheck(update *models.UpdateSource, currentVersion string
 		return nil, err
 	}
 
-	release, ok := selectGitLabRelease(payload)
-	if !ok {
-		return nil, fmt.Errorf("no matching gitlab releases found")
-	}
-
-	assets := gitLabAssetsAsReleaseAssets(release.Assets.Links)
-	assetName, downloadURL := matchAsset(assets, assetPattern, runtime.GOARCH)
-	if downloadURL == "" {
-		return nil, fmt.Errorf("no assets match pattern %q", assetPattern)
-	}
-
-	latest := normalizeVersion(release.TagName)
-	current := normalizeVersion(currentVersion)
-	available := latest != "" && latest != current
-
-	return &GitLabReleaseUpdate{
-		Available:         available,
-		DownloadURL:       downloadURL,
-		TagName:           release.TagName,
-		NormalizedVersion: latest,
-		AssetName:         assetName,
-	}, nil
+	return payload, nil
 }
 
 func selectGitLabRelease(releases []gitLabReleaseResponse) (gitLabReleaseResponse, bool) {

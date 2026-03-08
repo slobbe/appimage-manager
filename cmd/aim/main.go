@@ -30,14 +30,22 @@ func main() {
 		Commands: []*cli.Command{
 			{
 				Name:  "add",
-				Usage: "Integrate an AppImage or reintegrate an existing ID",
+				Usage: "Integrate an AppImage, download from a remote source, or reintegrate an existing ID",
 				Arguments: []cli.Argument{
 					&cli.StringArg{
 						Name:      "app",
-						UsageText: "<path-to.AppImage|id>",
+						UsageText: "<path-to.AppImage|id|https-url|github:owner/repo|gitlab:namespace/project>",
 					},
 				},
 				Flags: []cli.Flag{
+					&cli.StringFlag{
+						Name:  "asset",
+						Usage: "asset filename pattern; defaults to \"*.AppImage\" for github:/gitlab: sources",
+					},
+					&cli.StringFlag{
+						Name:  "sha256",
+						Usage: "expected SHA-256 for direct https:// add sources",
+					},
 					&cli.BoolFlag{
 						Name:  "post-check",
 						Usage: "run post-integration update check for zsync-enabled apps",

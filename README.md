@@ -52,13 +52,32 @@ Integration installs desktop entry metadata and icons so the AppImage appears in
 aim upgrade
 ```
 
-**Integrate** an AppImage or reintegrate an existing ID:
+**Integrate** an AppImage, download from a remote source, or reintegrate an existing ID:
 
 ```sh
-aim add <path-to.AppImage|id>
+aim add <path-to.AppImage|id|https-url|github:owner/repo|gitlab:namespace/project>
 ```
 
 If the argument is the ID of an unlinked app, `aim` reintegrates it.
+If the argument is `github:owner/repo` or `gitlab:namespace/project`, `aim` downloads the latest stable matching AppImage and configures updates from that source automatically.
+
+Examples:
+
+```sh
+aim add https://example.com/MyApp.AppImage
+aim add https://example.com/MyApp.AppImage --sha256 <64-hex>
+aim add github:owner/repo
+aim add gitlab:namespace/project
+aim add github:owner/repo --asset "MyApp-*-x86_64.AppImage"
+```
+
+| Option         | Meaning                                                                   |
+| :------------- | :------------------------------------------------------------------------ |
+| `--asset`      | asset filename pattern; defaults to `*.AppImage` for `github:`/`gitlab:` |
+| `--sha256`     | expected SHA-256 for direct `https://` add sources                        |
+| `--post-check` | run post-integration update check for zsync-enabled apps                  |
+
+For direct `https://` adds, `--sha256` is optional. If omitted, `aim` warns that checksum verification is skipped for that download.
 
 **Remove** or unlink a managed AppImage:
 
@@ -151,6 +170,7 @@ aim update set <id> --github owner/repo --asset "MyApp-*-x86_64.AppImage"
 GitHub and GitLab update checks use stable releases only.
 
 If an AppImage embeds zsync update info, `aim add` preserves it automatically.
+For `github:` and `gitlab:` adds, the selected remote source becomes the app's configured update source instead.
 
 ## Where `aim` stores files
 
