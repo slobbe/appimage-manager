@@ -12,11 +12,12 @@ import (
 )
 
 type GitHubReleaseUpdate struct {
-	Available   bool
-	DownloadUrl string
-	TagName     string
-	AssetName   string
-	PreRelease  bool
+	Available         bool
+	DownloadUrl       string
+	TagName           string
+	NormalizedVersion string
+	AssetName         string
+	PreRelease        bool
 }
 
 type releaseAsset struct {
@@ -85,11 +86,12 @@ func GitHubReleaseUpdateCheck(update *models.UpdateSource, currentVersion string
 	available := latest != "" && latest != current
 
 	return &GitHubReleaseUpdate{
-		Available:   available,
-		DownloadUrl: downloadURL,
-		TagName:     release.TagName,
-		AssetName:   assetName,
-		PreRelease:  release.Prerelease,
+		Available:         available,
+		DownloadUrl:       downloadURL,
+		TagName:           release.TagName,
+		NormalizedVersion: latest,
+		AssetName:         assetName,
+		PreRelease:        release.Prerelease,
 	}, nil
 }
 
@@ -116,11 +118,7 @@ func matchAsset(assets []releaseAsset, pattern, arch string) (string, string) {
 }
 
 func normalizeVersion(version string) string {
-	version = strings.TrimSpace(version)
-	version = strings.ToLower(version)
-	version = strings.TrimPrefix(version, "version")
-	version = strings.TrimPrefix(version, "v")
-	return strings.TrimSpace(version)
+	return normalizeComparableVersion(version)
 }
 
 func selectRelease(releases []gitHubReleaseResponse, allowPrerelease bool) (gitHubReleaseResponse, bool) {

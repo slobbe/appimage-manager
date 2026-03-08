@@ -49,4 +49,42 @@ func TestGitLabReleaseUpdateCheck(t *testing.T) {
 	if update.DownloadURL != "https://example.com/MyApp-x86_64.AppImage" {
 		t.Fatalf("DownloadURL = %q", update.DownloadURL)
 	}
+	if update.NormalizedVersion != "2.0.0" {
+		t.Fatalf("NormalizedVersion = %q", update.NormalizedVersion)
+	}
+}
+
+func TestGitLabReleaseUpdateCheckNormalizesDecoratedTag(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`[
+			{"tag_name":"@standardnotes/desktop@3.201.19","upcoming_release":false,"assets":{"links":[{"name":"StandardNotes-x86_64.AppImage","direct_asset_url":"https://example.com/StandardNotes-x86_64.AppImage"}]}}
+		]`))
+	}))
+	defer server.Close()
+
+	originalBase := gitLabReleaseAPIBaseURL
+	t.Cleanup(func() {
+		gitLabReleaseAPIBaseURL = originalBase
+	})
+	gitLabReleaseAPIBaseURL = server.URL + "/api/v4"
+
+	update, err := GitLabReleaseUpdateCheck(&models.UpdateSource{
+		Kind: models.UpdateGitLabRelease,
+		GitLabRelease: &models.GitLabReleaseUpdateSource{
+			Project: "group/project",
+			Asset:   "*.AppImage",
+		},
+	}, "3.201.19")
+	if err != nil {
+		t.Fatalf("GitLabReleaseUpdateCheck returned error: %v", err)
+	}
+	if update == nil {
+		t.Fatal("expected update response")
+	}
+	if update.Available {
+		t.Fatal("expected decorated matching tag not to be treated as update")
+	}
+	if update.NormalizedVersion != "3.201.19" {
+		t.Fatalf("NormalizedVersion = %q", update.NormalizedVersion)
+	}
 }

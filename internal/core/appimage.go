@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -28,8 +27,6 @@ type ExtractionData struct {
 	DesktopEntryPath string
 	IconPath         string
 }
-
-var filenameVersionPattern = regexp.MustCompile(`(?i)v?\d+(?:\.\d+)+`)
 
 func ExtractAppImage(ctx context.Context, src string) (*ExtractionData, error) {
 	srcInfo, err := os.Stat(src)
@@ -302,31 +299,7 @@ func GetAppInfo(ctx context.Context, desktopSrc string) (*AppInfo, error) {
 }
 
 func sanitizeAppVersion(raw string) string {
-	v := strings.TrimSpace(strings.Trim(raw, `"'`))
-	if v == "" {
-		return ""
-	}
-
-	lower := strings.ToLower(v)
-	if strings.HasPrefix(lower, "version") {
-		v = strings.TrimSpace(v[len("version"):])
-		v = strings.TrimLeft(v, " :=-")
-	}
-
-	lower = strings.ToLower(strings.TrimSpace(v))
-	if strings.HasPrefix(lower, "v") && len(v) > 1 {
-		next := v[1]
-		if next >= '0' && next <= '9' {
-			v = strings.TrimSpace(v[1:])
-		}
-	}
-
-	switch strings.ToLower(strings.TrimSpace(v)) {
-	case "", "n/a", "na", "none", "unknown", "-":
-		return ""
-	}
-
-	return strings.TrimSpace(v)
+	return normalizeComparableVersion(raw)
 }
 
 func versionFromFilename(path string) string {
@@ -335,12 +308,7 @@ func versionFromFilename(path string) string {
 		return ""
 	}
 
-	match := filenameVersionPattern.FindString(base)
-	if match == "" {
-		return ""
-	}
-
-	return sanitizeAppVersion(match)
+	return sanitizeAppVersion(base)
 }
 
 func LocateDesktopFile(dir string) (string, error) {

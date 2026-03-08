@@ -127,6 +127,29 @@ func TestGetAppInfoUsesUnknownWhenVersionUnavailable(t *testing.T) {
 	}
 }
 
+func TestGetAppInfoNormalizesDecoratedVersion(t *testing.T) {
+	dir := t.TempDir()
+	desktopPath := filepath.Join(dir, "standard-notes.desktop")
+
+	content := strings.Join([]string{
+		"[Desktop Entry]",
+		"Name=Standard Notes",
+		"X-AppImage-Version=@standardnotes/desktop@3.201.19",
+	}, "\n") + "\n"
+
+	if err := os.WriteFile(desktopPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("failed to write desktop file: %v", err)
+	}
+
+	appInfo, err := GetAppInfo(context.Background(), desktopPath)
+	if err != nil {
+		t.Fatalf("GetAppInfo returned error: %v", err)
+	}
+	if appInfo.Version != "3.201.19" {
+		t.Fatalf("appInfo.Version = %q, want %q", appInfo.Version, "3.201.19")
+	}
+}
+
 func TestExtractAppImageResolvesDesktopSymlinkSource(t *testing.T) {
 	tmp := t.TempDir()
 	setupExtractionConfigForTest(t, tmp)

@@ -12,10 +12,11 @@ import (
 )
 
 type GitLabReleaseUpdate struct {
-	Available   bool
-	DownloadURL string
-	TagName     string
-	AssetName   string
+	Available         bool
+	DownloadURL       string
+	TagName           string
+	NormalizedVersion string
+	AssetName         string
 }
 
 type gitLabReleaseResponse struct {
@@ -88,10 +89,11 @@ func GitLabReleaseUpdateCheck(update *models.UpdateSource, currentVersion string
 	available := latest != "" && latest != current
 
 	return &GitLabReleaseUpdate{
-		Available:   available,
-		DownloadURL: downloadURL,
-		TagName:     release.TagName,
-		AssetName:   assetName,
+		Available:         available,
+		DownloadURL:       downloadURL,
+		TagName:           release.TagName,
+		NormalizedVersion: latest,
+		AssetName:         assetName,
 	}, nil
 }
 

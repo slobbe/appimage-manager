@@ -354,6 +354,8 @@ type managedCheckResult struct {
 
 var runAppUpdateCheck = checkAppUpdate
 var runZsyncUpdateCheck = core.ZsyncUpdateCheck
+var runGitHubReleaseUpdateCheck = core.GitHubReleaseUpdateCheck
+var runGitLabReleaseUpdateCheck = core.GitLabReleaseUpdateCheck
 var addAppsBatch = repo.AddAppsBatch
 var addSingleApp = repo.AddApp
 
@@ -746,7 +748,7 @@ func checkAppUpdate(app *models.App) (*pendingManagedUpdate, error) {
 			FromKind:     models.UpdateZsync,
 		}, nil
 	case models.UpdateGitHubRelease:
-		update, err := core.GitHubReleaseUpdateCheck(app.Update, app.Version)
+		update, err := runGitHubReleaseUpdateCheck(app.Update, app.Version)
 		if err != nil {
 			return nil, err
 		}
@@ -759,7 +761,10 @@ func checkAppUpdate(app *models.App) (*pendingManagedUpdate, error) {
 			}, nil
 		}
 
-		latest := strings.TrimSpace(update.TagName)
+		latest := strings.TrimSpace(update.NormalizedVersion)
+		if latest == "" {
+			latest = strings.TrimSpace(update.TagName)
+		}
 
 		if !update.Available {
 			return &pendingManagedUpdate{
@@ -783,7 +788,7 @@ func checkAppUpdate(app *models.App) (*pendingManagedUpdate, error) {
 			FromKind:  models.UpdateGitHubRelease,
 		}, nil
 	case models.UpdateGitLabRelease:
-		update, err := core.GitLabReleaseUpdateCheck(app.Update, app.Version)
+		update, err := runGitLabReleaseUpdateCheck(app.Update, app.Version)
 		if err != nil {
 			return nil, err
 		}
@@ -796,7 +801,10 @@ func checkAppUpdate(app *models.App) (*pendingManagedUpdate, error) {
 			}, nil
 		}
 
-		latest := strings.TrimSpace(update.TagName)
+		latest := strings.TrimSpace(update.NormalizedVersion)
+		if latest == "" {
+			latest = strings.TrimSpace(update.TagName)
+		}
 		if !update.Available {
 			return &pendingManagedUpdate{
 				App:       app,

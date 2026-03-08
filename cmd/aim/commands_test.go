@@ -519,6 +519,91 @@ func TestRunManagedUpdateBatchContinuesOnCheckFailure(t *testing.T) {
 	}
 }
 
+func TestCheckAppUpdateGitHubUsesNormalizedVersion(t *testing.T) {
+	originalCheck := runGitHubReleaseUpdateCheck
+	t.Cleanup(func() {
+		runGitHubReleaseUpdateCheck = originalCheck
+	})
+
+	runGitHubReleaseUpdateCheck = func(update *models.UpdateSource, currentVersion string) (*core.GitHubReleaseUpdate, error) {
+		return &core.GitHubReleaseUpdate{
+			Available:         false,
+			TagName:           "@standardnotes/desktop@3.201.19",
+			NormalizedVersion: "3.201.19",
+		}, nil
+	}
+
+	result, err := checkAppUpdate(&models.App{
+		ID:      "standard-notes",
+		Version: "3.201.19",
+		Update: &models.UpdateSource{
+			Kind: models.UpdateGitHubRelease,
+			GitHubRelease: &models.GitHubReleaseUpdateSource{
+				Repo:  "standardnotes/app",
+				Asset: "*.AppImage",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("checkAppUpdate returned error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected pending update result")
+	}
+	if result.Available {
+		t.Fatal("expected no update when normalized versions match")
+	}
+	if result.Latest != "3.201.19" {
+		t.Fatalf("Latest = %q, want %q", result.Latest, "3.201.19")
+	}
+}
+
+func TestCheckAppUpdateGitHubDisplaysNormalizedLatest(t *testing.T) {
+	originalCheck := runGitHubReleaseUpdateCheck
+	t.Cleanup(func() {
+		runGitHubReleaseUpdateCheck = originalCheck
+	})
+
+	runGitHubReleaseUpdateCheck = func(update *models.UpdateSource, currentVersion string) (*core.GitHubReleaseUpdate, error) {
+		return &core.GitHubReleaseUpdate{
+			Available:         true,
+			DownloadUrl:       "https://example.com/StandardNotes-x86_64.AppImage",
+			TagName:           "@standardnotes/desktop@3.202.0",
+			NormalizedVersion: "3.202.0",
+			AssetName:         "StandardNotes-x86_64.AppImage",
+		}, nil
+	}
+
+	result, err := checkAppUpdate(&models.App{
+		ID:      "standard-notes",
+		Version: "3.201.19",
+		Update: &models.UpdateSource{
+			Kind: models.UpdateGitHubRelease,
+			GitHubRelease: &models.GitHubReleaseUpdateSource{
+				Repo:  "standardnotes/app",
+				Asset: "*.AppImage",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("checkAppUpdate returned error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected pending update result")
+	}
+	if result.Latest != "3.202.0" {
+		t.Fatalf("Latest = %q, want %q", result.Latest, "3.202.0")
+	}
+
+	msg := buildManagedUpdateMessage(*result, false)
+	if !strings.Contains(msg, "(v3.201.19 -> v3.202.0)") {
+		t.Fatalf("expected normalized version transition, got:\n%s", msg)
+	}
+	if strings.Contains(msg, "@standardnotes/desktop@3.202.0") {
+		t.Fatalf("did not expect raw decorated tag in message:\n%s", msg)
+	}
+}
+
 func TestAddCmdSkipsPostCheckByDefault(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "apps.json")
