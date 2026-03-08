@@ -52,12 +52,6 @@ Integration creates desktop entry metadata (and icon data when available) so the
 - update checks and applies for embedded zsync, GitHub releases, and GitLab releases
 - self-upgrade via `aim upgrade`
 
-Global flags:
-
-| Option       | Meaning                   |
-| :----------- | :------------------------ |
-| `--no-color` | disable ANSI color output |
-
 **Upgrade** `aim` itself to the latest stable release:
 
 ```sh
@@ -138,11 +132,13 @@ aim update set <id> --gitlab namespace/project --asset "*.AppImage"
 aim update set <id> --zsync-url https://example.com/MyApp.AppImage.zsync
 ```
 
+For GitHub and GitLab sources, `--asset` is optional and defaults to `*.AppImage`.
+
 | Option            | Meaning                                                  |
 | :---------------- | :------------------------------------------------------- |
 | `--github`        | GitHub repo in the form owner/repo                       |
 | `--gitlab`        | GitLab project path in the form namespace/project        |
-| `--asset`         | asset filename pattern, e.g. `MyApp-*.AppImage`          |
+| `--asset`         | asset filename pattern; defaults to `*.AppImage`         |
 | `--zsync-url`     | direct zsync metadata URL (HTTPS)                        |
 
 GitHub and GitLab update checks use stable releases only.

@@ -348,7 +348,7 @@ func resolveUpdateSourceFromSetFlags(cmd *cli.Command) (*models.UpdateSource, er
 
 	if githubRepo != "" {
 		if assetPattern == "" {
-			return nil, fmt.Errorf("missing required flag --asset")
+			assetPattern = defaultReleaseAssetPattern
 		}
 		return &models.UpdateSource{
 			Kind: models.UpdateGitHubRelease,
@@ -361,7 +361,7 @@ func resolveUpdateSourceFromSetFlags(cmd *cli.Command) (*models.UpdateSource, er
 
 	if gitlabProject != "" {
 		if assetPattern == "" {
-			return nil, fmt.Errorf("missing required flag --asset")
+			assetPattern = defaultReleaseAssetPattern
 		}
 		return &models.UpdateSource{
 			Kind: models.UpdateGitLabRelease,
@@ -416,6 +416,8 @@ var runAppUpdateCheck = checkAppUpdate
 var runZsyncUpdateCheck = core.ZsyncUpdateCheck
 var addAppsBatch = repo.AddAppsBatch
 var addSingleApp = repo.AddApp
+
+const defaultReleaseAssetPattern = "*.AppImage"
 
 func runManagedUpdate(ctx context.Context, cmd *cli.Command, targetID string) error {
 	apps, err := collectManagedUpdateTargets(targetID)
@@ -1193,10 +1195,7 @@ func identifyInputType(input string) string {
 }
 
 func useColor(cmd *cli.Command) bool {
-	if cmd.Bool("no-color") {
-		return false
-	}
-
+	_ = cmd
 	return isTerminalOutput()
 }
 

@@ -21,12 +21,6 @@ func main() {
 		Version: version,
 		Usage:   "Integrate AppImages into your desktop environment",
 		Action:  RootCmd,
-		Flags: []cli.Flag{
-			&cli.BoolFlag{
-				Name:  "no-color",
-				Usage: "disable ANSI color output",
-			},
-		},
 		Commands: []*cli.Command{
 			{
 				Name:  "add",
@@ -94,7 +88,7 @@ func main() {
 			{
 				Name:      "update",
 				Usage:     "Check/apply updates, check local files, or set update source",
-				UsageText: "aim update [<id>] [--yes|-y] [--check-only|-c]\n   aim update check <path-to.AppImage>\n   aim update set <id> (--github owner/repo --asset \"*.AppImage\" | --gitlab namespace/project --asset \"*.AppImage\" | --zsync-url <https-url>)",
+				UsageText: "aim update [<id>] [--yes|-y] [--check-only|-c]\n   aim update check <path-to.AppImage>\n   aim update set <id> (--github owner/repo [--asset \"*.AppImage\"] | --gitlab namespace/project [--asset \"*.AppImage\"] | --zsync-url <https-url>)",
 				Flags: []cli.Flag{
 					&cli.BoolFlag{
 						Name:    "yes",
@@ -112,7 +106,7 @@ func main() {
 					},
 					&cli.StringFlag{
 						Name:  "asset",
-						Usage: "asset filename pattern, e.g. \"*.AppImage\" (for 'update set')",
+						Usage: "asset filename pattern; defaults to \"*.AppImage\" for GitHub/GitLab (for 'update set')",
 					},
 					&cli.StringFlag{
 						Name:  "gitlab",

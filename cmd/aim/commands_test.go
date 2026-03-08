@@ -95,11 +95,10 @@ func TestUpdateDownloadFilename(t *testing.T) {
 func TestUpgradeCmdUsesSelfUpgradeFlow(t *testing.T) {
 	cmd := &cli.Command{
 		Name:   "upgrade",
-		Flags:  []cli.Flag{&cli.BoolFlag{Name: "no-color"}},
 		Action: UpgradeCmd,
 	}
 
-	err := cmd.Run(context.Background(), []string{"upgrade", "--no-color"})
+	err := cmd.Run(context.Background(), []string{"upgrade"})
 	if err == nil {
 		t.Fatal("expected dev-build self-upgrade error")
 	}
@@ -197,17 +196,32 @@ func TestResolveUpdateSourceFromSetFlags(t *testing.T) {
 		name      string
 		flags     map[string]string
 		expect    models.UpdateKind
+		asset     string
 		wantError bool
 	}{
 		{
 			name:   "github source",
 			flags:  map[string]string{"github": "owner/repo", "asset": "*.AppImage"},
 			expect: models.UpdateGitHubRelease,
+			asset:  "*.AppImage",
 		},
 		{
 			name:   "gitlab source",
 			flags:  map[string]string{"gitlab": "group/project", "asset": "*.AppImage"},
 			expect: models.UpdateGitLabRelease,
+			asset:  "*.AppImage",
+		},
+		{
+			name:   "github source default asset",
+			flags:  map[string]string{"github": "owner/repo"},
+			expect: models.UpdateGitHubRelease,
+			asset:  "*.AppImage",
+		},
+		{
+			name:   "gitlab source default asset",
+			flags:  map[string]string{"gitlab": "group/project"},
+			expect: models.UpdateGitLabRelease,
+			asset:  "*.AppImage",
 		},
 		{
 			name:   "zsync source",
@@ -257,6 +271,16 @@ func TestResolveUpdateSourceFromSetFlags(t *testing.T) {
 			if source.Kind != tt.expect {
 				t.Fatalf("source.Kind = %q, want %q", source.Kind, tt.expect)
 			}
+			switch source.Kind {
+			case models.UpdateGitHubRelease:
+				if source.GitHubRelease == nil || source.GitHubRelease.Asset != tt.asset {
+					t.Fatalf("github asset = %q, want %q", source.GitHubRelease.Asset, tt.asset)
+				}
+			case models.UpdateGitLabRelease:
+				if source.GitLabRelease == nil || source.GitLabRelease.Asset != tt.asset {
+					t.Fatalf("gitlab asset = %q, want %q", source.GitLabRelease.Asset, tt.asset)
+				}
+			}
 		})
 	}
 }
@@ -290,9 +314,6 @@ func newRootTestCommand() *cli.Command {
 		Name:   "aim",
 		Usage:  "Integrate AppImages into your desktop environment",
 		Action: RootCmd,
-		Flags: []cli.Flag{
-			&cli.BoolFlag{Name: "no-color"},
-		},
 		Commands: []*cli.Command{
 			{Name: "add", Action: AddCmd},
 			{Name: "remove", Action: RemoveCmd},
@@ -336,7 +357,7 @@ func TestRunManagedUpdateSingleUpToDatePrintedOnce(t *testing.T) {
 		t.Fatalf("failed to write test DB: %v", err)
 	}
 
-	cmd := &cli.Command{Flags: []cli.Flag{&cli.BoolFlag{Name: "yes"}, &cli.BoolFlag{Name: "check-only"}, &cli.BoolFlag{Name: "no-color"}}}
+	cmd := &cli.Command{Flags: []cli.Flag{&cli.BoolFlag{Name: "yes"}, &cli.BoolFlag{Name: "check-only"}}}
 	originalCheck := runAppUpdateCheck
 	t.Cleanup(func() {
 		runAppUpdateCheck = originalCheck
@@ -406,7 +427,7 @@ func TestRunManagedUpdateBatchContinuesOnCheckFailure(t *testing.T) {
 		return nil, nil
 	}
 
-	cmd := &cli.Command{Flags: []cli.Flag{&cli.BoolFlag{Name: "yes"}, &cli.BoolFlag{Name: "check-only"}, &cli.BoolFlag{Name: "no-color"}}}
+	cmd := &cli.Command{Flags: []cli.Flag{&cli.BoolFlag{Name: "yes"}, &cli.BoolFlag{Name: "check-only"}}}
 	output := captureStdout(t, func() {
 		if err := runManagedUpdate(context.Background(), cmd, ""); err != nil {
 			t.Fatalf("runManagedUpdate returned error: %v", err)
@@ -463,7 +484,7 @@ func TestAddCmdSkipsPostCheckByDefault(t *testing.T) {
 		return nil, nil
 	}
 
-	if err := runAddCommand(context.Background(), []string{"my-app", "--no-color"}); err != nil {
+	if err := runAddCommand(context.Background(), []string{"my-app"}); err != nil {
 		t.Fatalf("runAddCommand returned error: %v", err)
 	}
 
@@ -514,7 +535,7 @@ func TestAddCmdPostCheckRunsWhenEnabled(t *testing.T) {
 		return &core.UpdateData{Available: false}, nil
 	}
 
-	if err := runAddCommand(context.Background(), []string{"my-app", "--no-color", "--post-check"}); err != nil {
+	if err := runAddCommand(context.Background(), []string{"my-app", "--post-check"}); err != nil {
 		t.Fatalf("runAddCommand returned error: %v", err)
 	}
 
@@ -913,7 +934,6 @@ func runAddCommand(ctx context.Context, args []string) error {
 			&cli.StringArg{Name: "app"},
 		},
 		Flags: []cli.Flag{
-			&cli.BoolFlag{Name: "no-color"},
 			&cli.BoolFlag{Name: "post-check"},
 		},
 		Action: AddCmd,
