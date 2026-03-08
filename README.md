@@ -3,7 +3,7 @@
 ![GitHub Release](https://img.shields.io/github/v/release/slobbe/appimage-manager?sort=semver&display_name=release&style=flat-square)
 ![GitHub License](https://img.shields.io/github/license/slobbe/appimage-manager?style=flat-square)
 
-Integrate AppImages into your desktop and keep them updated through embedded zsync metadata or explicit GitHub/GitLab release sources.
+Integrate AppImages into your desktop and keep them updated.
 
 ## Quick start
 
@@ -17,11 +17,9 @@ aim list
 Downloads the latest release for your CPU (amd64/x86_64 or arm64/aarch64) and installs it to `~/.local/bin/aim`.
 
 ```sh
+# Download and install
 curl -fsSL https://raw.githubusercontent.com/slobbe/appimage-manager/main/scripts/install.sh | sh
-```
-
-Verify:
-```sh
+# Verify
 aim --version
 ```
 
@@ -29,16 +27,13 @@ If `aim` is not found, make sure `~/.local/bin` is on your `PATH`.
 
 ## Build from source
 
-Requirements: Linux, Go 1.25.5+.
-
 ```sh
 git clone https://github.com/slobbe/appimage-manager.git
 cd appimage-manager
-```
-
-```sh
 go build ./cmd/aim
 ```
+
+Requirements: Linux, Go 1.25.5+.
 
 ## Usage
 
