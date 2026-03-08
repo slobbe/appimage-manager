@@ -86,8 +86,8 @@ func main() {
 			},
 			{
 				Name:      "update",
-				Usage:     "Check/apply updates, check local files, or set update source",
-				UsageText: "aim update [<id>] [--yes|-y] [--check-only|-c]\n   aim update check <path-to.AppImage>\n   aim update set <id> (--github owner/repo [--asset \"*.AppImage\"] | --gitlab namespace/project [--asset \"*.AppImage\"] | --zsync-url <https-url>)",
+				Usage:     "Check/apply updates or set update source",
+				UsageText: "aim update [<id>] [--yes|-y] [--check-only|-c]\n   aim update set <id> (--github owner/repo [--asset \"*.AppImage\"] | --gitlab namespace/project [--asset \"*.AppImage\"] | --zsync-url <https-url>)",
 				Flags: []cli.Flag{
 					&cli.BoolFlag{
 						Name:    "yes",

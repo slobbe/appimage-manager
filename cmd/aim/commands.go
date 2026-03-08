@@ -168,10 +168,10 @@ func UpdateCmd(ctx context.Context, cmd *cli.Command) error {
 	args := cmd.Args().Slice()
 	if len(args) > 0 {
 		switch args[0] {
-		case "check":
-			return UpdateCheckCmd(ctx, cmd, args[1:])
 		case "set":
 			return UpdateSetCmd(ctx, cmd, args[1:])
+		case "check":
+			return fmt.Errorf("`aim update check` has been removed; use `aim update [<id>]` for managed apps")
 		}
 	}
 
@@ -188,66 +188,6 @@ func UpdateCmd(ctx context.Context, cmd *cli.Command) error {
 	}
 
 	return runManagedUpdate(ctx, cmd, targetID)
-}
-
-func UpdateCheckCmd(ctx context.Context, cmd *cli.Command, args []string) error {
-	if cmd.IsSet("yes") || cmd.IsSet("check-only") {
-		return fmt.Errorf("flags --yes/-y and --check-only/-c are not supported with `aim update check`")
-	}
-	if len(args) != 1 {
-		return fmt.Errorf("usage: aim update check <path-to.AppImage>")
-	}
-
-	path := strings.TrimSpace(args[0])
-	if !util.HasExtension(path, ".AppImage") {
-		return fmt.Errorf("update check only supports local AppImage files; use `aim update <id>` for installed apps")
-	}
-
-	absPath, err := util.MakeAbsolute(path)
-	if err != nil {
-		return err
-	}
-
-	info, err := core.GetUpdateInfo(absPath)
-	if err != nil {
-		return err
-	}
-
-	if info.Kind != models.UpdateZsync {
-		return fmt.Errorf("unsupported local update info kind %q", info.Kind)
-	}
-
-	localSHA1, err := util.Sha1(absPath)
-	if err != nil {
-		return err
-	}
-
-	updater := &models.UpdateSource{
-		Kind: models.UpdateZsync,
-		Zsync: &models.ZsyncUpdateSource{
-			UpdateInfo: info.UpdateInfo,
-			Transport:  info.Transport,
-		},
-	}
-
-	update, err := runZsyncUpdateCheck(updater, localSHA1)
-	if err != nil {
-		return err
-	}
-
-	color := useColor(cmd)
-	if update != nil && update.Available {
-		label := "Newer version found!"
-		if update.PreRelease {
-			label = "Newer pre-release version found!"
-		}
-		msg := fmt.Sprintf("%s\nDownload from %s\nThen integrate it with %s", label, update.DownloadUrl, integrationHint(update.AssetName))
-		fmt.Println(colorize(color, "\033[0;33m", msg))
-	} else {
-		fmt.Println(colorize(color, "\033[0;32m", "You are up-to-date!"))
-	}
-
-	return nil
 }
 
 func UpdateSetCmd(ctx context.Context, cmd *cli.Command, args []string) error {

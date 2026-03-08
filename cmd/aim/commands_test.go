@@ -192,6 +192,29 @@ func TestRemoveCommandUsesUnlinkFlag(t *testing.T) {
 	}
 }
 
+func TestUpdateCheckSubcommandRemoved(t *testing.T) {
+	cmd := &cli.Command{
+		Name: "update",
+		Flags: []cli.Flag{
+			&cli.BoolFlag{Name: "yes"},
+			&cli.BoolFlag{Name: "check-only"},
+			&cli.StringFlag{Name: "github"},
+			&cli.StringFlag{Name: "asset"},
+			&cli.StringFlag{Name: "gitlab"},
+			&cli.StringFlag{Name: "zsync-url"},
+		},
+		Action: UpdateCmd,
+	}
+
+	err := cmd.Run(context.Background(), []string{"update", "check", "./MyApp.AppImage"})
+	if err == nil {
+		t.Fatal("expected removed-subcommand error")
+	}
+	if !strings.Contains(err.Error(), "`aim update check` has been removed") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestUpdateCheckMetadata(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "apps.json")

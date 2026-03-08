@@ -49,7 +49,7 @@ Integration creates desktop entry metadata (and icon data when available) so the
 
 - desktop integration and removal
 - a simple local database of managed apps
-- update checks and applies for embedded zsync, GitHub releases, and GitLab releases
+- update checks and applies for managed apps using embedded zsync, GitHub releases, and GitLab releases
 - self-upgrade via `aim upgrade`
 
 **Upgrade** `aim` itself to the latest stable release:
@@ -118,14 +118,6 @@ aim update <id> --check-only
 | `--yes`, `-y`        | apply found updates without prompt |
 | `--check-only`, `-c` | check only; do not apply           |
 
-**Check** a local AppImage file update-info:
-
-```sh
-aim update check <path-to.AppImage>
-```
-
-This only supports AppImages that expose embedded zsync update information.
-
 **Set** update source for an AppImage:
 
 ```sh
@@ -154,6 +146,7 @@ If an AppImage embeds zsync update info, `aim add` preserves it automatically.
 
 Removed from scope:
 
+- local `aim update check <path-to.AppImage>` checks
 - manifest-based update sources
 - direct URL update sources
 - pin/unpin commands
