@@ -46,13 +46,17 @@ Integration installs desktop entry metadata and icons so the AppImage appears in
 - update checks and applies for managed apps using embedded zsync, GitHub releases, and GitLab releases
 - self-upgrade via `aim upgrade`
 
-**Upgrade** `aim` to the latest stable release:
+### Upgrade
+
+Upgrade `aim` to the latest stable release.
 
 ```sh
 aim upgrade
 ```
 
-**Integrate** a local AppImage or reintegrate an existing ID:
+### Add
+
+Integrate a local `.AppImage` or reintegrate an existing managed ID.
 
 ```sh
 aim add <path-to.AppImage|id>
@@ -73,14 +77,18 @@ aim add <id>
 
 Remote sources that were previously installed with `aim add ...` are now installed with `aim install ...`.
 
-**Show** installability details for a package ref:
+### Show
+
+Inspect a package ref before installing it.
 
 ```sh
 aim show github:owner/repo
 aim show gitlab:namespace/project
 ```
 
-**Install** from a remote source:
+### Install
+
+Download from a remote source and integrate the result.
 
 ```sh
 aim install https://example.com/MyApp.AppImage
@@ -99,7 +107,9 @@ For direct `https://` installs, `--sha256` is optional. If omitted, `aim` warns 
 
 For `github:` and `gitlab:` installs, `aim` configures the matching update source automatically.
 
-**Remove** or unlink a managed AppImage:
+### Remove
+
+Remove a managed AppImage or unlink its desktop integration.
 
 ```sh
 aim remove [--unlink] <id>
@@ -117,7 +127,9 @@ Example:
 aim remove --unlink <id>
 ```
 
-**List** managed AppImages:
+### List
+
+List managed AppImages.
 
 ```sh
 aim list [options]
@@ -131,7 +143,11 @@ aim list [options]
 
 Unlinked entries are still managed by `aim`, but currently have no desktop integration.
 
-**Check** all managed apps for updates:
+### Update
+
+Check, apply, or configure updates for managed apps.
+
+Check or apply updates:
 
 ```sh
 aim update
@@ -139,7 +155,7 @@ aim update --check-only
 aim update --yes
 ```
 
-**Check** one managed app by ID:
+Check one managed app by ID:
 
 ```sh
 aim update <id>
@@ -164,7 +180,7 @@ aim update --yes
 | `--yes`, `-y`        | apply found updates without prompt |
 | `--check-only`, `-c` | check only; do not apply           |
 
-**Set** update source for an AppImage:
+Set an update source:
 
 ```sh
 aim update set <id> --github owner/repo
