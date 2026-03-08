@@ -10,7 +10,6 @@ Integrate AppImages into your desktop and keep them updated through embedded zsy
 ```sh
 aim add ./MyApp.AppImage
 aim list
-aim update --check-only
 ```
 
 ## Installation
@@ -143,16 +142,6 @@ aim update set <id> --github owner/repo --asset "MyApp-*-x86_64.AppImage"
 GitHub and GitLab update checks use stable releases only.
 
 If an AppImage embeds zsync update info, `aim add` preserves it automatically.
-
-Removed from scope:
-
-- local `aim update check <path-to.AppImage>` checks
-- manifest-based update sources
-- direct URL update sources
-- pin/unpin commands
-- self-upgrade via `aim --upgrade`
-
-If an older database entry still references an unsupported update source, `aim update` will tell you to reconfigure it with `aim update set`.
 
 ## Data locations (XDG)
 
