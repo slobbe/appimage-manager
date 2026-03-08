@@ -126,6 +126,7 @@ aim update set <id> --zsync-url https://example.com/MyApp.AppImage.zsync
 ```
 
 For GitHub and GitLab sources, `--asset` is optional and defaults to `*.AppImage`.
+With that default, `aim` still prefers the AppImage that matches the current machine architecture when multiple AppImage assets are present.
 Use `--asset` only if you need a narrower asset match, for example:
 
 ```sh
