@@ -2546,6 +2546,26 @@ func TestManagedCheckWorkerCount(t *testing.T) {
 	}
 }
 
+func TestManagedApplyWorkerCount(t *testing.T) {
+	tests := []struct {
+		input  int
+		expect int
+	}{
+		{input: 0, expect: 0},
+		{input: 1, expect: 1},
+		{input: 3, expect: 3},
+		{input: 5, expect: 5},
+		{input: 9, expect: 5},
+	}
+
+	for _, tt := range tests {
+		got := managedApplyWorkerCount(tt.input)
+		if got != tt.expect {
+			t.Fatalf("managedApplyWorkerCount(%d) = %d, want %d", tt.input, got, tt.expect)
+		}
+	}
+}
+
 func TestPersistManagedAppliedAppsUsesBatch(t *testing.T) {
 	originalBatch := addAppsBatch
 	originalSingle := addSingleApp
@@ -2684,15 +2704,351 @@ func TestFormatByteSize(t *testing.T) {
 	}
 }
 
+func TestManagedApplyStatusText(t *testing.T) {
+	tests := []struct {
+		name   string
+		row    managedApplyRowState
+		expect string
+	}{
+		{name: "queued", row: managedApplyRowState{stage: managedApplyStageQueued}, expect: "queued"},
+		{name: "zsync", row: managedApplyRowState{stage: managedApplyStageZsync}, expect: "delta update"},
+		{name: "download known", row: managedApplyRowState{stage: managedApplyStageDownload, downloaded: 512, downloadTotal: 1024}, expect: "downloading 50.0% (512B/1.0KB)"},
+		{name: "download unknown", row: managedApplyRowState{stage: managedApplyStageDownload, downloaded: 2048}, expect: "downloading 2.0KB"},
+		{name: "verify", row: managedApplyRowState{stage: managedApplyStageVerify}, expect: "verifying"},
+		{name: "integrate", row: managedApplyRowState{stage: managedApplyStageIntegrate}, expect: "integrating"},
+		{name: "done", row: managedApplyRowState{stage: managedApplyStageDone, version: "2.0.0"}, expect: "updated -> v2.0.0"},
+		{name: "failed", row: managedApplyRowState{stage: managedApplyStageFailed}, expect: "failed"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := managedApplyStatusText(tt.row)
+			if got != tt.expect {
+				t.Fatalf("managedApplyStatusText(%s) = %q, want %q", tt.name, got, tt.expect)
+			}
+		})
+	}
+}
+
+func TestManagedApplyRendererTTYRendersStableRows(t *testing.T) {
+	withTerminalOutput(t, true)
+
+	output := captureStdout(t, func() {
+		renderer := newManagedApplyRenderer(&cli.Command{}, []pendingManagedUpdate{
+			{App: &models.App{ID: "app-a"}},
+			{App: &models.App{ID: "app-b"}},
+		})
+		renderer.Event(managedApplyEvent{Index: 0, AppID: "app-a", Stage: managedApplyStageDownload, Downloaded: 1024, DownloadTotal: 2048})
+		renderer.Event(managedApplyEvent{Index: 1, AppID: "app-b", Stage: managedApplyStageDone, Version: "2.0.0"})
+		renderer.Finish([]managedApplyResult{
+			{index: 0, app: &models.App{ID: "app-a"}, updatedApp: &models.App{ID: "app-a", Version: "1.1.0"}},
+			{index: 1, app: &models.App{ID: "app-b"}, updatedApp: &models.App{ID: "app-b", Version: "2.0.0"}},
+		})
+	})
+
+	if !strings.Contains(output, "Applying 2 updates concurrently (max 5 workers)") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+	if !strings.Contains(output, "\033[2K\r[1/2] app-a") {
+		t.Fatalf("expected tty redraw output, got:\n%s", output)
+	}
+	if !strings.Contains(output, "[2/2] app-b") {
+		t.Fatalf("expected second row, got:\n%s", output)
+	}
+}
+
+func TestRunManagedUpdateUsesUnifiedApplyUIForSingleApp(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "apps.json")
+
+	originalDbSrc := config.DbSrc
+	originalCheck := runAppUpdateCheck
+	originalApply := runManagedApply
+	config.DbSrc = dbPath
+	t.Cleanup(func() {
+		config.DbSrc = originalDbSrc
+		runAppUpdateCheck = originalCheck
+		runManagedApply = originalApply
+	})
+
+	if err := repo.SaveDB(dbPath, &repo.DB{
+		SchemaVersion: 1,
+		Apps: map[string]*models.App{
+			"my-app": {ID: "my-app", Name: "My App", Version: "1.0.0"},
+		},
+	}); err != nil {
+		t.Fatalf("failed to write test DB: %v", err)
+	}
+
+	runAppUpdateCheck = func(app *models.App) (*pendingManagedUpdate, error) {
+		return &pendingManagedUpdate{
+			App:       app,
+			Label:     "Update available",
+			Available: true,
+			Latest:    "1.1.0",
+			URL:       "https://example.com/MyApp.AppImage",
+		}, nil
+	}
+	runManagedApply = func(ctx context.Context, update pendingManagedUpdate, reporter managedApplyReporter) (*models.App, error) {
+		emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageDownload, Downloaded: 1024, DownloadTotal: 2048})
+		emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageVerify})
+		emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageIntegrate})
+		emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageDone, Version: "1.1.0"})
+		return &models.App{ID: update.App.ID, Version: "1.1.0"}, nil
+	}
+
+	cmd := &cli.Command{Flags: []cli.Flag{&cli.BoolFlag{Name: "yes"}}}
+	if err := cmd.Set("yes", "true"); err != nil {
+		t.Fatalf("failed to set yes: %v", err)
+	}
+	output := captureStdout(t, func() {
+		if err := runManagedUpdate(context.Background(), cmd, "my-app"); err != nil {
+			t.Fatalf("runManagedUpdate returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "Applying 1 update") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+	if !strings.Contains(output, "[1/1] my-app updated -> v1.1.0") {
+		t.Fatalf("expected final row, got:\n%s", output)
+	}
+	if strings.Contains(output, "Updating my-app") {
+		t.Fatalf("expected old serial apply output to be absent:\n%s", output)
+	}
+	if strings.Contains(output, "\033[") {
+		t.Fatalf("expected non-tty output without ansi codes:\n%s", output)
+	}
+	if !strings.Contains(output, "Updated 1 app(s); 0 failed") {
+		t.Fatalf("unexpected summary:\n%s", output)
+	}
+}
+
+func TestRunManagedUpdateAppliesConcurrentlyWithMaxFiveWorkers(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "apps.json")
+
+	originalDbSrc := config.DbSrc
+	originalCheck := runAppUpdateCheck
+	originalApply := runManagedApply
+	config.DbSrc = dbPath
+	t.Cleanup(func() {
+		config.DbSrc = originalDbSrc
+		runAppUpdateCheck = originalCheck
+		runManagedApply = originalApply
+	})
+
+	apps := make(map[string]*models.App)
+	for idx := 0; idx < 7; idx++ {
+		id := fmt.Sprintf("app-%d", idx)
+		apps[id] = &models.App{ID: id, Name: id, Version: "1.0.0"}
+	}
+	if err := repo.SaveDB(dbPath, &repo.DB{SchemaVersion: 1, Apps: apps}); err != nil {
+		t.Fatalf("failed to write test DB: %v", err)
+	}
+
+	runAppUpdateCheck = func(app *models.App) (*pendingManagedUpdate, error) {
+		return &pendingManagedUpdate{
+			App:       app,
+			Label:     "Update available",
+			Available: true,
+			Latest:    "2.0.0",
+			URL:       "https://example.com/" + app.ID + ".AppImage",
+		}, nil
+	}
+
+	var current int32
+	var observedMax int32
+	runManagedApply = func(ctx context.Context, update pendingManagedUpdate, reporter managedApplyReporter) (*models.App, error) {
+		active := atomic.AddInt32(&current, 1)
+		for {
+			max := atomic.LoadInt32(&observedMax)
+			if active <= max {
+				break
+			}
+			if atomic.CompareAndSwapInt32(&observedMax, max, active) {
+				break
+			}
+		}
+		time.Sleep(25 * time.Millisecond)
+		atomic.AddInt32(&current, -1)
+		emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageDone, Version: "2.0.0"})
+		return &models.App{ID: update.App.ID, Version: "2.0.0"}, nil
+	}
+
+	cmd := &cli.Command{Flags: []cli.Flag{&cli.BoolFlag{Name: "yes"}}}
+	if err := cmd.Set("yes", "true"); err != nil {
+		t.Fatalf("failed to set yes: %v", err)
+	}
+	output := captureStdout(t, func() {
+		if err := runManagedUpdate(context.Background(), cmd, ""); err != nil {
+			t.Fatalf("runManagedUpdate returned error: %v", err)
+		}
+	})
+
+	if atomic.LoadInt32(&observedMax) != 5 {
+		t.Fatalf("observed concurrency = %d, want 5", observedMax)
+	}
+	if !strings.Contains(output, "Applying 7 updates concurrently (max 5 workers)") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+}
+
+func TestRunManagedUpdatePersistsSuccessesInPendingOrder(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "apps.json")
+
+	originalDbSrc := config.DbSrc
+	originalCheck := runAppUpdateCheck
+	originalApply := runManagedApply
+	originalBatch := addAppsBatch
+	originalSingle := addSingleApp
+	config.DbSrc = dbPath
+	t.Cleanup(func() {
+		config.DbSrc = originalDbSrc
+		runAppUpdateCheck = originalCheck
+		runManagedApply = originalApply
+		addAppsBatch = originalBatch
+		addSingleApp = originalSingle
+	})
+
+	if err := repo.SaveDB(dbPath, &repo.DB{
+		SchemaVersion: 1,
+		Apps: map[string]*models.App{
+			"app-a": {ID: "app-a", Version: "1.0.0"},
+			"app-b": {ID: "app-b", Version: "1.0.0"},
+			"app-c": {ID: "app-c", Version: "1.0.0"},
+		},
+	}); err != nil {
+		t.Fatalf("failed to write test DB: %v", err)
+	}
+
+	runAppUpdateCheck = func(app *models.App) (*pendingManagedUpdate, error) {
+		return &pendingManagedUpdate{App: app, Available: true, URL: "https://example.com/" + app.ID + ".AppImage"}, nil
+	}
+	runManagedApply = func(ctx context.Context, update pendingManagedUpdate, reporter managedApplyReporter) (*models.App, error) {
+		switch update.App.ID {
+		case "app-a":
+			time.Sleep(30 * time.Millisecond)
+		case "app-b":
+			time.Sleep(10 * time.Millisecond)
+		}
+		emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageDone, Version: "2.0.0"})
+		return &models.App{ID: update.App.ID, Version: "2.0.0"}, nil
+	}
+
+	var persisted []string
+	addAppsBatch = func(apps []*models.App, overwrite bool) error {
+		for _, app := range apps {
+			persisted = append(persisted, app.ID)
+		}
+		return nil
+	}
+	addSingleApp = func(*models.App, bool) error {
+		t.Fatal("single app persistence should not be used")
+		return nil
+	}
+
+	cmd := &cli.Command{Flags: []cli.Flag{&cli.BoolFlag{Name: "yes"}}}
+	if err := cmd.Set("yes", "true"); err != nil {
+		t.Fatalf("failed to set yes: %v", err)
+	}
+	if err := runManagedUpdate(context.Background(), cmd, ""); err != nil {
+		t.Fatalf("runManagedUpdate returned error: %v", err)
+	}
+
+	got := strings.Join(persisted, ",")
+	if got != "app-a,app-b,app-c" {
+		t.Fatalf("persisted order = %q, want %q", got, "app-a,app-b,app-c")
+	}
+}
+
+func TestRunManagedUpdateContinuesAfterApplyFailure(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "apps.json")
+
+	originalDbSrc := config.DbSrc
+	originalCheck := runAppUpdateCheck
+	originalApply := runManagedApply
+	originalBatch := addAppsBatch
+	config.DbSrc = dbPath
+	t.Cleanup(func() {
+		config.DbSrc = originalDbSrc
+		runAppUpdateCheck = originalCheck
+		runManagedApply = originalApply
+		addAppsBatch = originalBatch
+	})
+
+	if err := repo.SaveDB(dbPath, &repo.DB{
+		SchemaVersion: 1,
+		Apps: map[string]*models.App{
+			"app-a": {ID: "app-a", Version: "1.0.0"},
+			"app-b": {ID: "app-b", Version: "1.0.0"},
+		},
+	}); err != nil {
+		t.Fatalf("failed to write test DB: %v", err)
+	}
+
+	runAppUpdateCheck = func(app *models.App) (*pendingManagedUpdate, error) {
+		return &pendingManagedUpdate{App: app, Available: true, URL: "https://example.com/" + app.ID + ".AppImage"}, nil
+	}
+	runManagedApply = func(ctx context.Context, update pendingManagedUpdate, reporter managedApplyReporter) (*models.App, error) {
+		if update.App.ID == "app-a" {
+			emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageFailed, Message: "boom"})
+			return nil, fmt.Errorf("boom")
+		}
+		emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageDone, Version: "2.0.0"})
+		return &models.App{ID: update.App.ID, Version: "2.0.0"}, nil
+	}
+
+	var persisted []string
+	addAppsBatch = func(apps []*models.App, overwrite bool) error {
+		for _, app := range apps {
+			persisted = append(persisted, app.ID)
+		}
+		return nil
+	}
+
+	cmd := &cli.Command{Flags: []cli.Flag{&cli.BoolFlag{Name: "yes"}}}
+	if err := cmd.Set("yes", "true"); err != nil {
+		t.Fatalf("failed to set yes: %v", err)
+	}
+	output := captureStdout(t, func() {
+		err := runManagedUpdate(context.Background(), cmd, "")
+		if err == nil {
+			t.Fatal("expected aggregated apply error")
+		}
+		if err.Error() != "1 update(s) failed" {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	if strings.Join(persisted, ",") != "app-b" {
+		t.Fatalf("persisted ids = %q, want %q", strings.Join(persisted, ","), "app-b")
+	}
+	if !strings.Contains(output, "[1/2] app-a failed") {
+		t.Fatalf("expected failed row, got:\n%s", output)
+	}
+	if !strings.Contains(output, "Failed: app-a: boom") {
+		t.Fatalf("expected failure detail, got:\n%s", output)
+	}
+	if !strings.Contains(output, "[2/2] app-b updated -> v2.0.0") {
+		t.Fatalf("expected success row, got:\n%s", output)
+	}
+	if !strings.Contains(output, "Updated 1 app(s); 1 failed") {
+		t.Fatalf("unexpected summary:\n%s", output)
+	}
+}
+
 func TestApplyManagedUpdateUsesZsyncWhenAvailable(t *testing.T) {
 	originalLookPath := zsyncLookPath
 	originalCommand := zsyncCommandContext
-	originalDownload := downloadRemoteAsset
+	originalDownload := downloadManagedRemoteAsset
 	originalIntegrate := integrateManagedUpdate
 	t.Cleanup(func() {
 		zsyncLookPath = originalLookPath
 		zsyncCommandContext = originalCommand
-		downloadRemoteAsset = originalDownload
+		downloadManagedRemoteAsset = originalDownload
 		integrateManagedUpdate = originalIntegrate
 	})
 
@@ -2729,7 +3085,7 @@ func TestApplyManagedUpdateUsesZsyncWhenAvailable(t *testing.T) {
 		return exec.CommandContext(ctx, "sh", "-c", "exit 0")
 	}
 
-	downloadRemoteAsset = func(context.Context, string, string, bool) error {
+	downloadManagedRemoteAsset = func(context.Context, string, string, bool, func(int64, int64)) error {
 		t.Fatal("download should not be called when zsync succeeds")
 		return nil
 	}
@@ -2748,25 +3104,18 @@ func TestApplyManagedUpdateUsesZsyncWhenAvailable(t *testing.T) {
 		return &models.App{ID: "my-app", Version: "2.0.0"}, nil
 	}
 
-	output := captureStdout(t, func() {
-		_, err := applyManagedUpdate(context.Background(), pendingManagedUpdate{
-			App:          &models.App{ID: "my-app", ExecPath: currentPath},
-			URL:          "https://example.com/MyApp.AppImage",
-			Asset:        "MyApp.AppImage",
-			ZsyncURL:     "https://example.com/MyApp.AppImage.zsync",
-			ExpectedSHA1: expectedSHA1,
-		}, false)
-		if err != nil {
-			t.Fatalf("applyManagedUpdate returned error: %v", err)
-		}
-	})
+	reporter := &recordedManagedApplyReporter{}
+	_, err := applyManagedUpdate(context.Background(), pendingManagedUpdate{
+		App:          &models.App{ID: "my-app", ExecPath: currentPath},
+		URL:          "https://example.com/MyApp.AppImage",
+		Asset:        "MyApp.AppImage",
+		ZsyncURL:     "https://example.com/MyApp.AppImage.zsync",
+		ExpectedSHA1: expectedSHA1,
+	}, reporter)
+	if err != nil {
+		t.Fatalf("applyManagedUpdate returned error: %v", err)
+	}
 
-	if !strings.Contains(output, "Using zsync delta update") {
-		t.Fatalf("unexpected output:\n%s", output)
-	}
-	if strings.Contains(output, "zsync failed, falling back to full download") {
-		t.Fatalf("unexpected fallback output:\n%s", output)
-	}
 	if len(call) < 7 {
 		t.Fatalf("unexpected zsync call: %v", call)
 	}
@@ -2779,15 +3128,22 @@ func TestApplyManagedUpdateUsesZsyncWhenAvailable(t *testing.T) {
 	if !containsString(call, "https://example.com/MyApp.AppImage.zsync") {
 		t.Fatalf("expected zsync call to include zsync url, got %v", call)
 	}
+	assertManagedApplyStages(t, reporter.events,
+		managedApplyStageQueued,
+		managedApplyStageZsync,
+		managedApplyStageVerify,
+		managedApplyStageIntegrate,
+		managedApplyStageDone,
+	)
 }
 
 func TestApplyManagedUpdateFallsBackWhenZsyncMissing(t *testing.T) {
 	originalLookPath := zsyncLookPath
-	originalDownload := downloadRemoteAsset
+	originalDownload := downloadManagedRemoteAsset
 	originalIntegrate := integrateManagedUpdate
 	t.Cleanup(func() {
 		zsyncLookPath = originalLookPath
-		downloadRemoteAsset = originalDownload
+		downloadManagedRemoteAsset = originalDownload
 		integrateManagedUpdate = originalIntegrate
 	})
 
@@ -2799,8 +3155,11 @@ func TestApplyManagedUpdateFallsBackWhenZsyncMissing(t *testing.T) {
 	}
 
 	var downloadCalls int32
-	downloadRemoteAsset = func(ctx context.Context, assetURL, destination string, interactive bool) error {
+	downloadManagedRemoteAsset = func(ctx context.Context, assetURL, destination string, interactive bool, onProgress func(int64, int64)) error {
 		atomic.AddInt32(&downloadCalls, 1)
+		if onProgress != nil {
+			onProgress(int64(len(payload)), int64(len(payload)))
+		}
 		return os.WriteFile(destination, payload, 0o644)
 	}
 
@@ -2808,36 +3167,40 @@ func TestApplyManagedUpdateFallsBackWhenZsyncMissing(t *testing.T) {
 		return &models.App{ID: "my-app", Version: "2.0.0"}, nil
 	}
 
-	output := captureStdout(t, func() {
-		_, err := applyManagedUpdate(context.Background(), pendingManagedUpdate{
-			App:          &models.App{ID: "my-app", ExecPath: "/tmp/current.AppImage"},
-			URL:          "https://example.com/MyApp.AppImage",
-			Asset:        "MyApp.AppImage",
-			ZsyncURL:     "https://example.com/MyApp.AppImage.zsync",
-			ExpectedSHA1: expectedSHA1,
-		}, false)
-		if err != nil {
-			t.Fatalf("applyManagedUpdate returned error: %v", err)
-		}
-	})
-
+	reporter := &recordedManagedApplyReporter{}
+	_, err := applyManagedUpdate(context.Background(), pendingManagedUpdate{
+		App:          &models.App{ID: "my-app", ExecPath: "/tmp/current.AppImage"},
+		URL:          "https://example.com/MyApp.AppImage",
+		Asset:        "MyApp.AppImage",
+		ZsyncURL:     "https://example.com/MyApp.AppImage.zsync",
+		ExpectedSHA1: expectedSHA1,
+	}, reporter)
+	if err != nil {
+		t.Fatalf("applyManagedUpdate returned error: %v", err)
+	}
 	if atomic.LoadInt32(&downloadCalls) != 1 {
 		t.Fatalf("download calls = %d, want 1", downloadCalls)
 	}
-	if !strings.Contains(output, "zsync failed, falling back to full download") {
-		t.Fatalf("unexpected output:\n%s", output)
-	}
+	assertManagedApplyStages(t, reporter.events,
+		managedApplyStageQueued,
+		managedApplyStageZsync,
+		managedApplyStageDownload,
+		managedApplyStageDownload,
+		managedApplyStageVerify,
+		managedApplyStageIntegrate,
+		managedApplyStageDone,
+	)
 }
 
 func TestApplyManagedUpdateFallsBackWhenZsyncFails(t *testing.T) {
 	originalLookPath := zsyncLookPath
 	originalCommand := zsyncCommandContext
-	originalDownload := downloadRemoteAsset
+	originalDownload := downloadManagedRemoteAsset
 	originalIntegrate := integrateManagedUpdate
 	t.Cleanup(func() {
 		zsyncLookPath = originalLookPath
 		zsyncCommandContext = originalCommand
-		downloadRemoteAsset = originalDownload
+		downloadManagedRemoteAsset = originalDownload
 		integrateManagedUpdate = originalIntegrate
 	})
 
@@ -2852,8 +3215,11 @@ func TestApplyManagedUpdateFallsBackWhenZsyncFails(t *testing.T) {
 	}
 
 	var downloadCalls int32
-	downloadRemoteAsset = func(ctx context.Context, assetURL, destination string, interactive bool) error {
+	downloadManagedRemoteAsset = func(ctx context.Context, assetURL, destination string, interactive bool, onProgress func(int64, int64)) error {
 		atomic.AddInt32(&downloadCalls, 1)
+		if onProgress != nil {
+			onProgress(int64(len(payload)), int64(len(payload)))
+		}
 		return os.WriteFile(destination, payload, 0o644)
 	}
 
@@ -2861,34 +3227,38 @@ func TestApplyManagedUpdateFallsBackWhenZsyncFails(t *testing.T) {
 		return &models.App{ID: "my-app", Version: "2.0.0"}, nil
 	}
 
-	output := captureStdout(t, func() {
-		_, err := applyManagedUpdate(context.Background(), pendingManagedUpdate{
-			App:          &models.App{ID: "my-app", ExecPath: "/tmp/current.AppImage"},
-			URL:          "https://example.com/MyApp.AppImage",
-			Asset:        "MyApp.AppImage",
-			ZsyncURL:     "https://example.com/MyApp.AppImage.zsync",
-			ExpectedSHA1: expectedSHA1,
-		}, false)
-		if err != nil {
-			t.Fatalf("applyManagedUpdate returned error: %v", err)
-		}
-	})
-
+	reporter := &recordedManagedApplyReporter{}
+	_, err := applyManagedUpdate(context.Background(), pendingManagedUpdate{
+		App:          &models.App{ID: "my-app", ExecPath: "/tmp/current.AppImage"},
+		URL:          "https://example.com/MyApp.AppImage",
+		Asset:        "MyApp.AppImage",
+		ZsyncURL:     "https://example.com/MyApp.AppImage.zsync",
+		ExpectedSHA1: expectedSHA1,
+	}, reporter)
+	if err != nil {
+		t.Fatalf("applyManagedUpdate returned error: %v", err)
+	}
 	if atomic.LoadInt32(&downloadCalls) != 1 {
 		t.Fatalf("download calls = %d, want 1", downloadCalls)
 	}
-	if !strings.Contains(output, "zsync failed, falling back to full download") {
-		t.Fatalf("unexpected output:\n%s", output)
-	}
+	assertManagedApplyStages(t, reporter.events,
+		managedApplyStageQueued,
+		managedApplyStageZsync,
+		managedApplyStageDownload,
+		managedApplyStageDownload,
+		managedApplyStageVerify,
+		managedApplyStageIntegrate,
+		managedApplyStageDone,
+	)
 }
 
 func TestApplyManagedUpdateWithoutZsyncUsesFullDownload(t *testing.T) {
 	originalLookPath := zsyncLookPath
-	originalDownload := downloadRemoteAsset
+	originalDownload := downloadManagedRemoteAsset
 	originalIntegrate := integrateManagedUpdate
 	t.Cleanup(func() {
 		zsyncLookPath = originalLookPath
-		downloadRemoteAsset = originalDownload
+		downloadManagedRemoteAsset = originalDownload
 		integrateManagedUpdate = originalIntegrate
 	})
 
@@ -2898,8 +3268,11 @@ func TestApplyManagedUpdateWithoutZsyncUsesFullDownload(t *testing.T) {
 	}
 
 	var downloadCalls int32
-	downloadRemoteAsset = func(ctx context.Context, assetURL, destination string, interactive bool) error {
+	downloadManagedRemoteAsset = func(ctx context.Context, assetURL, destination string, interactive bool, onProgress func(int64, int64)) error {
 		atomic.AddInt32(&downloadCalls, 1)
+		if onProgress != nil {
+			onProgress(10, 10)
+		}
 		return os.WriteFile(destination, []byte("downloaded"), 0o644)
 	}
 
@@ -2907,17 +3280,26 @@ func TestApplyManagedUpdateWithoutZsyncUsesFullDownload(t *testing.T) {
 		return &models.App{ID: "my-app", Version: "2.0.0"}, nil
 	}
 
+	reporter := &recordedManagedApplyReporter{}
 	_, err := applyManagedUpdate(context.Background(), pendingManagedUpdate{
 		App:   &models.App{ID: "my-app", ExecPath: "/tmp/current.AppImage"},
 		URL:   "https://example.com/MyApp.AppImage",
 		Asset: "MyApp.AppImage",
-	}, false)
+	}, reporter)
 	if err != nil {
 		t.Fatalf("applyManagedUpdate returned error: %v", err)
 	}
 	if atomic.LoadInt32(&downloadCalls) != 1 {
 		t.Fatalf("download calls = %d, want 1", downloadCalls)
 	}
+	assertManagedApplyStages(t, reporter.events,
+		managedApplyStageQueued,
+		managedApplyStageDownload,
+		managedApplyStageDownload,
+		managedApplyStageVerify,
+		managedApplyStageIntegrate,
+		managedApplyStageDone,
+	)
 }
 
 func TestDisplayVersion(t *testing.T) {
@@ -3016,6 +3398,44 @@ func TestUpdateSetPromptText(t *testing.T) {
 	if !strings.Contains(output, "Update source unchanged") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
+}
+
+type recordedManagedApplyReporter struct {
+	events []managedApplyEvent
+}
+
+func (r *recordedManagedApplyReporter) Event(event managedApplyEvent) {
+	r.events = append(r.events, event)
+}
+
+func assertManagedApplyStages(t *testing.T, events []managedApplyEvent, want ...managedApplyStage) {
+	t.Helper()
+
+	got := make([]managedApplyStage, 0, len(events))
+	for _, event := range events {
+		got = append(got, event.Stage)
+	}
+
+	if len(got) != len(want) {
+		t.Fatalf("stage count = %d, want %d (%v)", len(got), len(want), got)
+	}
+	for idx := range want {
+		if got[idx] != want[idx] {
+			t.Fatalf("stage[%d] = %q, want %q (all=%v)", idx, got[idx], want[idx], got)
+		}
+	}
+}
+
+func withTerminalOutput(t *testing.T, value bool) {
+	t.Helper()
+
+	original := terminalOutputChecker
+	terminalOutputChecker = func() bool {
+		return value
+	}
+	t.Cleanup(func() {
+		terminalOutputChecker = original
+	})
 }
 
 func captureStdout(t *testing.T, fn func()) string {

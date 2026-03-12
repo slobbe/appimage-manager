@@ -955,15 +955,18 @@ var discoveryBackends = func() []discovery.DiscoveryBackend {
 var resolveGitHubReleaseAsset = core.ResolveGitHubReleaseAsset
 var resolveGitLabReleaseAsset = core.ResolveGitLabReleaseAsset
 var downloadRemoteAsset = downloadUpdateAsset
+var downloadManagedRemoteAsset = downloadUpdateAssetWithProgress
 var integrateManagedUpdate = core.IntegrateFromLocalFileWithoutCacheRefreshOrPersist
 var zsyncLookPath = exec.LookPath
 var zsyncCommandContext = exec.CommandContext
 var runSelfUpgrade = core.SelfUpgrade
+var runManagedApply = applyManagedUpdate
 var integrateExistingApp = core.IntegrateExisting
 var integrateLocalApp = core.IntegrateFromLocalFile
 var removeManagedApp = core.Remove
 var addAppsBatch = repo.AddAppsBatch
 var addSingleApp = repo.AddApp
+var terminalOutputChecker = detectTerminalOutput
 
 const defaultReleaseAssetPattern = "*.AppImage"
 
@@ -1099,31 +1102,20 @@ func runManagedUpdate(ctx context.Context, cmd *cli.Command, targetID string) er
 		}
 	}
 
+	applyResults := runManagedApplies(ctx, cmd, pending)
 	applyFailures := 0
-	applySuccesses := 0
-	totalPending := len(pending)
-	appliedApps := make([]*models.App, 0, totalPending)
-	interactiveProgress := isTerminalOutput()
-	for i, item := range pending {
-		progress := fmt.Sprintf("Updating %s (%d/%d)", item.App.ID, i+1, totalPending)
-		if transition := updateVersionTransition(item); transition != "" {
-			progress = fmt.Sprintf("%s %s", progress, transition)
-		}
-		printInfo(cmd, progress)
-
-		updatedApp, err := applyManagedUpdate(ctx, item, interactiveProgress)
-		if err != nil {
+	appliedApps := make([]*models.App, 0, len(applyResults))
+	for _, result := range applyResults {
+		if result.err != nil {
 			applyFailures++
-			printError(cmd, fmt.Sprintf("Failed to update %s: %v", item.App.ID, err))
 			continue
 		}
-
-		printSuccess(cmd, fmt.Sprintf("Updated: %s %s", updatedApp.ID, displayVersion(updatedApp.Version)))
-		applySuccesses++
-		appliedApps = append(appliedApps, updatedApp)
+		if result.updatedApp != nil {
+			appliedApps = append(appliedApps, result.updatedApp)
+		}
 	}
 
-	if applySuccesses > 0 {
+	if len(appliedApps) > 0 {
 		core.RefreshDesktopIntegrationCaches(ctx)
 	}
 
@@ -1469,13 +1461,18 @@ func updateCheckMetadata(app *models.App, checked, available bool, latest string
 	return nil
 }
 
-func applyManagedUpdate(ctx context.Context, update pendingManagedUpdate, interactiveProgress bool) (*models.App, error) {
+func applyManagedUpdate(ctx context.Context, update pendingManagedUpdate, reporter managedApplyReporter) (*models.App, error) {
+	emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageQueued})
+
 	if strings.TrimSpace(update.URL) == "" {
-		return nil, fmt.Errorf("missing download URL")
+		err := fmt.Errorf("missing download URL")
+		emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageFailed, Message: err.Error()})
+		return nil, err
 	}
 
 	tempDir, err := os.MkdirTemp("", "aim-update-*")
 	if err != nil {
+		emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageFailed, Message: err.Error()})
 		return nil, err
 	}
 	defer func() {
@@ -1486,34 +1483,45 @@ func applyManagedUpdate(ctx context.Context, update pendingManagedUpdate, intera
 	downloadPath := filepath.Join(tempDir, fileName)
 	usedZsync := false
 	if strings.TrimSpace(update.ZsyncURL) != "" {
-		fmt.Println("  Using zsync delta update")
+		emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageZsync})
 		if err := applyZsyncUpdate(ctx, update, downloadPath); err == nil {
 			usedZsync = true
-		} else {
-			fmt.Println("  zsync failed, falling back to full download")
 		}
 	}
 
 	if !usedZsync {
-		fmt.Printf("  Downloading %s\n", fileName)
-		if err := downloadRemoteAsset(ctx, update.URL, downloadPath, interactiveProgress); err != nil {
+		emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageDownload})
+		if err := downloadManagedRemoteAsset(ctx, update.URL, downloadPath, false, func(downloaded, total int64) {
+			emitManagedApplyEvent(reporter, managedApplyEvent{
+				Stage:         managedApplyStageDownload,
+				Downloaded:    downloaded,
+				DownloadTotal: total,
+			})
+		}); err != nil {
+			emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageFailed, Message: err.Error()})
 			return nil, err
 		}
 	}
 
-	fmt.Println("  Verifying")
+	emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageVerify})
 	if err := verifyDownloadedUpdate(downloadPath, update); err != nil {
+		emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageFailed, Message: err.Error()})
 		return nil, err
 	}
 
-	fmt.Println("  Integrating")
+	emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageIntegrate})
 	app, err := integrateManagedUpdate(ctx, downloadPath, func(existing, incoming *models.UpdateSource) (bool, error) {
 		return false, nil
 	})
 	if err != nil {
+		emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageFailed, Message: err.Error()})
 		return nil, err
 	}
 
+	emitManagedApplyEvent(reporter, managedApplyEvent{
+		Stage:   managedApplyStageDone,
+		Version: app.Version,
+	})
 	return app, nil
 }
 
@@ -1663,6 +1671,10 @@ func updateDownloadFilename(assetName, downloadURL string) string {
 }
 
 func downloadUpdateAsset(ctx context.Context, assetURL, destination string, interactive bool) error {
+	return downloadUpdateAssetWithProgress(ctx, assetURL, destination, interactive, nil)
+}
+
+func downloadUpdateAssetWithProgress(ctx context.Context, assetURL, destination string, interactive bool, onProgress func(downloaded, total int64)) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, assetURL, nil)
 	if err != nil {
 		return err
@@ -1699,6 +1711,9 @@ func downloadUpdateAsset(ctx context.Context, assetURL, destination string, inte
 				return err
 			}
 			downloaded += int64(n)
+			if onProgress != nil {
+				onProgress(downloaded, total)
+			}
 		}
 
 		if interactive {
@@ -1723,7 +1738,12 @@ func downloadUpdateAsset(ctx context.Context, assetURL, destination string, inte
 		line := buildDownloadProgressLine(downloaded, total, frame)
 		fmt.Printf("\r%s\n", line)
 	} else {
-		fmt.Printf("  Downloaded %s\n", formatByteSize(downloaded))
+		if onProgress != nil {
+			onProgress(downloaded, total)
+		}
+		if onProgress == nil {
+			fmt.Printf("  Downloaded %s\n", formatByteSize(downloaded))
+		}
 	}
 
 	return nil
@@ -1790,7 +1810,10 @@ func useColor(cmd *cli.Command) bool {
 }
 
 func isTerminalOutput() bool {
+	return terminalOutputChecker()
+}
 
+func detectTerminalOutput() bool {
 	stat, err := os.Stdout.Stat()
 	if err != nil {
 		return false
