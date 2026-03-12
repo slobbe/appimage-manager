@@ -17,6 +17,9 @@ type GitLabReleaseUpdate struct {
 	TagName           string
 	NormalizedVersion string
 	AssetName         string
+	Transport         string
+	ZsyncURL          string
+	ExpectedSHA1      string
 }
 
 type GitLabReleaseAsset struct {
@@ -41,7 +44,7 @@ type gitLabReleaseResponse struct {
 var gitLabReleaseAPIBaseURL = "https://gitlab.com/api/v4"
 var gitLabReleaseHTTPClient = sharedHTTPClient
 
-func GitLabReleaseUpdateCheck(update *models.UpdateSource, currentVersion string) (*GitLabReleaseUpdate, error) {
+func GitLabReleaseUpdateCheck(update *models.UpdateSource, currentVersion, localSHA1 string) (*GitLabReleaseUpdate, error) {
 	if update == nil || update.Kind != models.UpdateGitLabRelease || update.GitLabRelease == nil {
 		return nil, fmt.Errorf("invalid gitlab release update source")
 	}
@@ -55,13 +58,26 @@ func GitLabReleaseUpdateCheck(update *models.UpdateSource, currentVersion string
 	current := normalizeVersion(currentVersion)
 	available := latest != "" && latest != current
 
-	return &GitLabReleaseUpdate{
+	result := &GitLabReleaseUpdate{
 		Available:         available,
 		DownloadURL:       release.DownloadURL,
 		TagName:           release.TagName,
 		NormalizedVersion: latest,
 		AssetName:         release.AssetName,
-	}, nil
+	}
+
+	if !available {
+		return result, nil
+	}
+
+	transport, err := probeReleaseZsyncTransport(release.DownloadURL, localSHA1)
+	if err == nil && transport != nil {
+		result.Transport = transport.Transport
+		result.ZsyncURL = transport.ZsyncURL
+		result.ExpectedSHA1 = transport.ExpectedSHA1
+	}
+
+	return result, nil
 }
 
 func ResolveGitLabReleaseAsset(project, assetPattern string) (*GitLabReleaseAsset, error) {

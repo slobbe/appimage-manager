@@ -18,6 +18,9 @@ type GitHubReleaseUpdate struct {
 	NormalizedVersion string
 	AssetName         string
 	PreRelease        bool
+	Transport         string
+	ZsyncURL          string
+	ExpectedSHA1      string
 }
 
 type GitHubReleaseAsset struct {
@@ -42,7 +45,7 @@ type gitHubReleaseResponse struct {
 
 var githubReleaseHTTPClient = sharedHTTPClient
 
-func GitHubReleaseUpdateCheck(update *models.UpdateSource, currentVersion string) (*GitHubReleaseUpdate, error) {
+func GitHubReleaseUpdateCheck(update *models.UpdateSource, currentVersion, localSHA1 string) (*GitHubReleaseUpdate, error) {
 	if update == nil || update.Kind != models.UpdateGitHubRelease || update.GitHubRelease == nil {
 		return nil, fmt.Errorf("invalid github release update source")
 	}
@@ -56,14 +59,27 @@ func GitHubReleaseUpdateCheck(update *models.UpdateSource, currentVersion string
 	current := normalizeVersion(currentVersion)
 	available := latest != "" && latest != current
 
-	return &GitHubReleaseUpdate{
+	result := &GitHubReleaseUpdate{
 		Available:         available,
 		DownloadUrl:       release.DownloadURL,
 		TagName:           release.TagName,
 		NormalizedVersion: latest,
 		AssetName:         release.AssetName,
 		PreRelease:        release.PreRelease,
-	}, nil
+	}
+
+	if !available {
+		return result, nil
+	}
+
+	transport, err := probeReleaseZsyncTransport(release.DownloadURL, localSHA1)
+	if err == nil && transport != nil {
+		result.Transport = transport.Transport
+		result.ZsyncURL = transport.ZsyncURL
+		result.ExpectedSHA1 = transport.ExpectedSHA1
+	}
+
+	return result, nil
 }
 
 func ResolveGitHubReleaseAsset(repoSlug, assetPattern string) (*GitHubReleaseAsset, error) {

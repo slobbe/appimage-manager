@@ -204,6 +204,9 @@ aim update set <id> --github owner/repo --asset "MyApp-*-x86_64.AppImage"
 | `--zsync-url`     | direct zsync metadata URL (HTTPS)                        |
 
 GitHub and GitLab update checks use stable releases only.
+When a GitHub or GitLab release asset also publishes a sibling `.zsync` file at the same URL plus `.zsync`, `aim update` automatically tries a delta update first.
+If the sibling `.zsync` is missing or `zsync` cannot be used, `aim` falls back to downloading the full AppImage.
+The configured update source remains GitHub or GitLab; `aim` only switches the transport used during update apply.
 
 If an AppImage embeds zsync update info, `aim add` preserves it automatically.
 For `github:` and `gitlab:` installs, the selected remote source becomes the app's configured update source instead.

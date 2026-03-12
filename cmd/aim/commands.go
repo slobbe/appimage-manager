@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -930,6 +931,8 @@ type pendingManagedUpdate struct {
 	Latest         string
 	ExpectedSHA1   string
 	ExpectedSHA256 string
+	Transport      string
+	ZsyncURL       string
 	FromKind       models.UpdateKind
 }
 
@@ -952,6 +955,9 @@ var discoveryBackends = func() []discovery.DiscoveryBackend {
 var resolveGitHubReleaseAsset = core.ResolveGitHubReleaseAsset
 var resolveGitLabReleaseAsset = core.ResolveGitLabReleaseAsset
 var downloadRemoteAsset = downloadUpdateAsset
+var integrateManagedUpdate = core.IntegrateFromLocalFileWithoutCacheRefreshOrPersist
+var zsyncLookPath = exec.LookPath
+var zsyncCommandContext = exec.CommandContext
 var runSelfUpgrade = core.SelfUpgrade
 var integrateExistingApp = core.IntegrateExisting
 var integrateLocalApp = core.IntegrateFromLocalFile
@@ -1351,7 +1357,7 @@ func checkAppUpdate(app *models.App) (*pendingManagedUpdate, error) {
 			FromKind:     models.UpdateZsync,
 		}, nil
 	case models.UpdateGitHubRelease:
-		update, err := runGitHubReleaseUpdateCheck(app.Update, app.Version)
+		update, err := runGitHubReleaseUpdateCheck(app.Update, app.Version, app.SHA1)
 		if err != nil {
 			return nil, err
 		}
@@ -1382,16 +1388,19 @@ func checkAppUpdate(app *models.App) (*pendingManagedUpdate, error) {
 			label = "Pre-release update available"
 		}
 		return &pendingManagedUpdate{
-			App:       app,
-			URL:       update.DownloadUrl,
-			Asset:     update.AssetName,
-			Label:     label,
-			Available: true,
-			Latest:    latest,
-			FromKind:  models.UpdateGitHubRelease,
+			App:          app,
+			URL:          update.DownloadUrl,
+			Asset:        update.AssetName,
+			Label:        label,
+			Available:    true,
+			Latest:       latest,
+			Transport:    update.Transport,
+			ZsyncURL:     update.ZsyncURL,
+			ExpectedSHA1: strings.TrimSpace(update.ExpectedSHA1),
+			FromKind:     models.UpdateGitHubRelease,
 		}, nil
 	case models.UpdateGitLabRelease:
-		update, err := runGitLabReleaseUpdateCheck(app.Update, app.Version)
+		update, err := runGitLabReleaseUpdateCheck(app.Update, app.Version, app.SHA1)
 		if err != nil {
 			return nil, err
 		}
@@ -1418,13 +1427,16 @@ func checkAppUpdate(app *models.App) (*pendingManagedUpdate, error) {
 		}
 
 		return &pendingManagedUpdate{
-			App:       app,
-			URL:       update.DownloadURL,
-			Asset:     update.AssetName,
-			Label:     "Update available",
-			Available: true,
-			Latest:    latest,
-			FromKind:  models.UpdateGitLabRelease,
+			App:          app,
+			URL:          update.DownloadURL,
+			Asset:        update.AssetName,
+			Label:        "Update available",
+			Available:    true,
+			Latest:       latest,
+			Transport:    update.Transport,
+			ZsyncURL:     update.ZsyncURL,
+			ExpectedSHA1: strings.TrimSpace(update.ExpectedSHA1),
+			FromKind:     models.UpdateGitLabRelease,
 		}, nil
 	default:
 		return nil, fmt.Errorf("unsupported update source for %s: %q. Reconfigure with `aim update set`", app.ID, app.Update.Kind)
@@ -1472,9 +1484,21 @@ func applyManagedUpdate(ctx context.Context, update pendingManagedUpdate, intera
 
 	fileName := updateDownloadFilename(update.Asset, update.URL)
 	downloadPath := filepath.Join(tempDir, fileName)
-	fmt.Printf("  Downloading %s\n", fileName)
-	if err := downloadUpdateAsset(ctx, update.URL, downloadPath, interactiveProgress); err != nil {
-		return nil, err
+	usedZsync := false
+	if strings.TrimSpace(update.ZsyncURL) != "" {
+		fmt.Println("  Using zsync delta update")
+		if err := applyZsyncUpdate(ctx, update, downloadPath); err == nil {
+			usedZsync = true
+		} else {
+			fmt.Println("  zsync failed, falling back to full download")
+		}
+	}
+
+	if !usedZsync {
+		fmt.Printf("  Downloading %s\n", fileName)
+		if err := downloadRemoteAsset(ctx, update.URL, downloadPath, interactiveProgress); err != nil {
+			return nil, err
+		}
 	}
 
 	fmt.Println("  Verifying")
@@ -1483,7 +1507,7 @@ func applyManagedUpdate(ctx context.Context, update pendingManagedUpdate, intera
 	}
 
 	fmt.Println("  Integrating")
-	app, err := core.IntegrateFromLocalFileWithoutCacheRefreshOrPersist(ctx, downloadPath, func(existing, incoming *models.UpdateSource) (bool, error) {
+	app, err := integrateManagedUpdate(ctx, downloadPath, func(existing, incoming *models.UpdateSource) (bool, error) {
 		return false, nil
 	})
 	if err != nil {
@@ -1491,6 +1515,40 @@ func applyManagedUpdate(ctx context.Context, update pendingManagedUpdate, intera
 	}
 
 	return app, nil
+}
+
+func applyZsyncUpdate(ctx context.Context, update pendingManagedUpdate, destination string) error {
+	if update.App == nil {
+		return fmt.Errorf("missing app")
+	}
+	if strings.TrimSpace(update.App.ExecPath) == "" {
+		return fmt.Errorf("missing app exec path")
+	}
+	if strings.TrimSpace(update.ZsyncURL) == "" {
+		return fmt.Errorf("missing zsync url")
+	}
+
+	binary, err := zsyncLookPath("zsync")
+	if err != nil {
+		return err
+	}
+
+	cmd := zsyncCommandContext(ctx, binary, "-q", "-i", update.App.ExecPath, "-o", destination, update.ZsyncURL)
+	cmd.Dir = filepath.Dir(destination)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(output))
+		if msg == "" {
+			return err
+		}
+		return fmt.Errorf("%w: %s", err, msg)
+	}
+
+	if _, err := os.Stat(destination); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func verifyDownloadedUpdate(downloadPath string, update pendingManagedUpdate) error {

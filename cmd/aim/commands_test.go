@@ -3,11 +3,13 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -2147,7 +2149,7 @@ func TestCheckAppUpdateGitHubUsesNormalizedVersion(t *testing.T) {
 		runGitHubReleaseUpdateCheck = originalCheck
 	})
 
-	runGitHubReleaseUpdateCheck = func(update *models.UpdateSource, currentVersion string) (*core.GitHubReleaseUpdate, error) {
+	runGitHubReleaseUpdateCheck = func(update *models.UpdateSource, currentVersion, localSHA1 string) (*core.GitHubReleaseUpdate, error) {
 		return &core.GitHubReleaseUpdate{
 			Available:         false,
 			TagName:           "@standardnotes/desktop@3.201.19",
@@ -2186,7 +2188,7 @@ func TestCheckAppUpdateGitHubDisplaysNormalizedLatest(t *testing.T) {
 		runGitHubReleaseUpdateCheck = originalCheck
 	})
 
-	runGitHubReleaseUpdateCheck = func(update *models.UpdateSource, currentVersion string) (*core.GitHubReleaseUpdate, error) {
+	runGitHubReleaseUpdateCheck = func(update *models.UpdateSource, currentVersion, localSHA1 string) (*core.GitHubReleaseUpdate, error) {
 		return &core.GitHubReleaseUpdate{
 			Available:         true,
 			DownloadUrl:       "https://example.com/StandardNotes-x86_64.AppImage",
@@ -2223,6 +2225,61 @@ func TestCheckAppUpdateGitHubDisplaysNormalizedLatest(t *testing.T) {
 	}
 	if strings.Contains(msg, "@standardnotes/desktop@3.202.0") {
 		t.Fatalf("did not expect raw decorated tag in message:\n%s", msg)
+	}
+}
+
+func TestCheckAppUpdateGitHubPropagatesZsyncTransport(t *testing.T) {
+	originalCheck := runGitHubReleaseUpdateCheck
+	t.Cleanup(func() {
+		runGitHubReleaseUpdateCheck = originalCheck
+	})
+
+	runGitHubReleaseUpdateCheck = func(update *models.UpdateSource, currentVersion, localSHA1 string) (*core.GitHubReleaseUpdate, error) {
+		if currentVersion != "3.201.19" {
+			t.Fatalf("currentVersion = %q", currentVersion)
+		}
+		if localSHA1 != strings.Repeat("a", 40) {
+			t.Fatalf("localSHA1 = %q", localSHA1)
+		}
+
+		return &core.GitHubReleaseUpdate{
+			Available:         true,
+			DownloadUrl:       "https://example.com/StandardNotes-x86_64.AppImage",
+			TagName:           "@standardnotes/desktop@3.202.0",
+			NormalizedVersion: "3.202.0",
+			AssetName:         "StandardNotes-x86_64.AppImage",
+			Transport:         "zsync",
+			ZsyncURL:          "https://example.com/StandardNotes-x86_64.AppImage.zsync",
+			ExpectedSHA1:      strings.Repeat("b", 40),
+		}, nil
+	}
+
+	result, err := checkAppUpdate(&models.App{
+		ID:      "standard-notes",
+		Version: "3.201.19",
+		SHA1:    strings.Repeat("a", 40),
+		Update: &models.UpdateSource{
+			Kind: models.UpdateGitHubRelease,
+			GitHubRelease: &models.GitHubReleaseUpdateSource{
+				Repo:  "standardnotes/app",
+				Asset: "*.AppImage",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("checkAppUpdate returned error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected pending update result")
+	}
+	if result.Transport != "zsync" {
+		t.Fatalf("Transport = %q, want %q", result.Transport, "zsync")
+	}
+	if result.ZsyncURL != "https://example.com/StandardNotes-x86_64.AppImage.zsync" {
+		t.Fatalf("ZsyncURL = %q", result.ZsyncURL)
+	}
+	if result.ExpectedSHA1 != strings.Repeat("b", 40) {
+		t.Fatalf("ExpectedSHA1 = %q", result.ExpectedSHA1)
 	}
 }
 
@@ -2627,6 +2684,242 @@ func TestFormatByteSize(t *testing.T) {
 	}
 }
 
+func TestApplyManagedUpdateUsesZsyncWhenAvailable(t *testing.T) {
+	originalLookPath := zsyncLookPath
+	originalCommand := zsyncCommandContext
+	originalDownload := downloadRemoteAsset
+	originalIntegrate := integrateManagedUpdate
+	t.Cleanup(func() {
+		zsyncLookPath = originalLookPath
+		zsyncCommandContext = originalCommand
+		downloadRemoteAsset = originalDownload
+		integrateManagedUpdate = originalIntegrate
+	})
+
+	currentPath := filepath.Join(t.TempDir(), "current.AppImage")
+	if err := os.WriteFile(currentPath, []byte("current"), 0o755); err != nil {
+		t.Fatalf("failed to write current appimage: %v", err)
+	}
+
+	payload := []byte("updated-by-zsync")
+	expectedSHA1 := sha1Hex(payload)
+
+	zsyncLookPath = func(string) (string, error) {
+		return "zsync", nil
+	}
+
+	var call []string
+	zsyncCommandContext = func(ctx context.Context, name string, arg ...string) *exec.Cmd {
+		call = append([]string{name}, arg...)
+
+		var outputPath string
+		for i := 0; i < len(arg)-1; i++ {
+			if arg[i] == "-o" {
+				outputPath = arg[i+1]
+				break
+			}
+		}
+		if outputPath == "" {
+			t.Fatal("missing -o argument")
+		}
+		if err := os.WriteFile(outputPath, payload, 0o644); err != nil {
+			t.Fatalf("failed to write zsync output: %v", err)
+		}
+
+		return exec.CommandContext(ctx, "sh", "-c", "exit 0")
+	}
+
+	downloadRemoteAsset = func(context.Context, string, string, bool) error {
+		t.Fatal("download should not be called when zsync succeeds")
+		return nil
+	}
+
+	integrateManagedUpdate = func(ctx context.Context, src string, confirm core.UpdateOverwritePrompt) (*models.App, error) {
+		if _, err := os.Stat(src); err != nil {
+			t.Fatalf("expected zsync output file: %v", err)
+		}
+		overwrite, err := confirm(&models.UpdateSource{Kind: models.UpdateGitHubRelease}, &models.UpdateSource{Kind: models.UpdateZsync})
+		if err != nil {
+			t.Fatalf("confirm returned error: %v", err)
+		}
+		if overwrite {
+			t.Fatal("expected update source overwrite callback to reject replacement")
+		}
+		return &models.App{ID: "my-app", Version: "2.0.0"}, nil
+	}
+
+	output := captureStdout(t, func() {
+		_, err := applyManagedUpdate(context.Background(), pendingManagedUpdate{
+			App:          &models.App{ID: "my-app", ExecPath: currentPath},
+			URL:          "https://example.com/MyApp.AppImage",
+			Asset:        "MyApp.AppImage",
+			ZsyncURL:     "https://example.com/MyApp.AppImage.zsync",
+			ExpectedSHA1: expectedSHA1,
+		}, false)
+		if err != nil {
+			t.Fatalf("applyManagedUpdate returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "Using zsync delta update") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+	if strings.Contains(output, "zsync failed, falling back to full download") {
+		t.Fatalf("unexpected fallback output:\n%s", output)
+	}
+	if len(call) < 7 {
+		t.Fatalf("unexpected zsync call: %v", call)
+	}
+	if call[0] != "zsync" {
+		t.Fatalf("command = %q, want zsync", call[0])
+	}
+	if !containsString(call, currentPath) {
+		t.Fatalf("expected zsync call to include input path, got %v", call)
+	}
+	if !containsString(call, "https://example.com/MyApp.AppImage.zsync") {
+		t.Fatalf("expected zsync call to include zsync url, got %v", call)
+	}
+}
+
+func TestApplyManagedUpdateFallsBackWhenZsyncMissing(t *testing.T) {
+	originalLookPath := zsyncLookPath
+	originalDownload := downloadRemoteAsset
+	originalIntegrate := integrateManagedUpdate
+	t.Cleanup(func() {
+		zsyncLookPath = originalLookPath
+		downloadRemoteAsset = originalDownload
+		integrateManagedUpdate = originalIntegrate
+	})
+
+	payload := []byte("downloaded-fallback")
+	expectedSHA1 := sha1Hex(payload)
+
+	zsyncLookPath = func(string) (string, error) {
+		return "", exec.ErrNotFound
+	}
+
+	var downloadCalls int32
+	downloadRemoteAsset = func(ctx context.Context, assetURL, destination string, interactive bool) error {
+		atomic.AddInt32(&downloadCalls, 1)
+		return os.WriteFile(destination, payload, 0o644)
+	}
+
+	integrateManagedUpdate = func(context.Context, string, core.UpdateOverwritePrompt) (*models.App, error) {
+		return &models.App{ID: "my-app", Version: "2.0.0"}, nil
+	}
+
+	output := captureStdout(t, func() {
+		_, err := applyManagedUpdate(context.Background(), pendingManagedUpdate{
+			App:          &models.App{ID: "my-app", ExecPath: "/tmp/current.AppImage"},
+			URL:          "https://example.com/MyApp.AppImage",
+			Asset:        "MyApp.AppImage",
+			ZsyncURL:     "https://example.com/MyApp.AppImage.zsync",
+			ExpectedSHA1: expectedSHA1,
+		}, false)
+		if err != nil {
+			t.Fatalf("applyManagedUpdate returned error: %v", err)
+		}
+	})
+
+	if atomic.LoadInt32(&downloadCalls) != 1 {
+		t.Fatalf("download calls = %d, want 1", downloadCalls)
+	}
+	if !strings.Contains(output, "zsync failed, falling back to full download") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+}
+
+func TestApplyManagedUpdateFallsBackWhenZsyncFails(t *testing.T) {
+	originalLookPath := zsyncLookPath
+	originalCommand := zsyncCommandContext
+	originalDownload := downloadRemoteAsset
+	originalIntegrate := integrateManagedUpdate
+	t.Cleanup(func() {
+		zsyncLookPath = originalLookPath
+		zsyncCommandContext = originalCommand
+		downloadRemoteAsset = originalDownload
+		integrateManagedUpdate = originalIntegrate
+	})
+
+	payload := []byte("downloaded-fallback")
+	expectedSHA1 := sha1Hex(payload)
+
+	zsyncLookPath = func(string) (string, error) {
+		return "zsync", nil
+	}
+	zsyncCommandContext = func(ctx context.Context, name string, arg ...string) *exec.Cmd {
+		return exec.CommandContext(ctx, "sh", "-c", "exit 1")
+	}
+
+	var downloadCalls int32
+	downloadRemoteAsset = func(ctx context.Context, assetURL, destination string, interactive bool) error {
+		atomic.AddInt32(&downloadCalls, 1)
+		return os.WriteFile(destination, payload, 0o644)
+	}
+
+	integrateManagedUpdate = func(context.Context, string, core.UpdateOverwritePrompt) (*models.App, error) {
+		return &models.App{ID: "my-app", Version: "2.0.0"}, nil
+	}
+
+	output := captureStdout(t, func() {
+		_, err := applyManagedUpdate(context.Background(), pendingManagedUpdate{
+			App:          &models.App{ID: "my-app", ExecPath: "/tmp/current.AppImage"},
+			URL:          "https://example.com/MyApp.AppImage",
+			Asset:        "MyApp.AppImage",
+			ZsyncURL:     "https://example.com/MyApp.AppImage.zsync",
+			ExpectedSHA1: expectedSHA1,
+		}, false)
+		if err != nil {
+			t.Fatalf("applyManagedUpdate returned error: %v", err)
+		}
+	})
+
+	if atomic.LoadInt32(&downloadCalls) != 1 {
+		t.Fatalf("download calls = %d, want 1", downloadCalls)
+	}
+	if !strings.Contains(output, "zsync failed, falling back to full download") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+}
+
+func TestApplyManagedUpdateWithoutZsyncUsesFullDownload(t *testing.T) {
+	originalLookPath := zsyncLookPath
+	originalDownload := downloadRemoteAsset
+	originalIntegrate := integrateManagedUpdate
+	t.Cleanup(func() {
+		zsyncLookPath = originalLookPath
+		downloadRemoteAsset = originalDownload
+		integrateManagedUpdate = originalIntegrate
+	})
+
+	zsyncLookPath = func(string) (string, error) {
+		t.Fatal("zsync should not be probed when no zsync url is present")
+		return "", nil
+	}
+
+	var downloadCalls int32
+	downloadRemoteAsset = func(ctx context.Context, assetURL, destination string, interactive bool) error {
+		atomic.AddInt32(&downloadCalls, 1)
+		return os.WriteFile(destination, []byte("downloaded"), 0o644)
+	}
+
+	integrateManagedUpdate = func(context.Context, string, core.UpdateOverwritePrompt) (*models.App, error) {
+		return &models.App{ID: "my-app", Version: "2.0.0"}, nil
+	}
+
+	_, err := applyManagedUpdate(context.Background(), pendingManagedUpdate{
+		App:   &models.App{ID: "my-app", ExecPath: "/tmp/current.AppImage"},
+		URL:   "https://example.com/MyApp.AppImage",
+		Asset: "MyApp.AppImage",
+	}, false)
+	if err != nil {
+		t.Fatalf("applyManagedUpdate returned error: %v", err)
+	}
+	if atomic.LoadInt32(&downloadCalls) != 1 {
+		t.Fatalf("download calls = %d, want 1", downloadCalls)
+	}
+}
+
 func TestDisplayVersion(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -2749,6 +3042,20 @@ func captureStdout(t *testing.T, fn func()) string {
 	fn()
 	_ = w.Close()
 	return <-done
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
+func sha1Hex(value []byte) string {
+	sum := sha1.Sum(value)
+	return hex.EncodeToString(sum[:])
 }
 
 func captureStdoutWithInput(t *testing.T, input string, fn func()) string {
