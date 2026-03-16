@@ -105,6 +105,29 @@ func TestGetAppInfoFallsBackToVersionFromFilename(t *testing.T) {
 	}
 }
 
+func TestGetAppInfoFallsBackToNormalizedPlatformSuffixedFilename(t *testing.T) {
+	dir := t.TempDir()
+	desktopPath := filepath.Join(dir, "LocalSend-1.17.0-linux-x86-64.desktop")
+
+	content := strings.Join([]string{
+		"[Desktop Entry]",
+		"Name=LocalSend",
+		"X-AppImage-Version=n/a",
+	}, "\n") + "\n"
+
+	if err := os.WriteFile(desktopPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("failed to write desktop file: %v", err)
+	}
+
+	appInfo, err := GetAppInfo(context.Background(), desktopPath)
+	if err != nil {
+		t.Fatalf("GetAppInfo returned error: %v", err)
+	}
+	if appInfo.Version != "1.17.0" {
+		t.Fatalf("appInfo.Version = %q, want %q", appInfo.Version, "1.17.0")
+	}
+}
+
 func TestGetAppInfoUsesUnknownWhenVersionUnavailable(t *testing.T) {
 	dir := t.TempDir()
 	desktopPath := filepath.Join(dir, "my-app.desktop")
@@ -147,6 +170,29 @@ func TestGetAppInfoNormalizesDecoratedVersion(t *testing.T) {
 	}
 	if appInfo.Version != "3.201.19" {
 		t.Fatalf("appInfo.Version = %q, want %q", appInfo.Version, "3.201.19")
+	}
+}
+
+func TestGetAppInfoNormalizesPlatformSuffixedMetadataVersion(t *testing.T) {
+	dir := t.TempDir()
+	desktopPath := filepath.Join(dir, "localsend.desktop")
+
+	content := strings.Join([]string{
+		"[Desktop Entry]",
+		"Name=LocalSend",
+		"X-AppImage-Version=1.17.0-linux-x86-64",
+	}, "\n") + "\n"
+
+	if err := os.WriteFile(desktopPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("failed to write desktop file: %v", err)
+	}
+
+	appInfo, err := GetAppInfo(context.Background(), desktopPath)
+	if err != nil {
+		t.Fatalf("GetAppInfo returned error: %v", err)
+	}
+	if appInfo.Version != "1.17.0" {
+		t.Fatalf("appInfo.Version = %q, want %q", appInfo.Version, "1.17.0")
 	}
 }
 

@@ -91,6 +91,41 @@ func TestGitLabReleaseUpdateCheckNormalizesDecoratedTag(t *testing.T) {
 	}
 }
 
+func TestGitLabReleaseUpdateCheckIgnoresPackagingSuffixInCurrentVersion(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`[
+			{"tag_name":"v1.17.0","upcoming_release":false,"assets":{"links":[{"name":"LocalSend-1.17.0-linux-x86-64.AppImage","direct_asset_url":"https://example.com/LocalSend-1.17.0-linux-x86-64.AppImage"}]}}
+		]`))
+	}))
+	defer server.Close()
+
+	originalBase := gitLabReleaseAPIBaseURL
+	t.Cleanup(func() {
+		gitLabReleaseAPIBaseURL = originalBase
+	})
+	gitLabReleaseAPIBaseURL = server.URL + "/api/v4"
+
+	update, err := GitLabReleaseUpdateCheck(&models.UpdateSource{
+		Kind: models.UpdateGitLabRelease,
+		GitLabRelease: &models.GitLabReleaseUpdateSource{
+			Project: "group/project",
+			Asset:   "*.AppImage",
+		},
+	}, "1.17.0-linux-x86-64", "")
+	if err != nil {
+		t.Fatalf("GitLabReleaseUpdateCheck returned error: %v", err)
+	}
+	if update == nil {
+		t.Fatal("expected update response")
+	}
+	if update.Available {
+		t.Fatal("expected matching packaged version not to be treated as update")
+	}
+	if update.NormalizedVersion != "1.17.0" {
+		t.Fatalf("NormalizedVersion = %q", update.NormalizedVersion)
+	}
+}
+
 func TestGitLabReleaseUpdateCheckUsesSiblingZsyncTransport(t *testing.T) {
 	const expectedSHA1 = "0123456789abcdef0123456789abcdef01234567"
 

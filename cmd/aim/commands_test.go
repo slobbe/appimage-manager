@@ -3098,7 +3098,7 @@ func TestBuildManagedUpdateMessage(t *testing.T) {
 	update := pendingManagedUpdate{
 		App: &models.App{
 			ID:      "obsidian",
-			Version: "1.11.6",
+			Version: "1.11.6-linux-x86_64",
 		},
 		Label:  "Update available",
 		Latest: "1.11.7",
@@ -3117,6 +3117,19 @@ func TestBuildManagedUpdateMessage(t *testing.T) {
 	msgCheckOnly := buildManagedUpdateMessage(update, true)
 	if msgCheckOnly != msgManaged {
 		t.Fatalf("check-only message should use the same summary line, got %q want %q", msgCheckOnly, msgManaged)
+	}
+}
+
+func TestFormatAppRefNormalizesPlatformSuffixedVersion(t *testing.T) {
+	app := &models.App{
+		ID:      "localsend",
+		Name:    "LocalSend",
+		Version: "1.17.0-linux-x86-64",
+	}
+
+	got := formatAppRef(app)
+	if got != "LocalSend v1.17.0 [localsend]" {
+		t.Fatalf("formatAppRef(app) = %q, want %q", got, "LocalSend v1.17.0 [localsend]")
 	}
 }
 
@@ -3775,6 +3788,7 @@ func TestDisplayVersion(t *testing.T) {
 	}{
 		{name: "numeric", input: "1.2.3", expect: "v1.2.3"},
 		{name: "already prefixed", input: "v1.2.3", expect: "v1.2.3"},
+		{name: "platform suffixed", input: "1.17.0-linux-x86-64", expect: "v1.17.0"},
 		{name: "unknown literal", input: "unknown", expect: "unknown"},
 		{name: "na placeholder", input: "n/a", expect: "unknown"},
 		{name: "empty", input: "", expect: "unknown"},

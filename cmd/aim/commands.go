@@ -1895,14 +1895,12 @@ func displayVersion(value string) string {
 		return "unknown"
 	}
 
-	lower := strings.ToLower(v)
-	if strings.HasPrefix(lower, "version") {
-		v = strings.TrimSpace(v[len("version"):])
-		v = strings.TrimLeft(v, " :=-")
+	if normalized := core.NormalizeComparableVersion(v); normalized != "" {
+		v = normalized
 	}
 
 	v = strings.TrimSpace(v)
-	lower = strings.ToLower(v)
+	lower := strings.ToLower(v)
 	if lower == "" || lower == "n/a" || lower == "na" || lower == "none" || lower == "unknown" || lower == "-" {
 		return "unknown"
 	}

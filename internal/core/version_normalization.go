@@ -6,6 +6,33 @@ import (
 )
 
 var comparableVersionPattern = regexp.MustCompile(`(?i)v?\d+(?:\.\d+)+(?:-[0-9a-z.-]+)?(?:\+[0-9a-z.-]+)?`)
+var numericVersionCorePattern = regexp.MustCompile(`^\d+(?:\.\d+)+`)
+
+var packagingVersionSegments = map[string]struct{}{
+	"aarch64":   {},
+	"amd64":     {},
+	"appimage":  {},
+	"arm64":     {},
+	"darwin":    {},
+	"glibc":     {},
+	"installer": {},
+	"linux":     {},
+	"macos":     {},
+	"musl":      {},
+	"portable":  {},
+	"setup":     {},
+	"universal": {},
+	"windows":   {},
+	"x64":       {},
+	"x86":       {},
+	"x86_64":    {},
+}
+
+// NormalizeComparableVersion extracts the comparable version token from decorated
+// AppImage metadata and release tags.
+func NormalizeComparableVersion(raw string) string {
+	return normalizeComparableVersion(raw)
+}
 
 func normalizeComparableVersion(raw string) string {
 	value := strings.TrimSpace(strings.Trim(raw, `"'`))
@@ -37,6 +64,7 @@ func normalizeComparableVersion(raw string) string {
 			}
 		}
 		normalized := trimLeadingVIfNumeric(candidate)
+		normalized = stripPackagingVersionSuffix(normalized)
 		if normalized != "" {
 			return normalized
 		}
@@ -58,6 +86,68 @@ func trimLeadingVIfNumeric(value string) string {
 		}
 	}
 	return value
+}
+
+func stripPackagingVersionSuffix(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+
+	core := numericVersionCorePattern.FindString(value)
+	if core == "" {
+		return value
+	}
+
+	remainder := value[len(core):]
+	if remainder == "" {
+		return core
+	}
+
+	build := ""
+	if plus := strings.IndexByte(remainder, '+'); plus >= 0 {
+		build = remainder[plus:]
+		remainder = remainder[:plus]
+	}
+
+	if remainder == "" {
+		return core + build
+	}
+	if remainder[0] != '-' {
+		return core + remainder + build
+	}
+
+	segments := strings.Split(remainder[1:], "-")
+	if len(segments) == 0 {
+		return core + build
+	}
+
+	packagingStart := -1
+	for i, segment := range segments {
+		if isPackagingVersionSegment(segment) {
+			packagingStart = i
+			break
+		}
+	}
+
+	if packagingStart == -1 {
+		return core + remainder + build
+	}
+	if packagingStart == 0 {
+		return core
+	}
+
+	return core + "-" + strings.Join(segments[:packagingStart], "-")
+}
+
+func isPackagingVersionSegment(segment string) bool {
+	segment = strings.ToLower(strings.TrimSpace(segment))
+	if segment == "" {
+		return false
+	}
+
+	_, ok := packagingVersionSegments[segment]
+	return ok
 }
 
 func isVersionContinuationByte(ch byte) bool {

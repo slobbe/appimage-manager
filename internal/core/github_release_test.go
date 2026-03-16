@@ -36,7 +36,10 @@ func TestNormalizeVersion(t *testing.T) {
 		{name: "extracts decorated package tag", input: "@standardnotes/desktop@3.201.19", expect: "3.201.19"},
 		{name: "extracts release prefix version", input: "release-3.2.1", expect: "3.2.1"},
 		{name: "extracts embedded v version", input: "desktop-v1.2.3", expect: "1.2.3"},
+		{name: "strips linux arch suffix", input: "1.17.0-linux-x86-64", expect: "1.17.0"},
+		{name: "strips arch suffix", input: "1.17.0-x86_64", expect: "1.17.0"},
 		{name: "keeps prerelease", input: "v1.2.3-rc1", expect: "1.2.3-rc1"},
+		{name: "keeps prerelease before packaging suffix", input: "1.17.0-rc1-linux-x86_64", expect: "1.17.0-rc1"},
 		{name: "keeps dotted prerelease", input: "foo@1.2.3-beta.1", expect: "1.2.3-beta.1"},
 		{name: "clears unknown", input: "unknown", expect: ""},
 		{name: "handles empty", input: "", expect: ""},
@@ -206,6 +209,50 @@ func TestGitHubReleaseUpdateCheckDetectsRealUpdateFromDecoratedTag(t *testing.T)
 		t.Fatal("expected update to be available")
 	}
 	if update.NormalizedVersion != "3.202.0" {
+		t.Fatalf("NormalizedVersion = %q", update.NormalizedVersion)
+	}
+}
+
+func TestGitHubReleaseUpdateCheckIgnoresPackagingSuffixInCurrentVersion(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`[
+			{"tag_name":"v1.17.0","prerelease":false,"draft":false,"assets":[{"name":"LocalSend-1.17.0-linux-x86-64.AppImage","browser_download_url":"https://example.com/LocalSend-1.17.0-linux-x86-64.AppImage"}]}
+		]`))
+	}))
+	defer server.Close()
+
+	originalClient := githubReleaseHTTPClient
+	t.Cleanup(func() {
+		githubReleaseHTTPClient = originalClient
+	})
+	baseURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("failed to parse server URL: %v", err)
+	}
+	githubReleaseHTTPClient = &http.Client{
+		Transport: &rewriteHostTransport{
+			base: baseURL,
+			next: server.Client().Transport,
+		},
+	}
+
+	update, err := GitHubReleaseUpdateCheck(&models.UpdateSource{
+		Kind: models.UpdateGitHubRelease,
+		GitHubRelease: &models.GitHubReleaseUpdateSource{
+			Repo:  "localsend/localsend",
+			Asset: "*.AppImage",
+		},
+	}, "1.17.0-linux-x86-64", "")
+	if err != nil {
+		t.Fatalf("GitHubReleaseUpdateCheck returned error: %v", err)
+	}
+	if update == nil {
+		t.Fatal("expected update response")
+	}
+	if update.Available {
+		t.Fatal("expected matching packaged version not to be treated as update")
+	}
+	if update.NormalizedVersion != "1.17.0" {
 		t.Fatalf("NormalizedVersion = %q", update.NormalizedVersion)
 	}
 }
