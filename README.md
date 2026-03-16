@@ -86,6 +86,21 @@ aim show github:owner/repo
 aim show gitlab:namespace/project
 ```
 
+### Inspect
+
+Inspect a managed app or a local `.AppImage`.
+
+```sh
+aim inspect <id|path-to.AppImage>
+```
+
+Examples:
+
+```sh
+aim inspect helium
+aim inspect ./helium-0.10.5.1-x86_64.AppImage
+```
+
 ### Install
 
 Download from a remote source and integrate the result.
@@ -186,6 +201,8 @@ Set an update source:
 aim update set <id> --github owner/repo
 aim update set <id> --gitlab namespace/project
 aim update set <id> --zsync-url https://example.com/MyApp.AppImage.zsync
+aim update set <id> --embedded
+aim update unset <id>
 ```
 
 For GitHub and GitLab sources, `--asset` is optional and defaults to `*.AppImage`.
@@ -202,6 +219,7 @@ aim update set <id> --github owner/repo --asset "MyApp-*-x86_64.AppImage"
 | `--gitlab`        | GitLab project path in the form namespace/project        |
 | `--asset`         | asset filename pattern; defaults to `*.AppImage`         |
 | `--zsync-url`     | direct zsync metadata URL (HTTPS)                        |
+| `--embedded`      | use the update source embedded in the current AppImage   |
 
 GitHub and GitLab update checks use stable releases only.
 When a GitHub or GitLab release asset also publishes a sibling `.zsync` file at the same URL plus `.zsync`, `aim update` automatically tries a delta update first.
@@ -210,6 +228,10 @@ The configured update source remains GitHub or GitLab; `aim` only switches the t
 
 If an AppImage embeds zsync update info, `aim add` preserves it automatically.
 For `github:` and `gitlab:` installs, the selected remote source becomes the app's configured update source instead.
+Use `aim inspect` to view the embedded source in a managed or local AppImage.
+Use `aim update set <id> --embedded` to switch back to the embedded source later.
+If the current AppImage does not embed an update source, `aim` tells you and, when another source is configured, offers to unset it or keep it.
+Use `aim update unset <id>` to clear any configured update source explicitly.
 
 ## Where `aim` stores files
 

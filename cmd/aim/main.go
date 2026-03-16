@@ -102,6 +102,17 @@ func main() {
 				Action: ShowCmd,
 			},
 			{
+				Name:  "inspect",
+				Usage: "Inspect a managed app or local AppImage",
+				Arguments: []cli.Argument{
+					&cli.StringArg{
+						Name:      "target",
+						UsageText: "<id|path-to.AppImage>",
+					},
+				},
+				Action: InspectCmd,
+			},
+			{
 				Name:    "install",
 				Aliases: []string{"i"},
 				Usage:   "Install from a remote source",
@@ -127,7 +138,7 @@ func main() {
 				Name:      "update",
 				Aliases:   []string{"u"},
 				Usage:     "Check or apply updates, or set an update source",
-				UsageText: "aim update [<id>] [--yes|-y] [--check-only|-c]\n   aim update set <id> (--github owner/repo [--asset \"*.AppImage\"] | --gitlab namespace/project [--asset \"*.AppImage\"] | --zsync-url <https-url>)",
+				UsageText: "aim update [<id>] [--yes|-y] [--check-only|-c]\n   aim update set <id> (--github owner/repo [--asset \"*.AppImage\"] | --gitlab namespace/project [--asset \"*.AppImage\"] | --zsync-url <https-url> | --embedded)\n   aim update unset <id>",
 				Flags: []cli.Flag{
 					&cli.BoolFlag{
 						Name:    "yes",
@@ -154,6 +165,10 @@ func main() {
 					&cli.StringFlag{
 						Name:  "zsync-url",
 						Usage: "direct zsync metadata URL (https, for 'update set')",
+					},
+					&cli.BoolFlag{
+						Name:  "embedded",
+						Usage: "use the update source embedded in the current AppImage (for 'update set')",
 					},
 				},
 				Action: UpdateCmd,

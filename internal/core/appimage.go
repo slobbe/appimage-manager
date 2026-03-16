@@ -28,6 +28,65 @@ type ExtractionData struct {
 	IconPath         string
 }
 
+func ReadAppImageInfo(ctx context.Context, src string) (*AppInfo, error) {
+	srcInfo, err := os.Stat(src)
+	if err != nil {
+		return nil, fmt.Errorf("failed to access source file: %w", err)
+	}
+	if srcInfo.IsDir() {
+		return nil, fmt.Errorf("source path is a directory, not a file: %s", src)
+	}
+	if !util.HasExtension(src, ".AppImage") {
+		return nil, fmt.Errorf("source file must be an .AppImage: %s", filepath.Ext(src))
+	}
+
+	src, err = util.MakeAbsolute(src)
+	if err != nil {
+		return nil, fmt.Errorf("failed to make source path absolute: %w", err)
+	}
+
+	tempDir, err := os.MkdirTemp("", "aim-inspect-*")
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = os.RemoveAll(tempDir)
+	}()
+
+	copyPath := filepath.Join(tempDir, filepath.Base(src))
+	if _, err := util.Copy(src, copyPath); err != nil {
+		return nil, err
+	}
+	if err := util.MakeExecutable(copyPath); err != nil {
+		return nil, fmt.Errorf("failed to make executable: %w", err)
+	}
+
+	extractCmd := exec.CommandContext(ctx, copyPath, "--appimage-extract")
+	extractCmd.Dir = tempDir
+
+	out, err := extractCmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("extraction failed: %w\nOutput: %s", err, string(out))
+	}
+
+	root := filepath.Join(tempDir, "squashfs-root")
+	if _, err := os.Stat(root); err != nil {
+		return nil, fmt.Errorf("extraction verification failed: squashfs-root not found")
+	}
+
+	desktopSrc, err := LocateDesktopFile(root)
+	if err != nil {
+		return nil, fmt.Errorf("failed to locate desktop file: %w", err)
+	}
+
+	desktopSrc, err = resolveDesktopFileSource(desktopSrc)
+	if err != nil {
+		return nil, err
+	}
+
+	return GetAppInfo(ctx, desktopSrc)
+}
+
 func ExtractAppImage(ctx context.Context, src string) (*ExtractionData, error) {
 	srcInfo, err := os.Stat(src)
 	if err != nil {

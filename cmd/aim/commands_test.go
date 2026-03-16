@@ -1732,6 +1732,7 @@ func newUpdateSetTestCommand(t *testing.T, values map[string]string) *cli.Comman
 			&cli.StringFlag{Name: "gitlab"},
 			&cli.StringFlag{Name: "asset"},
 			&cli.StringFlag{Name: "zsync-url"},
+			&cli.BoolFlag{Name: "embedded"},
 			&cli.StringFlag{Name: "manifest-url"},
 			&cli.StringFlag{Name: "url"},
 			&cli.StringFlag{Name: "sha256"},
@@ -1745,6 +1746,462 @@ func newUpdateSetTestCommand(t *testing.T, values map[string]string) *cli.Comman
 	}
 
 	return cmd
+}
+
+func TestInspectCmdManagedShowsEmbeddedSource(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "apps.json")
+
+	originalDbSrc := config.DbSrc
+	config.DbSrc = dbPath
+	t.Cleanup(func() {
+		config.DbSrc = originalDbSrc
+	})
+
+	if err := repo.SaveDB(dbPath, &repo.DB{
+		SchemaVersion: 1,
+		Apps: map[string]*models.App{
+			"my-app": {
+				ID:              "my-app",
+				Name:            "My App",
+				Version:         "1.0.0",
+				ExecPath:        "/tmp/MyApp.AppImage",
+				Update:          &models.UpdateSource{Kind: models.UpdateNone},
+				UpdateAvailable: true,
+				LatestVersion:   "1.1.0",
+				LastCheckedAt:   "2026-03-16T12:00:00Z",
+				Source: models.Source{
+					Kind: models.SourceGitHubRelease,
+					GitHubRelease: &models.GitHubReleaseSource{
+						Repo:  "owner/repo",
+						Asset: "*.AppImage",
+					},
+				},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("failed to write test DB: %v", err)
+	}
+
+	originalUpdateInfo := getAppImageUpdateInfo
+	t.Cleanup(func() {
+		getAppImageUpdateInfo = originalUpdateInfo
+	})
+	getAppImageUpdateInfo = func(path string) (*core.UpdateInfo, error) {
+		if path != "/tmp/MyApp.AppImage" {
+			t.Fatalf("path = %q", path)
+		}
+		return &core.UpdateInfo{
+			Kind:       models.UpdateZsync,
+			UpdateInfo: "zsync|https://example.com/MyApp.AppImage.zsync",
+			Transport:  "zsync",
+		}, nil
+	}
+
+	output := captureStdout(t, func() {
+		if err := runInspectCommand(context.Background(), []string{"my-app"}); err != nil {
+			t.Fatalf("runInspectCommand returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "Configured update source: none") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+	if !strings.Contains(output, "Embedded update source: zsync: zsync|https://example.com/MyApp.AppImage.zsync") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+	if strings.Contains(output, "Commands") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+	if strings.Contains(output, "Active update source:") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+	if strings.Contains(output, "Installed via:") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+	if strings.Contains(output, "Embedded source status:") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+	if strings.Contains(output, "Embedded source active:") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+}
+
+func TestInspectCmdManagedShowsMissingEmbeddedSource(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "apps.json")
+
+	originalDbSrc := config.DbSrc
+	config.DbSrc = dbPath
+	t.Cleanup(func() {
+		config.DbSrc = originalDbSrc
+	})
+
+	if err := repo.SaveDB(dbPath, &repo.DB{
+		SchemaVersion: 1,
+		Apps: map[string]*models.App{
+			"my-app": {
+				ID:       "my-app",
+				Name:     "My App",
+				Version:  "1.0.0",
+				ExecPath: "/tmp/MyApp.AppImage",
+				Update: &models.UpdateSource{
+					Kind: models.UpdateGitHubRelease,
+					GitHubRelease: &models.GitHubReleaseUpdateSource{
+						Repo:  "owner/repo",
+						Asset: "*.AppImage",
+					},
+				},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("failed to write test DB: %v", err)
+	}
+
+	originalUpdateInfo := getAppImageUpdateInfo
+	t.Cleanup(func() {
+		getAppImageUpdateInfo = originalUpdateInfo
+	})
+	getAppImageUpdateInfo = func(string) (*core.UpdateInfo, error) {
+		return nil, fmt.Errorf("no update information found in ELF headers")
+	}
+
+	output := captureStdout(t, func() {
+		if err := runInspectCommand(context.Background(), []string{"my-app"}); err != nil {
+			t.Fatalf("runInspectCommand returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "Embedded update source: none") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+	if strings.Contains(output, "Active update source:") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+	if strings.Contains(output, "Embedded source status:") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+}
+
+func TestInspectCmdLocalAppImage(t *testing.T) {
+	originalRead := readAppImageInfo
+	originalUpdateInfo := getAppImageUpdateInfo
+	t.Cleanup(func() {
+		readAppImageInfo = originalRead
+		getAppImageUpdateInfo = originalUpdateInfo
+	})
+
+	readAppImageInfo = func(context.Context, string) (*core.AppInfo, error) {
+		return &core.AppInfo{Name: "My App", ID: "my-app", Version: "1.2.3"}, nil
+	}
+	getAppImageUpdateInfo = func(path string) (*core.UpdateInfo, error) {
+		if path != "./MyApp.AppImage" {
+			t.Fatalf("path = %q", path)
+		}
+		return &core.UpdateInfo{
+			Kind:       models.UpdateZsync,
+			UpdateInfo: "gh-releases-zsync|owner|repo|latest|MyApp-*.AppImage.zsync",
+			Transport:  "gh-releases",
+		}, nil
+	}
+
+	output := captureStdout(t, func() {
+		if err := runInspectCommand(context.Background(), []string{"./MyApp.AppImage"}); err != nil {
+			t.Fatalf("runInspectCommand returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "Path: ./MyApp.AppImage") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+	if !strings.Contains(output, "Name: My App") || !strings.Contains(output, "ID: my-app") || !strings.Contains(output, "Version: v1.2.3") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+	if !strings.Contains(output, "Embedded update source: zsync: gh-releases-zsync|owner|repo|latest|MyApp-*.AppImage.zsync") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+	if strings.Contains(output, "Embedded source status:") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+}
+
+func TestUpdateSetEmbeddedSetsEmbeddedSource(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "apps.json")
+
+	originalDbSrc := config.DbSrc
+	config.DbSrc = dbPath
+	t.Cleanup(func() {
+		config.DbSrc = originalDbSrc
+	})
+
+	if err := repo.SaveDB(dbPath, &repo.DB{
+		SchemaVersion: 1,
+		Apps: map[string]*models.App{
+			"my-app": {
+				ID:       "my-app",
+				Name:     "My App",
+				ExecPath: "/tmp/MyApp.AppImage",
+				Update: &models.UpdateSource{
+					Kind: models.UpdateGitHubRelease,
+					GitHubRelease: &models.GitHubReleaseUpdateSource{
+						Repo:  "owner/repo",
+						Asset: "*.AppImage",
+					},
+				},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("failed to write test DB: %v", err)
+	}
+
+	originalUpdateInfo := getAppImageUpdateInfo
+	t.Cleanup(func() {
+		getAppImageUpdateInfo = originalUpdateInfo
+	})
+	getAppImageUpdateInfo = func(string) (*core.UpdateInfo, error) {
+		return &core.UpdateInfo{
+			Kind:       models.UpdateZsync,
+			UpdateInfo: "zsync|https://example.com/MyApp.AppImage.zsync",
+			Transport:  "zsync",
+		}, nil
+	}
+
+	output := captureStdoutWithInput(t, "y\n", func() {
+		if err := runUpdateSetCommand(context.Background(), []string{"my-app", "--embedded"}); err != nil {
+			t.Fatalf("runUpdateSetCommand returned error: %v", err)
+		}
+	})
+
+	app, err := repo.GetApp("my-app")
+	if err != nil {
+		t.Fatalf("failed to reload app: %v", err)
+	}
+	if app.Update == nil || app.Update.Kind != models.UpdateZsync {
+		t.Fatalf("unexpected update source: %#v", app.Update)
+	}
+	if !strings.Contains(output, "Update source set: zsync: zsync|https://example.com/MyApp.AppImage.zsync") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+}
+
+func TestUpdateSetEmbeddedMissingPromptsToUnsetOrKeep(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "apps.json")
+
+	originalDbSrc := config.DbSrc
+	config.DbSrc = dbPath
+	t.Cleanup(func() {
+		config.DbSrc = originalDbSrc
+	})
+
+	originalUpdateInfo := getAppImageUpdateInfo
+	t.Cleanup(func() {
+		getAppImageUpdateInfo = originalUpdateInfo
+	})
+	getAppImageUpdateInfo = func(string) (*core.UpdateInfo, error) {
+		return nil, fmt.Errorf("no update information found in ELF headers")
+	}
+
+	writeDB := func(update *models.UpdateSource) {
+		t.Helper()
+		if err := repo.SaveDB(dbPath, &repo.DB{
+			SchemaVersion: 1,
+			Apps: map[string]*models.App{
+				"my-app": {
+					ID:       "my-app",
+					Name:     "My App",
+					ExecPath: "/tmp/MyApp.AppImage",
+					Update:   update,
+				},
+			},
+		}); err != nil {
+			t.Fatalf("failed to write test DB: %v", err)
+		}
+	}
+
+	writeDB(&models.UpdateSource{
+		Kind: models.UpdateGitHubRelease,
+		GitHubRelease: &models.GitHubReleaseUpdateSource{
+			Repo:  "owner/repo",
+			Asset: "*.AppImage",
+		},
+	})
+
+	outputKeep := captureStdoutWithInput(t, "n\n", func() {
+		if err := runUpdateSetCommand(context.Background(), []string{"my-app", "--embedded"}); err != nil {
+			t.Fatalf("runUpdateSetCommand returned error: %v", err)
+		}
+	})
+
+	appKeep, err := repo.GetApp("my-app")
+	if err != nil {
+		t.Fatalf("failed to reload app: %v", err)
+	}
+	if appKeep.Update == nil || appKeep.Update.Kind != models.UpdateGitHubRelease {
+		t.Fatalf("unexpected update source after keep: %#v", appKeep.Update)
+	}
+	if !strings.Contains(outputKeep, "No embedded update source found in the current AppImage.") {
+		t.Fatalf("unexpected output:\n%s", outputKeep)
+	}
+	if !strings.Contains(outputKeep, "Unset current update source github: owner/repo, asset: *.AppImage for my-app? [y/N]: ") {
+		t.Fatalf("unexpected output:\n%s", outputKeep)
+	}
+	if !strings.Contains(outputKeep, "Update source unchanged") {
+		t.Fatalf("unexpected output:\n%s", outputKeep)
+	}
+
+	writeDB(&models.UpdateSource{
+		Kind: models.UpdateGitHubRelease,
+		GitHubRelease: &models.GitHubReleaseUpdateSource{
+			Repo:  "owner/repo",
+			Asset: "*.AppImage",
+		},
+	})
+
+	outputUnset := captureStdoutWithInput(t, "y\n", func() {
+		if err := runUpdateSetCommand(context.Background(), []string{"my-app", "--embedded"}); err != nil {
+			t.Fatalf("runUpdateSetCommand returned error: %v", err)
+		}
+	})
+
+	appUnset, err := repo.GetApp("my-app")
+	if err != nil {
+		t.Fatalf("failed to reload app: %v", err)
+	}
+	if appUnset.Update == nil || appUnset.Update.Kind != models.UpdateNone {
+		t.Fatalf("unexpected update source after unset: %#v", appUnset.Update)
+	}
+	if !strings.Contains(outputUnset, "Update source unset") {
+		t.Fatalf("unexpected output:\n%s", outputUnset)
+	}
+}
+
+func TestUpdateSetEmbeddedMissingWithoutConfiguredSource(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "apps.json")
+
+	originalDbSrc := config.DbSrc
+	config.DbSrc = dbPath
+	t.Cleanup(func() {
+		config.DbSrc = originalDbSrc
+	})
+
+	if err := repo.SaveDB(dbPath, &repo.DB{
+		SchemaVersion: 1,
+		Apps: map[string]*models.App{
+			"my-app": {
+				ID:       "my-app",
+				Name:     "My App",
+				ExecPath: "/tmp/MyApp.AppImage",
+				Update:   &models.UpdateSource{Kind: models.UpdateNone},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("failed to write test DB: %v", err)
+	}
+
+	originalUpdateInfo := getAppImageUpdateInfo
+	t.Cleanup(func() {
+		getAppImageUpdateInfo = originalUpdateInfo
+	})
+	getAppImageUpdateInfo = func(string) (*core.UpdateInfo, error) {
+		return nil, fmt.Errorf("no update information found in ELF headers")
+	}
+
+	output := captureStdout(t, func() {
+		if err := runUpdateSetCommand(context.Background(), []string{"my-app", "--embedded"}); err != nil {
+			t.Fatalf("runUpdateSetCommand returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "No embedded update source found in the current AppImage.") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+	if strings.Contains(output, "Update source unchanged") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+}
+
+func TestUpdateUnsetCommand(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "apps.json")
+
+	originalDbSrc := config.DbSrc
+	config.DbSrc = dbPath
+	t.Cleanup(func() {
+		config.DbSrc = originalDbSrc
+	})
+
+	writeDB := func(update *models.UpdateSource) {
+		t.Helper()
+		if err := repo.SaveDB(dbPath, &repo.DB{
+			SchemaVersion: 1,
+			Apps: map[string]*models.App{
+				"my-app": {
+					ID:     "my-app",
+					Name:   "My App",
+					Update: update,
+				},
+			},
+		}); err != nil {
+			t.Fatalf("failed to write test DB: %v", err)
+		}
+	}
+
+	writeDB(&models.UpdateSource{
+		Kind: models.UpdateGitHubRelease,
+		GitHubRelease: &models.GitHubReleaseUpdateSource{
+			Repo:  "owner/repo",
+			Asset: "*.AppImage",
+		},
+	})
+
+	outputKeep := captureStdoutWithInput(t, "n\n", func() {
+		if err := runUpdateUnsetCommand(context.Background(), []string{"my-app"}); err != nil {
+			t.Fatalf("runUpdateUnsetCommand returned error: %v", err)
+		}
+	})
+	if !strings.Contains(outputKeep, "Unset update source for my-app? [y/N]: ") {
+		t.Fatalf("unexpected output:\n%s", outputKeep)
+	}
+	if !strings.Contains(outputKeep, "Update source unchanged") {
+		t.Fatalf("unexpected output:\n%s", outputKeep)
+	}
+
+	writeDB(&models.UpdateSource{
+		Kind: models.UpdateGitHubRelease,
+		GitHubRelease: &models.GitHubReleaseUpdateSource{
+			Repo:  "owner/repo",
+			Asset: "*.AppImage",
+		},
+	})
+
+	outputUnset := captureStdoutWithInput(t, "y\n", func() {
+		if err := runUpdateUnsetCommand(context.Background(), []string{"my-app"}); err != nil {
+			t.Fatalf("runUpdateUnsetCommand returned error: %v", err)
+		}
+	})
+	app, err := repo.GetApp("my-app")
+	if err != nil {
+		t.Fatalf("failed to reload app: %v", err)
+	}
+	if app.Update == nil || app.Update.Kind != models.UpdateNone {
+		t.Fatalf("unexpected update source: %#v", app.Update)
+	}
+	if !strings.Contains(outputUnset, "Update source unset") {
+		t.Fatalf("unexpected output:\n%s", outputUnset)
+	}
+
+	writeDB(&models.UpdateSource{Kind: models.UpdateNone})
+	outputNoSource := captureStdout(t, func() {
+		if err := runUpdateUnsetCommand(context.Background(), []string{"my-app"}); err != nil {
+			t.Fatalf("runUpdateUnsetCommand returned error: %v", err)
+		}
+	})
+	if !strings.Contains(outputNoSource, "No update source configured for my-app") {
+		t.Fatalf("unexpected output:\n%s", outputNoSource)
+	}
 }
 
 func newRootTestCommand() *cli.Command {
@@ -1773,6 +2230,13 @@ func newRootTestCommand() *cli.Command {
 			{Name: "list", Action: ListCmd},
 			{Name: "show", Action: ShowCmd},
 			{
+				Name: "inspect",
+				Arguments: []cli.Argument{
+					&cli.StringArg{Name: "target"},
+				},
+				Action: InspectCmd,
+			},
+			{
 				Name:    "install",
 				Aliases: []string{"i"},
 				Flags: []cli.Flag{
@@ -1791,6 +2255,7 @@ func newRootTestCommand() *cli.Command {
 					&cli.StringFlag{Name: "asset"},
 					&cli.StringFlag{Name: "gitlab"},
 					&cli.StringFlag{Name: "zsync-url"},
+					&cli.BoolFlag{Name: "embedded"},
 				},
 				Action: UpdateCmd,
 			},
@@ -3588,6 +4053,19 @@ func runShowCommand(ctx context.Context, args []string) error {
 	return cmd.Run(ctx, argv)
 }
 
+func runInspectCommand(ctx context.Context, args []string) error {
+	cmd := &cli.Command{
+		Name: "inspect",
+		Arguments: []cli.Argument{
+			&cli.StringArg{Name: "target"},
+		},
+		Action: InspectCmd,
+	}
+
+	argv := append([]string{"inspect"}, args...)
+	return cmd.Run(ctx, argv)
+}
+
 func runInstallCommand(ctx context.Context, args []string) error {
 	cmd := newInstallTestCommand()
 	cmd.Action = InstallCmd
@@ -3606,10 +4084,30 @@ func runUpdateSetCommand(ctx context.Context, args []string) error {
 			&cli.StringFlag{Name: "asset"},
 			&cli.StringFlag{Name: "gitlab"},
 			&cli.StringFlag{Name: "zsync-url"},
+			&cli.BoolFlag{Name: "embedded"},
 		},
 		Action: UpdateCmd,
 	}
 
 	argv := append([]string{"update", "set"}, args...)
+	return cmd.Run(ctx, argv)
+}
+
+func runUpdateUnsetCommand(ctx context.Context, args []string) error {
+	cmd := &cli.Command{
+		Name: "update",
+		Flags: []cli.Flag{
+			&cli.BoolFlag{Name: "yes"},
+			&cli.BoolFlag{Name: "check-only"},
+			&cli.StringFlag{Name: "github"},
+			&cli.StringFlag{Name: "asset"},
+			&cli.StringFlag{Name: "gitlab"},
+			&cli.StringFlag{Name: "zsync-url"},
+			&cli.BoolFlag{Name: "embedded"},
+		},
+		Action: UpdateCmd,
+	}
+
+	argv := append([]string{"update", "unset"}, args...)
 	return cmd.Run(ctx, argv)
 }

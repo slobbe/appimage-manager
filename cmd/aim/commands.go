@@ -755,12 +755,147 @@ func yesNo(value bool) string {
 	return "no"
 }
 
+type inspectTargetKind string
+
+const (
+	inspectTargetManaged inspectTargetKind = "managed"
+	inspectTargetLocal   inspectTargetKind = "local"
+)
+
+type inspectTarget struct {
+	Kind inspectTargetKind
+	App  *models.App
+	Path string
+}
+
+func InspectCmd(ctx context.Context, cmd *cli.Command) error {
+	if len(cmd.Args().Slice()) > 1 {
+		return fmt.Errorf("too many arguments")
+	}
+
+	input := strings.TrimSpace(cmd.StringArg("target"))
+	target, err := resolveInspectTarget(input)
+	if err != nil {
+		return err
+	}
+
+	switch target.Kind {
+	case inspectTargetManaged:
+		return inspectManagedApp(ctx, cmd, target.App)
+	case inspectTargetLocal:
+		return inspectLocalAppImage(ctx, cmd, target.Path)
+	default:
+		return fmt.Errorf("unknown inspect target %q", input)
+	}
+}
+
+func resolveInspectTarget(input string) (*inspectTarget, error) {
+	trimmed := strings.TrimSpace(input)
+	if trimmed == "" {
+		return nil, fmt.Errorf("missing required argument <id|path-to.AppImage>")
+	}
+
+	if app, err := repo.GetApp(trimmed); err == nil {
+		return &inspectTarget{Kind: inspectTargetManaged, App: app}, nil
+	}
+
+	if util.HasExtension(trimmed, ".AppImage") {
+		return &inspectTarget{Kind: inspectTargetLocal, Path: trimmed}, nil
+	}
+
+	return nil, fmt.Errorf("unknown inspect target %s", input)
+}
+
+func inspectManagedApp(ctx context.Context, cmd *cli.Command, app *models.App) error {
+	if app == nil {
+		return fmt.Errorf("managed app cannot be empty")
+	}
+
+	embeddedSource, _ := embeddedUpdateSourceForPath(app.ExecPath)
+
+	printSection(cmd, "App")
+	fmt.Printf("Name: %s\n", strings.TrimSpace(app.Name))
+	fmt.Printf("ID: %s\n", strings.TrimSpace(app.ID))
+	fmt.Printf("Version: %s\n", displayVersion(app.Version))
+	fmt.Printf("Exec Path: %s\n", strings.TrimSpace(app.ExecPath))
+
+	printSection(cmd, "Management")
+	fmt.Printf("Configured update source: %s\n", updateSummaryOrNone(app.Update))
+	fmt.Printf("Embedded update source: %s\n", updateSummaryOrNone(embeddedSource))
+
+	printSection(cmd, "Update State")
+	fmt.Printf("Update available: %s\n", yesNo(app.UpdateAvailable))
+	if strings.TrimSpace(app.LatestVersion) != "" {
+		fmt.Printf("Latest known version: %s\n", displayVersion(app.LatestVersion))
+	}
+	if strings.TrimSpace(app.LastCheckedAt) != "" {
+		fmt.Printf("Last checked: %s\n", strings.TrimSpace(app.LastCheckedAt))
+	}
+
+	_ = ctx
+	return nil
+}
+
+func inspectLocalAppImage(ctx context.Context, cmd *cli.Command, src string) error {
+	info, err := readAppImageInfo(ctx, src)
+	if err != nil {
+		return err
+	}
+
+	embeddedSource, _ := embeddedUpdateSourceForPath(src)
+
+	printSection(cmd, "AppImage")
+	fmt.Printf("Path: %s\n", strings.TrimSpace(src))
+	fmt.Printf("Name: %s\n", strings.TrimSpace(info.Name))
+	fmt.Printf("ID: %s\n", strings.TrimSpace(info.ID))
+	fmt.Printf("Version: %s\n", displayVersion(info.Version))
+
+	printSection(cmd, "Embedded Update")
+	fmt.Printf("Embedded update source: %s\n", updateSummaryOrNone(embeddedSource))
+
+	return nil
+}
+
+func updateSummaryOrNone(update *models.UpdateSource) string {
+	if update == nil || update.Kind == models.UpdateNone {
+		return "none"
+	}
+	return updateSummary(update)
+}
+
+func updateSourceFromEmbeddedInfo(info *core.UpdateInfo) (*models.UpdateSource, error) {
+	if info == nil {
+		return nil, fmt.Errorf("missing embedded update info")
+	}
+	if info.Kind != models.UpdateZsync {
+		return nil, fmt.Errorf("unsupported embedded update info kind %q", info.Kind)
+	}
+
+	return &models.UpdateSource{
+		Kind: models.UpdateZsync,
+		Zsync: &models.ZsyncUpdateSource{
+			UpdateInfo: strings.TrimSpace(info.UpdateInfo),
+			Transport:  strings.TrimSpace(info.Transport),
+		},
+	}, nil
+}
+
+func embeddedUpdateSourceForPath(path string) (*models.UpdateSource, error) {
+	info, err := getAppImageUpdateInfo(strings.TrimSpace(path))
+	if err != nil {
+		return nil, err
+	}
+	return updateSourceFromEmbeddedInfo(info)
+}
+
 func UpdateCmd(ctx context.Context, cmd *cli.Command) error {
 	args := cmd.Args().Slice()
 	if len(args) > 0 {
 		switch args[0] {
 		case "set":
 			return UpdateSetCmd(ctx, cmd, args[1:])
+		case "unset":
+			return UpdateUnsetCmd(ctx, cmd, args[1:])
 		case "check":
 			return fmt.Errorf("`aim update check` has been removed; use `aim update [<id>]` for managed apps")
 		}
@@ -794,10 +929,8 @@ func UpdateSetCmd(ctx context.Context, cmd *cli.Command, args []string) error {
 	if id == "" {
 		return fmt.Errorf("missing required argument <id>")
 	}
-
-	incomingSource, err := resolveUpdateSourceFromSetFlags(cmd)
-	if err != nil {
-		return err
+	if len(args) > 1 {
+		return fmt.Errorf("too many arguments")
 	}
 
 	app, err := repo.GetApp(id)
@@ -805,7 +938,31 @@ func UpdateSetCmd(ctx context.Context, cmd *cli.Command, args []string) error {
 		return err
 	}
 
-	if app.Update != nil && app.Update.Kind != models.UpdateNone {
+	var incomingSource *models.UpdateSource
+	if cmd.Bool("embedded") {
+		if err := validateEmbeddedUpdateSetFlags(cmd); err != nil {
+			return err
+		}
+
+		incomingSource, err = embeddedUpdateSourceForPath(app.ExecPath)
+		if err != nil {
+			printWarning(cmd, "No embedded update source found in the current AppImage.")
+			if app.Update == nil || app.Update.Kind == models.UpdateNone {
+				return nil
+			}
+
+			prompt := fmt.Sprintf("Unset current update source %s for %s? [y/N]: ", updateSummary(app.Update), id)
+			_, err := unsetManagedUpdateSource(cmd, app, prompt, false)
+			return err
+		}
+	} else {
+		incomingSource, err = resolveUpdateSourceFromSetFlags(cmd)
+		if err != nil {
+			return err
+		}
+	}
+
+	if app.Update != nil && app.Update.Kind != models.UpdateNone && !updateSourcesEqual(app.Update, incomingSource) {
 		fmt.Printf("Current update source for %s:\n", id)
 		fmt.Println("  " + updateSummary(app.Update))
 		fmt.Println("New update source:")
@@ -831,14 +988,111 @@ func UpdateSetCmd(ctx context.Context, cmd *cli.Command, args []string) error {
 	return nil
 }
 
+func UpdateUnsetCmd(ctx context.Context, cmd *cli.Command, args []string) error {
+	_ = ctx
+	if cmd.IsSet("yes") || cmd.IsSet("check-only") {
+		return fmt.Errorf("flags --yes/-y and --check-only/-c are not supported with `aim update unset`")
+	}
+	if hasUpdateSetFlags(cmd) {
+		return fmt.Errorf("update source flags are not supported with `aim update unset`")
+	}
+
+	id := ""
+	if len(args) > 0 {
+		id = strings.TrimSpace(args[0])
+	}
+	if id == "" {
+		return fmt.Errorf("missing required argument <id>")
+	}
+	if len(args) > 1 {
+		return fmt.Errorf("too many arguments")
+	}
+
+	app, err := repo.GetApp(id)
+	if err != nil {
+		return err
+	}
+
+	prompt := fmt.Sprintf("Unset update source for %s? [y/N]: ", id)
+	_, err = unsetManagedUpdateSource(cmd, app, prompt, true)
+	return err
+}
+
+func unsetManagedUpdateSource(cmd *cli.Command, app *models.App, prompt string, showCurrent bool) (bool, error) {
+	if app == nil {
+		return false, fmt.Errorf("managed app cannot be empty")
+	}
+	if app.Update == nil || app.Update.Kind == models.UpdateNone {
+		printSuccess(cmd, fmt.Sprintf("No update source configured for %s", app.ID))
+		return false, nil
+	}
+
+	if showCurrent {
+		fmt.Printf("Current update source for %s:\n", app.ID)
+		fmt.Println("  " + updateSummary(app.Update))
+	}
+
+	confirmed, err := confirmOverwrite(prompt)
+	if err != nil {
+		return false, err
+	}
+	if !confirmed {
+		printWarning(cmd, "Update source unchanged")
+		return false, nil
+	}
+
+	app.Update = &models.UpdateSource{Kind: models.UpdateNone}
+	if err := repo.UpdateApp(app); err != nil {
+		return false, err
+	}
+
+	printSuccess(cmd, "Update source unset")
+	return true, nil
+}
+
 func hasUpdateSetFlags(cmd *cli.Command) bool {
-	keys := []string{"github", "gitlab", "asset", "zsync-url", "manifest-url", "url", "sha256"}
+	keys := []string{"github", "gitlab", "asset", "zsync-url", "embedded", "manifest-url", "url", "sha256"}
 	for _, key := range keys {
 		if cmd.IsSet(key) {
 			return true
 		}
 	}
 	return false
+}
+
+func validateEmbeddedUpdateSetFlags(cmd *cli.Command) error {
+	githubRepo := strings.TrimSpace(cmd.String("github"))
+	gitlabProject := strings.TrimSpace(cmd.String("gitlab"))
+	zsyncURL := strings.TrimSpace(cmd.String("zsync-url"))
+	assetPattern := strings.TrimSpace(cmd.String("asset"))
+	manifestURL := strings.TrimSpace(cmd.String("manifest-url"))
+	directURL := strings.TrimSpace(cmd.String("url"))
+	sha256 := strings.TrimSpace(cmd.String("sha256"))
+
+	if manifestURL != "" {
+		return fmt.Errorf("--manifest-url is no longer supported; use --github, --gitlab, --zsync-url, or --embedded")
+	}
+	if directURL != "" {
+		return fmt.Errorf("--url is no longer supported; use --github, --gitlab, --zsync-url, or --embedded")
+	}
+	if sha256 != "" {
+		return fmt.Errorf("--sha256 is no longer supported; use --github, --gitlab, --zsync-url, or --embedded")
+	}
+	if assetPattern != "" {
+		return fmt.Errorf("--asset is only supported with --github or --gitlab")
+	}
+
+	selectorCount := 1
+	for _, value := range []string{githubRepo, gitlabProject, zsyncURL} {
+		if value != "" {
+			selectorCount++
+		}
+	}
+	if selectorCount > 1 {
+		return fmt.Errorf("update source flags are mutually exclusive")
+	}
+
+	return nil
 }
 
 func resolveUpdateSourceFromSetFlags(cmd *cli.Command) (*models.UpdateSource, error) {
@@ -851,13 +1105,13 @@ func resolveUpdateSourceFromSetFlags(cmd *cli.Command) (*models.UpdateSource, er
 	sha256 := strings.TrimSpace(cmd.String("sha256"))
 
 	if manifestURL != "" {
-		return nil, fmt.Errorf("--manifest-url is no longer supported; use --github, --gitlab, or --zsync-url")
+		return nil, fmt.Errorf("--manifest-url is no longer supported; use --github, --gitlab, --zsync-url, or --embedded")
 	}
 	if directURL != "" {
-		return nil, fmt.Errorf("--url is no longer supported; use --github, --gitlab, or --zsync-url")
+		return nil, fmt.Errorf("--url is no longer supported; use --github, --gitlab, --zsync-url, or --embedded")
 	}
 	if sha256 != "" {
-		return nil, fmt.Errorf("--sha256 is no longer supported; use --github, --gitlab, or --zsync-url")
+		return nil, fmt.Errorf("--sha256 is no longer supported; use --github, --gitlab, --zsync-url, or --embedded")
 	}
 
 	selectorCount := 0
@@ -868,7 +1122,7 @@ func resolveUpdateSourceFromSetFlags(cmd *cli.Command) (*models.UpdateSource, er
 	}
 
 	if selectorCount == 0 {
-		return nil, fmt.Errorf("missing update source; set one of --github, --gitlab, or --zsync-url")
+		return nil, fmt.Errorf("missing update source; set one of --github, --gitlab, --zsync-url, or --embedded")
 	}
 	if selectorCount > 1 {
 		return nil, fmt.Errorf("update source flags are mutually exclusive")
@@ -919,7 +1173,7 @@ func resolveUpdateSourceFromSetFlags(cmd *cli.Command) (*models.UpdateSource, er
 	if assetPattern != "" {
 		return nil, fmt.Errorf("--asset is only supported with --github or --gitlab")
 	}
-	return nil, fmt.Errorf("missing update source; set one of --github, --gitlab, or --zsync-url")
+	return nil, fmt.Errorf("missing update source; set one of --github, --gitlab, --zsync-url, or --embedded")
 }
 
 type pendingManagedUpdate struct {
@@ -963,6 +1217,8 @@ var runSelfUpgrade = core.SelfUpgrade
 var runManagedApply = applyManagedUpdate
 var integrateExistingApp = core.IntegrateExisting
 var integrateLocalApp = core.IntegrateFromLocalFile
+var readAppImageInfo = core.ReadAppImageInfo
+var getAppImageUpdateInfo = core.GetUpdateInfo
 var removeManagedApp = core.Remove
 var addAppsBatch = repo.AddAppsBatch
 var addSingleApp = repo.AddApp
