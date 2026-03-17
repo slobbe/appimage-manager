@@ -56,26 +56,45 @@ aim upgrade
 
 ### Add
 
-Integrate a local `.AppImage` or reintegrate an existing managed ID.
+Add a remote source, managed app, or local `.AppImage`.
 
 ```sh
-aim add <path-to.AppImage|id>
+aim add <https-url|github:owner/repo|gitlab:namespace/project|path-to.AppImage|id>
 ```
 
-If the argument is the ID of an unlinked app, `aim` reintegrates it.
+`aim add` is the umbrella command. It routes remote sources through the remote install flow and local paths or managed IDs through local integration.
 
 Examples:
 
 ```sh
 aim add ./MyApp.AppImage
 aim add <id>
+aim add https://example.com/MyApp.AppImage
+aim add github:owner/repo
+aim add gitlab:namespace/project
+aim add github:owner/repo --asset "MyApp-*-x86_64.AppImage"
+aim add https://example.com/MyApp.AppImage --sha256 <64-hex>
 ```
 
-| Option         | Meaning                                                                   |
-| :------------- | :------------------------------------------------------------------------ |
-| `--post-check` | run post-integration update check for zsync-enabled apps                  |
+| Option     | Meaning                                                               |
+| :--------- | :-------------------------------------------------------------------- |
+| `--asset`  | asset filename pattern override for `github:`/`gitlab:` add sources   |
+| `--sha256` | expected SHA-256 for direct `https://` add sources                    |
 
-Remote sources that were previously installed with `aim add ...` are now installed with `aim install ...`.
+### Integrate
+
+Integrate a local `.AppImage` or reintegrate an existing managed ID explicitly.
+
+```sh
+aim integrate <path-to.AppImage|id>
+```
+
+Examples:
+
+```sh
+aim integrate ./MyApp.AppImage
+aim integrate <id>
+```
 
 ### Show
 
@@ -114,7 +133,7 @@ aim inspect ./helium-0.10.5.1-x86_64.AppImage
 
 ### Install
 
-Download from a remote source and integrate the result.
+Download from a remote source and integrate the result. `aim add` is the umbrella/default path; `aim install` remains the explicit remote-only command.
 
 ```sh
 aim install https://example.com/MyApp.AppImage
@@ -237,8 +256,8 @@ When a GitHub or GitLab release asset also publishes a sibling `.zsync` file at 
 If the sibling `.zsync` is missing or `zsync` cannot be used, `aim` falls back to downloading the full AppImage.
 The configured update source remains GitHub or GitLab; `aim` only switches the transport used during update apply.
 
-If an AppImage embeds zsync update info, `aim add` preserves it automatically.
-For `github:` and `gitlab:` installs, the selected remote source becomes the app's configured update source instead.
+If an AppImage embeds zsync update info, local integration via `aim add` or `aim integrate` preserves it automatically.
+For remote `aim add` and `aim install` commands, the selected remote source becomes the app's configured update source instead.
 Use `aim inspect` to view the embedded source in a managed or local AppImage.
 Use `aim update set <id> --embedded` to switch back to the embedded source later.
 If the current AppImage does not embed an update source, `aim` tells you and, when another source is configured, offers to unset it or keep it.

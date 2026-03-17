@@ -47,26 +47,66 @@ func UpgradeCmd(ctx context.Context, cmd *cli.Command) error {
 }
 
 func AddCmd(ctx context.Context, cmd *cli.Command) error {
-	input := cmd.StringArg("app")
-	target, err := resolveAddTarget(input)
+	input, err := commandSingleArg(cmd, "target", "<https-url|github:owner/repo|gitlab:namespace/project|id|path-to.AppImage>")
 	if err != nil {
 		return err
 	}
 
-	var app *models.App
+	if isRemoteAddInput(input) {
+		return runInstallTarget(ctx, cmd, input)
+	}
+
+	if _, err := resolveIntegrateTarget(input); err == nil {
+		if err := validateAddIntegrateFlags(cmd); err != nil {
+			return err
+		}
+		return runIntegrateTarget(ctx, cmd, input)
+	}
+
+	return fmt.Errorf("unknown add target %q; expected https://..., github:owner/repo, gitlab:namespace/project, <id>, or <path-to.AppImage>", input)
+}
+
+func IntegrateCmd(ctx context.Context, cmd *cli.Command) error {
+	input, err := commandSingleArg(cmd, "target", "<path-to.AppImage|id>")
+	if err != nil {
+		return err
+	}
+
+	return runIntegrateTarget(ctx, cmd, input)
+}
+
+type integrateTargetKind string
+
+const (
+	integrateTargetLocalFile  integrateTargetKind = "local_file"
+	integrateTargetUnlinked   integrateTargetKind = "unlinked"
+	integrateTargetIntegrated integrateTargetKind = "integrated"
+)
+
+type integrateTarget struct {
+	Kind      integrateTargetKind
+	App       *models.App
+	LocalPath string
+}
+
+func runIntegrateTarget(ctx context.Context, cmd *cli.Command, input string) error {
+	target, err := resolveIntegrateTarget(input)
+	if err != nil {
+		return err
+	}
 
 	switch target.Kind {
-	case addTargetIntegrated:
-		app = target.App
-		printSuccess(cmd, fmt.Sprintf("Already integrated: %s", formatAppRef(app)))
-	case addTargetUnlinked:
-		appData, err := integrateExistingApp(ctx, target.App.ID)
+	case integrateTargetIntegrated:
+		printSuccess(cmd, fmt.Sprintf("Already integrated: %s", formatAppRef(target.App)))
+		return nil
+	case integrateTargetUnlinked:
+		app, err := integrateExistingApp(ctx, target.App.ID)
 		if err != nil {
 			return err
 		}
-		app = appData
 		printSuccess(cmd, fmt.Sprintf("Reintegrated: %s", formatAppRef(app)))
-	case addTargetLocalFile:
+		return nil
+	case integrateTargetLocalFile:
 		inputLabel := strings.TrimSpace(filepath.Base(target.LocalPath))
 		if inputLabel == "" || inputLabel == "." || inputLabel == string(filepath.Separator) {
 			inputLabel = strings.TrimSpace(target.LocalPath)
@@ -74,7 +114,7 @@ func AddCmd(ctx context.Context, cmd *cli.Command) error {
 
 		printInfo(cmd, fmt.Sprintf("Integrating %s", inputLabel))
 
-		appData, err := integrateLocalApp(ctx, target.LocalPath, func(existing, incoming *models.UpdateSource) (bool, error) {
+		app, err := integrateLocalApp(ctx, target.LocalPath, func(existing, incoming *models.UpdateSource) (bool, error) {
 			fmt.Println("Current update source:")
 			fmt.Println("  " + updateSummary(existing))
 			fmt.Println("Incoming AppImage update info:")
@@ -85,72 +125,37 @@ func AddCmd(ctx context.Context, cmd *cli.Command) error {
 		if err != nil {
 			return err
 		}
-		app = appData
 		printSuccess(cmd, fmt.Sprintf("Integrated: %s", formatAppRef(app)))
+		return nil
 	default:
-		return fmt.Errorf("unknown argument %s", input)
+		return fmt.Errorf("unknown integrate target %q", input)
 	}
-
-	if app.Update != nil && app.Update.Kind == models.UpdateZsync && cmd.Bool("post-check") {
-		update, err := runZsyncUpdateCheck(app.Update, app.SHA1)
-
-		if update != nil && update.Available {
-			latest := ""
-			if update.PreRelease {
-				printWarning(cmd, fmt.Sprintf("Pre-release update available: %s %s", app.Name, formatVersionTransition(app.Version, latest)))
-			} else {
-				printWarning(cmd, fmt.Sprintf("Update available: %s %s", app.Name, formatVersionTransition(app.Version, latest)))
-			}
-			if strings.TrimSpace(update.DownloadUrl) != "" {
-				fmt.Printf("  Download: %s\n", strings.TrimSpace(update.DownloadUrl))
-			}
-			fmt.Printf("  Reintegrate with: %s\n", integrationHint(update.AssetName))
-		}
-
-		return err
-	}
-
-	return nil
 }
 
-type addTargetKind string
-
-const (
-	addTargetLocalFile  addTargetKind = "local_file"
-	addTargetUnlinked   addTargetKind = "unlinked"
-	addTargetIntegrated addTargetKind = "integrated"
-)
-
-type addTarget struct {
-	Kind      addTargetKind
-	App       *models.App
-	LocalPath string
-}
-
-func resolveAddTarget(input string) (*addTarget, error) {
+func resolveIntegrateTarget(input string) (*integrateTarget, error) {
 	trimmed := strings.TrimSpace(input)
 	if trimmed == "" {
-		return nil, fmt.Errorf("missing required argument <app>")
+		return nil, fmt.Errorf("missing required argument <path-to.AppImage|id>")
 	}
 
 	if app, err := repo.GetApp(trimmed); err == nil {
-		kind := addTargetIntegrated
+		kind := integrateTargetIntegrated
 		if strings.TrimSpace(app.DesktopEntryLink) == "" {
-			kind = addTargetUnlinked
+			kind = integrateTargetUnlinked
 		}
-		return &addTarget{Kind: kind, App: app}, nil
+		return &integrateTarget{Kind: kind, App: app}, nil
 	}
 
 	if strings.HasPrefix(trimmed, "https://") || strings.HasPrefix(trimmed, "github:") || strings.HasPrefix(trimmed, "gitlab:") {
-		return nil, fmt.Errorf("remote sources are installed with 'aim install'")
+		return nil, fmt.Errorf("remote sources are added with 'aim add'")
 	}
 
 	if strings.HasPrefix(strings.ToLower(trimmed), "http://") {
-		return nil, fmt.Errorf("direct URLs must use https; use 'aim install https://...'")
+		return nil, fmt.Errorf("direct URLs must use https; use 'aim add https://...'")
 	}
 
 	if util.HasExtension(trimmed, ".AppImage") {
-		return &addTarget{Kind: addTargetLocalFile, LocalPath: trimmed}, nil
+		return &integrateTarget{Kind: integrateTargetLocalFile, LocalPath: trimmed}, nil
 	}
 
 	return nil, fmt.Errorf("unknown argument %s", input)
@@ -202,11 +207,11 @@ func resolveInstallTarget(input string) (*installTarget, error) {
 	}
 
 	if app, err := repo.GetApp(trimmed); err == nil && app != nil {
-		return nil, fmt.Errorf("managed app IDs are reintegrated with 'aim add <id>'")
+		return nil, fmt.Errorf("managed app IDs are reintegrated with 'aim integrate <id>'")
 	}
 
 	if util.HasExtension(trimmed, ".AppImage") {
-		return nil, fmt.Errorf("local AppImages are integrated with 'aim add <path-to.AppImage>'")
+		return nil, fmt.Errorf("local AppImages are integrated with 'aim integrate <path-to.AppImage>'")
 	}
 
 	return nil, fmt.Errorf("unknown install target %s", input)
@@ -590,47 +595,12 @@ func InfoCmd(ctx context.Context, cmd *cli.Command) error {
 }
 
 func InstallCmd(ctx context.Context, cmd *cli.Command) error {
-	if len(cmd.Args().Slice()) > 1 {
-		return fmt.Errorf("too many arguments")
-	}
-	refArg := strings.TrimSpace(cmd.StringArg("ref"))
-	if refArg == "" {
-		return fmt.Errorf("missing required argument <ref>")
-	}
-
-	target, err := resolveInstallTarget(refArg)
-	if err != nil {
-		return err
-	}
-	if err := validateInstallTargetFlags(cmd, target); err != nil {
-		return err
-	}
-
-	assetPattern := strings.TrimSpace(cmd.String("asset"))
-	sha256 := strings.TrimSpace(cmd.String("sha256"))
-
-	var app *models.App
-	switch target.Kind {
-	case installTargetDirectURL:
-		app, err = integrateFromDirectURL(ctx, cmd, target, sha256)
-	case installTargetGitHub, installTargetGitLab:
-		var metadata *discovery.PackageMetadata
-		metadata, err = resolvePackageMetadataFromInput(ctx, refArg, assetPattern)
-		if err == nil && !metadata.Installable {
-			err = fmt.Errorf("package is not installable: %s", strings.TrimSpace(metadata.InstallReason))
-		}
-		if err == nil {
-			app, err = installPackageMetadata(ctx, cmd, metadata)
-		}
-	default:
-		err = fmt.Errorf("unsupported install target")
-	}
+	refArg, err := commandSingleArg(cmd, "ref", "<ref>")
 	if err != nil {
 		return err
 	}
 
-	printSuccess(cmd, fmt.Sprintf("Installed: %s", formatAppRef(app)))
-	return nil
+	return runInstallTarget(ctx, cmd, refArg)
 }
 
 func resolvePackageMetadataFromInput(ctx context.Context, input, assetOverride string) (*discovery.PackageMetadata, error) {
@@ -800,6 +770,42 @@ func runShowTarget(ctx context.Context, cmd *cli.Command, refArg string) error {
 	return nil
 }
 
+func runInstallTarget(ctx context.Context, cmd *cli.Command, refArg string) error {
+	target, err := resolveInstallTarget(refArg)
+	if err != nil {
+		return err
+	}
+	if err := validateInstallTargetFlags(cmd, target); err != nil {
+		return err
+	}
+
+	assetPattern := strings.TrimSpace(cmd.String("asset"))
+	sha256 := strings.TrimSpace(cmd.String("sha256"))
+
+	var app *models.App
+	switch target.Kind {
+	case installTargetDirectURL:
+		app, err = integrateFromDirectURL(ctx, cmd, target, sha256)
+	case installTargetGitHub, installTargetGitLab:
+		var metadata *discovery.PackageMetadata
+		metadata, err = resolvePackageMetadataFromInput(ctx, refArg, assetPattern)
+		if err == nil && !metadata.Installable {
+			err = fmt.Errorf("package is not installable: %s", strings.TrimSpace(metadata.InstallReason))
+		}
+		if err == nil {
+			app, err = installPackageMetadata(ctx, cmd, metadata)
+		}
+	default:
+		err = fmt.Errorf("unsupported install target")
+	}
+	if err != nil {
+		return err
+	}
+
+	printSuccess(cmd, fmt.Sprintf("Installed: %s", formatAppRef(app)))
+	return nil
+}
+
 func commandSingleArg(cmd *cli.Command, name, usage string) (string, error) {
 	if cmd.Args().Len() > 0 {
 		return "", fmt.Errorf("too many arguments")
@@ -811,6 +817,26 @@ func commandSingleArg(cmd *cli.Command, name, usage string) (string, error) {
 	}
 
 	return value, nil
+}
+
+func isRemoteAddInput(input string) bool {
+	trimmed := strings.TrimSpace(input)
+	lower := strings.ToLower(trimmed)
+	return strings.HasPrefix(trimmed, "https://") ||
+		strings.HasPrefix(lower, "http://") ||
+		strings.HasPrefix(trimmed, "github:") ||
+		strings.HasPrefix(trimmed, "gitlab:")
+}
+
+func validateAddIntegrateFlags(cmd *cli.Command) error {
+	if strings.TrimSpace(cmd.String("asset")) != "" {
+		return fmt.Errorf("--asset is only supported with github: or gitlab: add sources")
+	}
+	if strings.TrimSpace(cmd.String("sha256")) != "" {
+		return fmt.Errorf("--sha256 is only supported with direct https:// add sources")
+	}
+
+	return nil
 }
 
 func resolveInspectTarget(input string) (*inspectTarget, error) {
@@ -2138,13 +2164,6 @@ func confirmOverwrite(prompt string) (bool, error) {
 
 	answer := strings.TrimSpace(line)
 	return strings.EqualFold(answer, "y") || strings.EqualFold(answer, "yes"), nil
-}
-
-func integrationHint(assetName string) string {
-	if strings.TrimSpace(assetName) == "" {
-		return "aim add path/to/new.AppImage"
-	}
-	return fmt.Sprintf("aim add path/to/%s", assetName)
 }
 
 func updateSummary(update *models.UpdateSource) string {

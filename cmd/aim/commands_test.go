@@ -25,7 +25,7 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-func TestResolveAddTarget(t *testing.T) {
+func TestResolveIntegrateTarget(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "apps.json")
 
@@ -56,42 +56,42 @@ func TestResolveAddTarget(t *testing.T) {
 	tests := []struct {
 		name      string
 		input     string
-		expect    addTargetKind
+		expect    integrateTargetKind
 		wantError bool
 		errText   string
 	}{
-		{name: "local appimage path", input: "/tmp/MyApp.AppImage", expect: addTargetLocalFile},
-		{name: "integrated id", input: "integrated", expect: addTargetIntegrated},
-		{name: "unlinked id", input: "unlinked", expect: addTargetUnlinked},
-		{name: "direct url rejected", input: "https://example.com/MyApp.AppImage", wantError: true, errText: "remote sources are installed with 'aim install'"},
-		{name: "github repo rejected", input: "github:owner/repo", wantError: true, errText: "remote sources are installed with 'aim install'"},
-		{name: "gitlab repo rejected", input: "gitlab:group/project", wantError: true, errText: "remote sources are installed with 'aim install'"},
-		{name: "http rejected", input: "http://example.com/MyApp.AppImage", wantError: true, errText: "direct URLs must use https; use 'aim install https://...'"},
-		{name: "malformed github treated as remote", input: "github:owner", wantError: true, errText: "remote sources are installed with 'aim install'"},
-		{name: "malformed gitlab treated as remote", input: "gitlab:group", wantError: true, errText: "remote sources are installed with 'aim install'"},
+		{name: "local appimage path", input: "/tmp/MyApp.AppImage", expect: integrateTargetLocalFile},
+		{name: "integrated id", input: "integrated", expect: integrateTargetIntegrated},
+		{name: "unlinked id", input: "unlinked", expect: integrateTargetUnlinked},
+		{name: "direct url rejected", input: "https://example.com/MyApp.AppImage", wantError: true, errText: "remote sources are added with 'aim add'"},
+		{name: "github repo rejected", input: "github:owner/repo", wantError: true, errText: "remote sources are added with 'aim add'"},
+		{name: "gitlab repo rejected", input: "gitlab:group/project", wantError: true, errText: "remote sources are added with 'aim add'"},
+		{name: "http rejected", input: "http://example.com/MyApp.AppImage", wantError: true, errText: "direct URLs must use https; use 'aim add https://...'"},
+		{name: "malformed github treated as remote", input: "github:owner", wantError: true, errText: "remote sources are added with 'aim add'"},
+		{name: "malformed gitlab treated as remote", input: "gitlab:group", wantError: true, errText: "remote sources are added with 'aim add'"},
 		{name: "unknown id", input: "missing", wantError: true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := resolveAddTarget(tt.input)
+			got, err := resolveIntegrateTarget(tt.input)
 			if tt.wantError {
 				if err == nil {
-					t.Fatalf("resolveAddTarget(%q) expected error", tt.input)
+					t.Fatalf("resolveIntegrateTarget(%q) expected error", tt.input)
 				}
 				if tt.errText != "" && !strings.Contains(err.Error(), tt.errText) {
-					t.Fatalf("resolveAddTarget(%q) error = %q, want substring %q", tt.input, err.Error(), tt.errText)
+					t.Fatalf("resolveIntegrateTarget(%q) error = %q, want substring %q", tt.input, err.Error(), tt.errText)
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("resolveAddTarget(%q) returned error: %v", tt.input, err)
+				t.Fatalf("resolveIntegrateTarget(%q) returned error: %v", tt.input, err)
 			}
 			if got == nil {
-				t.Fatalf("resolveAddTarget(%q) returned nil target", tt.input)
+				t.Fatalf("resolveIntegrateTarget(%q) returned nil target", tt.input)
 			}
 			if got.Kind != tt.expect {
-				t.Fatalf("resolveAddTarget(%q) kind = %q, want %q", tt.input, got.Kind, tt.expect)
+				t.Fatalf("resolveIntegrateTarget(%q) kind = %q, want %q", tt.input, got.Kind, tt.expect)
 			}
 		})
 	}
@@ -130,8 +130,8 @@ func TestResolveInstallTarget(t *testing.T) {
 		{name: "github repo", input: "github:owner/repo", expect: installTargetGitHub},
 		{name: "gitlab repo", input: "gitlab:group/project", expect: installTargetGitLab},
 		{name: "http rejected", input: "http://example.com/MyApp.AppImage", wantError: true, errText: "direct URLs must use https"},
-		{name: "local path rejected", input: "/tmp/MyApp.AppImage", wantError: true, errText: "local AppImages are integrated with 'aim add <path-to.AppImage>'"},
-		{name: "managed id rejected", input: "managed", wantError: true, errText: "managed app IDs are reintegrated with 'aim add <id>'"},
+		{name: "local path rejected", input: "/tmp/MyApp.AppImage", wantError: true, errText: "local AppImages are integrated with 'aim integrate <path-to.AppImage>'"},
+		{name: "managed id rejected", input: "managed", wantError: true, errText: "managed app IDs are reintegrated with 'aim integrate <id>'"},
 		{name: "malformed github", input: "github:owner", wantError: true, errText: "github install source must be in the form github:owner/repo"},
 		{name: "malformed gitlab", input: "gitlab:group", wantError: true, errText: "gitlab install source must be in the form gitlab:namespace/project"},
 		{name: "unknown target", input: "missing", wantError: true, errText: "unknown install target"},
@@ -314,6 +314,9 @@ func TestRootHelpDoesNotAdvertiseRemovedCommands(t *testing.T) {
 	if !strings.Contains(output, "info") {
 		t.Fatalf("expected root help to list info command:\n%s", output)
 	}
+	if !strings.Contains(output, "integrate") {
+		t.Fatalf("expected root help to list integrate command:\n%s", output)
+	}
 }
 
 func TestRemovedCommandsAreUnavailable(t *testing.T) {
@@ -332,9 +335,11 @@ func TestRootRegistersPackageCommands(t *testing.T) {
 	cmd := newRootTestCommand()
 
 	required := map[string]bool{
-		"info":    false,
-		"show":    false,
-		"install": false,
+		"add":       false,
+		"integrate": false,
+		"info":      false,
+		"show":      false,
+		"install":   false,
 	}
 	for _, subcommand := range cmd.Commands {
 		if _, ok := required[subcommand.Name]; ok {
@@ -353,25 +358,45 @@ func TestRootPackageCommandFlags(t *testing.T) {
 	cmd := newRootTestCommand()
 
 	var addCmd *cli.Command
+	var integrateCmd *cli.Command
 	var installCmd *cli.Command
 	for _, subcommand := range cmd.Commands {
 		switch subcommand.Name {
 		case "add":
 			addCmd = subcommand
+		case "integrate":
+			integrateCmd = subcommand
 		case "install":
 			installCmd = subcommand
 		}
 	}
-	if addCmd == nil || installCmd == nil {
-		t.Fatal("expected add and install commands")
+	if addCmd == nil || integrateCmd == nil || installCmd == nil {
+		t.Fatal("expected add, integrate, and install commands")
 	}
 
-	if len(addCmd.Flags) != 1 {
-		t.Fatalf("add flags = %d, want 1", len(addCmd.Flags))
+	if len(addCmd.Flags) != 2 {
+		t.Fatalf("add flags = %d, want 2", len(addCmd.Flags))
 	}
-	addFlag, ok := addCmd.Flags[0].(*cli.BoolFlag)
-	if !ok || addFlag.Name != "post-check" {
-		t.Fatalf("unexpected add flags: %#v", addCmd.Flags)
+
+	foundAddAsset := false
+	foundAddSHA256 := false
+	for _, flag := range addCmd.Flags {
+		switch typed := flag.(type) {
+		case *cli.StringFlag:
+			if typed.Name == "asset" {
+				foundAddAsset = true
+			}
+			if typed.Name == "sha256" {
+				foundAddSHA256 = true
+			}
+		}
+	}
+	if !foundAddAsset || !foundAddSHA256 {
+		t.Fatalf("add flags missing asset or sha256: %#v", addCmd.Flags)
+	}
+
+	if len(integrateCmd.Flags) != 0 {
+		t.Fatalf("integrate flags = %#v, want none", integrateCmd.Flags)
 	}
 
 	foundAsset := false
@@ -588,7 +613,136 @@ func TestUpdateCheckMetadata(t *testing.T) {
 	}
 }
 
-func TestAddCmdAlreadyIntegratedMessage(t *testing.T) {
+func TestIntegrateCmdAlreadyIntegratedMessage(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "apps.json")
+
+	originalDbSrc := config.DbSrc
+	config.DbSrc = dbPath
+	t.Cleanup(func() {
+		config.DbSrc = originalDbSrc
+	})
+
+	if err := repo.SaveDB(dbPath, &repo.DB{
+		SchemaVersion: 1,
+		Apps: map[string]*models.App{
+			"my-app": {
+				ID:               "my-app",
+				Name:             "My App",
+				Version:          "1.0.0",
+				DesktopEntryLink: "/tmp/my-app.desktop",
+			},
+		},
+	}); err != nil {
+		t.Fatalf("failed to write test DB: %v", err)
+	}
+
+	output := captureStdout(t, func() {
+		if err := runIntegrateCommand(context.Background(), []string{"my-app"}); err != nil {
+			t.Fatalf("runIntegrateCommand returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "Already integrated: My App v1.0.0 [my-app]") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+}
+
+func TestIntegrateCmdReintegratedMessage(t *testing.T) {
+	original := integrateExistingApp
+	t.Cleanup(func() {
+		integrateExistingApp = original
+	})
+	integrateExistingApp = func(context.Context, string) (*models.App, error) {
+		return &models.App{ID: "my-app", Name: "My App", Version: "1.0.0"}, nil
+	}
+
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "apps.json")
+
+	originalDbSrc := config.DbSrc
+	config.DbSrc = dbPath
+	t.Cleanup(func() {
+		config.DbSrc = originalDbSrc
+	})
+
+	if err := repo.SaveDB(dbPath, &repo.DB{
+		SchemaVersion: 1,
+		Apps: map[string]*models.App{
+			"my-app": {
+				ID:      "my-app",
+				Name:    "My App",
+				Version: "1.0.0",
+			},
+		},
+	}); err != nil {
+		t.Fatalf("failed to write test DB: %v", err)
+	}
+
+	output := captureStdout(t, func() {
+		if err := runIntegrateCommand(context.Background(), []string{"my-app"}); err != nil {
+			t.Fatalf("runIntegrateCommand returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "Reintegrated: My App v1.0.0 [my-app]") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+}
+
+func TestIntegrateCmdIntegratedMessage(t *testing.T) {
+	original := integrateLocalApp
+	t.Cleanup(func() {
+		integrateLocalApp = original
+	})
+	integrateLocalApp = func(context.Context, string, core.UpdateOverwritePrompt) (*models.App, error) {
+		return &models.App{
+			ID:      "my-app",
+			Name:    "My App",
+			Version: "1.0.0",
+			Update:  &models.UpdateSource{Kind: models.UpdateNone},
+		}, nil
+	}
+
+	output := captureStdout(t, func() {
+		if err := runIntegrateCommand(context.Background(), []string{"/tmp/MyApp.AppImage"}); err != nil {
+			t.Fatalf("runIntegrateCommand returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "Integrating MyApp.AppImage") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+	if !strings.Contains(output, "Integrated: My App v1.0.0 [my-app]") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+}
+
+func TestIntegrateCmdRejectsRemoteSources(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		errText string
+	}{
+		{name: "direct url", args: []string{"https://example.com/MyApp.AppImage"}, errText: "remote sources are added with 'aim add'"},
+		{name: "github", args: []string{"github:owner/repo"}, errText: "remote sources are added with 'aim add'"},
+		{name: "gitlab", args: []string{"gitlab:group/project"}, errText: "remote sources are added with 'aim add'"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := runIntegrateCommand(context.Background(), tt.args)
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if !strings.Contains(err.Error(), tt.errText) {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestAddCmdRoutesManagedIDToIntegrateFlow(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "apps.json")
 
@@ -623,49 +777,7 @@ func TestAddCmdAlreadyIntegratedMessage(t *testing.T) {
 	}
 }
 
-func TestAddCmdReintegratedMessage(t *testing.T) {
-	original := integrateExistingApp
-	t.Cleanup(func() {
-		integrateExistingApp = original
-	})
-	integrateExistingApp = func(context.Context, string) (*models.App, error) {
-		return &models.App{ID: "my-app", Name: "My App", Version: "1.0.0"}, nil
-	}
-
-	tempDir := t.TempDir()
-	dbPath := filepath.Join(tempDir, "apps.json")
-
-	originalDbSrc := config.DbSrc
-	config.DbSrc = dbPath
-	t.Cleanup(func() {
-		config.DbSrc = originalDbSrc
-	})
-
-	if err := repo.SaveDB(dbPath, &repo.DB{
-		SchemaVersion: 1,
-		Apps: map[string]*models.App{
-			"my-app": {
-				ID:      "my-app",
-				Name:    "My App",
-				Version: "1.0.0",
-			},
-		},
-	}); err != nil {
-		t.Fatalf("failed to write test DB: %v", err)
-	}
-
-	output := captureStdout(t, func() {
-		if err := runAddCommand(context.Background(), []string{"my-app"}); err != nil {
-			t.Fatalf("runAddCommand returned error: %v", err)
-		}
-	})
-
-	if !strings.Contains(output, "Reintegrated: My App v1.0.0 [my-app]") {
-		t.Fatalf("unexpected output:\n%s", output)
-	}
-}
-
-func TestAddCmdIntegratedMessage(t *testing.T) {
+func TestAddCmdRoutesLocalPathToIntegrateFlow(t *testing.T) {
 	original := integrateLocalApp
 	t.Cleanup(func() {
 		integrateLocalApp = original
@@ -685,35 +797,8 @@ func TestAddCmdIntegratedMessage(t *testing.T) {
 		}
 	})
 
-	if !strings.Contains(output, "Integrating MyApp.AppImage") {
+	if !strings.Contains(output, "Integrating MyApp.AppImage") || !strings.Contains(output, "Integrated: My App v1.0.0 [my-app]") {
 		t.Fatalf("unexpected output:\n%s", output)
-	}
-	if !strings.Contains(output, "Integrated: My App v1.0.0 [my-app]") {
-		t.Fatalf("unexpected output:\n%s", output)
-	}
-}
-
-func TestAddCmdRejectsRemoteSources(t *testing.T) {
-	tests := []struct {
-		name    string
-		args    []string
-		errText string
-	}{
-		{name: "direct url", args: []string{"https://example.com/MyApp.AppImage"}, errText: "remote sources are installed with 'aim install'"},
-		{name: "github", args: []string{"github:owner/repo"}, errText: "remote sources are installed with 'aim install'"},
-		{name: "gitlab", args: []string{"gitlab:group/project"}, errText: "remote sources are installed with 'aim install'"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := runAddCommand(context.Background(), tt.args)
-			if err == nil {
-				t.Fatal("expected error")
-			}
-			if !strings.Contains(err.Error(), tt.errText) {
-				t.Fatalf("unexpected error: %v", err)
-			}
-		})
 	}
 }
 
@@ -781,6 +866,70 @@ func TestValidateInstallTargetFlags(t *testing.T) {
 				t.Fatalf("validateInstallTargetFlags returned error: %v", err)
 			}
 		})
+	}
+}
+
+func TestAddCmdRejectsLocalTargetsWithRemoteFlags(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "apps.json")
+
+	originalDbSrc := config.DbSrc
+	config.DbSrc = dbPath
+	t.Cleanup(func() {
+		config.DbSrc = originalDbSrc
+	})
+
+	if err := repo.SaveDB(dbPath, &repo.DB{
+		SchemaVersion: 1,
+		Apps: map[string]*models.App{
+			"my-app": {ID: "my-app"},
+		},
+	}); err != nil {
+		t.Fatalf("failed to write test DB: %v", err)
+	}
+
+	err := runAddCommand(context.Background(), []string{"./MyApp.AppImage", "--asset", "*.AppImage"})
+	if err == nil || !strings.Contains(err.Error(), "--asset is only supported with github: or gitlab: add sources") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	err = runAddCommand(context.Background(), []string{"my-app", "--sha256", strings.Repeat("a", 64)})
+	if err == nil || !strings.Contains(err.Error(), "--sha256 is only supported with direct https:// add sources") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestAddCmdRejectsUnknownTarget(t *testing.T) {
+	err := runAddCommand(context.Background(), []string{"1"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "unknown add target") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestAddCmdRemoteFlagValidation(t *testing.T) {
+	err := runAddCommand(context.Background(), []string{"github:owner/repo", "--sha256", strings.Repeat("a", 64)})
+	if err == nil || !strings.Contains(err.Error(), "--sha256 is only supported with direct https URLs") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	err = runAddCommand(context.Background(), []string{"https://example.com/app.AppImage", "--asset", "*.AppImage"})
+	if err == nil || !strings.Contains(err.Error(), "--asset is only supported with github: or gitlab: install sources") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestAddAndIntegrateRejectRemovedPostCheckFlag(t *testing.T) {
+	err := runAddCommand(context.Background(), []string{"./MyApp.AppImage", "--post-check"})
+	if err == nil || !strings.Contains(err.Error(), "flag provided but not defined: -post-check") {
+		t.Fatalf("unexpected add error: %v", err)
+	}
+
+	err = runIntegrateCommand(context.Background(), []string{"./MyApp.AppImage", "--post-check"})
+	if err == nil || !strings.Contains(err.Error(), "flag provided but not defined: -post-check") {
+		t.Fatalf("unexpected integrate error: %v", err)
 	}
 }
 
@@ -884,6 +1033,47 @@ func TestInstallCmdDirectURLWithoutChecksumWarns(t *testing.T) {
 
 	if !strings.Contains(output, "No SHA-256 provided; skipping checksum verification") {
 		t.Fatalf("expected checksum warning, got:\n%s", output)
+	}
+}
+
+func TestAddCmdDirectURLWithChecksum(t *testing.T) {
+	tempDir := t.TempDir()
+	setupAddCommandConfigForTest(t, tempDir)
+
+	originalDownload := downloadRemoteAsset
+	originalIntegrate := integrateLocalApp
+	originalAddSingle := addSingleApp
+	t.Cleanup(func() {
+		downloadRemoteAsset = originalDownload
+		integrateLocalApp = originalIntegrate
+		addSingleApp = originalAddSingle
+	})
+
+	payload := []byte("remote-appimage")
+	sum := sha256.Sum256(payload)
+	expectedSHA256 := hex.EncodeToString(sum[:])
+
+	downloadRemoteAsset = func(ctx context.Context, assetURL, destination string, interactive bool) error {
+		_ = ctx
+		_ = interactive
+		if assetURL != "https://example.com/MyApp.AppImage" {
+			t.Fatalf("assetURL = %q", assetURL)
+		}
+		return os.WriteFile(destination, payload, 0o644)
+	}
+	integrateLocalApp = func(context.Context, string, core.UpdateOverwritePrompt) (*models.App, error) {
+		return &models.App{ID: "my-app", Name: "My App", Version: "1.0.0", UpdatedAt: "2026-03-08T12:00:00Z"}, nil
+	}
+	addSingleApp = repo.AddApp
+
+	output := captureStdout(t, func() {
+		if err := runAddCommand(context.Background(), []string{"https://example.com/MyApp.AppImage", "--sha256", expectedSHA256}); err != nil {
+			t.Fatalf("runAddCommand returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "Installed: My App v1.0.0 [my-app]") {
+		t.Fatalf("unexpected output:\n%s", output)
 	}
 }
 
@@ -1071,6 +1261,70 @@ func TestInstallCmdGitHubUsesCustomAsset(t *testing.T) {
 	}
 }
 
+func TestAddCmdGitHubUsesCustomAsset(t *testing.T) {
+	tempDir := t.TempDir()
+	setupAddCommandConfigForTest(t, tempDir)
+
+	originalBackends := discoveryBackends
+	originalResolve := resolveGitHubReleaseAsset
+	originalDownload := downloadRemoteAsset
+	originalIntegrate := integrateLocalApp
+	originalAddSingle := addSingleApp
+	t.Cleanup(func() {
+		discoveryBackends = originalBackends
+		resolveGitHubReleaseAsset = originalResolve
+		downloadRemoteAsset = originalDownload
+		integrateLocalApp = originalIntegrate
+		addSingleApp = originalAddSingle
+	})
+
+	discoveryBackends = func() []discovery.DiscoveryBackend {
+		return []discovery.DiscoveryBackend{
+			&stubDiscoveryBackend{
+				name: "GitHub",
+				resolveFn: func(context.Context, discovery.PackageRef, string) (*discovery.PackageMetadata, error) {
+					return &discovery.PackageMetadata{
+						Name:          "My App",
+						Provider:      "GitHub",
+						Ref:           discovery.PackageRef{Kind: discovery.ProviderGitHub, ProviderRef: "owner/repo"},
+						LatestVersion: "1.2.3",
+						AssetName:     "MyApp-x86_64.AppImage",
+						AssetPattern:  "MyApp-*-x86_64.AppImage",
+						DownloadURL:   "https://example.com/MyApp-x86_64.AppImage",
+						Installable:   true,
+						ReleaseTag:    "v1.2.3",
+					}, nil
+				},
+			},
+		}
+	}
+	resolveGitHubReleaseAsset = func(repoSlug, assetPattern string) (*core.GitHubReleaseAsset, error) {
+		if assetPattern != "MyApp-*-x86_64.AppImage" {
+			t.Fatalf("assetPattern = %q", assetPattern)
+		}
+		return &core.GitHubReleaseAsset{
+			DownloadURL: "https://example.com/MyApp-x86_64.AppImage",
+			TagName:     "v1.2.3",
+			AssetName:   "MyApp-x86_64.AppImage",
+		}, nil
+	}
+	downloadRemoteAsset = func(context.Context, string, string, bool) error { return nil }
+	integrateLocalApp = func(context.Context, string, core.UpdateOverwritePrompt) (*models.App, error) {
+		return &models.App{ID: "my-app", Name: "My App", Version: "1.2.3", UpdatedAt: "2026-03-08T12:00:00Z"}, nil
+	}
+	addSingleApp = repo.AddApp
+
+	output := captureStdout(t, func() {
+		if err := runAddCommand(context.Background(), []string{"github:owner/repo", "--asset", "MyApp-*-x86_64.AppImage"}); err != nil {
+			t.Fatalf("runAddCommand returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "Installed: My App v1.2.3 [my-app]") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+}
+
 func TestInstallCmdGitLabSetsDefaultAssetSourceAndUpdate(t *testing.T) {
 	tempDir := t.TempDir()
 	setupAddCommandConfigForTest(t, tempDir)
@@ -1209,6 +1463,70 @@ func TestInstallCmdGitLabUsesCustomAsset(t *testing.T) {
 	}
 	if app.Source.GitLabRelease == nil || app.Source.GitLabRelease.Asset != "MyApp-*-x86_64.AppImage" {
 		t.Fatalf("unexpected gitlab source: %#v", app.Source.GitLabRelease)
+	}
+}
+
+func TestAddCmdGitLabProviderRef(t *testing.T) {
+	tempDir := t.TempDir()
+	setupAddCommandConfigForTest(t, tempDir)
+
+	originalBackends := discoveryBackends
+	originalResolve := resolveGitLabReleaseAsset
+	originalDownload := downloadRemoteAsset
+	originalIntegrate := integrateLocalApp
+	originalAddSingle := addSingleApp
+	t.Cleanup(func() {
+		discoveryBackends = originalBackends
+		resolveGitLabReleaseAsset = originalResolve
+		downloadRemoteAsset = originalDownload
+		integrateLocalApp = originalIntegrate
+		addSingleApp = originalAddSingle
+	})
+
+	discoveryBackends = func() []discovery.DiscoveryBackend {
+		return []discovery.DiscoveryBackend{
+			&stubDiscoveryBackend{
+				name: "GitLab",
+				resolveFn: func(context.Context, discovery.PackageRef, string) (*discovery.PackageMetadata, error) {
+					return &discovery.PackageMetadata{
+						Name:          "My App",
+						Provider:      "GitLab",
+						Ref:           discovery.PackageRef{Kind: discovery.ProviderGitLab, ProviderRef: "group/project"},
+						LatestVersion: "2.0.0",
+						AssetName:     "MyApp-x86_64.AppImage",
+						AssetPattern:  "*.AppImage",
+						DownloadURL:   "https://example.com/MyApp-x86_64.AppImage",
+						Installable:   true,
+						ReleaseTag:    "v2.0.0",
+					}, nil
+				},
+			},
+		}
+	}
+	resolveGitLabReleaseAsset = func(project, assetPattern string) (*core.GitLabReleaseAsset, error) {
+		if project != "group/project" || assetPattern != "*.AppImage" {
+			t.Fatalf("unexpected install resolution: %s %s", project, assetPattern)
+		}
+		return &core.GitLabReleaseAsset{
+			DownloadURL: "https://example.com/MyApp-x86_64.AppImage",
+			TagName:     "v2.0.0",
+			AssetName:   "MyApp-x86_64.AppImage",
+		}, nil
+	}
+	downloadRemoteAsset = func(context.Context, string, string, bool) error { return nil }
+	integrateLocalApp = func(context.Context, string, core.UpdateOverwritePrompt) (*models.App, error) {
+		return &models.App{ID: "my-app", Name: "My App", Version: "2.0.0", UpdatedAt: "2026-03-08T12:00:00Z"}, nil
+	}
+	addSingleApp = repo.AddApp
+
+	output := captureStdout(t, func() {
+		if err := runAddCommand(context.Background(), []string{"gitlab:group/project"}); err != nil {
+			t.Fatalf("runAddCommand returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "Installed: My App v2.0.0 [my-app]") {
+		t.Fatalf("unexpected output:\n%s", output)
 	}
 }
 
@@ -1650,6 +1968,26 @@ func TestInfoCmdRejectsUnknownTarget(t *testing.T) {
 	}
 }
 
+func TestAddCmdRejectsHTTPRemoteInput(t *testing.T) {
+	err := runAddCommand(context.Background(), []string{"http://example.com/MyApp.AppImage"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "direct URLs must use https") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestAddCmdRejectsMalformedGitHubRef(t *testing.T) {
+	err := runAddCommand(context.Background(), []string{"github:owner"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "github install source must be in the form github:owner/repo") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestInstallCmdRejectsNumericRef(t *testing.T) {
 	err := runInstallCommand(context.Background(), []string{"1"})
 	if err == nil {
@@ -1665,7 +2003,7 @@ func TestInstallCmdRejectsLocalPath(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(err.Error(), "local AppImages are integrated with 'aim add <path-to.AppImage>'") {
+	if !strings.Contains(err.Error(), "local AppImages are integrated with 'aim integrate <path-to.AppImage>'") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -1693,7 +2031,7 @@ func TestInstallCmdRejectsManagedID(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(err.Error(), "managed app IDs are reintegrated with 'aim add <id>'") {
+	if !strings.Contains(err.Error(), "managed app IDs are reintegrated with 'aim integrate <id>'") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -2541,9 +2879,17 @@ func newRootTestCommand() *cli.Command {
 			{
 				Name: "add",
 				Flags: []cli.Flag{
-					&cli.BoolFlag{Name: "post-check"},
+					&cli.StringFlag{Name: "asset"},
+					&cli.StringFlag{Name: "sha256"},
 				},
 				Action: AddCmd,
+			},
+			{
+				Name: "integrate",
+				Arguments: []cli.Argument{
+					&cli.StringArg{Name: "target"},
+				},
+				Action: IntegrateCmd,
 			},
 			{
 				Name: "remove",
@@ -3080,108 +3426,6 @@ func TestCheckAppUpdateGitHubPropagatesZsyncTransport(t *testing.T) {
 	}
 	if result.ExpectedSHA1 != strings.Repeat("b", 40) {
 		t.Fatalf("ExpectedSHA1 = %q", result.ExpectedSHA1)
-	}
-}
-
-func TestAddCmdSkipsPostCheckByDefault(t *testing.T) {
-	tempDir := t.TempDir()
-	dbPath := filepath.Join(tempDir, "apps.json")
-
-	originalDbSrc := config.DbSrc
-	config.DbSrc = dbPath
-	t.Cleanup(func() {
-		config.DbSrc = originalDbSrc
-	})
-
-	if err := repo.SaveDB(dbPath, &repo.DB{
-		SchemaVersion: 1,
-		Apps: map[string]*models.App{
-			"my-app": {
-				ID:               "my-app",
-				Name:             "My App",
-				Version:          "1.0.0",
-				SHA1:             strings.Repeat("a", 40),
-				DesktopEntryLink: "/tmp/aim-my-app.desktop",
-				Update: &models.UpdateSource{
-					Kind: models.UpdateZsync,
-					Zsync: &models.ZsyncUpdateSource{
-						UpdateInfo: "https://example.com/my-app.zsync",
-					},
-				},
-			},
-		},
-	}); err != nil {
-		t.Fatalf("failed to write test DB: %v", err)
-	}
-
-	originalZsyncCheck := runZsyncUpdateCheck
-	t.Cleanup(func() {
-		runZsyncUpdateCheck = originalZsyncCheck
-	})
-
-	var calls int32
-	runZsyncUpdateCheck = func(*models.UpdateSource, string) (*core.UpdateData, error) {
-		atomic.AddInt32(&calls, 1)
-		return nil, nil
-	}
-
-	if err := runAddCommand(context.Background(), []string{"my-app"}); err != nil {
-		t.Fatalf("runAddCommand returned error: %v", err)
-	}
-
-	if atomic.LoadInt32(&calls) != 0 {
-		t.Fatalf("runZsyncUpdateCheck calls = %d, want 0", calls)
-	}
-}
-
-func TestAddCmdPostCheckRunsWhenEnabled(t *testing.T) {
-	tempDir := t.TempDir()
-	dbPath := filepath.Join(tempDir, "apps.json")
-
-	originalDbSrc := config.DbSrc
-	config.DbSrc = dbPath
-	t.Cleanup(func() {
-		config.DbSrc = originalDbSrc
-	})
-
-	if err := repo.SaveDB(dbPath, &repo.DB{
-		SchemaVersion: 1,
-		Apps: map[string]*models.App{
-			"my-app": {
-				ID:               "my-app",
-				Name:             "My App",
-				Version:          "1.0.0",
-				SHA1:             strings.Repeat("a", 40),
-				DesktopEntryLink: "/tmp/aim-my-app.desktop",
-				Update: &models.UpdateSource{
-					Kind: models.UpdateZsync,
-					Zsync: &models.ZsyncUpdateSource{
-						UpdateInfo: "https://example.com/my-app.zsync",
-					},
-				},
-			},
-		},
-	}); err != nil {
-		t.Fatalf("failed to write test DB: %v", err)
-	}
-
-	originalZsyncCheck := runZsyncUpdateCheck
-	t.Cleanup(func() {
-		runZsyncUpdateCheck = originalZsyncCheck
-	})
-
-	var calls int32
-	runZsyncUpdateCheck = func(*models.UpdateSource, string) (*core.UpdateData, error) {
-		atomic.AddInt32(&calls, 1)
-		return &core.UpdateData{Available: false}, nil
-	}
-
-	if err := runAddCommand(context.Background(), []string{"my-app", "--post-check"}); err != nil {
-		t.Fatalf("runAddCommand returned error: %v", err)
-	}
-
-	if atomic.LoadInt32(&calls) != 1 {
-		t.Fatalf("runZsyncUpdateCheck calls = %d, want 1", calls)
 	}
 }
 
@@ -4319,10 +4563,23 @@ func newAddTestCommand() *cli.Command {
 	return &cli.Command{
 		Name: "add",
 		Arguments: []cli.Argument{
-			&cli.StringArg{Name: "app"},
+			&cli.StringArg{Name: "target"},
 		},
 		Flags: []cli.Flag{
-			&cli.BoolFlag{Name: "post-check"},
+			&cli.StringFlag{Name: "asset"},
+			&cli.StringFlag{Name: "sha256"},
+		},
+		Action: func(context.Context, *cli.Command) error {
+			return fmt.Errorf("test sentinel")
+		},
+	}
+}
+
+func newIntegrateTestCommand() *cli.Command {
+	return &cli.Command{
+		Name: "integrate",
+		Arguments: []cli.Argument{
+			&cli.StringArg{Name: "target"},
 		},
 		Action: func(context.Context, *cli.Command) error {
 			return fmt.Errorf("test sentinel")
@@ -4371,6 +4628,14 @@ func runAddCommand(ctx context.Context, args []string) error {
 	cmd.Action = AddCmd
 
 	argv := append([]string{"add"}, args...)
+	return cmd.Run(ctx, argv)
+}
+
+func runIntegrateCommand(ctx context.Context, args []string) error {
+	cmd := newIntegrateTestCommand()
+	cmd.Action = IntegrateCmd
+
+	argv := append([]string{"integrate"}, args...)
 	return cmd.Run(ctx, argv)
 }
 
