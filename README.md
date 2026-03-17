@@ -3,22 +3,20 @@
 ![GitHub Release](https://img.shields.io/github/v/release/slobbe/appimage-manager?sort=semver&display_name=release&style=flat-square)
 ![GitHub License](https://img.shields.io/github/license/slobbe/appimage-manager?style=flat-square)
 
-Manage AppImages as desktop apps on Linux.
+Manage AppImages as desktop apps on Linux. Install, integrate, update and remove AppImages from the terminal.
 
-## Quick start
-
-```sh
-aim add ./MyApp.AppImage
-aim list
-```
+> [!WARNING]
+> This project is still **work-in-progess**.
+> Breaking changes may occur while it's still in *v0.x.x*.
 
 ## Installation
 
-Downloads the latest release for your CPU (amd64/x86_64 or arm64/aarch64) and installs it to `~/.local/bin/aim`.
+Downloads the latest release binary and installs it to `~/.local/bin/aim`.
 
 ```sh
 # Download and install
 curl -fsSL https://raw.githubusercontent.com/slobbe/appimage-manager/main/scripts/install.sh | sh
+
 # Verify
 aim --version
 ```
@@ -37,16 +35,14 @@ Requirements: Linux, Go 1.25.5+.
 
 ## Usage
 
-Integration installs desktop entry metadata and icons so the AppImage appears in your launcher.
-
-`aim` manages local AppImages on Linux. It is intentionally scoped to:
+`aim` manages AppImages on Linux. It is intentionally scoped to:
 
 - desktop integration and removal
 - a simple local database of managed apps
 - update checks and applies for managed apps using embedded zsync, GitHub releases, and GitLab releases
 - self-upgrade via `aim upgrade`
 
-### Upgrade
+### Upgrade `aim`
 
 Upgrade `aim` to the latest stable release.
 
@@ -81,7 +77,7 @@ aim add https://example.com/MyApp.AppImage --sha256 <64-hex>
 | `--asset`  | asset filename pattern override for `github:`/`gitlab:` add sources   |
 | `--sha256` | expected SHA-256 for direct `https://` add sources                    |
 
-### Integrate
+#### Integrate
 
 Integrate a local `.AppImage` or reintegrate an existing managed ID explicitly.
 
@@ -96,42 +92,7 @@ aim integrate ./MyApp.AppImage
 aim integrate <id>
 ```
 
-### Show
-
-Inspect a package ref before installing it. Use `aim info` if you want a convenience command that also accepts managed app IDs and local AppImages.
-
-```sh
-aim show github:owner/repo
-aim show gitlab:namespace/project
-```
-
-### Info
-
-Inspect a package ref, managed app, or local `.AppImage` with one command. `aim info` automatically routes to `show` or `inspect` based on the input.
-
-```sh
-aim info github:owner/repo
-aim info gitlab:namespace/project
-aim info helium
-aim info ./helium-0.10.5.1-x86_64.AppImage
-```
-
-### Inspect
-
-Inspect a managed app or a local `.AppImage`. Use `aim info` if you want the same behavior behind a single umbrella command.
-
-```sh
-aim inspect <id|path-to.AppImage>
-```
-
-Examples:
-
-```sh
-aim inspect helium
-aim inspect ./helium-0.10.5.1-x86_64.AppImage
-```
-
-### Install
+#### Install
 
 Download from a remote source and integrate the result. `aim add` is the umbrella/default path; `aim install` remains the explicit remote-only command.
 
@@ -151,6 +112,41 @@ aim install github:owner/repo --asset "MyApp-*-x86_64.AppImage"
 For direct `https://` installs, `--sha256` is optional. If omitted, `aim` warns that checksum verification is skipped for that download. Direct URL installs are one-off remote installs and persist `UpdateNone`.
 
 For `github:` and `gitlab:` installs, `aim` configures the matching update source automatically.
+
+### Info
+
+Inspect a package ref, managed app, or local `.AppImage` with one command. `aim info` automatically routes to `show` or `inspect` based on the input.
+
+```sh
+aim info github:owner/repo
+aim info gitlab:namespace/project
+aim info helium
+aim info ./MyApp.AppImage
+```
+
+#### Inspect
+
+Inspect a managed app or a local `.AppImage`. Use `aim info` if you want the same behavior behind a single umbrella command.
+
+```sh
+aim inspect <id|path-to.AppImage>
+```
+
+Examples:
+
+```sh
+aim inspect myapp
+aim inspect ./MyApp.AppImage
+```
+
+#### Show
+
+Inspect a package ref before installing it. Use `aim info` if you want a convenience command that also accepts managed app IDs and local AppImages.
+
+```sh
+aim show github:owner/repo
+aim show gitlab:namespace/project
+```
 
 ### Remove
 
@@ -273,10 +269,6 @@ Use `aim update unset <id>` to clear any configured update source explicitly.
 - Temporary files: `${XDG_CACHE_HOME:-~/.cache}/aim/tmp`
 
 `aim` uses XDG base directories. Legacy installs from `~/.appimage-manager` and older XDG paths under `appimage-manager` are migrated automatically on startup. When multiple legacy sources exist, `aim` uses the newest legacy `apps.json` to choose the preferred migration source and prefers files from that source for migrated data. The migration preserves the old directories.
-
-## Notes
-
-- AppImages are detected by the `.AppImage` extension.
 
 ## License
 
