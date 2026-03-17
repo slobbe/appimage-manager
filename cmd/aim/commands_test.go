@@ -4021,8 +4021,8 @@ func setupAddCommandConfigForTest(t *testing.T, tmp string) {
 		config.TempDir = originalTempDir
 	})
 
-	config.DbSrc = filepath.Join(tmp, "state", "appimage-manager", "apps.json")
-	config.TempDir = filepath.Join(tmp, "cache", "appimage-manager", "tmp")
+	config.DbSrc = filepath.Join(tmp, "state", "aim", "apps.json")
+	config.TempDir = filepath.Join(tmp, "cache", "aim", "tmp")
 
 	for _, dir := range []string{filepath.Dir(config.DbSrc), config.TempDir} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {

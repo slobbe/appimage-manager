@@ -141,7 +141,7 @@ func setupIntegrationConfigForTest(t *testing.T, tmp string) {
 	config.DesktopDir = filepath.Join(tmp, "applications")
 	config.IconThemeDir = filepath.Join(tmp, "icons", "hicolor")
 	config.PixmapsDir = filepath.Join(tmp, "pixmaps")
-	config.DbSrc = filepath.Join(tmp, "state", "appimage-manager", "apps.json")
+	config.DbSrc = filepath.Join(tmp, "state", "aim", "apps.json")
 
 	dirs := []string{
 		config.AimDir,

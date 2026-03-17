@@ -235,13 +235,14 @@ Use `aim update unset <id>` to clear any configured update source explicitly.
 
 ## Where `aim` stores files
 
-- App files: `${XDG_DATA_HOME:-~/.local/share}/appimage-manager`
+- App files: `${XDG_DATA_HOME:-~/.local/share}/aim`
 - Desktop links: `${XDG_DATA_HOME:-~/.local/share}/applications`
 - Desktop icons: `${XDG_DATA_HOME:-~/.local/share}/icons/hicolor` and `${XDG_DATA_HOME:-~/.local/share}/pixmaps`
-- Database: `${XDG_STATE_HOME:-~/.local/state}/appimage-manager/apps.json`
-- Temporary files: `${XDG_CACHE_HOME:-~/.cache}/appimage-manager/tmp`
+- Config files: `${XDG_CONFIG_HOME:-~/.config}/aim`
+- Database: `${XDG_STATE_HOME:-~/.local/state}/aim/apps.json`
+- Temporary files: `${XDG_CACHE_HOME:-~/.cache}/aim/tmp`
 
-`aim` uses XDG base directories. Legacy installs from `~/.appimage-manager` are migrated automatically on startup.
+`aim` uses XDG base directories. Legacy installs from `~/.appimage-manager` and older XDG paths under `appimage-manager` are migrated automatically on startup. When multiple legacy sources exist, `aim` uses the newest legacy `apps.json` to choose the preferred migration source and prefers files from that source for migrated data. The migration preserves the old directories.
 
 ## Notes
 

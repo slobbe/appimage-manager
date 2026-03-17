@@ -5,280 +5,454 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/slobbe/appimage-manager/internal/config"
 	models "github.com/slobbe/appimage-manager/internal/types"
 )
 
-const migrationMarkerFileName = ".migration-repair-state"
+type migrationSource struct {
+	Name               string
+	AppDir             string
+	ConfigDir          string
+	DBPath             string
+	PathRoots          []string
+	DBTieBreakPriority int
+}
 
-func MigrateLegacyToXDG() error {
+type migrationSourceState struct {
+	Source       migrationSource
+	DBExists     bool
+	DBModTime    time.Time
+	ConfigExists bool
+}
+
+type treeEntry struct {
+	sourcePath string
+	info       os.FileInfo
+}
+
+func MigrateToCurrentPaths() error {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return err
 	}
 
-	legacyAimDir := filepath.Join(home, ".appimage-manager")
-	legacyDBPath := filepath.Join(legacyAimDir, "apps.json")
-
-	if filepath.Clean(config.DbSrc) == filepath.Clean(legacyDBPath) {
-		return nil
+	sourceStates, err := discoverMigrationSources(home)
+	if err != nil {
+		return err
 	}
 
-	if migrationMarkerUpToDate() {
-		return nil
+	destExists, err := fileExists(config.DbSrc)
+	if err != nil {
+		return err
 	}
 
-	if _, err := os.Stat(config.DbSrc); err == nil {
-		if err := repairExistingXDGDB(legacyAimDir); err != nil {
+	orderedStates := orderedLegacyStates(sourceStates)
+	if err := migrateConfigTree(orderedStates); err != nil {
+		return fmt.Errorf("failed to migrate config directory: %w", err)
+	}
+
+	orderedSources := extractMigrationSources(orderedStates)
+
+	if destExists {
+		destDB, err := LoadDB(config.DbSrc)
+		if err != nil {
+			return fmt.Errorf("failed to load current database: %w", err)
+		}
+
+		changed, err := repairCurrentDB(destDB, orderedSources)
+		if err != nil {
 			return err
 		}
-		markMigrationComplete()
+		if !changed {
+			return nil
+		}
+		if err := SaveDB(config.DbSrc, destDB); err != nil {
+			return fmt.Errorf("failed to write current database: %w", err)
+		}
 		return nil
+	}
+
+	canonicalState := chooseCanonicalLegacyDB(orderedStates)
+	if canonicalState == nil {
+		return nil
+	}
+
+	destDB, err := LoadDB(canonicalState.Source.DBPath)
+	if err != nil {
+		return fmt.Errorf("failed to load %s database: %w", canonicalState.Source.Name, err)
+	}
+
+	if _, err := repairCurrentDB(destDB, orderedSources); err != nil {
+		return err
+	}
+
+	if err := SaveDB(config.DbSrc, destDB); err != nil {
+		return fmt.Errorf("failed to write current database: %w", err)
+	}
+
+	return nil
+}
+
+func migrationSources(home string) []migrationSource {
+	currentDataHome := filepath.Dir(config.AimDir)
+	currentConfigHome := filepath.Dir(config.ConfigDir)
+	currentStateHome := filepath.Dir(filepath.Dir(config.DbSrc))
+
+	legacyAimDir := filepath.Join(home, ".appimage-manager")
+	oldXDGAimDir := filepath.Join(currentDataHome, "appimage-manager")
+
+	return []migrationSource{
+		{
+			Name:               "legacy home",
+			AppDir:             legacyAimDir,
+			DBPath:             filepath.Join(legacyAimDir, "apps.json"),
+			PathRoots:          []string{legacyAimDir},
+			DBTieBreakPriority: 0,
+		},
+		{
+			Name:               "legacy xdg",
+			AppDir:             oldXDGAimDir,
+			ConfigDir:          filepath.Join(currentConfigHome, "appimage-manager"),
+			DBPath:             filepath.Join(currentStateHome, "appimage-manager", "apps.json"),
+			PathRoots:          []string{oldXDGAimDir},
+			DBTieBreakPriority: 1,
+		},
+	}
+}
+
+func discoverMigrationSources(home string) ([]migrationSourceState, error) {
+	sources := migrationSources(home)
+	states := make([]migrationSourceState, 0, len(sources))
+
+	for _, source := range sources {
+		dbExists, dbModTime, err := migrationDBInfo(source.DBPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to inspect %s database: %w", source.Name, err)
+		}
+
+		configExists, err := dirExists(source.ConfigDir)
+		if err != nil {
+			return nil, fmt.Errorf("failed to inspect %s config directory: %w", source.Name, err)
+		}
+
+		if !dbExists && !configExists {
+			continue
+		}
+
+		states = append(states, migrationSourceState{
+			Source:       source,
+			DBExists:     dbExists,
+			DBModTime:    dbModTime,
+			ConfigExists: configExists,
+		})
+	}
+
+	return states, nil
+}
+
+func chooseCanonicalLegacyDB(states []migrationSourceState) *migrationSourceState {
+	for i := range states {
+		if states[i].DBExists {
+			return &states[i]
+		}
+	}
+	return nil
+}
+
+func orderedLegacyStates(states []migrationSourceState) []migrationSourceState {
+	ordered := append([]migrationSourceState(nil), states...)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		left := ordered[i]
+		right := ordered[j]
+
+		if left.DBExists != right.DBExists {
+			return left.DBExists
+		}
+		if left.DBExists && right.DBExists {
+			if !left.DBModTime.Equal(right.DBModTime) {
+				return left.DBModTime.After(right.DBModTime)
+			}
+		}
+		if left.Source.DBTieBreakPriority != right.Source.DBTieBreakPriority {
+			return left.Source.DBTieBreakPriority > right.Source.DBTieBreakPriority
+		}
+
+		return left.Source.Name < right.Source.Name
+	})
+	return ordered
+}
+
+func extractMigrationSources(states []migrationSourceState) []migrationSource {
+	sources := make([]migrationSource, 0, len(states))
+	for _, state := range states {
+		sources = append(sources, state.Source)
+	}
+	return sources
+}
+
+func migrateConfigTree(states []migrationSourceState) error {
+	var roots []string
+	for _, state := range states {
+		if !state.ConfigExists || strings.TrimSpace(state.Source.ConfigDir) == "" {
+			continue
+		}
+		roots = append(roots, state.Source.ConfigDir)
+	}
+
+	return mergeTreePreferFirst(config.ConfigDir, roots)
+}
+
+func migrationDBInfo(path string) (bool, time.Time, error) {
+	if strings.TrimSpace(path) == "" {
+		return false, time.Time{}, nil
+	}
+
+	info, err := os.Stat(path)
+	if err == nil {
+		if info.IsDir() {
+			return false, time.Time{}, nil
+		}
+		return true, info.ModTime(), nil
+	}
+	if os.IsNotExist(err) {
+		return false, time.Time{}, nil
+	}
+	return false, time.Time{}, err
+}
+
+func repairCurrentDB(db *DB, sources []migrationSource) (bool, error) {
+	if db == nil {
+		return false, nil
+	}
+
+	changed := false
+	if db.Apps == nil {
+		db.Apps = map[string]*models.App{}
+		changed = true
+	}
+	if db.SchemaVersion == 0 {
+		db.SchemaVersion = 1
+		changed = true
+	}
+
+	for key, app := range db.Apps {
+		if app == nil {
+			continue
+		}
+		if strings.TrimSpace(app.ID) == "" {
+			app.ID = strings.TrimSpace(key)
+			if app.ID == "" {
+				continue
+			}
+			changed = true
+		}
+
+		updated, err := reconcileAppToCurrentPaths(app, nil, sources)
+		if err != nil {
+			return false, err
+		}
+		changed = changed || updated
+	}
+
+	return changed, nil
+}
+
+func reconcileAppToCurrentPaths(app, fallback *models.App, sources []migrationSource) (bool, error) {
+	if app == nil || strings.TrimSpace(app.ID) == "" {
+		return false, nil
+	}
+
+	changed := false
+
+	if err := mergeAppDirFromSources(app.ID, sources); err != nil {
+		return false, err
+	}
+
+	if fillMissingAppPathsFromFallback(app, fallback, sources) {
+		changed = true
+	}
+
+	if rewriteAppPathsToCurrent(app, allPathRoots(sources)) {
+		changed = true
+	}
+
+	installedIconPath, desktopIconValue, iconChanged, err := installMigratedIcon(app.ID, app.IconPath, iconCandidatePaths(app.ID, app, fallback, sources)...)
+	if err != nil {
+		return false, err
+	}
+	if iconChanged {
+		if app.IconPath != installedIconPath {
+			app.IconPath = installedIconPath
+		}
+		changed = true
+	}
+
+	if err := rewriteCurrentDesktopEntry(app.DesktopEntryPath, app.ExecPath, desktopIconValue); err != nil {
+		return false, err
+	}
+
+	linkChanged, err := reconcileDesktopLink(app, fallback)
+	if err != nil {
+		return false, err
+	}
+	changed = changed || linkChanged
+
+	return changed, nil
+}
+
+func mergeAppDirFromSources(appID string, sources []migrationSource) error {
+	var roots []string
+	for _, source := range sources {
+		if strings.TrimSpace(source.AppDir) == "" {
+			continue
+		}
+		roots = append(roots, filepath.Join(source.AppDir, appID))
+	}
+
+	return mergeTreePreferFirst(filepath.Join(config.AimDir, appID), roots)
+}
+
+func fillMissingAppPathsFromFallback(app, fallback *models.App, sources []migrationSource) bool {
+	if app == nil || fallback == nil {
+		return false
+	}
+
+	changed := false
+	roots := allPathRoots(sources)
+
+	if strings.TrimSpace(app.ExecPath) == "" {
+		if value := rewriteValueToCurrent(fallback.ExecPath, roots); value != "" {
+			app.ExecPath = value
+			changed = true
+		}
+	}
+	if strings.TrimSpace(app.DesktopEntryPath) == "" {
+		if value := rewriteValueToCurrent(fallback.DesktopEntryPath, roots); value != "" {
+			app.DesktopEntryPath = value
+			changed = true
+		}
+	}
+	if strings.TrimSpace(app.IconPath) == "" {
+		if value := rewriteValueToCurrent(fallback.IconPath, roots); value != "" {
+			app.IconPath = value
+			changed = true
+		}
+	}
+	if strings.TrimSpace(app.DesktopEntryLink) == "" && strings.TrimSpace(fallback.DesktopEntryLink) != "" {
+		app.DesktopEntryLink = fallback.DesktopEntryLink
+		changed = true
+	}
+
+	if app.Source.Kind == models.SourceLocalFile {
+		switch {
+		case app.Source.LocalFile == nil && fallback.Source.LocalFile != nil:
+			copyValue := *fallback.Source.LocalFile
+			copyValue.OriginalPath = rewriteValueToCurrent(copyValue.OriginalPath, roots)
+			app.Source.LocalFile = &copyValue
+			changed = true
+		case app.Source.LocalFile != nil && strings.TrimSpace(app.Source.LocalFile.OriginalPath) == "" && fallback.Source.LocalFile != nil:
+			if value := rewriteValueToCurrent(fallback.Source.LocalFile.OriginalPath, roots); value != "" {
+				app.Source.LocalFile.OriginalPath = value
+				changed = true
+			}
+		}
+	}
+
+	return changed
+}
+
+func reconcileDesktopLink(app, fallback *models.App) (bool, error) {
+	if app == nil {
+		return false, nil
+	}
+
+	linkCandidate := strings.TrimSpace(app.DesktopEntryLink)
+	if linkCandidate == "" && fallback != nil {
+		linkCandidate = strings.TrimSpace(fallback.DesktopEntryLink)
+	}
+	if linkCandidate == "" {
+		return false, nil
+	}
+
+	linkName := filepath.Base(linkCandidate)
+	if linkName == "" || linkName == "." || linkName == string(filepath.Separator) {
+		if app.DesktopEntryLink != "" {
+			app.DesktopEntryLink = ""
+			return true, nil
+		}
+		return false, nil
+	}
+
+	changed := false
+	expectedLink := filepath.Join(config.DesktopDir, linkName)
+	if app.DesktopEntryLink != expectedLink {
+		app.DesktopEntryLink = expectedLink
+		changed = true
+	}
+
+	if _, err := os.Stat(app.DesktopEntryPath); err == nil {
+		if err := ensureDesktopLink(app.DesktopEntryPath, app.DesktopEntryLink); err != nil {
+			return false, err
+		}
+		return changed, nil
+	} else if !os.IsNotExist(err) {
+		return false, err
+	}
+
+	if app.DesktopEntryLink != "" {
+		app.DesktopEntryLink = ""
+		return true, nil
+	}
+
+	return changed, nil
+}
+
+func rewriteCurrentDesktopEntry(path, execPath, iconValue string) error {
+	if strings.TrimSpace(path) == "" {
+		return nil
+	}
+
+	if _, err := os.Stat(path); err == nil {
+		return rewriteDesktopEntryFile(path, execPath, iconValue)
 	} else if !os.IsNotExist(err) {
 		return err
 	}
 
-	if _, err := os.Stat(legacyDBPath); err != nil {
-		if os.IsNotExist(err) {
-			markMigrationComplete()
-			return nil
-		}
-		return err
-	}
-
-	legacyDB, err := LoadDB(legacyDBPath)
-	if err != nil {
-		return fmt.Errorf("failed to load legacy database: %w", err)
-	}
-
-	if err := os.MkdirAll(config.AimDir, 0o755); err != nil {
-		return err
-	}
-	if err := os.MkdirAll(config.DesktopDir, 0o755); err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(config.DbSrc), 0o755); err != nil {
-		return err
-	}
-	if err := os.MkdirAll(config.IconThemeDir, 0o755); err != nil {
-		return err
-	}
-	if err := os.MkdirAll(config.PixmapsDir, 0o755); err != nil {
-		return err
-	}
-
-	for _, app := range legacyDB.Apps {
-		if app == nil || strings.TrimSpace(app.ID) == "" {
-			continue
-		}
-
-		if err := migrateAppAssets(app, legacyAimDir); err != nil {
-			return err
-		}
-	}
-
-	if err := SaveDB(config.DbSrc, legacyDB); err != nil {
-		return fmt.Errorf("failed to write migrated database: %w", err)
-	}
-
-	markMigrationComplete()
-
 	return nil
 }
 
-func migrationMarkerPath() string {
-	return filepath.Join(filepath.Dir(config.DbSrc), migrationMarkerFileName)
-}
-
-func migrationMarkerPayload() string {
-	return strings.Join([]string{
-		"version=1",
-		"aim_dir=" + filepath.Clean(config.AimDir),
-		"desktop_dir=" + filepath.Clean(config.DesktopDir),
-		"db_src=" + filepath.Clean(config.DbSrc),
-		"icon_theme_dir=" + filepath.Clean(config.IconThemeDir),
-		"pixmaps_dir=" + filepath.Clean(config.PixmapsDir),
-	}, "\n") + "\n"
-}
-
-func migrationMarkerUpToDate() bool {
-	payload, err := os.ReadFile(migrationMarkerPath())
-	if err != nil {
+func rewriteAppPathsToCurrent(app *models.App, roots []string) bool {
+	if app == nil {
 		return false
 	}
 
-	return string(payload) == migrationMarkerPayload()
-}
-
-func markMigrationComplete() {
-	path := migrationMarkerPath()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return
-	}
-
-	_ = os.WriteFile(path, []byte(migrationMarkerPayload()), 0o644)
-}
-
-func repairExistingXDGDB(legacyAimDir string) error {
-	db, err := LoadDB(config.DbSrc)
-	if err != nil {
-		return fmt.Errorf("failed to load existing xdg database: %w", err)
-	}
-
-	changed := false
-	for _, app := range db.Apps {
-		if app == nil || strings.TrimSpace(app.ID) == "" {
-			continue
-		}
-
-		legacyAppDir := filepath.Join(legacyAimDir, app.ID)
-		newAppDir := filepath.Join(config.AimDir, app.ID)
-		if err := copyDirMissing(legacyAppDir, newAppDir); err != nil {
-			return err
-		}
-
-		if updated := rewriteAppPathsToXDG(app, legacyAimDir); updated {
-			changed = true
-		}
-
-		desktopIconValue := app.IconPath
-		if strings.TrimSpace(app.IconPath) != "" {
-			legacyIconPath := deriveLegacyPath(app.IconPath, legacyAimDir)
-			installedIconPath, iconValue, err := installMigratedIcon(app.ID, app.IconPath, legacyIconPath)
-			if err != nil {
-				return err
-			}
-			if installedIconPath != app.IconPath {
-				app.IconPath = installedIconPath
-				changed = true
-			}
-			desktopIconValue = iconValue
-		}
-
-		if _, err := os.Stat(app.DesktopEntryPath); err == nil {
-			if err := rewriteDesktopEntryFile(app.DesktopEntryPath, app.ExecPath, desktopIconValue); err != nil {
-				return err
-			}
-		}
-
-		if strings.TrimSpace(app.DesktopEntryLink) != "" {
-			linkName := filepath.Base(app.DesktopEntryLink)
-			if linkName == "" || linkName == "." || linkName == string(filepath.Separator) {
-				app.DesktopEntryLink = ""
-				changed = true
-				continue
-			}
-
-			expectedLink := filepath.Join(config.DesktopDir, linkName)
-			if app.DesktopEntryLink != expectedLink {
-				app.DesktopEntryLink = expectedLink
-				changed = true
-			}
-
-			if _, err := os.Stat(app.DesktopEntryPath); err == nil {
-				if err := ensureDesktopLink(app.DesktopEntryPath, app.DesktopEntryLink); err != nil {
-					return err
-				}
-			} else {
-				app.DesktopEntryLink = ""
-				changed = true
-			}
-		}
-	}
-
-	if changed {
-		if err := SaveDB(config.DbSrc, db); err != nil {
-			return fmt.Errorf("failed to update xdg database: %w", err)
-		}
-	}
-
-	return nil
-}
-
-func migrateAppAssets(app *models.App, legacyAimDir string) error {
-	legacyExecPath := app.ExecPath
-	legacyDesktopPath := app.DesktopEntryPath
-	legacyIconPath := app.IconPath
-
-	legacyAppDir := filepath.Join(legacyAimDir, app.ID)
-	newAppDir := filepath.Join(config.AimDir, app.ID)
-
-	if err := copyDirMissing(legacyAppDir, newAppDir); err != nil {
-		return err
-	}
-
-	_ = rewriteAppPathsToXDG(app, legacyAimDir)
-
-	desktopIconValue := app.IconPath
-	if strings.TrimSpace(app.IconPath) != "" {
-		installedIconPath, iconValue, err := installMigratedIcon(app.ID, app.IconPath, legacyIconPath)
-		if err != nil {
-			return err
-		}
-		app.IconPath = installedIconPath
-		desktopIconValue = iconValue
-	}
-
-	if strings.TrimSpace(app.DesktopEntryPath) == "" {
-		app.DesktopEntryPath = rewritePrefix(legacyDesktopPath, legacyAimDir, config.AimDir)
-	}
-	if strings.TrimSpace(app.ExecPath) == "" {
-		app.ExecPath = rewritePrefix(legacyExecPath, legacyAimDir, config.AimDir)
-	}
-
-	if _, err := os.Stat(app.DesktopEntryPath); err == nil {
-		if err := rewriteDesktopEntryFile(app.DesktopEntryPath, app.ExecPath, desktopIconValue); err != nil {
-			return err
-		}
-	}
-
-	if strings.TrimSpace(app.DesktopEntryLink) != "" {
-		linkName := filepath.Base(app.DesktopEntryLink)
-		if linkName == "" || linkName == "." || linkName == string(filepath.Separator) {
-			app.DesktopEntryLink = ""
-			return nil
-		}
-
-		app.DesktopEntryLink = filepath.Join(config.DesktopDir, linkName)
-
-		if _, err := os.Stat(app.DesktopEntryPath); err == nil {
-			if err := ensureDesktopLink(app.DesktopEntryPath, app.DesktopEntryLink); err != nil {
-				return err
-			}
-		} else {
-			app.DesktopEntryLink = ""
-		}
-	}
-
-	return nil
-}
-
-func rewriteAppPathsToXDG(app *models.App, legacyAimDir string) bool {
 	changed := false
 
-	newExecPath := rewritePrefix(app.ExecPath, legacyAimDir, config.AimDir)
+	newExecPath := rewriteValueToCurrent(app.ExecPath, roots)
 	if newExecPath != app.ExecPath {
 		app.ExecPath = newExecPath
 		changed = true
 	}
 
-	newDesktopPath := rewritePrefix(app.DesktopEntryPath, legacyAimDir, config.AimDir)
+	newDesktopPath := rewriteValueToCurrent(app.DesktopEntryPath, roots)
 	if newDesktopPath != app.DesktopEntryPath {
 		app.DesktopEntryPath = newDesktopPath
 		changed = true
 	}
 
-	newIconPath := rewritePrefix(app.IconPath, legacyAimDir, config.AimDir)
+	newIconPath := rewriteValueToCurrent(app.IconPath, roots)
 	if newIconPath != app.IconPath {
 		app.IconPath = newIconPath
 		changed = true
 	}
 
 	if app.Source.LocalFile != nil {
-		newOriginalPath := rewritePrefix(app.Source.LocalFile.OriginalPath, legacyAimDir, config.AimDir)
+		newOriginalPath := rewriteValueToCurrent(app.Source.LocalFile.OriginalPath, roots)
 		if newOriginalPath != app.Source.LocalFile.OriginalPath {
 			app.Source.LocalFile.OriginalPath = newOriginalPath
 			changed = true
@@ -288,16 +462,80 @@ func rewriteAppPathsToXDG(app *models.App, legacyAimDir string) bool {
 	return changed
 }
 
-func deriveLegacyPath(path, legacyAimDir string) string {
-	trimmed := strings.TrimSpace(path)
-	if trimmed == "" {
+func rewriteValueToCurrent(value string, roots []string) string {
+	rewritten := value
+	for _, root := range roots {
+		rewritten = rewritePrefix(rewritten, root, config.AimDir)
+	}
+	return rewritten
+}
+
+func allPathRoots(sources []migrationSource) []string {
+	seen := map[string]struct{}{}
+	var roots []string
+
+	for _, source := range sources {
+		for _, root := range source.PathRoots {
+			trimmed := strings.TrimSpace(root)
+			if trimmed == "" {
+				continue
+			}
+			clean := filepath.Clean(trimmed)
+			if _, ok := seen[clean]; ok {
+				continue
+			}
+			seen[clean] = struct{}{}
+			roots = append(roots, clean)
+		}
+	}
+
+	return roots
+}
+
+func iconCandidatePaths(appID string, app, fallback *models.App, sources []migrationSource) []string {
+	paths := []string{app.IconPath}
+	if fallback != nil {
+		paths = append(paths, fallback.IconPath)
+	}
+
+	for _, root := range allPathRoots(sources) {
+		paths = append(paths, deriveSourcePath(app.IconPath, root))
+		paths = append(paths, deriveAppDirIconPath(appID, root, app.IconPath))
+		if fallback != nil {
+			paths = append(paths, deriveSourcePath(fallback.IconPath, root))
+			paths = append(paths, deriveAppDirIconPath(appID, root, fallback.IconPath))
+		}
+	}
+
+	return paths
+}
+
+func deriveAppDirIconPath(appID, sourceRoot, iconPath string) string {
+	if strings.TrimSpace(appID) == "" || strings.TrimSpace(sourceRoot) == "" {
 		return ""
 	}
-	if strings.HasPrefix(filepath.Clean(trimmed), filepath.Clean(legacyAimDir)+string(filepath.Separator)) {
+
+	ext := strings.ToLower(filepath.Ext(strings.TrimSpace(iconPath)))
+	if ext == "" {
+		return ""
+	}
+
+	return filepath.Join(filepath.Clean(sourceRoot), appID, appID+ext)
+}
+
+func deriveSourcePath(path, sourceRoot string) string {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" || strings.TrimSpace(sourceRoot) == "" {
+		return ""
+	}
+
+	cleanValue := filepath.Clean(trimmed)
+	cleanSourceRoot := filepath.Clean(sourceRoot)
+	if strings.HasPrefix(cleanValue, cleanSourceRoot+string(filepath.Separator)) {
 		return trimmed
 	}
 
-	rel, err := filepath.Rel(filepath.Clean(config.AimDir), filepath.Clean(trimmed))
+	rel, err := filepath.Rel(filepath.Clean(config.AimDir), cleanValue)
 	if err != nil {
 		return ""
 	}
@@ -305,50 +543,201 @@ func deriveLegacyPath(path, legacyAimDir string) string {
 		return ""
 	}
 
-	return filepath.Join(legacyAimDir, rel)
+	return filepath.Join(cleanSourceRoot, rel)
 }
 
-func installMigratedIcon(appID, newIconPath, legacyIconPath string) (string, string, error) {
-	sourceIconPath := selectExistingPath(newIconPath, legacyIconPath)
+func installMigratedIcon(appID, currentIconPath string, candidates ...string) (string, string, bool, error) {
+	sourceIconPath := selectExistingPath(candidates...)
 	if sourceIconPath == "" {
-		return newIconPath, newIconPath, nil
+		return currentIconPath, currentIconPath, false, nil
 	}
 
 	ext := strings.ToLower(filepath.Ext(sourceIconPath))
 	if ext == "" {
-		return newIconPath, newIconPath, nil
+		return currentIconPath, currentIconPath, false, nil
 	}
 
 	destinationDir := iconInstallDir(ext)
-	destinationName := appID + ext
-
-	destinationPath := filepath.Join(destinationDir, destinationName)
-	desktopIconValue := destinationPath
+	destinationPath := filepath.Join(destinationDir, appID+ext)
 	if err := os.MkdirAll(destinationDir, 0o755); err != nil {
-		return "", "", err
+		return "", "", false, err
 	}
 
 	if filepath.Clean(sourceIconPath) != filepath.Clean(destinationPath) {
-		if err := moveFile(sourceIconPath, destinationPath); err != nil {
-			return "", "", err
+		info, err := os.Stat(sourceIconPath)
+		if err != nil {
+			return "", "", false, err
+		}
+		if err := copyFile(sourceIconPath, destinationPath, info.Mode().Perm()); err != nil {
+			return "", "", false, err
 		}
 	}
 
-	return destinationPath, desktopIconValue, nil
+	return destinationPath, destinationPath, filepath.Clean(currentIconPath) != filepath.Clean(destinationPath), nil
 }
 
-func selectExistingPath(preferred, fallback string) string {
-	if preferred != "" {
-		if _, err := os.Stat(preferred); err == nil {
-			return preferred
+func mergeTreePreferFirst(dst string, srcRoots []string) error {
+	entries, err := collectRelativeEntries(srcRoots)
+	if err != nil {
+		return err
+	}
+
+	relPaths := make([]string, 0, len(entries))
+	for relPath := range entries {
+		relPaths = append(relPaths, relPath)
+	}
+	sort.Strings(relPaths)
+
+	for _, relPath := range relPaths {
+		dstPath := filepath.Join(dst, relPath)
+		if _, err := os.Lstat(dstPath); err == nil {
+			continue
+		} else if !os.IsNotExist(err) {
+			return err
+		}
+
+		if err := copyPreferredEntry(dstPath, entries[relPath]); err != nil {
+			return err
 		}
 	}
-	if fallback != "" {
-		if _, err := os.Stat(fallback); err == nil {
-			return fallback
+
+	return nil
+}
+
+func collectRelativeEntries(srcRoots []string) (map[string]treeEntry, error) {
+	entries := make(map[string]treeEntry)
+
+	for _, root := range srcRoots {
+		trimmed := strings.TrimSpace(root)
+		if trimmed == "" {
+			continue
+		}
+		if err := collectTreeEntries(trimmed, ".", entries); err != nil {
+			return nil, err
 		}
 	}
+
+	return entries, nil
+}
+
+func collectTreeEntries(root, relPath string, entries map[string]treeEntry) error {
+	currentPath := root
+	if relPath != "." {
+		currentPath = filepath.Join(root, relPath)
+	}
+
+	info, err := os.Lstat(currentPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+
+	if relPath != "." {
+		if _, exists := entries[relPath]; !exists {
+			entries[relPath] = treeEntry{
+				sourcePath: currentPath,
+				info:       info,
+			}
+		}
+	}
+
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return nil
+	}
+
+	dirEntries, err := os.ReadDir(currentPath)
+	if err != nil {
+		return err
+	}
+	for _, entry := range dirEntries {
+		childRel := entry.Name()
+		if relPath != "." {
+			childRel = filepath.Join(relPath, entry.Name())
+		}
+		if err := collectTreeEntries(root, childRel, entries); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func copyPreferredEntry(dstPath string, entry treeEntry) error {
+	if entry.info == nil {
+		return nil
+	}
+
+	if entry.info.IsDir() {
+		return os.MkdirAll(dstPath, entry.info.Mode().Perm())
+	}
+
+	if err := os.MkdirAll(filepath.Dir(dstPath), 0o755); err != nil {
+		return err
+	}
+
+	if entry.info.Mode()&os.ModeSymlink != 0 {
+		target, err := os.Readlink(entry.sourcePath)
+		if err != nil {
+			return err
+		}
+		return os.Symlink(target, dstPath)
+	}
+
+	return copyFile(entry.sourcePath, dstPath, entry.info.Mode().Perm())
+}
+
+func selectExistingPath(paths ...string) string {
+	seen := map[string]struct{}{}
+
+	for _, path := range paths {
+		trimmed := strings.TrimSpace(path)
+		if trimmed == "" {
+			continue
+		}
+		clean := filepath.Clean(trimmed)
+		if _, ok := seen[clean]; ok {
+			continue
+		}
+		seen[clean] = struct{}{}
+
+		if _, err := os.Stat(clean); err == nil {
+			return clean
+		}
+	}
+
 	return ""
+}
+
+func fileExists(path string) (bool, error) {
+	if strings.TrimSpace(path) == "" {
+		return false, nil
+	}
+
+	info, err := os.Stat(path)
+	if err == nil {
+		return !info.IsDir(), nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, err
+}
+
+func dirExists(path string) (bool, error) {
+	if strings.TrimSpace(path) == "" {
+		return false, nil
+	}
+
+	info, err := os.Stat(path)
+	if err == nil {
+		return info.IsDir(), nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, err
 }
 
 func iconInstallDir(ext string) string {
@@ -368,22 +757,6 @@ func isThemeLookupExtension(ext string) bool {
 	default:
 		return false
 	}
-}
-
-func moveFile(srcPath, dstPath string) error {
-	if err := os.Rename(srcPath, dstPath); err == nil {
-		return nil
-	}
-
-	info, err := os.Stat(srcPath)
-	if err != nil {
-		return err
-	}
-	if err := copyFile(srcPath, dstPath, info.Mode().Perm()); err != nil {
-		return err
-	}
-	_ = os.Remove(srcPath)
-	return nil
 }
 
 func rewriteDesktopEntryFile(path, execPath, iconValue string) error {
@@ -588,6 +961,10 @@ func copyDirMissing(srcDir, dstDir string) error {
 }
 
 func copyFile(srcPath, dstPath string, perm os.FileMode) error {
+	if err := os.MkdirAll(filepath.Dir(dstPath), 0o755); err != nil {
+		return err
+	}
+
 	src, err := os.Open(srcPath)
 	if err != nil {
 		return err

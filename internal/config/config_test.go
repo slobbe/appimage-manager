@@ -10,19 +10,19 @@ func TestResolvePathsDefaults(t *testing.T) {
 
 	paths := resolvePaths(home, func(string) string { return "" })
 
-	if paths.AimDir != filepath.Join(home, ".local", "share", "appimage-manager") {
+	if paths.AimDir != filepath.Join(home, ".local", "share", "aim") {
 		t.Fatalf("AimDir = %q", paths.AimDir)
 	}
 	if paths.DesktopDir != filepath.Join(home, ".local", "share", "applications") {
 		t.Fatalf("DesktopDir = %q", paths.DesktopDir)
 	}
-	if paths.TempDir != filepath.Join(home, ".cache", "appimage-manager", "tmp") {
+	if paths.TempDir != filepath.Join(home, ".cache", "aim", "tmp") {
 		t.Fatalf("TempDir = %q", paths.TempDir)
 	}
-	if paths.ConfigDir != filepath.Join(home, ".config", "appimage-manager") {
+	if paths.ConfigDir != filepath.Join(home, ".config", "aim") {
 		t.Fatalf("ConfigDir = %q", paths.ConfigDir)
 	}
-	if paths.DbSrc != filepath.Join(home, ".local", "state", "appimage-manager", "apps.json") {
+	if paths.DbSrc != filepath.Join(home, ".local", "state", "aim", "apps.json") {
 		t.Fatalf("DbSrc = %q", paths.DbSrc)
 	}
 	if paths.IconThemeDir != filepath.Join(home, ".local", "share", "icons", "hicolor") {
@@ -46,19 +46,19 @@ func TestResolvePathsXDGOverrides(t *testing.T) {
 		return env[key]
 	})
 
-	if paths.AimDir != "/xdg/data/appimage-manager" {
+	if paths.AimDir != "/xdg/data/aim" {
 		t.Fatalf("AimDir = %q", paths.AimDir)
 	}
 	if paths.DesktopDir != "/xdg/data/applications" {
 		t.Fatalf("DesktopDir = %q", paths.DesktopDir)
 	}
-	if paths.TempDir != "/xdg/cache/appimage-manager/tmp" {
+	if paths.TempDir != "/xdg/cache/aim/tmp" {
 		t.Fatalf("TempDir = %q", paths.TempDir)
 	}
-	if paths.ConfigDir != "/xdg/config/appimage-manager" {
+	if paths.ConfigDir != "/xdg/config/aim" {
 		t.Fatalf("ConfigDir = %q", paths.ConfigDir)
 	}
-	if paths.DbSrc != "/xdg/state/appimage-manager/apps.json" {
+	if paths.DbSrc != "/xdg/state/aim/apps.json" {
 		t.Fatalf("DbSrc = %q", paths.DbSrc)
 	}
 	if paths.IconThemeDir != "/xdg/data/icons/hicolor" {
@@ -82,16 +82,16 @@ func TestResolvePathsIgnoresRelativeXDGPaths(t *testing.T) {
 		return env[key]
 	})
 
-	if paths.AimDir != filepath.Join(home, ".local", "share", "appimage-manager") {
+	if paths.AimDir != filepath.Join(home, ".local", "share", "aim") {
 		t.Fatalf("AimDir = %q", paths.AimDir)
 	}
-	if paths.TempDir != filepath.Join(home, ".cache", "appimage-manager", "tmp") {
+	if paths.TempDir != filepath.Join(home, ".cache", "aim", "tmp") {
 		t.Fatalf("TempDir = %q", paths.TempDir)
 	}
-	if paths.ConfigDir != filepath.Join(home, ".config", "appimage-manager") {
+	if paths.ConfigDir != filepath.Join(home, ".config", "aim") {
 		t.Fatalf("ConfigDir = %q", paths.ConfigDir)
 	}
-	if paths.DbSrc != filepath.Join(home, ".local", "state", "appimage-manager", "apps.json") {
+	if paths.DbSrc != filepath.Join(home, ".local", "state", "aim", "apps.json") {
 		t.Fatalf("DbSrc = %q", paths.DbSrc)
 	}
 	if paths.IconThemeDir != filepath.Join(home, ".local", "share", "icons", "hicolor") {

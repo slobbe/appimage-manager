@@ -185,7 +185,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	if err := repo.MigrateLegacyToXDG(); err != nil {
+	if err := repo.MigrateToCurrentPaths(); err != nil {
 		log.Fatal(err)
 	}
 

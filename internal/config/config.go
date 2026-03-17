@@ -59,11 +59,11 @@ func resolvePaths(home string, getenv func(string) string) resolvedPaths {
 	cacheHome := resolveXDGBaseDir(getenv("XDG_CACHE_HOME"), filepath.Join(home, ".cache"))
 
 	return resolvedPaths{
-		AimDir:       filepath.Join(dataHome, "appimage-manager"),
+		AimDir:       filepath.Join(dataHome, "aim"),
 		DesktopDir:   filepath.Join(dataHome, "applications"),
-		ConfigDir:    filepath.Join(configHome, "appimage-manager"),
-		TempDir:      filepath.Join(cacheHome, "appimage-manager", "tmp"),
-		DbSrc:        filepath.Join(stateHome, "appimage-manager", "apps.json"),
+		ConfigDir:    filepath.Join(configHome, "aim"),
+		TempDir:      filepath.Join(cacheHome, "aim", "tmp"),
+		DbSrc:        filepath.Join(stateHome, "aim", "apps.json"),
 		IconThemeDir: filepath.Join(dataHome, "icons", "hicolor"),
 		PixmapsDir:   filepath.Join(dataHome, "pixmaps"),
 	}
