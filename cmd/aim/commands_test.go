@@ -311,6 +311,9 @@ func TestRootHelpDoesNotAdvertiseRemovedCommands(t *testing.T) {
 			t.Fatalf("root help unexpectedly contains %q:\n%s", unwanted, output)
 		}
 	}
+	if !strings.Contains(output, "info") {
+		t.Fatalf("expected root help to list info command:\n%s", output)
+	}
 }
 
 func TestRemovedCommandsAreUnavailable(t *testing.T) {
@@ -329,6 +332,7 @@ func TestRootRegistersPackageCommands(t *testing.T) {
 	cmd := newRootTestCommand()
 
 	required := map[string]bool{
+		"info":    false,
 		"show":    false,
 		"install": false,
 	}
@@ -1378,6 +1382,88 @@ func TestShowCmdUninstallablePackageOmitsInstallPreview(t *testing.T) {
 	}
 }
 
+func TestInfoCmdGitHubPackageRef(t *testing.T) {
+	originalBackends := discoveryBackends
+	t.Cleanup(func() {
+		discoveryBackends = originalBackends
+	})
+
+	discoveryBackends = func() []discovery.DiscoveryBackend {
+		return []discovery.DiscoveryBackend{
+			&stubDiscoveryBackend{
+				name: "GitHub",
+				resolveFn: func(context.Context, discovery.PackageRef, string) (*discovery.PackageMetadata, error) {
+					return &discovery.PackageMetadata{
+						Name:          "My App",
+						Provider:      "GitHub",
+						Ref:           discovery.PackageRef{Kind: discovery.ProviderGitHub, ProviderRef: "owner/repo"},
+						RepoURL:       "https://github.com/owner/repo",
+						Summary:       "A test app",
+						LatestVersion: "1.2.3",
+						AssetName:     "MyApp-x86_64.AppImage",
+						AssetPattern:  "*.AppImage",
+						Installable:   true,
+					}, nil
+				},
+			},
+		}
+	}
+
+	output := captureStdout(t, func() {
+		if err := runInfoCommand(context.Background(), []string{"github:owner/repo"}); err != nil {
+			t.Fatalf("runInfoCommand returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "My App") || !strings.Contains(output, "Managed updates: yes") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+	if !strings.Contains(output, "aim install github:owner/repo") {
+		t.Fatalf("expected install preview, got:\n%s", output)
+	}
+}
+
+func TestInfoCmdGitLabPackageRef(t *testing.T) {
+	originalBackends := discoveryBackends
+	t.Cleanup(func() {
+		discoveryBackends = originalBackends
+	})
+
+	discoveryBackends = func() []discovery.DiscoveryBackend {
+		return []discovery.DiscoveryBackend{
+			&stubDiscoveryBackend{
+				name: "GitLab",
+				resolveFn: func(context.Context, discovery.PackageRef, string) (*discovery.PackageMetadata, error) {
+					return &discovery.PackageMetadata{
+						Name:          "Foo App",
+						Provider:      "GitLab",
+						Ref:           discovery.PackageRef{Kind: discovery.ProviderGitLab, ProviderRef: "group/project"},
+						RepoURL:       "https://gitlab.com/group/project",
+						Summary:       "A GitLab test app",
+						LatestVersion: "2.0.0",
+						AssetName:     "Foo-x86_64.AppImage",
+						AssetPattern:  "Foo-*-x86_64.AppImage",
+						Installable:   true,
+					}, nil
+				},
+			},
+		}
+	}
+
+	output := captureStdout(t, func() {
+		if err := runInfoCommand(context.Background(), []string{"gitlab:group/project"}); err != nil {
+			t.Fatalf("runInfoCommand returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "Foo App") || !strings.Contains(output, "Managed updates: yes") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+	if !strings.Contains(output, "aim install gitlab:group/project") {
+		t.Fatalf("expected install preview, got:\n%s", output)
+	}
+}
+
 func TestInstallCmdDirectProviderRefDelegatesToExistingAddFlow(t *testing.T) {
 	originalBackends := discoveryBackends
 	originalResolve := resolveGitHubReleaseAsset
@@ -1547,6 +1633,19 @@ func TestShowCmdRejectsNumericRef(t *testing.T) {
 		t.Fatal("expected error")
 	}
 	if !strings.Contains(err.Error(), "unsupported package ref") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestInfoCmdRejectsUnknownTarget(t *testing.T) {
+	err := runInfoCommand(context.Background(), []string{"1"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "unknown info target") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(err.Error(), "expected github:owner/repo, gitlab:namespace/project, <id>, or <path-to.AppImage>") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -2034,6 +2133,126 @@ func TestInspectCmdLocalAppImage(t *testing.T) {
 	}
 }
 
+func TestInfoCmdManagedApp(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "apps.json")
+
+	originalDbSrc := config.DbSrc
+	config.DbSrc = dbPath
+	t.Cleanup(func() {
+		config.DbSrc = originalDbSrc
+	})
+
+	if err := repo.SaveDB(dbPath, &repo.DB{
+		SchemaVersion: 1,
+		Apps: map[string]*models.App{
+			"my-app": {
+				ID:              "my-app",
+				Name:            "My App",
+				Version:         "1.0.0",
+				ExecPath:        "/tmp/MyApp.AppImage",
+				UpdateAvailable: true,
+				LatestVersion:   "1.1.0",
+				LastCheckedAt:   "2026-03-17T12:00:00Z",
+				Update: &models.UpdateSource{
+					Kind: models.UpdateGitHubRelease,
+					GitHubRelease: &models.GitHubReleaseUpdateSource{
+						Repo:  "owner/repo",
+						Asset: "*.AppImage",
+					},
+				},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("failed to write test DB: %v", err)
+	}
+
+	originalUpdateInfo := getAppImageUpdateInfo
+	t.Cleanup(func() {
+		getAppImageUpdateInfo = originalUpdateInfo
+	})
+	getAppImageUpdateInfo = func(path string) (*core.UpdateInfo, error) {
+		if path != "/tmp/MyApp.AppImage" {
+			t.Fatalf("path = %q", path)
+		}
+		return &core.UpdateInfo{
+			Kind:       models.UpdateZsync,
+			UpdateInfo: "zsync|https://example.com/MyApp.AppImage.zsync",
+			Transport:  "zsync",
+		}, nil
+	}
+
+	output := captureStdout(t, func() {
+		if err := runInfoCommand(context.Background(), []string{"my-app"}); err != nil {
+			t.Fatalf("runInfoCommand returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "Configured update source: github: owner/repo, asset: *.AppImage") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+	if !strings.Contains(output, "Embedded update source: zsync: zsync|https://example.com/MyApp.AppImage.zsync") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+	if !strings.Contains(output, "Latest known version: v1.1.0") || !strings.Contains(output, "Last checked: 2026-03-17T12:00:00Z") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+}
+
+func TestInfoCmdLocalAppImage(t *testing.T) {
+	originalRead := readAppImageInfo
+	originalUpdateInfo := getAppImageUpdateInfo
+	t.Cleanup(func() {
+		readAppImageInfo = originalRead
+		getAppImageUpdateInfo = originalUpdateInfo
+	})
+
+	readAppImageInfo = func(context.Context, string) (*core.AppInfo, error) {
+		return &core.AppInfo{Name: "My App", ID: "my-app", Version: "1.2.3"}, nil
+	}
+	getAppImageUpdateInfo = func(path string) (*core.UpdateInfo, error) {
+		if path != "./MyApp.AppImage" {
+			t.Fatalf("path = %q", path)
+		}
+		return &core.UpdateInfo{
+			Kind:       models.UpdateZsync,
+			UpdateInfo: "gh-releases-zsync|owner|repo|latest|MyApp-*.AppImage.zsync",
+			Transport:  "gh-releases",
+		}, nil
+	}
+
+	output := captureStdout(t, func() {
+		if err := runInfoCommand(context.Background(), []string{"./MyApp.AppImage"}); err != nil {
+			t.Fatalf("runInfoCommand returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "Path: ./MyApp.AppImage") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+	if !strings.Contains(output, "Embedded update source: zsync: gh-releases-zsync|owner|repo|latest|MyApp-*.AppImage.zsync") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+}
+
+func TestInfoCmdArgumentValidation(t *testing.T) {
+	err := runInfoCommand(context.Background(), nil)
+	if err == nil {
+		t.Fatal("expected missing argument error")
+	}
+	if !strings.Contains(err.Error(), "missing required argument <target>") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	err = runInfoCommand(context.Background(), []string{"a", "b"})
+	if err == nil {
+		t.Fatal("expected too many arguments error")
+	}
+	if !strings.Contains(err.Error(), "too many arguments") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestUpdateSetEmbeddedSetsEmbeddedSource(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "apps.json")
@@ -2338,6 +2557,13 @@ func newRootTestCommand() *cli.Command {
 			},
 			{Name: "list", Action: ListCmd},
 			{Name: "show", Action: ShowCmd},
+			{
+				Name: "info",
+				Arguments: []cli.Argument{
+					&cli.StringArg{Name: "target"},
+				},
+				Action: InfoCmd,
+			},
 			{
 				Name: "inspect",
 				Arguments: []cli.Argument{
@@ -4173,6 +4399,19 @@ func runShowCommand(ctx context.Context, args []string) error {
 	}
 
 	argv := append([]string{"show"}, args...)
+	return cmd.Run(ctx, argv)
+}
+
+func runInfoCommand(ctx context.Context, args []string) error {
+	cmd := &cli.Command{
+		Name: "info",
+		Arguments: []cli.Argument{
+			&cli.StringArg{Name: "target"},
+		},
+		Action: InfoCmd,
+	}
+
+	argv := append([]string{"info"}, args...)
 	return cmd.Run(ctx, argv)
 }
 

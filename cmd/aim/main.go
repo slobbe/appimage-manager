@@ -102,6 +102,17 @@ func main() {
 				Action: ShowCmd,
 			},
 			{
+				Name:  "info",
+				Usage: "Show package, managed app, or AppImage details",
+				Arguments: []cli.Argument{
+					&cli.StringArg{
+						Name:      "target",
+						UsageText: "<github:owner/repo|gitlab:namespace/project|id|path-to.AppImage>",
+					},
+				},
+				Action: InfoCmd,
+			},
+			{
 				Name:  "inspect",
 				Usage: "Inspect a managed app or local AppImage",
 				Arguments: []cli.Argument{

@@ -79,16 +79,27 @@ Remote sources that were previously installed with `aim add ...` are now install
 
 ### Show
 
-Inspect a package ref before installing it.
+Inspect a package ref before installing it. Use `aim info` if you want a convenience command that also accepts managed app IDs and local AppImages.
 
 ```sh
 aim show github:owner/repo
 aim show gitlab:namespace/project
 ```
 
+### Info
+
+Inspect a package ref, managed app, or local `.AppImage` with one command. `aim info` automatically routes to `show` or `inspect` based on the input.
+
+```sh
+aim info github:owner/repo
+aim info gitlab:namespace/project
+aim info helium
+aim info ./helium-0.10.5.1-x86_64.AppImage
+```
+
 ### Inspect
 
-Inspect a managed app or a local `.AppImage`.
+Inspect a managed app or a local `.AppImage`. Use `aim info` if you want the same behavior behind a single umbrella command.
 
 ```sh
 aim inspect <id|path-to.AppImage>

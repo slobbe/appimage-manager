@@ -564,21 +564,29 @@ func ListCmd(ctx context.Context, cmd *cli.Command) error {
 }
 
 func ShowCmd(ctx context.Context, cmd *cli.Command) error {
-	if len(cmd.Args().Slice()) > 1 {
-		return fmt.Errorf("too many arguments")
-	}
-	refArg := strings.TrimSpace(cmd.StringArg("ref"))
-	if refArg == "" {
-		return fmt.Errorf("missing required argument <ref>")
-	}
-
-	metadata, err := resolvePackageMetadataFromInput(ctx, refArg, "")
+	refArg, err := commandSingleArg(cmd, "ref", "<ref>")
 	if err != nil {
 		return err
 	}
 
-	printPackageMetadata(cmd, metadata)
-	return nil
+	return runShowTarget(ctx, cmd, refArg)
+}
+
+func InfoCmd(ctx context.Context, cmd *cli.Command) error {
+	input, err := commandSingleArg(cmd, "target", "<target>")
+	if err != nil {
+		return err
+	}
+
+	if _, err := resolvePackageRefInput(input); err == nil {
+		return runShowTarget(ctx, cmd, input)
+	}
+
+	if _, err := resolveInspectTarget(input); err == nil {
+		return runInspectTarget(ctx, cmd, input)
+	}
+
+	return fmt.Errorf("unknown info target %q; expected github:owner/repo, gitlab:namespace/project, <id>, or <path-to.AppImage>", input)
 }
 
 func InstallCmd(ctx context.Context, cmd *cli.Command) error {
@@ -758,11 +766,15 @@ type inspectTarget struct {
 }
 
 func InspectCmd(ctx context.Context, cmd *cli.Command) error {
-	if len(cmd.Args().Slice()) > 1 {
-		return fmt.Errorf("too many arguments")
+	input, err := commandSingleArg(cmd, "target", "<id|path-to.AppImage>")
+	if err != nil {
+		return err
 	}
 
-	input := strings.TrimSpace(cmd.StringArg("target"))
+	return runInspectTarget(ctx, cmd, input)
+}
+
+func runInspectTarget(ctx context.Context, cmd *cli.Command, input string) error {
 	target, err := resolveInspectTarget(input)
 	if err != nil {
 		return err
@@ -776,6 +788,29 @@ func InspectCmd(ctx context.Context, cmd *cli.Command) error {
 	default:
 		return fmt.Errorf("unknown inspect target %q", input)
 	}
+}
+
+func runShowTarget(ctx context.Context, cmd *cli.Command, refArg string) error {
+	metadata, err := resolvePackageMetadataFromInput(ctx, refArg, "")
+	if err != nil {
+		return err
+	}
+
+	printPackageMetadata(cmd, metadata)
+	return nil
+}
+
+func commandSingleArg(cmd *cli.Command, name, usage string) (string, error) {
+	if cmd.Args().Len() > 0 {
+		return "", fmt.Errorf("too many arguments")
+	}
+
+	value := strings.TrimSpace(cmd.StringArg(name))
+	if value == "" {
+		return "", fmt.Errorf("missing required argument %s", usage)
+	}
+
+	return value, nil
 }
 
 func resolveInspectTarget(input string) (*inspectTarget, error) {
