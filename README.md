@@ -7,7 +7,7 @@ Manage AppImages as desktop apps on Linux. Install, integrate, update and remove
 
 > [!WARNING]
 > This project is still **work-in-progess**.
-> Breaking changes may occur while it's still in *v0.x.x*.
+> Breaking changes may occur anytime while still in **v0.x.x**.
 
 ## Installation
 
@@ -50,7 +50,7 @@ Upgrade `aim` to the latest stable release.
 aim upgrade
 ```
 
-### Add
+### `aim add`: Add/Install an AppImage
 
 Add a remote source, managed app, or local `.AppImage`.
 
@@ -77,7 +77,7 @@ aim add https://example.com/MyApp.AppImage --sha256 <64-hex>
 | `--asset`  | asset filename pattern override for `github:`/`gitlab:` add sources   |
 | `--sha256` | expected SHA-256 for direct `https://` add sources                    |
 
-#### Integrate
+#### `aim integrate`: Integrate a local AppImage
 
 Integrate a local `.AppImage` or reintegrate an existing managed ID explicitly.
 
@@ -92,7 +92,7 @@ aim integrate ./MyApp.AppImage
 aim integrate <id>
 ```
 
-#### Install
+#### `aim install`: Install AppImage from a remote source
 
 Download from a remote source and integrate the result. `aim add` is the umbrella/default path; `aim install` remains the explicit remote-only command.
 
@@ -113,7 +113,7 @@ For direct `https://` installs, `--sha256` is optional. If omitted, `aim` warns 
 
 For `github:` and `gitlab:` installs, `aim` configures the matching update source automatically.
 
-### Info
+### `aim info`: Get information and metadata about an AppImage
 
 Inspect a package ref, managed app, or local `.AppImage` with one command. `aim info` automatically routes to `show` or `inspect` based on the input.
 
@@ -124,7 +124,7 @@ aim info helium
 aim info ./MyApp.AppImage
 ```
 
-#### Inspect
+#### `aim inspect`: Inspect local AppImage metadata
 
 Inspect a managed app or a local `.AppImage`. Use `aim info` if you want the same behavior behind a single umbrella command.
 
@@ -139,7 +139,7 @@ aim inspect myapp
 aim inspect ./MyApp.AppImage
 ```
 
-#### Show
+#### `aim show`: Show remote metadata before installing
 
 Inspect a package ref before installing it. Use `aim info` if you want a convenience command that also accepts managed app IDs and local AppImages.
 
@@ -148,7 +148,7 @@ aim show github:owner/repo
 aim show gitlab:namespace/project
 ```
 
-### Remove
+### `aim remove`: Remove AppImage
 
 Remove a managed AppImage or unlink its desktop integration.
 
@@ -168,7 +168,7 @@ Example:
 aim remove --unlink <id>
 ```
 
-### List
+### `aim list`: List all managed AppImages
 
 List managed AppImages.
 
@@ -184,7 +184,7 @@ aim list [options]
 
 Unlinked entries are still managed by `aim`, but currently have no desktop integration.
 
-### Update
+### `aim update`: Update AppImages
 
 Check, apply, or configure updates for managed apps.
 
