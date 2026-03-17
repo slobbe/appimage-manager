@@ -713,36 +713,25 @@ func printPackageMetadata(cmd *cli.Command, metadata *discovery.PackageMetadata)
 	if strings.TrimSpace(metadata.RepoURL) != "" {
 		fmt.Printf("Source URL: %s\n", strings.TrimSpace(metadata.RepoURL))
 	}
-	fmt.Printf("Installable: %s\n", yesNo(strings.TrimSpace(metadata.InstallReason) == "" && metadata.Installable))
+	if strings.TrimSpace(metadata.Summary) != "" {
+		fmt.Printf("Summary: %s\n", strings.TrimSpace(metadata.Summary))
+	}
+
+	installable := strings.TrimSpace(metadata.InstallReason) == "" && metadata.Installable
+	fmt.Printf("Installable: %s\n", yesNo(installable))
+
+	if !installable && strings.TrimSpace(metadata.InstallReason) != "" {
+		fmt.Printf("Reason: %s\n", strings.TrimSpace(metadata.InstallReason))
+		return
+	}
+
 	if strings.TrimSpace(metadata.LatestVersion) != "" {
 		fmt.Printf("Latest release: %s\n", displayVersion(metadata.LatestVersion))
 	}
 	if strings.TrimSpace(metadata.AssetName) != "" {
 		fmt.Printf("Selected asset: %s\n", strings.TrimSpace(metadata.AssetName))
 	}
-	if strings.TrimSpace(metadata.AssetPattern) != "" {
-		fmt.Printf("Asset pattern: %s\n", strings.TrimSpace(metadata.AssetPattern))
-	}
-	if strings.TrimSpace(metadata.UpdateSourceSummary) != "" {
-		fmt.Printf("Updates after install: %s\n", strings.TrimSpace(metadata.UpdateSourceSummary))
-	}
-	if strings.TrimSpace(metadata.Summary) != "" {
-		fmt.Printf("Summary: %s\n", strings.TrimSpace(metadata.Summary))
-	}
-
-	if !metadata.Installable && strings.TrimSpace(metadata.InstallReason) != "" {
-		fmt.Printf("Reason: %s\n", strings.TrimSpace(metadata.InstallReason))
-	}
-
-	if len(metadata.TrustSummary) > 0 {
-		printSection(cmd, "Notes")
-		for _, note := range metadata.TrustSummary {
-			if strings.TrimSpace(note) == "" {
-				continue
-			}
-			fmt.Printf("  %s\n", strings.TrimSpace(note))
-		}
-	}
+	fmt.Println("Managed updates: yes")
 
 	printSection(cmd, "Install Command")
 	fmt.Printf("  aim install %s\n", discovery.FormatPackageRef(metadata.Ref))

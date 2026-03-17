@@ -58,26 +58,17 @@ func (GitHubBackend) Resolve(ctx context.Context, ref PackageRef, assetOverride 
 	}
 
 	return &PackageMetadata{
-		Name:                name,
-		Provider:            "GitHub",
-		Ref:                 ref,
-		RepoURL:             firstNonEmpty(strings.TrimSpace(repoInfo.HTMLURL), "https://github.com/"+repoSlug),
-		LatestVersion:       versionForDisplay(release.NormalizedVersion, release.TagName),
-		AssetName:           strings.TrimSpace(release.AssetName),
-		AssetPattern:        assetPattern,
-		DownloadURL:         strings.TrimSpace(release.DownloadURL),
-		UpdateSourceSummary: fmt.Sprintf("github_release: %s, asset: %s", repoSlug, assetPattern),
-		TrustSummary: []string{
-			"Provider: GitHub",
-			"Installable: yes",
-			fmt.Sprintf("Latest release: %s", versionForDisplay(release.NormalizedVersion, release.TagName)),
-			fmt.Sprintf("Selected asset: %s", strings.TrimSpace(release.AssetName)),
-			"Updates after install: github_release",
-		},
+		Name:          name,
+		Provider:      "GitHub",
+		Ref:           ref,
+		RepoURL:       firstNonEmpty(strings.TrimSpace(repoInfo.HTMLURL), "https://github.com/"+repoSlug),
+		LatestVersion: versionForDisplay(release.NormalizedVersion, release.TagName),
+		AssetName:     strings.TrimSpace(release.AssetName),
+		AssetPattern:  assetPattern,
+		DownloadURL:   strings.TrimSpace(release.DownloadURL),
 		Installable:   true,
 		ReleaseTag:    strings.TrimSpace(release.TagName),
 		Summary:       strings.TrimSpace(repoInfo.Description),
-		InstallReason: "",
 	}, nil
 }
 

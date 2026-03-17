@@ -939,16 +939,15 @@ func TestInstallCmdGitHubSetsDefaultAssetSourceAndUpdate(t *testing.T) {
 				name: "GitHub",
 				resolveFn: func(context.Context, discovery.PackageRef, string) (*discovery.PackageMetadata, error) {
 					return &discovery.PackageMetadata{
-						Name:                "My App",
-						Provider:            "GitHub",
-						Ref:                 discovery.PackageRef{Kind: discovery.ProviderGitHub, ProviderRef: "owner/repo"},
-						LatestVersion:       "1.2.3",
-						AssetName:           "MyApp-x86_64.AppImage",
-						AssetPattern:        "*.AppImage",
-						DownloadURL:         "https://example.com/MyApp-x86_64.AppImage",
-						UpdateSourceSummary: "github_release: owner/repo, asset: *.AppImage",
-						Installable:         true,
-						ReleaseTag:          "v1.2.3",
+						Name:          "My App",
+						Provider:      "GitHub",
+						Ref:           discovery.PackageRef{Kind: discovery.ProviderGitHub, ProviderRef: "owner/repo"},
+						LatestVersion: "1.2.3",
+						AssetName:     "MyApp-x86_64.AppImage",
+						AssetPattern:  "*.AppImage",
+						DownloadURL:   "https://example.com/MyApp-x86_64.AppImage",
+						Installable:   true,
+						ReleaseTag:    "v1.2.3",
 					}, nil
 				},
 			},
@@ -1025,16 +1024,15 @@ func TestInstallCmdGitHubUsesCustomAsset(t *testing.T) {
 				name: "GitHub",
 				resolveFn: func(context.Context, discovery.PackageRef, string) (*discovery.PackageMetadata, error) {
 					return &discovery.PackageMetadata{
-						Name:                "My App",
-						Provider:            "GitHub",
-						Ref:                 discovery.PackageRef{Kind: discovery.ProviderGitHub, ProviderRef: "owner/repo"},
-						LatestVersion:       "1.2.3",
-						AssetName:           "MyApp-x86_64.AppImage",
-						AssetPattern:        "MyApp-*-x86_64.AppImage",
-						DownloadURL:         "https://example.com/MyApp-x86_64.AppImage",
-						UpdateSourceSummary: "github_release: owner/repo, asset: MyApp-*-x86_64.AppImage",
-						Installable:         true,
-						ReleaseTag:          "v1.2.3",
+						Name:          "My App",
+						Provider:      "GitHub",
+						Ref:           discovery.PackageRef{Kind: discovery.ProviderGitHub, ProviderRef: "owner/repo"},
+						LatestVersion: "1.2.3",
+						AssetName:     "MyApp-x86_64.AppImage",
+						AssetPattern:  "MyApp-*-x86_64.AppImage",
+						DownloadURL:   "https://example.com/MyApp-x86_64.AppImage",
+						Installable:   true,
+						ReleaseTag:    "v1.2.3",
 					}, nil
 				},
 			},
@@ -1092,16 +1090,15 @@ func TestInstallCmdGitLabSetsDefaultAssetSourceAndUpdate(t *testing.T) {
 				name: "GitLab",
 				resolveFn: func(context.Context, discovery.PackageRef, string) (*discovery.PackageMetadata, error) {
 					return &discovery.PackageMetadata{
-						Name:                "My App",
-						Provider:            "GitLab",
-						Ref:                 discovery.PackageRef{Kind: discovery.ProviderGitLab, ProviderRef: "group/project"},
-						LatestVersion:       "2.0.0",
-						AssetName:           "MyApp-x86_64.AppImage",
-						AssetPattern:        "*.AppImage",
-						DownloadURL:         "https://example.com/MyApp-x86_64.AppImage",
-						UpdateSourceSummary: "gitlab_release: group/project, asset: *.AppImage",
-						Installable:         true,
-						ReleaseTag:          "v2.0.0",
+						Name:          "My App",
+						Provider:      "GitLab",
+						Ref:           discovery.PackageRef{Kind: discovery.ProviderGitLab, ProviderRef: "group/project"},
+						LatestVersion: "2.0.0",
+						AssetName:     "MyApp-x86_64.AppImage",
+						AssetPattern:  "*.AppImage",
+						DownloadURL:   "https://example.com/MyApp-x86_64.AppImage",
+						Installable:   true,
+						ReleaseTag:    "v2.0.0",
 					}, nil
 				},
 			},
@@ -1168,16 +1165,15 @@ func TestInstallCmdGitLabUsesCustomAsset(t *testing.T) {
 				name: "GitLab",
 				resolveFn: func(context.Context, discovery.PackageRef, string) (*discovery.PackageMetadata, error) {
 					return &discovery.PackageMetadata{
-						Name:                "My App",
-						Provider:            "GitLab",
-						Ref:                 discovery.PackageRef{Kind: discovery.ProviderGitLab, ProviderRef: "group/project"},
-						LatestVersion:       "2.0.0",
-						AssetName:           "MyApp-x86_64.AppImage",
-						AssetPattern:        "MyApp-*-x86_64.AppImage",
-						DownloadURL:         "https://example.com/MyApp-x86_64.AppImage",
-						UpdateSourceSummary: "gitlab_release: group/project, asset: MyApp-*-x86_64.AppImage",
-						Installable:         true,
-						ReleaseTag:          "v2.0.0",
+						Name:          "My App",
+						Provider:      "GitLab",
+						Ref:           discovery.PackageRef{Kind: discovery.ProviderGitLab, ProviderRef: "group/project"},
+						LatestVersion: "2.0.0",
+						AssetName:     "MyApp-x86_64.AppImage",
+						AssetPattern:  "MyApp-*-x86_64.AppImage",
+						DownloadURL:   "https://example.com/MyApp-x86_64.AppImage",
+						Installable:   true,
+						ReleaseTag:    "v2.0.0",
 					}, nil
 				},
 			},
@@ -1237,16 +1233,15 @@ func TestShowCmdDirectProviderRef(t *testing.T) {
 				name: "GitHub",
 				resolveFn: func(context.Context, discovery.PackageRef, string) (*discovery.PackageMetadata, error) {
 					return &discovery.PackageMetadata{
-						Name:                "My App",
-						Provider:            "GitHub",
-						Ref:                 discovery.PackageRef{Kind: discovery.ProviderGitHub, ProviderRef: "owner/repo"},
-						RepoURL:             "https://github.com/owner/repo",
-						LatestVersion:       "1.2.3",
-						AssetName:           "MyApp-x86_64.AppImage",
-						AssetPattern:        "*.AppImage",
-						UpdateSourceSummary: "github_release: owner/repo, asset: *.AppImage",
-						Installable:         true,
-						TrustSummary:        []string{"Provider: GitHub", "Installable: yes"},
+						Name:          "My App",
+						Provider:      "GitHub",
+						Ref:           discovery.PackageRef{Kind: discovery.ProviderGitHub, ProviderRef: "owner/repo"},
+						RepoURL:       "https://github.com/owner/repo",
+						Summary:       "A test app",
+						LatestVersion: "1.2.3",
+						AssetName:     "MyApp-x86_64.AppImage",
+						AssetPattern:  "*.AppImage",
+						Installable:   true,
 					}, nil
 				},
 			},
@@ -1264,6 +1259,122 @@ func TestShowCmdDirectProviderRef(t *testing.T) {
 	}
 	if !strings.Contains(output, "aim install github:owner/repo") {
 		t.Fatalf("expected install preview, got:\n%s", output)
+	}
+	if !strings.Contains(output, "Managed updates: yes") {
+		t.Fatalf("expected managed updates summary, got:\n%s", output)
+	}
+	if strings.Contains(output, "Notes") {
+		t.Fatalf("did not expect Notes section, got:\n%s", output)
+	}
+	if strings.Contains(output, "Asset pattern:") {
+		t.Fatalf("did not expect asset pattern, got:\n%s", output)
+	}
+	if strings.Contains(output, "github_release: owner/repo, asset: *.AppImage") {
+		t.Fatalf("did not expect raw update summary, got:\n%s", output)
+	}
+}
+
+func TestShowCmdGitLabProviderRefOutput(t *testing.T) {
+	originalBackends := discoveryBackends
+	t.Cleanup(func() {
+		discoveryBackends = originalBackends
+	})
+
+	discoveryBackends = func() []discovery.DiscoveryBackend {
+		return []discovery.DiscoveryBackend{
+			&stubDiscoveryBackend{
+				name: "GitLab",
+				resolveFn: func(context.Context, discovery.PackageRef, string) (*discovery.PackageMetadata, error) {
+					return &discovery.PackageMetadata{
+						Name:          "Foo App",
+						Provider:      "GitLab",
+						Ref:           discovery.PackageRef{Kind: discovery.ProviderGitLab, ProviderRef: "group/project"},
+						RepoURL:       "https://gitlab.com/group/project",
+						Summary:       "A GitLab test app",
+						LatestVersion: "2.0.0",
+						AssetName:     "Foo-x86_64.AppImage",
+						AssetPattern:  "Foo-*-x86_64.AppImage",
+						Installable:   true,
+					}, nil
+				},
+			},
+		}
+	}
+
+	output := captureStdout(t, func() {
+		if err := runShowCommand(context.Background(), []string{"gitlab:group/project"}); err != nil {
+			t.Fatalf("runShowCommand returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "Foo App") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+	if !strings.Contains(output, "Managed updates: yes") {
+		t.Fatalf("expected managed updates summary, got:\n%s", output)
+	}
+	if !strings.Contains(output, "aim install gitlab:group/project") {
+		t.Fatalf("expected install preview, got:\n%s", output)
+	}
+	if strings.Contains(output, "Notes") {
+		t.Fatalf("did not expect Notes section, got:\n%s", output)
+	}
+	if strings.Contains(output, "Asset pattern:") {
+		t.Fatalf("did not expect asset pattern, got:\n%s", output)
+	}
+	if strings.Contains(output, "gitlab_release: group/project, asset: Foo-*-x86_64.AppImage") {
+		t.Fatalf("did not expect raw update summary, got:\n%s", output)
+	}
+}
+
+func TestShowCmdUninstallablePackageOmitsInstallPreview(t *testing.T) {
+	originalBackends := discoveryBackends
+	t.Cleanup(func() {
+		discoveryBackends = originalBackends
+	})
+
+	discoveryBackends = func() []discovery.DiscoveryBackend {
+		return []discovery.DiscoveryBackend{
+			&stubDiscoveryBackend{
+				name: "GitHub",
+				resolveFn: func(context.Context, discovery.PackageRef, string) (*discovery.PackageMetadata, error) {
+					return &discovery.PackageMetadata{
+						Name:          "My App",
+						Provider:      "GitHub",
+						Ref:           discovery.PackageRef{Kind: discovery.ProviderGitHub, ProviderRef: "owner/repo"},
+						RepoURL:       "https://github.com/owner/repo",
+						Summary:       "A test app",
+						Installable:   false,
+						InstallReason: "no matching release asset",
+					}, nil
+				},
+			},
+		}
+	}
+
+	output := captureStdout(t, func() {
+		if err := runShowCommand(context.Background(), []string{"github:owner/repo"}); err != nil {
+			t.Fatalf("runShowCommand returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "Installable: no") {
+		t.Fatalf("expected non-installable status, got:\n%s", output)
+	}
+	if !strings.Contains(output, "Reason: no matching release asset") {
+		t.Fatalf("expected install reason, got:\n%s", output)
+	}
+	if strings.Contains(output, "Install Command") {
+		t.Fatalf("did not expect install preview, got:\n%s", output)
+	}
+	if strings.Contains(output, "Managed updates:") {
+		t.Fatalf("did not expect managed updates summary, got:\n%s", output)
+	}
+	if strings.Contains(output, "Latest release:") {
+		t.Fatalf("did not expect latest release, got:\n%s", output)
+	}
+	if strings.Contains(output, "Selected asset:") {
+		t.Fatalf("did not expect selected asset, got:\n%s", output)
 	}
 }
 
@@ -1290,16 +1401,15 @@ func TestInstallCmdDirectProviderRefDelegatesToExistingAddFlow(t *testing.T) {
 				name: "GitHub",
 				resolveFn: func(context.Context, discovery.PackageRef, string) (*discovery.PackageMetadata, error) {
 					return &discovery.PackageMetadata{
-						Name:                "My App",
-						Provider:            "GitHub",
-						Ref:                 discovery.PackageRef{Kind: discovery.ProviderGitHub, ProviderRef: "owner/repo"},
-						LatestVersion:       "1.2.3",
-						AssetName:           "MyApp-x86_64.AppImage",
-						AssetPattern:        "*.AppImage",
-						DownloadURL:         "https://example.com/MyApp-x86_64.AppImage",
-						UpdateSourceSummary: "github_release: owner/repo, asset: *.AppImage",
-						Installable:         true,
-						ReleaseTag:          "v1.2.3",
+						Name:          "My App",
+						Provider:      "GitHub",
+						Ref:           discovery.PackageRef{Kind: discovery.ProviderGitHub, ProviderRef: "owner/repo"},
+						LatestVersion: "1.2.3",
+						AssetName:     "MyApp-x86_64.AppImage",
+						AssetPattern:  "*.AppImage",
+						DownloadURL:   "https://example.com/MyApp-x86_64.AppImage",
+						Installable:   true,
+						ReleaseTag:    "v1.2.3",
 					}, nil
 				},
 			},
@@ -1357,16 +1467,15 @@ func TestInstallCmdDirectProviderRefAssetOverride(t *testing.T) {
 				name: "GitLab",
 				resolveFn: func(context.Context, discovery.PackageRef, string) (*discovery.PackageMetadata, error) {
 					return &discovery.PackageMetadata{
-						Name:                "Foo App",
-						Provider:            "GitLab",
-						Ref:                 discovery.PackageRef{Kind: discovery.ProviderGitLab, ProviderRef: "group/project"},
-						LatestVersion:       "2.0.0",
-						AssetName:           "Foo-x86_64.AppImage",
-						AssetPattern:        "Foo-*-x86_64.AppImage",
-						DownloadURL:         "https://example.com/Foo-x86_64.AppImage",
-						UpdateSourceSummary: "gitlab_release: group/project, asset: Foo-*-x86_64.AppImage",
-						Installable:         true,
-						ReleaseTag:          "v2.0.0",
+						Name:          "Foo App",
+						Provider:      "GitLab",
+						Ref:           discovery.PackageRef{Kind: discovery.ProviderGitLab, ProviderRef: "group/project"},
+						LatestVersion: "2.0.0",
+						AssetName:     "Foo-x86_64.AppImage",
+						AssetPattern:  "Foo-*-x86_64.AppImage",
+						DownloadURL:   "https://example.com/Foo-x86_64.AppImage",
+						Installable:   true,
+						ReleaseTag:    "v2.0.0",
 					}, nil
 				},
 			},

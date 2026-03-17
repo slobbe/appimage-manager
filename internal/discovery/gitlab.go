@@ -60,25 +60,17 @@ func (GitLabBackend) Resolve(ctx context.Context, ref PackageRef, assetOverride 
 	}
 
 	return &PackageMetadata{
-		Name:                name,
-		Provider:            "GitLab",
-		Ref:                 ref,
-		RepoURL:             firstNonEmpty(strings.TrimSpace(projectInfo.WebURL), "https://gitlab.com/"+project),
-		LatestVersion:       versionForDisplay(release.NormalizedVersion, release.TagName),
-		AssetName:           strings.TrimSpace(release.AssetName),
-		AssetPattern:        assetPattern,
-		DownloadURL:         strings.TrimSpace(release.DownloadURL),
-		UpdateSourceSummary: fmt.Sprintf("gitlab_release: %s, asset: %s", project, assetPattern),
-		TrustSummary: []string{
-			"Provider: GitLab",
-			"Installable: yes",
-			fmt.Sprintf("Latest release: %s", versionForDisplay(release.NormalizedVersion, release.TagName)),
-			fmt.Sprintf("Selected asset: %s", strings.TrimSpace(release.AssetName)),
-			"Updates after install: gitlab_release",
-		},
-		Installable: true,
-		ReleaseTag:  strings.TrimSpace(release.TagName),
-		Summary:     strings.TrimSpace(projectInfo.Description),
+		Name:          name,
+		Provider:      "GitLab",
+		Ref:           ref,
+		RepoURL:       firstNonEmpty(strings.TrimSpace(projectInfo.WebURL), "https://gitlab.com/"+project),
+		LatestVersion: versionForDisplay(release.NormalizedVersion, release.TagName),
+		AssetName:     strings.TrimSpace(release.AssetName),
+		AssetPattern:  assetPattern,
+		DownloadURL:   strings.TrimSpace(release.DownloadURL),
+		Installable:   true,
+		ReleaseTag:    strings.TrimSpace(release.TagName),
+		Summary:       strings.TrimSpace(projectInfo.Description),
 	}, nil
 }
 

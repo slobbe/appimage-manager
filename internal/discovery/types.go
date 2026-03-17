@@ -18,20 +18,18 @@ type PackageRef struct {
 }
 
 type PackageMetadata struct {
-	Name                string
-	Provider            string
-	Ref                 PackageRef
-	RepoURL             string
-	LatestVersion       string
-	AssetName           string
-	AssetPattern        string
-	DownloadURL         string
-	UpdateSourceSummary string
-	TrustSummary        []string
-	Installable         bool
-	InstallReason       string
-	ReleaseTag          string
-	Summary             string
+	Name          string
+	Provider      string
+	Ref           PackageRef
+	RepoURL       string
+	LatestVersion string
+	AssetName     string
+	AssetPattern  string
+	DownloadURL   string
+	Installable   bool
+	InstallReason string
+	ReleaseTag    string
+	Summary       string
 }
 
 type DiscoveryBackend interface {
