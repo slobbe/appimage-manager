@@ -9,7 +9,11 @@ fi
 
 OUTDIR="./dist/${VERSION}"
 BINDIR="${OUTDIR}/bin"
-mkdir -p "$BINDIR"
+MANDIR="${OUTDIR}/share/man/man1"
+PKGDIR_AMD64="${OUTDIR}/pkg-amd64"
+PKGDIR_ARM64="${OUTDIR}/pkg-arm64"
+rm -rf "$PKGDIR_AMD64" "$PKGDIR_ARM64"
+mkdir -p "$BINDIR" "$MANDIR"
 
 # Embed version into the binary (requires: var version in package main)
 LDFLAGS="-s -w -X main.version=${VERSION}"
@@ -20,6 +24,9 @@ BIN_ARM64_VER="aim-${VERSION}-linux-arm64"
 
 OUT_AMD64_VER="${BINDIR}/${BIN_AMD64_VER}"
 OUT_ARM64_VER="${BINDIR}/${BIN_ARM64_VER}"
+MANPAGE="${MANDIR}/aim.1"
+
+AIM_MAN_OUTPUT="$MANPAGE" go run -ldflags "-X main.version=${VERSION}" -tags docgen ./cmd/aim
 
 GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
   go build -trimpath -ldflags "$LDFLAGS" -o "$OUT_AMD64_VER" ./cmd/aim
@@ -31,8 +38,17 @@ GOOS=linux GOARCH=arm64 CGO_ENABLED=0 \
 TAR_AMD64="aim-${VERSION}-linux-amd64.tar.gz"
 TAR_ARM64="aim-${VERSION}-linux-arm64.tar.gz"
 
-tar -C "$BINDIR" -czf "${OUTDIR}/${TAR_AMD64}" "$BIN_AMD64_VER"
-tar -C "$BINDIR" -czf "${OUTDIR}/${TAR_ARM64}" "$BIN_ARM64_VER"
+mkdir -p "${PKGDIR_AMD64}/bin" "${PKGDIR_AMD64}/share/man/man1"
+mkdir -p "${PKGDIR_ARM64}/bin" "${PKGDIR_ARM64}/share/man/man1"
+
+cp "$OUT_AMD64_VER" "${PKGDIR_AMD64}/bin/${BIN_AMD64_VER}"
+cp "$OUT_ARM64_VER" "${PKGDIR_ARM64}/bin/${BIN_ARM64_VER}"
+cp "$MANPAGE" "${PKGDIR_AMD64}/share/man/man1/aim.1"
+cp "$MANPAGE" "${PKGDIR_ARM64}/share/man/man1/aim.1"
+
+tar -C "$PKGDIR_AMD64" -czf "${OUTDIR}/${TAR_AMD64}" .
+tar -C "$PKGDIR_ARM64" -czf "${OUTDIR}/${TAR_ARM64}" .
+rm -rf "$PKGDIR_AMD64" "$PKGDIR_ARM64"
 
 # Checksums for what users download (the tarballs)
 (
@@ -49,4 +65,5 @@ tar -C "$BINDIR" -czf "${OUTDIR}/${TAR_ARM64}" "$BIN_ARM64_VER"
 
 echo "artifacts in: $OUTDIR"
 echo "binaries in: $BINDIR"
+echo "man page in: $MANPAGE"
 ls -1 "$OUTDIR"

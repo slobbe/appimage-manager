@@ -4,6 +4,8 @@ set -eu
 repo="slobbe/appimage-manager"
 bin="aim"
 inst="${HOME}/.local/bin"
+data_home="${XDG_DATA_HOME:-${HOME}/.local/share}"
+mandir="${data_home}/man/man1"
 arch="$(uname -m)"
 
 case "$arch" in
@@ -16,7 +18,7 @@ case "$arch" in
     ;;
 esac
 
-mkdir -p "$inst"
+mkdir -p "$inst" "$mandir"
 
 tmpdir="$(mktemp -d)"
 cleanup() { rm -rf "$tmpdir"; }
@@ -60,7 +62,7 @@ curl -fL "$asset_url" -o "$tgz"
 tar -xzf "$tgz" -C "$tmpdir"
 
 # The tarball contains a versioned filename: aim-<version>-linux-<arch>
-found="$(find "$tmpdir" -maxdepth 1 -type f -name "${bin}-*-linux-${goarch}" | head -n 1)"
+found="$(find "$tmpdir" -type f -name "${bin}-*-linux-${goarch}" | head -n 1)"
 if [ -z "$found" ]; then
   echo "error: expected ${bin}-*-linux-${goarch} inside tarball" >&2
   exit 1
@@ -68,6 +70,16 @@ fi
 
 chmod +x "$found"
 mv -f "$found" "${inst}/${bin}"
+
+manpage="$(find "$tmpdir" -type f -path "*/share/man/man1/${bin}.1" | head -n 1)"
+if [ -n "$manpage" ]; then
+  chmod 0644 "$manpage"
+  mv -f "$manpage" "${mandir}/${bin}.1"
+  echo "installed man page to ${mandir}/${bin}.1"
+  echo "run: man ${bin}"
+else
+  echo "warning: man page not found in release archive" >&2
+fi
 
 echo "installed to ${inst}/${bin}"
 echo "run: ${bin} --version"

@@ -2871,77 +2871,75 @@ func TestUpdateUnsetCommand(t *testing.T) {
 }
 
 func newRootTestCommand() *cli.Command {
-	return &cli.Command{
-		Name:   "aim",
-		Usage:  "Manage AppImages as desktop apps on Linux",
-		Action: RootCmd,
-		Commands: []*cli.Command{
-			{
-				Name: "add",
-				Flags: []cli.Flag{
-					&cli.StringFlag{Name: "asset"},
-					&cli.StringFlag{Name: "sha256"},
-				},
-				Action: AddCmd,
-			},
-			{
-				Name: "integrate",
-				Arguments: []cli.Argument{
-					&cli.StringArg{Name: "target"},
-				},
-				Action: IntegrateCmd,
-			},
-			{
-				Name: "remove",
-				Flags: []cli.Flag{
-					&cli.BoolFlag{
-						Name:  "unlink",
-						Usage: "remove only desktop integration; keep managed AppImage files",
-					},
-				},
-				Action: RemoveCmd,
-			},
-			{Name: "list", Action: ListCmd},
-			{Name: "show", Action: ShowCmd},
-			{
-				Name: "info",
-				Arguments: []cli.Argument{
-					&cli.StringArg{Name: "target"},
-				},
-				Action: InfoCmd,
-			},
-			{
-				Name: "inspect",
-				Arguments: []cli.Argument{
-					&cli.StringArg{Name: "target"},
-				},
-				Action: InspectCmd,
-			},
-			{
-				Name:    "install",
-				Aliases: []string{"i"},
-				Flags: []cli.Flag{
-					&cli.StringFlag{Name: "asset"},
-					&cli.StringFlag{Name: "sha256"},
-				},
-				Action: InstallCmd,
-			},
-			{
-				Name:    "update",
-				Aliases: []string{"u"},
-				Flags: []cli.Flag{
-					&cli.BoolFlag{Name: "yes"},
-					&cli.BoolFlag{Name: "check-only"},
-					&cli.StringFlag{Name: "github"},
-					&cli.StringFlag{Name: "asset"},
-					&cli.StringFlag{Name: "gitlab"},
-					&cli.StringFlag{Name: "zsync-url"},
-					&cli.BoolFlag{Name: "embedded"},
-				},
-				Action: UpdateCmd,
-			},
-			{Name: "upgrade", Action: UpgradeCmd},
-		},
+	return newRootCommand("test")
+}
+
+func TestNewRootCommandMetadata(t *testing.T) {
+	cmd := newRootCommand("v1.2.3")
+
+	if strings.TrimSpace(cmd.Description) == "" {
+		t.Fatal("expected root command description")
+	}
+	if len(cmd.Authors) != 1 || fmt.Sprint(cmd.Authors[0]) != "Sebastian Lobbe <slobbe@lobbe.cc>" {
+		t.Fatalf("unexpected root command authors: %#v", cmd.Authors)
+	}
+	if strings.TrimSpace(cmd.Copyright) == "" {
+		t.Fatal("expected root command copyright")
+	}
+}
+
+func TestRenderManPageIncludesMetadata(t *testing.T) {
+	got, err := renderManMarkdown(newRootCommand("v1.2.3"), 1)
+	if err != nil {
+		t.Fatalf("failed to generate markdown man page: %v", err)
+	}
+
+	for _, expected := range []string{
+		"# DESCRIPTION",
+		"# VERSION",
+		"# AUTHOR",
+		"# COPYRIGHT",
+		"v1.2.3",
+		"Sebastian Lobbe <slobbe@lobbe.cc>",
+		"Copyright (c) 2025 Sebastian Lobbe",
+	} {
+		if !strings.Contains(got, expected) {
+			t.Fatalf("generated markdown man page missing %q:\n%s", expected, got)
+		}
+	}
+}
+
+func TestRenderManPageOmitsEmptyMetadataSections(t *testing.T) {
+	cmd := &cli.Command{
+		Name:  "aim",
+		Usage: "Manage AppImages as desktop apps on Linux",
+	}
+
+	got, err := renderManMarkdown(cmd, 1)
+	if err != nil {
+		t.Fatalf("failed to generate markdown man page: %v", err)
+	}
+
+	for _, unexpected := range []string{"# DESCRIPTION", "# VERSION", "# AUTHOR", "# COPYRIGHT"} {
+		if strings.Contains(got, unexpected) {
+			t.Fatalf("generated markdown man page unexpectedly contains %q:\n%s", unexpected, got)
+		}
+	}
+}
+
+func TestGeneratedManPageIsCurrent(t *testing.T) {
+	got, err := renderManPage(newRootCommand(version), 1)
+	if err != nil {
+		t.Fatalf("failed to generate man page: %v", err)
+	}
+
+	wantBytes, err := os.ReadFile(filepath.Join("..", "..", "docs", "aim.1"))
+	if err != nil {
+		t.Fatalf("failed to read committed man page: %v", err)
+	}
+
+	if got != string(wantBytes) {
+		t.Fatal("generated man page is stale; run `go run -tags docgen ./cmd/aim`")
 	}
 }
 

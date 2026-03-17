@@ -12,6 +12,8 @@ Manage AppImages as desktop apps on Linux. Install, integrate, update and remove
 ## Installation
 
 Downloads the latest release binary and installs it to `~/.local/bin/aim`.
+The installer also places the man page at `${XDG_DATA_HOME:-$HOME/.local/share}/man/man1/aim.1`.
+The man page includes project metadata such as description, version, author, and copyright.
 
 ```sh
 # Download and install
@@ -19,9 +21,11 @@ curl -fsSL https://raw.githubusercontent.com/slobbe/appimage-manager/main/script
 
 # Verify
 aim --version
+man aim
 ```
 
 If `aim` is not found, make sure `~/.local/bin` is on your `PATH`.
+If `man aim` is not found, make sure your local man path includes `${XDG_DATA_HOME:-$HOME/.local/share}/man`.
 
 ## Build from source
 
@@ -32,6 +36,15 @@ go build ./cmd/aim
 ```
 
 Requirements: Linux, Go 1.25.5+.
+
+To regenerate the committed man page from the CLI definition:
+
+```sh
+go run -tags docgen ./cmd/aim
+```
+
+That committed man page is generated with the development version string (`dev`).
+Release builds inject the actual release version into the packaged man page via `scripts/build.sh`.
 
 ## Usage
 

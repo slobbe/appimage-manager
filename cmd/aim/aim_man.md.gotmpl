@@ -1,0 +1,60 @@
+{{- if gt .SectionNum 0 -}}
+% {{ .Command.Name }} {{ .SectionNum }}
+
+{{ end -}}
+# NAME
+
+{{ .Command.Name }}{{ if .Command.Usage }} - {{ .Command.Usage }}{{ end }}
+
+# SYNOPSIS
+
+{{ .Command.Name }}
+
+{{- if .Command.Description }}
+# DESCRIPTION
+
+{{ .Command.Description }}
+
+{{- end }}
+{{- if .Command.Version }}
+# VERSION
+
+{{ .Command.Version }}
+
+{{- end }}
+{{- if .Authors }}
+# AUTHOR
+
+{{- range .Authors }}
+{{ . }}
+{{- end }}
+
+{{- end }}
+{{- if .Command.Copyright }}
+# COPYRIGHT
+
+{{ .Command.Copyright }}
+
+{{- end }}
+# USAGE
+
+```{{ if .Command.UsageText }}
+{{ .Command.UsageText }}
+{{ else }}
+{{ .Command.Name }} [GLOBAL OPTIONS] [command [COMMAND OPTIONS]] [ARGUMENTS...]
+{{ end }}```
+
+{{- if .GlobalOptions }}
+# GLOBAL OPTIONS
+{{- range .GlobalOptions }}
+
+{{ . }}
+{{- end }}
+{{- end }}
+{{- if .Commands }}
+# COMMANDS
+{{- range .Commands }}
+
+{{ . -}}
+{{- end }}
+{{- end }}
