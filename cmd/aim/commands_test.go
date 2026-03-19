@@ -2778,9 +2778,15 @@ func TestRenderManPageIncludesMetadata(t *testing.T) {
 		".SH VERSION",
 		".SH AUTHOR",
 		".SH COPYRIGHT",
+		".SH LICENSE",
+		".SH REPOSITORY",
+		".SH ISSUES",
 		"v1.2.3",
 		"Sebastian Lobbe <slobbe@lobbe.cc>",
 		"Copyright (c) 2025 Sebastian Lobbe",
+		"MIT",
+		"https://github.com/slobbe/appimage\\-manager",
+		"https://github.com/slobbe/appimage\\-manager/issues",
 	} {
 		if !strings.Contains(got, expected) {
 			t.Fatalf("generated man page missing %q:\n%s", expected, got)

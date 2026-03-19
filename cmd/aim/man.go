@@ -45,6 +45,15 @@ func renderManMetadataSections(cmd *cobra.Command) string {
 	if copyright := strings.TrimSpace(rootCommandCopyright); copyright != "" {
 		sections = append(sections, renderManSection("COPYRIGHT", copyright))
 	}
+	if license := strings.TrimSpace(rootCommandLicense); license != "" {
+		sections = append(sections, renderManSection("LICENSE", license))
+	}
+	if repositoryURL := strings.TrimSpace(rootCommandRepositoryURL); repositoryURL != "" {
+		sections = append(sections, renderManSection("REPOSITORY", repositoryURL))
+	}
+	if issuesURL := strings.TrimSpace(rootCommandIssuesURL); issuesURL != "" {
+		sections = append(sections, renderManSection("ISSUES", issuesURL))
+	}
 
 	return strings.Join(sections, "\n")
 }

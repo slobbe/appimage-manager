@@ -3,10 +3,13 @@ package main
 import "github.com/spf13/cobra"
 
 const (
-	rootCommandDescription = "Manage AppImages as desktop apps on Linux"
-	rootCommandLong        = "aim manages AppImages on Linux. It installs, integrates, updates, and removes AppImages while keeping desktop integration and a local managed-app database in sync."
-	rootCommandAuthor      = "Sebastian Lobbe <slobbe@lobbe.cc>"
-	rootCommandCopyright   = "Copyright (c) 2025 Sebastian Lobbe"
+	rootCommandDescription   = "Manage AppImages from the command line"
+	rootCommandLong          = "Install, integrate, update, and remove AppImages on Linux."
+	rootCommandAuthor        = "Sebastian Lobbe <slobbe@lobbe.cc>"
+	rootCommandCopyright     = "Copyright (c) 2025 Sebastian Lobbe"
+	rootCommandLicense       = "MIT"
+	rootCommandRepositoryURL = "https://github.com/slobbe/appimage-manager"
+	rootCommandIssuesURL     = "https://github.com/slobbe/appimage-manager/issues"
 )
 
 func newRootCommand(version string) *cobra.Command {
