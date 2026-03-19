@@ -47,6 +47,20 @@ func UpgradeCmd(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+func VersionCmd(cmd *cobra.Command, args []string) error {
+	_ = cmd
+	_ = args
+
+	fmt.Printf("Version: %s\n", version)
+	fmt.Printf("Repository: %s\n", rootCommandRepositoryURL)
+	fmt.Printf("License: %s\n", rootCommandLicense)
+	fmt.Printf("Issues: %s\n", rootCommandIssuesURL)
+	fmt.Printf("Author: %s\n", rootCommandAuthor)
+	fmt.Printf("Copyright: %s\n", rootCommandCopyright)
+
+	return nil
+}
+
 func AddCmd(cmd *cobra.Command, args []string) error {
 	input, err := commandSingleArg(args, "<https-url|github:owner/repo|gitlab:namespace/project|id|path-to.AppImage>")
 	if err != nil {

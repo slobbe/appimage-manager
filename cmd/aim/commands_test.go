@@ -278,11 +278,51 @@ func TestRootVersionOutputIsCompact(t *testing.T) {
 		}
 	})
 
-	if !strings.Contains(output, "aim v0.8.0") {
+	if !strings.Contains(output, "v0.8.0") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
-	if strings.Contains(output, "aim version v0.8.0") {
-		t.Fatalf("did not expect duplicated version label:\n%s", output)
+	if strings.Contains(output, "aim ") {
+		t.Fatalf("did not expect command name in version output:\n%s", output)
+	}
+}
+
+func TestVersionCmdOutputsProjectMetadata(t *testing.T) {
+	cmd := newRootTestCommand()
+	originalVersion := version
+	version = "v1.2.3"
+	t.Cleanup(func() {
+		version = originalVersion
+	})
+
+	output := captureStdout(t, func() {
+		if err := executeTestCommand(context.Background(), cmd, "version"); err != nil {
+			t.Fatalf("run returned error: %v", err)
+		}
+	})
+
+	for _, expected := range []string{
+		"Version: v1.2.3",
+		"Repository: https://github.com/slobbe/appimage-manager",
+		"License: MIT",
+		"Issues: https://github.com/slobbe/appimage-manager/issues",
+		"Author: Sebastian Lobbe <slobbe@lobbe.cc>",
+		"Copyright: Copyright (c) 2025 Sebastian Lobbe",
+	} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("version output missing %q:\n%s", expected, output)
+		}
+	}
+}
+
+func TestVersionCmdRejectsExtraArgs(t *testing.T) {
+	cmd := newRootTestCommand()
+
+	err := executeTestCommand(context.Background(), cmd, "version", "extra")
+	if err == nil {
+		t.Fatal("expected argument error")
+	}
+	if !strings.Contains(err.Error(), "unknown command \"extra\" for \"aim version\"") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -327,6 +367,7 @@ func TestRootRegistersPackageCommands(t *testing.T) {
 		"info":      false,
 		"show":      false,
 		"install":   false,
+		"version":   false,
 	}
 	for _, subcommand := range cmd.Commands() {
 		if _, ok := required[subcommand.Name()]; ok {
@@ -2750,7 +2791,7 @@ func TestUpdateUnsetCommand(t *testing.T) {
 
 func newRootTestCommand() *cobra.Command {
 	cmd := newRootCommand("test")
-	cmd.SetVersionTemplate("{{.Name}} {{.Version}}\n")
+	cmd.SetVersionTemplate("{{.Version}}\n")
 	return cmd
 }
 

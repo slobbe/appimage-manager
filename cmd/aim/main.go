@@ -24,7 +24,7 @@ func main() {
 	root.SetOut(os.Stdout)
 	root.SetErr(os.Stderr)
 	root.SetArgs(os.Args[1:])
-	root.SetVersionTemplate("{{.Name}} {{.Version}}\n")
+	root.SetVersionTemplate("{{.Version}}\n")
 
 	if err := root.ExecuteContext(context.Background()); err != nil {
 		log.Fatal(err)

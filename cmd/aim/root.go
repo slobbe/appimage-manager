@@ -36,6 +36,7 @@ func newRootCommand(version string) *cobra.Command {
 		newInspectCommand(),
 		newInstallCommand(),
 		newUpdateCommand(),
+		newVersionCommand(),
 		newUpgradeCommand(),
 	)
 	root.InitDefaultVersionFlag()
@@ -199,5 +200,14 @@ func newUpgradeCommand() *cobra.Command {
 		Short: "Upgrade aim to the latest stable release",
 		Args:  cobra.NoArgs,
 		RunE:  UpgradeCmd,
+	}
+}
+
+func newVersionCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "version",
+		Short: "Show version and project metadata",
+		Args:  cobra.NoArgs,
+		RunE:  VersionCmd,
 	}
 }
