@@ -142,7 +142,7 @@ func addUpdateSharedFlags(cmd *cobra.Command) {
 	stringFlagWithMetavar(flags, "github", "", "", "GitHub repo in the form owner/repo (for 'update set')", "owner/repo")
 	flags.String("asset", "", "asset filename pattern; defaults to \"*.AppImage\" for GitHub/GitLab (for 'update set')")
 	stringFlagWithMetavar(flags, "gitlab", "", "", "GitLab project path namespace/project (for 'update set')", "namespace/project")
-	stringFlagWithMetavar(flags, "zsync-url", "", "", "direct zsync metadata URL (https, for 'update set')", "URL")
+	stringFlagWithMetavar(flags, "zsync", "", "", "direct zsync metadata URL (https, for 'update set')", "URL")
 	flags.Bool("embedded", false, "use the update source embedded in the current AppImage (for 'update set')")
 	flags.String("manifest-url", "", "deprecated manifest update source flag")
 	flags.String("url", "", "deprecated direct update source flag")

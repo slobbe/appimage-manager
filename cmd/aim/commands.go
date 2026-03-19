@@ -1250,7 +1250,7 @@ func unsetManagedUpdateSource(cmd *cobra.Command, app *models.App, prompt string
 }
 
 func hasUpdateSetFlags(cmd *cobra.Command) bool {
-	keys := []string{"github", "gitlab", "asset", "zsync-url", "embedded", "manifest-url", "url", "sha256"}
+	keys := []string{"github", "gitlab", "asset", "zsync", "embedded", "manifest-url", "url", "sha256"}
 	for _, key := range keys {
 		if flagChanged(cmd, key) {
 			return true
@@ -1268,7 +1268,7 @@ func validateEmbeddedUpdateSetFlags(cmd *cobra.Command) error {
 	if err != nil {
 		return err
 	}
-	zsyncURL, err := flagString(cmd, "zsync-url")
+	zsyncURL, err := flagString(cmd, "zsync")
 	if err != nil {
 		return err
 	}
@@ -1290,13 +1290,13 @@ func validateEmbeddedUpdateSetFlags(cmd *cobra.Command) error {
 	}
 
 	if manifestURL != "" {
-		return fmt.Errorf("--manifest-url is no longer supported; use --github, --gitlab, --zsync-url, or --embedded")
+		return fmt.Errorf("--manifest-url is no longer supported; use --github, --gitlab, --zsync, or --embedded")
 	}
 	if directURL != "" {
-		return fmt.Errorf("--url is no longer supported; use --github, --gitlab, --zsync-url, or --embedded")
+		return fmt.Errorf("--url is no longer supported; use --github, --gitlab, --zsync, or --embedded")
 	}
 	if sha256 != "" {
-		return fmt.Errorf("--sha256 is no longer supported; use --github, --gitlab, --zsync-url, or --embedded")
+		return fmt.Errorf("--sha256 is no longer supported; use --github, --gitlab, --zsync, or --embedded")
 	}
 	if assetPattern != "" {
 		return fmt.Errorf("--asset is only supported with --github or --gitlab")
@@ -1328,7 +1328,7 @@ func resolveUpdateSourceFromSetFlags(cmd *cobra.Command) (*models.UpdateSource, 
 	if err != nil {
 		return nil, err
 	}
-	zsyncURL, err := flagString(cmd, "zsync-url")
+	zsyncURL, err := flagString(cmd, "zsync")
 	if err != nil {
 		return nil, err
 	}
@@ -1346,13 +1346,13 @@ func resolveUpdateSourceFromSetFlags(cmd *cobra.Command) (*models.UpdateSource, 
 	}
 
 	if manifestURL != "" {
-		return nil, fmt.Errorf("--manifest-url is no longer supported; use --github, --gitlab, --zsync-url, or --embedded")
+		return nil, fmt.Errorf("--manifest-url is no longer supported; use --github, --gitlab, --zsync, or --embedded")
 	}
 	if directURL != "" {
-		return nil, fmt.Errorf("--url is no longer supported; use --github, --gitlab, --zsync-url, or --embedded")
+		return nil, fmt.Errorf("--url is no longer supported; use --github, --gitlab, --zsync, or --embedded")
 	}
 	if sha256 != "" {
-		return nil, fmt.Errorf("--sha256 is no longer supported; use --github, --gitlab, --zsync-url, or --embedded")
+		return nil, fmt.Errorf("--sha256 is no longer supported; use --github, --gitlab, --zsync, or --embedded")
 	}
 
 	selectorCount := 0
@@ -1363,7 +1363,7 @@ func resolveUpdateSourceFromSetFlags(cmd *cobra.Command) (*models.UpdateSource, 
 	}
 
 	if selectorCount == 0 {
-		return nil, fmt.Errorf("missing update source; set one of --github, --gitlab, --zsync-url, or --embedded")
+		return nil, fmt.Errorf("missing update source; set one of --github, --gitlab, --zsync, or --embedded")
 	}
 	if selectorCount > 1 {
 		return nil, fmt.Errorf("update source flags are mutually exclusive")
@@ -1400,7 +1400,7 @@ func resolveUpdateSourceFromSetFlags(cmd *cobra.Command) (*models.UpdateSource, 
 			return nil, fmt.Errorf("--asset is only supported with --github or --gitlab")
 		}
 		if !isHTTPSURL(zsyncURL) {
-			return nil, fmt.Errorf("--zsync-url must be a valid https URL")
+			return nil, fmt.Errorf("--zsync must be a valid https URL")
 		}
 		return &models.UpdateSource{
 			Kind: models.UpdateZsync,
@@ -1414,7 +1414,7 @@ func resolveUpdateSourceFromSetFlags(cmd *cobra.Command) (*models.UpdateSource, 
 	if assetPattern != "" {
 		return nil, fmt.Errorf("--asset is only supported with --github or --gitlab")
 	}
-	return nil, fmt.Errorf("missing update source; set one of --github, --gitlab, --zsync-url, or --embedded")
+	return nil, fmt.Errorf("missing update source; set one of --github, --gitlab, --zsync, or --embedded")
 }
 
 type pendingManagedUpdate struct {

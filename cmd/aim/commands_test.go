@@ -450,13 +450,13 @@ func TestStructuredFlagHelpUsesSemanticMetavars(t *testing.T) {
 			required: []string{
 				"--github owner/repo",
 				"--gitlab namespace/project",
-				"--zsync-url URL",
+				"--zsync URL",
 				"--asset string",
 			},
 			unwanted: []string{
 				"--github string",
 				"--gitlab string",
-				"--zsync-url string",
+				"--zsync string",
 			},
 		},
 	}
@@ -2275,7 +2275,7 @@ func TestResolveUpdateSourceFromSetFlags(t *testing.T) {
 		},
 		{
 			name:   "zsync source",
-			flags:  map[string]string{"zsync-url": "https://example.com/MyApp.AppImage.zsync"},
+			flags:  map[string]string{"zsync": "https://example.com/MyApp.AppImage.zsync"},
 			expect: models.UpdateZsync,
 		},
 		{

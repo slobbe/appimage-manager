@@ -208,7 +208,7 @@ Set an update source:
 ```sh
 aim update set <id> --github owner/repo
 aim update set <id> --gitlab namespace/project
-aim update set <id> --zsync-url https://example.com/MyApp.AppImage.zsync
+aim update set <id> --zsync https://example.com/MyApp.AppImage.zsync
 aim update set <id> --embedded
 aim update unset <id>
 ```
@@ -226,7 +226,7 @@ aim update set <id> --github owner/repo --asset "MyApp-*-x86_64.AppImage"
 | `--github`        | GitHub repo in the form owner/repo                       |
 | `--gitlab`        | GitLab project path in the form namespace/project        |
 | `--asset`         | asset filename pattern; defaults to `*.AppImage`         |
-| `--zsync-url`     | direct zsync metadata URL (HTTPS)                        |
+| `--zsync`         | direct zsync metadata URL (HTTPS)                        |
 | `--embedded`      | use the update source embedded in the current AppImage   |
 
 GitHub and GitLab update checks use stable releases only.
