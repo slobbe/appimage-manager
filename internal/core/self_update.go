@@ -21,13 +21,40 @@ var (
 	}
 	upgradeShellCommand       = "/bin/sh"
 	upgradeRunInstallerScript = runInstallerScript
+	upgradeExecutablePath     = os.Executable
+	upgradeEvalSymlinks       = filepath.EvalSymlinks
+	upgradeRunVersionCommand  = runInstalledVersionCommand
 )
 
-func UpgradeViaInstaller(ctx context.Context) error {
+type InstallerUpgradeResult struct {
+	PreviousVersion  string
+	InstalledVersion string
+}
+
+func UpgradeViaInstaller(ctx context.Context, currentVersion string) (*InstallerUpgradeResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	return upgradeRunInstallerScript(ctx, upgradeInstallScriptURL(upgradeRepoSlug))
+	result := &InstallerUpgradeResult{
+		PreviousVersion: strings.TrimSpace(currentVersion),
+	}
+
+	if err := upgradeRunInstallerScript(ctx, upgradeInstallScriptURL(upgradeRepoSlug)); err != nil {
+		return nil, err
+	}
+
+	binaryPath, err := resolveInstalledAimPath()
+	if err != nil {
+		return result, nil
+	}
+
+	installedVersion, err := readInstalledAimVersion(ctx, binaryPath)
+	if err != nil {
+		return result, nil
+	}
+	result.InstalledVersion = installedVersion
+
+	return result, nil
 }
 
 func runInstallerScript(ctx context.Context, scriptURL string) error {
@@ -82,4 +109,52 @@ func runInstallerScript(ctx context.Context, scriptURL string) error {
 	}
 
 	return nil
+}
+
+func resolveInstalledAimPath() (string, error) {
+	execPath, err := upgradeExecutablePath()
+	if err != nil {
+		return "", err
+	}
+
+	if resolvedPath, err := upgradeEvalSymlinks(execPath); err == nil && strings.TrimSpace(resolvedPath) != "" {
+		execPath = resolvedPath
+	}
+
+	return execPath, nil
+}
+
+func readInstalledAimVersion(ctx context.Context, binaryPath string) (string, error) {
+	output, err := upgradeRunVersionCommand(ctx, binaryPath)
+	if err != nil {
+		return "", err
+	}
+
+	version := strings.TrimSpace(output)
+	if version == "" {
+		return "", fmt.Errorf("installed version command returned empty output")
+	}
+
+	return version, nil
+}
+
+func runInstalledVersionCommand(ctx context.Context, binaryPath string) (string, error) {
+	cmd := exec.CommandContext(ctx, binaryPath, "--version")
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		message := strings.TrimSpace(stderr.String())
+		if message == "" {
+			message = strings.TrimSpace(stdout.String())
+		}
+		if message == "" {
+			return "", err
+		}
+		return "", fmt.Errorf("%w: %s", err, message)
+	}
+
+	return stdout.String(), nil
 }

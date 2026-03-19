@@ -192,8 +192,8 @@ func TestUpgradeCmdRunsInstallerUpgrade(t *testing.T) {
 	t.Cleanup(func() {
 		runUpgradeViaInstaller = original
 	})
-	runUpgradeViaInstaller = func(context.Context) error {
-		return fmt.Errorf("installer failed")
+	runUpgradeViaInstaller = func(context.Context, string) (*core.InstallerUpgradeResult, error) {
+		return nil, fmt.Errorf("installer failed")
 	}
 
 	cmd := newUpgradeTestCommand()
@@ -207,13 +207,89 @@ func TestUpgradeCmdRunsInstallerUpgrade(t *testing.T) {
 	}
 }
 
-func TestUpgradeCmdOutputsInstallerSuccessMessage(t *testing.T) {
+func TestUpgradeCmdOutputsVersionTransitionMessage(t *testing.T) {
 	original := runUpgradeViaInstaller
 	t.Cleanup(func() {
 		runUpgradeViaInstaller = original
 	})
-	runUpgradeViaInstaller = func(context.Context) error {
-		return nil
+	runUpgradeViaInstaller = func(context.Context, string) (*core.InstallerUpgradeResult, error) {
+		return &core.InstallerUpgradeResult{
+			PreviousVersion:  "0.12.3",
+			InstalledVersion: "0.12.4",
+		}, nil
+	}
+
+	cmd := newUpgradeTestCommand()
+	output := captureStdout(t, func() {
+		if err := executeTestCommand(context.Background(), cmd, "--upgrade"); err != nil {
+			t.Fatalf("run returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "Updated aim v0.12.3 -> v0.12.4") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+}
+
+func TestUpgradeCmdShortFlagRunsInstallerUpgrade(t *testing.T) {
+	original := runUpgradeViaInstaller
+	t.Cleanup(func() {
+		runUpgradeViaInstaller = original
+	})
+	called := false
+	runUpgradeViaInstaller = func(context.Context, string) (*core.InstallerUpgradeResult, error) {
+		called = true
+		return &core.InstallerUpgradeResult{
+			PreviousVersion:  "0.12.3",
+			InstalledVersion: "0.12.4",
+		}, nil
+	}
+
+	cmd := newUpgradeTestCommand()
+	_ = captureStdout(t, func() {
+		if err := executeTestCommand(context.Background(), cmd, "-U"); err != nil {
+			t.Fatalf("run returned error: %v", err)
+		}
+	})
+	if !called {
+		t.Fatal("expected installer upgrade to run")
+	}
+}
+
+func TestRootUpgradeShortFlagOutputsVersionTransitionMessage(t *testing.T) {
+	original := runUpgradeViaInstaller
+	t.Cleanup(func() {
+		runUpgradeViaInstaller = original
+	})
+	runUpgradeViaInstaller = func(context.Context, string) (*core.InstallerUpgradeResult, error) {
+		return &core.InstallerUpgradeResult{
+			PreviousVersion:  "0.12.3",
+			InstalledVersion: "0.12.4",
+		}, nil
+	}
+
+	cmd := newUpgradeTestCommand()
+	output := captureStdout(t, func() {
+		if err := executeTestCommand(context.Background(), cmd, "-U"); err != nil {
+			t.Fatalf("run returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "Updated aim v0.12.3 -> v0.12.4") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+}
+
+func TestUpgradeCmdFallsBackWhenInstalledVersionUnknown(t *testing.T) {
+	original := runUpgradeViaInstaller
+	t.Cleanup(func() {
+		runUpgradeViaInstaller = original
+	})
+	runUpgradeViaInstaller = func(context.Context, string) (*core.InstallerUpgradeResult, error) {
+		return &core.InstallerUpgradeResult{
+			PreviousVersion:  "0.12.3",
+			InstalledVersion: "",
+		}, nil
 	}
 
 	cmd := newUpgradeTestCommand()
@@ -225,28 +301,6 @@ func TestUpgradeCmdOutputsInstallerSuccessMessage(t *testing.T) {
 
 	if !strings.Contains(output, "Updated aim via installer") {
 		t.Fatalf("unexpected output:\n%s", output)
-	}
-}
-
-func TestUpgradeCmdShortFlagRunsInstallerUpgrade(t *testing.T) {
-	original := runUpgradeViaInstaller
-	t.Cleanup(func() {
-		runUpgradeViaInstaller = original
-	})
-	called := false
-	runUpgradeViaInstaller = func(context.Context) error {
-		called = true
-		return nil
-	}
-
-	cmd := newUpgradeTestCommand()
-	_ = captureStdout(t, func() {
-		if err := executeTestCommand(context.Background(), cmd, "-U"); err != nil {
-			t.Fatalf("run returned error: %v", err)
-		}
-	})
-	if !called {
-		t.Fatal("expected installer upgrade to run")
 	}
 }
 
@@ -300,9 +354,12 @@ func TestRootUpgradeFlagInvokesInstallerUpgrade(t *testing.T) {
 		runUpgradeViaInstaller = original
 	})
 	called := false
-	runUpgradeViaInstaller = func(context.Context) error {
+	runUpgradeViaInstaller = func(context.Context, string) (*core.InstallerUpgradeResult, error) {
 		called = true
-		return nil
+		return &core.InstallerUpgradeResult{
+			PreviousVersion:  "0.12.3",
+			InstalledVersion: "0.12.4",
+		}, nil
 	}
 
 	cmd := newRootTestCommand()
@@ -315,7 +372,7 @@ func TestRootUpgradeFlagInvokesInstallerUpgrade(t *testing.T) {
 	if !called {
 		t.Fatal("expected installer upgrade to run")
 	}
-	if !strings.Contains(output, "Updated aim via installer") {
+	if !strings.Contains(output, "Updated aim v0.12.3 -> v0.12.4") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
 }
@@ -326,14 +383,20 @@ func TestRootUpgradeFlagPassesNonNilContext(t *testing.T) {
 		runUpgradeViaInstaller = original
 	})
 
-	runUpgradeViaInstaller = func(ctx context.Context) error {
+	runUpgradeViaInstaller = func(ctx context.Context, currentVersion string) (*core.InstallerUpgradeResult, error) {
 		if ctx == nil {
 			t.Fatal("expected non-nil context")
 		}
 		if err := ctx.Err(); err != nil {
 			t.Fatalf("unexpected context error: %v", err)
 		}
-		return nil
+		if currentVersion != version {
+			t.Fatalf("currentVersion = %q, want %q", currentVersion, version)
+		}
+		return &core.InstallerUpgradeResult{
+			PreviousVersion:  currentVersion,
+			InstalledVersion: "0.12.4",
+		}, nil
 	}
 
 	cmd := newRootTestCommand()
@@ -350,14 +413,20 @@ func TestRootUpgradeShortFlagPassesNonNilContext(t *testing.T) {
 		runUpgradeViaInstaller = original
 	})
 
-	runUpgradeViaInstaller = func(ctx context.Context) error {
+	runUpgradeViaInstaller = func(ctx context.Context, currentVersion string) (*core.InstallerUpgradeResult, error) {
 		if ctx == nil {
 			t.Fatal("expected non-nil context")
 		}
 		if err := ctx.Err(); err != nil {
 			t.Fatalf("unexpected context error: %v", err)
 		}
-		return nil
+		if currentVersion != version {
+			t.Fatalf("currentVersion = %q, want %q", currentVersion, version)
+		}
+		return &core.InstallerUpgradeResult{
+			PreviousVersion:  currentVersion,
+			InstalledVersion: "0.12.4",
+		}, nil
 	}
 
 	cmd := newRootTestCommand()
@@ -4580,6 +4649,7 @@ func TestDisplayVersion(t *testing.T) {
 		{name: "numeric", input: "1.2.3", expect: "v1.2.3"},
 		{name: "already prefixed", input: "v1.2.3", expect: "v1.2.3"},
 		{name: "platform suffixed", input: "1.17.0-linux-x86-64", expect: "v1.17.0"},
+		{name: "dev build", input: "dev", expect: "dev"},
 		{name: "unknown literal", input: "unknown", expect: "unknown"},
 		{name: "na placeholder", input: "n/a", expect: "unknown"},
 		{name: "empty", input: "", expect: "unknown"},

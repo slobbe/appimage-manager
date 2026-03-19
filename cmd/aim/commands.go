@@ -65,8 +65,17 @@ func runUpgrade(ctx context.Context, cmd *cobra.Command) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if err := runUpgradeViaInstaller(ctx); err != nil {
+	result, err := runUpgradeViaInstaller(ctx, version)
+	if err != nil {
 		return err
+	}
+	if result != nil && strings.TrimSpace(result.InstalledVersion) != "" {
+		printSuccess(cmd, fmt.Sprintf(
+			"Updated aim %s -> %s",
+			displayVersion(result.PreviousVersion),
+			displayVersion(result.InstalledVersion),
+		))
+		return nil
 	}
 	printSuccess(cmd, "Updated aim via installer")
 	return nil
@@ -2165,6 +2174,10 @@ func displayVersion(value string) string {
 	v := strings.TrimSpace(strings.Trim(value, `"'`))
 	if v == "" {
 		return "unknown"
+	}
+
+	if strings.EqualFold(v, "dev") {
+		return "dev"
 	}
 
 	if normalized := core.NormalizeComparableVersion(v); normalized != "" {

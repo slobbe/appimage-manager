@@ -2,20 +2,27 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 )
 
-func TestUpgradeViaInstallerUsesPublishedScriptURL(t *testing.T) {
+func TestUpgradeViaInstallerReturnsInstalledVersion(t *testing.T) {
 	originalRepoSlug := upgradeRepoSlug
 	originalInstallScriptURL := upgradeInstallScriptURL
 	originalRunInstallerScript := upgradeRunInstallerScript
+	originalExecutablePath := upgradeExecutablePath
+	originalEvalSymlinks := upgradeEvalSymlinks
+	originalRunVersionCommand := upgradeRunVersionCommand
 	t.Cleanup(func() {
 		upgradeRepoSlug = originalRepoSlug
 		upgradeInstallScriptURL = originalInstallScriptURL
 		upgradeRunInstallerScript = originalRunInstallerScript
+		upgradeExecutablePath = originalExecutablePath
+		upgradeEvalSymlinks = originalEvalSymlinks
+		upgradeRunVersionCommand = originalRunVersionCommand
 	})
 
 	upgradeRepoSlug = "test/repo"
@@ -34,19 +41,51 @@ func TestUpgradeViaInstallerUsesPublishedScriptURL(t *testing.T) {
 		}
 		return nil
 	}
+	upgradeExecutablePath = func() (string, error) {
+		return "/tmp/aim", nil
+	}
+	upgradeEvalSymlinks = func(path string) (string, error) {
+		if path != "/tmp/aim" {
+			t.Fatalf("unexpected executable path %q", path)
+		}
+		return "/opt/bin/aim", nil
+	}
+	upgradeRunVersionCommand = func(ctx context.Context, binaryPath string) (string, error) {
+		if ctx == nil {
+			t.Fatal("expected non-nil context")
+		}
+		if binaryPath != "/opt/bin/aim" {
+			t.Fatalf("unexpected binary path %q", binaryPath)
+		}
+		return "0.12.4\n", nil
+	}
 
-	if err := UpgradeViaInstaller(context.Background()); err != nil {
+	result, err := UpgradeViaInstaller(context.Background(), "0.12.3")
+	if err != nil {
 		t.Fatalf("UpgradeViaInstaller returned error: %v", err)
 	}
 	if !called {
 		t.Fatal("expected installer script runner to be called")
 	}
+	if result == nil {
+		t.Fatal("expected upgrade result")
+	}
+	if result.PreviousVersion != "0.12.3" {
+		t.Fatalf("PreviousVersion = %q, want %q", result.PreviousVersion, "0.12.3")
+	}
+	if result.InstalledVersion != "0.12.4" {
+		t.Fatalf("InstalledVersion = %q, want %q", result.InstalledVersion, "0.12.4")
+	}
 }
 
 func TestUpgradeViaInstallerHandlesNilContext(t *testing.T) {
 	originalRunInstallerScript := upgradeRunInstallerScript
+	originalExecutablePath := upgradeExecutablePath
+	originalRunVersionCommand := upgradeRunVersionCommand
 	t.Cleanup(func() {
 		upgradeRunInstallerScript = originalRunInstallerScript
+		upgradeExecutablePath = originalExecutablePath
+		upgradeRunVersionCommand = originalRunVersionCommand
 	})
 
 	upgradeRunInstallerScript = func(ctx context.Context, scriptURL string) error {
@@ -61,9 +100,101 @@ func TestUpgradeViaInstallerHandlesNilContext(t *testing.T) {
 		}
 		return nil
 	}
+	upgradeExecutablePath = func() (string, error) {
+		return "/tmp/aim", nil
+	}
+	upgradeRunVersionCommand = func(ctx context.Context, binaryPath string) (string, error) {
+		if ctx == nil {
+			t.Fatal("expected non-nil context")
+		}
+		if binaryPath == "" {
+			t.Fatal("expected binary path")
+		}
+		return "0.12.4", nil
+	}
 
-	if err := UpgradeViaInstaller(nil); err != nil {
+	result, err := UpgradeViaInstaller(nil, "0.12.3")
+	if err != nil {
 		t.Fatalf("UpgradeViaInstaller returned error: %v", err)
+	}
+	if result == nil || result.InstalledVersion != "0.12.4" {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+}
+
+func TestUpgradeViaInstallerFallsBackWhenVersionProbeFails(t *testing.T) {
+	originalRunInstallerScript := upgradeRunInstallerScript
+	originalExecutablePath := upgradeExecutablePath
+	originalRunVersionCommand := upgradeRunVersionCommand
+	t.Cleanup(func() {
+		upgradeRunInstallerScript = originalRunInstallerScript
+		upgradeExecutablePath = originalExecutablePath
+		upgradeRunVersionCommand = originalRunVersionCommand
+	})
+
+	upgradeRunInstallerScript = func(context.Context, string) error {
+		return nil
+	}
+	upgradeExecutablePath = func() (string, error) {
+		return "/tmp/aim", nil
+	}
+	upgradeRunVersionCommand = func(context.Context, string) (string, error) {
+		return "", fmt.Errorf("version probe failed")
+	}
+
+	result, err := UpgradeViaInstaller(context.Background(), "0.12.3")
+	if err != nil {
+		t.Fatalf("UpgradeViaInstaller returned error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected upgrade result")
+	}
+	if result.PreviousVersion != "0.12.3" {
+		t.Fatalf("PreviousVersion = %q, want %q", result.PreviousVersion, "0.12.3")
+	}
+	if result.InstalledVersion != "" {
+		t.Fatalf("InstalledVersion = %q, want empty string", result.InstalledVersion)
+	}
+}
+
+func TestUpgradeViaInstallerPropagatesInstallerFailure(t *testing.T) {
+	originalRunInstallerScript := upgradeRunInstallerScript
+	t.Cleanup(func() {
+		upgradeRunInstallerScript = originalRunInstallerScript
+	})
+
+	upgradeRunInstallerScript = func(context.Context, string) error {
+		return fmt.Errorf("installer failed")
+	}
+
+	result, err := UpgradeViaInstaller(context.Background(), "0.12.3")
+	if err == nil {
+		t.Fatal("expected installer failure")
+	}
+	if !strings.Contains(err.Error(), "installer failed") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != nil {
+		t.Fatalf("expected nil result, got %#v", result)
+	}
+}
+
+func TestReadInstalledAimVersionTrimsWhitespace(t *testing.T) {
+	originalRunVersionCommand := upgradeRunVersionCommand
+	t.Cleanup(func() {
+		upgradeRunVersionCommand = originalRunVersionCommand
+	})
+
+	upgradeRunVersionCommand = func(context.Context, string) (string, error) {
+		return "0.12.4\n", nil
+	}
+
+	version, err := readInstalledAimVersion(context.Background(), "/tmp/aim")
+	if err != nil {
+		t.Fatalf("readInstalledAimVersion returned error: %v", err)
+	}
+	if version != "0.12.4" {
+		t.Fatalf("version = %q, want %q", version, "0.12.4")
 	}
 }
 
