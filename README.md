@@ -57,14 +57,15 @@ The committed man page is generated from the Cobra command tree with the develop
 - desktop integration and removal
 - a small local database of managed apps
 - update checks and apply for managed apps
-- self-upgrade via `aim upgrade`
+- installer-driven upgrade via `aim --upgrade`
 
 ### Upgrade `aim`
 
-Upgrade `aim` to the latest stable release.
+Upgrade `aim` to the latest stable release with the official installer. This also refreshes the man page and shell completions.
 
 ```sh
-aim upgrade
+aim --upgrade
+aim -U
 ```
 
 ### `aim add`: Add/Install an AppImage

@@ -33,8 +33,8 @@ func newRootCommand(version string) *cobra.Command {
 		newInfoCommand(),
 		newUpdateCommand(),
 		newVersionCommand(),
-		newUpgradeCommand(),
 	)
+	root.Flags().BoolP("upgrade", "U", false, "upgrade aim via the official installer")
 	root.InitDefaultVersionFlag()
 
 	return root
@@ -156,15 +156,6 @@ func addUpdateSharedFlags(cmd *cobra.Command) {
 func mustMarkHidden(cmd *cobra.Command, name string) {
 	if err := cmd.PersistentFlags().MarkHidden(name); err != nil {
 		panic(err)
-	}
-}
-
-func newUpgradeCommand() *cobra.Command {
-	return &cobra.Command{
-		Use:   "upgrade",
-		Short: "Upgrade aim to the latest stable release",
-		Args:  cobra.NoArgs,
-		RunE:  UpgradeCmd,
 	}
 }
 

@@ -187,111 +187,136 @@ func TestUpdateDownloadFilename(t *testing.T) {
 	}
 }
 
-func TestUpgradeCmdUsesSelfUpgradeFlow(t *testing.T) {
-	original := runSelfUpgrade
+func TestUpgradeCmdRunsInstallerUpgrade(t *testing.T) {
+	original := runUpgradeViaInstaller
 	t.Cleanup(func() {
-		runSelfUpgrade = original
+		runUpgradeViaInstaller = original
 	})
-	runSelfUpgrade = func(context.Context, string) (*core.SelfUpgradeResult, error) {
-		return nil, fmt.Errorf("self-upgrade is unavailable for development builds")
+	runUpgradeViaInstaller = func(context.Context) error {
+		return fmt.Errorf("installer failed")
 	}
 
 	cmd := newUpgradeTestCommand()
 
-	err := executeTestCommand(context.Background(), cmd)
+	err := executeTestCommand(context.Background(), cmd, "--upgrade")
 	if err == nil {
-		t.Fatal("expected dev-build self-upgrade error")
+		t.Fatal("expected installer error")
 	}
-	if !strings.Contains(err.Error(), "self-upgrade is unavailable for development builds") {
+	if !strings.Contains(err.Error(), "installer failed") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
-func TestUpgradeCmdOutputsUpdatedMessage(t *testing.T) {
-	original := runSelfUpgrade
+func TestUpgradeCmdOutputsInstallerSuccessMessage(t *testing.T) {
+	original := runUpgradeViaInstaller
 	t.Cleanup(func() {
-		runSelfUpgrade = original
+		runUpgradeViaInstaller = original
 	})
-	runSelfUpgrade = func(context.Context, string) (*core.SelfUpgradeResult, error) {
-		return &core.SelfUpgradeResult{
-			Updated:        true,
-			CurrentVersion: "0.8.0",
-			LatestVersion:  "0.8.1",
-		}, nil
+	runUpgradeViaInstaller = func(context.Context) error {
+		return nil
 	}
 
 	cmd := newUpgradeTestCommand()
 	output := captureStdout(t, func() {
-		if err := executeTestCommand(context.Background(), cmd); err != nil {
+		if err := executeTestCommand(context.Background(), cmd, "--upgrade"); err != nil {
 			t.Fatalf("run returned error: %v", err)
 		}
 	})
 
-	if !strings.Contains(output, "Updated aim v0.8.0 -> v0.8.1") {
+	if !strings.Contains(output, "Updated aim via installer") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
 }
 
-func TestUpgradeCmdOutputsInstallerFallbackMessage(t *testing.T) {
-	original := runSelfUpgrade
+func TestUpgradeCmdShortFlagRunsInstallerUpgrade(t *testing.T) {
+	original := runUpgradeViaInstaller
 	t.Cleanup(func() {
-		runSelfUpgrade = original
+		runUpgradeViaInstaller = original
 	})
-	runSelfUpgrade = func(context.Context, string) (*core.SelfUpgradeResult, error) {
-		return &core.SelfUpgradeResult{
-			Updated:               true,
-			CurrentVersion:        "0.11.0",
-			LatestVersion:         "0.12.1",
-			UsedInstallerFallback: true,
-		}, nil
+	called := false
+	runUpgradeViaInstaller = func(context.Context) error {
+		called = true
+		return nil
 	}
 
 	cmd := newUpgradeTestCommand()
-	output := captureStdout(t, func() {
-		if err := executeTestCommand(context.Background(), cmd); err != nil {
+	_ = captureStdout(t, func() {
+		if err := executeTestCommand(context.Background(), cmd, "-U"); err != nil {
 			t.Fatalf("run returned error: %v", err)
 		}
 	})
-
-	if !strings.Contains(output, "Updated aim v0.11.0 -> v0.12.1 (installer fallback)") {
-		t.Fatalf("unexpected output:\n%s", output)
+	if !called {
+		t.Fatal("expected installer upgrade to run")
 	}
 }
 
-func TestUpgradeCmdOutputsUpToDateMessage(t *testing.T) {
-	original := runSelfUpgrade
-	t.Cleanup(func() {
-		runSelfUpgrade = original
-	})
-	runSelfUpgrade = func(context.Context, string) (*core.SelfUpgradeResult, error) {
-		return &core.SelfUpgradeResult{
-			Updated:        false,
-			CurrentVersion: "0.8.1",
-			LatestVersion:  "0.8.1",
-		}, nil
-	}
-
+func TestRootUpgradeRejectsExtraArgs(t *testing.T) {
 	cmd := newUpgradeTestCommand()
-	output := captureStdout(t, func() {
-		if err := executeTestCommand(context.Background(), cmd); err != nil {
-			t.Fatalf("run returned error: %v", err)
-		}
-	})
 
-	if !strings.Contains(output, "aim is up to date (v0.8.1)") {
-		t.Fatalf("unexpected output:\n%s", output)
+	err := executeTestCommand(context.Background(), cmd, "--upgrade", "extra")
+	if err == nil {
+		t.Fatal("expected argument error")
+	}
+	if !strings.Contains(err.Error(), "--upgrade does not accept positional arguments") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
-func TestRootCommandDoesNotAcceptUpgradeFlag(t *testing.T) {
+func TestSubcommandsDoNotAcceptUpgradeFlag(t *testing.T) {
 	cmd := newRootTestCommand()
 
-	err := executeTestCommand(context.Background(), cmd, "--upgrade")
+	err := executeTestCommand(context.Background(), cmd, "add", "--upgrade")
 	if err == nil {
 		t.Fatal("expected unknown flag error")
 	}
 	if !strings.Contains(err.Error(), "unknown flag: --upgrade") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+
+	err = executeTestCommand(context.Background(), cmd, "info", "-U")
+	if err == nil {
+		t.Fatal("expected unknown flag error")
+	}
+	if !strings.Contains(err.Error(), "unknown shorthand flag: 'U'") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestUpgradeCommandIsUnavailable(t *testing.T) {
+	cmd := newRootTestCommand()
+
+	err := executeTestCommand(context.Background(), cmd, "upgrade")
+	if err == nil {
+		t.Fatal("expected unknown command error")
+	}
+	if !strings.Contains(err.Error(), "unknown command \"upgrade\" for \"aim\"") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRootUpgradeFlagInvokesInstallerUpgrade(t *testing.T) {
+	original := runUpgradeViaInstaller
+	t.Cleanup(func() {
+		runUpgradeViaInstaller = original
+	})
+	called := false
+	runUpgradeViaInstaller = func(context.Context) error {
+		called = true
+		return nil
+	}
+
+	cmd := newRootTestCommand()
+	output := captureStdout(t, func() {
+		if err := executeTestCommand(context.Background(), cmd, "--upgrade"); err != nil {
+			t.Fatalf("run returned error: %v", err)
+		}
+	})
+
+	if !called {
+		t.Fatal("expected installer upgrade to run")
+	}
+	if !strings.Contains(output, "Updated aim via installer") {
+		t.Fatalf("unexpected output:\n%s", output)
 	}
 }
 
@@ -362,14 +387,14 @@ func TestRootHelpDoesNotAdvertiseRemovedCommands(t *testing.T) {
 		}
 	})
 
-	for _, unwanted := range []string{"--upgrade", "\n  pin", "\n  unpin", "\n  completion", "\n  integrate", "\n  install", "\n  show", "\n  inspect"} {
+	for _, unwanted := range []string{"\n  upgrade", "\n  pin", "\n  unpin", "\n  completion", "\n  integrate", "\n  install", "\n  show", "\n  inspect"} {
 		if strings.Contains(output, unwanted) {
 			t.Fatalf("root help unexpectedly contains %q:\n%s", unwanted, output)
 		}
 	}
-	for _, required := range []string{"add", "info", "list", "remove", "update", "upgrade", "version"} {
+	for _, required := range []string{"--upgrade", "-U", "add", "info", "list", "remove", "update", "version"} {
 		if !strings.Contains(output, required) {
-			t.Fatalf("expected root help to list %q command:\n%s", required, output)
+			t.Fatalf("expected root help to include %q:\n%s", required, output)
 		}
 	}
 }
@@ -391,7 +416,6 @@ func TestRootRegistersPackageCommands(t *testing.T) {
 		"add":     false,
 		"info":    false,
 		"update":  false,
-		"upgrade": false,
 		"version": false,
 	}
 	for _, subcommand := range cmd.Commands() {
@@ -404,6 +428,9 @@ func TestRootRegistersPackageCommands(t *testing.T) {
 		if !found {
 			t.Fatalf("expected command %q to be registered", name)
 		}
+	}
+	if findSubcommand(cmd, "upgrade") != nil {
+		t.Fatal("did not expect upgrade subcommand to be registered")
 	}
 }
 
@@ -2987,7 +3014,6 @@ func TestRenderManPageIncludesMetadata(t *testing.T) {
 		".SS aim update",
 		".SS aim update set",
 		".SS aim update unset",
-		".SS aim upgrade",
 		".SS aim version",
 		"Add a remote source, managed app, or local AppImage",
 		"Check or apply updates for managed apps, or manage configured update sources.",
@@ -3008,6 +3034,7 @@ func TestRenderManPageIncludesMetadata(t *testing.T) {
 		"Sebastian Lobbe <slobbe@lobbe.cc>",
 		"Copyright (c) 2025 Sebastian Lobbe",
 		"MIT",
+		"\\fB-U\\fP, \\fB--upgrade\\fP",
 		"https://github.com/slobbe/appimage\\-manager",
 		"https://github.com/slobbe/appimage\\-manager/issues",
 	} {
@@ -4697,12 +4724,9 @@ func captureStdoutWithInput(t *testing.T, input string, fn func()) string {
 }
 
 func newUpgradeTestCommand() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:           "upgrade",
-		SilenceUsage:  true,
-		SilenceErrors: true,
-		RunE:          UpgradeCmd,
-	}
+	cmd := newRootCommand("v0.0.0-test")
+	cmd.SilenceUsage = true
+	cmd.SilenceErrors = true
 	cmd.SetOut(os.Stdout)
 	cmd.SetErr(os.Stdout)
 	return cmd
@@ -4739,6 +4763,9 @@ func newManagedUpdateTestCommand(t *testing.T, values map[string]string) *cobra.
 func executeTestCommand(ctx context.Context, cmd *cobra.Command, args ...string) error {
 	cmd.SetOut(os.Stdout)
 	cmd.SetErr(os.Stdout)
+	if handled, err := maybeRunRootUpgradeFlag(ctx, cmd, args); handled {
+		return err
+	}
 	cmd.SetArgs(args)
 	return cmd.ExecuteContext(ctx)
 }

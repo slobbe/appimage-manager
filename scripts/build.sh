@@ -46,8 +46,6 @@ mkdir -p "${PKGDIR_ARM64}/bin" "${PKGDIR_ARM64}/share/man/man1"
 
 cp "$OUT_AMD64_VER" "${PKGDIR_AMD64}/bin/${BIN_AMD64_VER}"
 cp "$OUT_ARM64_VER" "${PKGDIR_ARM64}/bin/${BIN_ARM64_VER}"
-cp "$OUT_AMD64_VER" "${PKGDIR_AMD64}/${BIN_AMD64_VER}"
-cp "$OUT_ARM64_VER" "${PKGDIR_ARM64}/${BIN_ARM64_VER}"
 cp -R "${OUTDIR}/share/." "${PKGDIR_AMD64}/share/"
 cp -R "${OUTDIR}/share/." "${PKGDIR_ARM64}/share/"
 
@@ -64,14 +62,12 @@ assert_tar_contains() {
   fi
 }
 
-assert_tar_contains "${OUTDIR}/${TAR_AMD64}" "./${BIN_AMD64_VER}"
 assert_tar_contains "${OUTDIR}/${TAR_AMD64}" "./bin/${BIN_AMD64_VER}"
 assert_tar_contains "${OUTDIR}/${TAR_AMD64}" "./share/man/man1/aim.1"
 assert_tar_contains "${OUTDIR}/${TAR_AMD64}" "./share/bash-completion/completions/aim"
 assert_tar_contains "${OUTDIR}/${TAR_AMD64}" "./share/zsh/site-functions/_aim"
 assert_tar_contains "${OUTDIR}/${TAR_AMD64}" "./share/fish/vendor_completions.d/aim.fish"
 
-assert_tar_contains "${OUTDIR}/${TAR_ARM64}" "./${BIN_ARM64_VER}"
 assert_tar_contains "${OUTDIR}/${TAR_ARM64}" "./bin/${BIN_ARM64_VER}"
 assert_tar_contains "${OUTDIR}/${TAR_ARM64}" "./share/man/man1/aim.1"
 assert_tar_contains "${OUTDIR}/${TAR_ARM64}" "./share/bash-completion/completions/aim"

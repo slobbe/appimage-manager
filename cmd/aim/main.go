@@ -23,6 +23,14 @@ func main() {
 	root := newRootCommand(version)
 	root.SetOut(os.Stdout)
 	root.SetErr(os.Stderr)
+
+	if handled, err := maybeRunRootUpgradeFlag(context.Background(), root, os.Args[1:]); handled {
+		if err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+
 	root.SetArgs(os.Args[1:])
 	root.SetVersionTemplate("{{.Version}}\n")
 

@@ -27,27 +27,41 @@ import (
 )
 
 func RootCmd(cmd *cobra.Command, args []string) error {
-	_ = args
+	upgrade, err := cmd.Flags().GetBool("upgrade")
+	if err != nil {
+		return err
+	}
+	if upgrade {
+		if len(args) > 0 {
+			return fmt.Errorf("--upgrade does not accept positional arguments")
+		}
+		return UpgradeCmd(cmd, nil)
+	}
 	return cmd.Help()
+}
+
+func maybeRunRootUpgradeFlag(ctx context.Context, cmd *cobra.Command, args []string) (bool, error) {
+	if cmd == nil || cmd.Name() != "aim" || len(args) == 0 {
+		return false, nil
+	}
+
+	switch args[0] {
+	case "--upgrade", "-U":
+		if len(args) != 1 {
+			return true, fmt.Errorf("--upgrade does not accept positional arguments")
+		}
+		return true, UpgradeCmd(cmd, nil)
+	default:
+		return false, nil
+	}
 }
 
 func UpgradeCmd(cmd *cobra.Command, args []string) error {
 	_ = args
-	result, err := runSelfUpgrade(cmd.Context(), version)
-	if err != nil {
+	if err := runUpgradeViaInstaller(cmd.Context()); err != nil {
 		return err
 	}
-
-	if result.Updated {
-		message := fmt.Sprintf("Updated aim %s -> %s", displayVersion(result.CurrentVersion), displayVersion(result.LatestVersion))
-		if result.UsedInstallerFallback {
-			message += " (installer fallback)"
-		}
-		printSuccess(cmd, message)
-		return nil
-	}
-
-	printSuccess(cmd, fmt.Sprintf("aim is up to date (%s)", displayVersion(result.CurrentVersion)))
+	printSuccess(cmd, "Updated aim via installer")
 	return nil
 }
 
@@ -1458,7 +1472,7 @@ var downloadManagedRemoteAsset = downloadUpdateAssetWithProgress
 var integrateManagedUpdate = core.IntegrateFromLocalFileWithoutCacheRefreshOrPersist
 var zsyncLookPath = exec.LookPath
 var zsyncCommandContext = exec.CommandContext
-var runSelfUpgrade = core.SelfUpgrade
+var runUpgradeViaInstaller = core.UpgradeViaInstaller
 var runManagedApply = applyManagedUpdate
 var integrateExistingApp = core.IntegrateExisting
 var integrateLocalApp = core.IntegrateFromLocalFile
