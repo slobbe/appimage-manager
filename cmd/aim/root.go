@@ -42,12 +42,14 @@ func newRootCommand(version string) *cobra.Command {
 
 func newAddCommand() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "add <https-url|github:owner/repo|gitlab:namespace/project|id|path-to.AppImage>",
+		Use:   "add [<https-url|github-url|gitlab-url|id|path-to.AppImage>]",
 		Short: "Add a remote source, managed app, or local AppImage",
 		RunE:  AddCmd,
 	}
 	flags := cmd.Flags()
-	flags.String("asset", "", "asset filename pattern override for github:/gitlab: add sources")
+	flags.String("github", "", "GitHub repo in the form owner/repo")
+	flags.String("gitlab", "", "GitLab project path namespace/project")
+	flags.String("asset", "", "asset filename pattern override for GitHub/GitLab provider add sources")
 	flags.String("sha256", "", "expected SHA-256 for direct https:// add sources")
 	return cmd
 }
@@ -78,11 +80,15 @@ func newListCommand() *cobra.Command {
 }
 
 func newInfoCommand() *cobra.Command {
-	return &cobra.Command{
-		Use:   "info <github:owner/repo|gitlab:namespace/project|id|path-to.AppImage>",
+	cmd := &cobra.Command{
+		Use:   "info [<github-url|gitlab-url|id|path-to.AppImage>]",
 		Short: "Show package, managed app, or AppImage details",
 		RunE:  InfoCmd,
 	}
+	flags := cmd.Flags()
+	flags.String("github", "", "GitHub repo in the form owner/repo")
+	flags.String("gitlab", "", "GitLab project path namespace/project")
+	return cmd
 }
 
 func newUpdateCommand() *cobra.Command {

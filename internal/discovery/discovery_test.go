@@ -24,32 +24,99 @@ func (t *rewriteHostTransport) RoundTrip(req *http.Request) (*http.Response, err
 	return t.next.RoundTrip(clone)
 }
 
-func TestParsePackageRef(t *testing.T) {
+func TestParseGitHubRepoValue(t *testing.T) {
 	tests := []struct {
 		input     string
 		expect    PackageRef
 		wantError bool
 	}{
-		{input: "github:owner/repo", expect: PackageRef{Kind: ProviderGitHub, ProviderRef: "owner/repo"}},
-		{input: "gitlab:group/project", expect: PackageRef{Kind: ProviderGitLab, ProviderRef: "group/project"}},
-		{input: "1", wantError: true},
-		{input: "github:owner", wantError: true},
-		{input: "gitlab:group", wantError: true},
+		{input: "owner/repo", expect: PackageRef{Kind: ProviderGitHub, ProviderRef: "owner/repo"}},
+		{input: "owner", wantError: true},
+		{input: "/owner/repo", wantError: true},
 	}
 
 	for _, tt := range tests {
-		got, err := ParsePackageRef(tt.input)
+		got, err := ParseGitHubRepoValue(tt.input)
 		if tt.wantError {
 			if err == nil {
-				t.Fatalf("ParsePackageRef(%q) expected error", tt.input)
+				t.Fatalf("ParseGitHubRepoValue(%q) expected error", tt.input)
 			}
 			continue
 		}
 		if err != nil {
-			t.Fatalf("ParsePackageRef(%q) returned error: %v", tt.input, err)
+			t.Fatalf("ParseGitHubRepoValue(%q) returned error: %v", tt.input, err)
 		}
 		if got != tt.expect {
-			t.Fatalf("ParsePackageRef(%q) = %#v, want %#v", tt.input, got, tt.expect)
+			t.Fatalf("ParseGitHubRepoValue(%q) = %#v, want %#v", tt.input, got, tt.expect)
+		}
+	}
+}
+
+func TestParseGitLabProjectValue(t *testing.T) {
+	tests := []struct {
+		input     string
+		expect    PackageRef
+		wantError bool
+	}{
+		{input: "group/project", expect: PackageRef{Kind: ProviderGitLab, ProviderRef: "group/project"}},
+		{input: "group/subgroup/project", expect: PackageRef{Kind: ProviderGitLab, ProviderRef: "group/subgroup/project"}},
+		{input: "group", wantError: true},
+		{input: "/group/project", wantError: true},
+	}
+
+	for _, tt := range tests {
+		got, err := ParseGitLabProjectValue(tt.input)
+		if tt.wantError {
+			if err == nil {
+				t.Fatalf("ParseGitLabProjectValue(%q) expected error", tt.input)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatalf("ParseGitLabProjectValue(%q) returned error: %v", tt.input, err)
+		}
+		if got != tt.expect {
+			t.Fatalf("ParseGitLabProjectValue(%q) = %#v, want %#v", tt.input, got, tt.expect)
+		}
+	}
+}
+
+func TestParsePackageRefURL(t *testing.T) {
+	tests := []struct {
+		input     string
+		expect    PackageRef
+		wantError bool
+	}{
+		{input: "https://github.com/owner/repo", expect: PackageRef{Kind: ProviderGitHub, ProviderRef: "owner/repo"}},
+		{input: "https://www.github.com/owner/repo/releases", expect: PackageRef{Kind: ProviderGitHub, ProviderRef: "owner/repo"}},
+		{input: "https://github.com/owner/repo/releases/tag/v1.2.3?tab=readme#fragment", expect: PackageRef{Kind: ProviderGitHub, ProviderRef: "owner/repo"}},
+		{input: "https://github.com/owner/repo/blob/main/README.md", expect: PackageRef{Kind: ProviderGitHub, ProviderRef: "owner/repo"}},
+		{input: "https://gitlab.com/group/project", expect: PackageRef{Kind: ProviderGitLab, ProviderRef: "group/project"}},
+		{input: "https://www.gitlab.com/group/subgroup/project/-/releases/v1.0.0", expect: PackageRef{Kind: ProviderGitLab, ProviderRef: "group/subgroup/project"}},
+		{input: "https://gitlab.com/group/project/-/blob/main/README.md", expect: PackageRef{Kind: ProviderGitLab, ProviderRef: "group/project"}},
+		{input: "https://gitlab.com/group/subgroup/project", expect: PackageRef{Kind: ProviderGitLab, ProviderRef: "group/subgroup/project"}},
+		{input: "https://github.com/owner", wantError: true},
+		{input: "https://github.com/owner/repo/issues/1", wantError: true},
+		{input: "https://github.com/owner/repo/releases/download/v1/App.AppImage", wantError: true},
+		{input: "https://gitlab.com/group", wantError: true},
+		{input: "https://gitlab.com/group/project/-/issues/1", wantError: true},
+		{input: "https://example.com/owner/repo", wantError: true},
+		{input: "http://github.com/owner/repo", wantError: true},
+	}
+
+	for _, tt := range tests {
+		got, err := ParsePackageRefURL(tt.input)
+		if tt.wantError {
+			if err == nil {
+				t.Fatalf("ParsePackageRefURL(%q) expected error", tt.input)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatalf("ParsePackageRefURL(%q) returned error: %v", tt.input, err)
+		}
+		if got != tt.expect {
+			t.Fatalf("ParsePackageRefURL(%q) = %#v, want %#v", tt.input, got, tt.expect)
 		}
 	}
 }

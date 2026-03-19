@@ -62,7 +62,13 @@ func VersionCmd(cmd *cobra.Command, args []string) error {
 }
 
 func AddCmd(cmd *cobra.Command, args []string) error {
-	input, err := commandSingleArg(args, "<https-url|github:owner/repo|gitlab:namespace/project|id|path-to.AppImage>")
+	if ref, ok, err := resolveAddProviderRef(cmd, args); err != nil {
+		return err
+	} else if ok {
+		return runInstallPackageRef(cmd.Context(), cmd, ref)
+	}
+
+	input, err := commandSingleArg(args, "<https-url|github-url|gitlab-url|id|path-to.AppImage>")
 	if err != nil {
 		return err
 	}
@@ -78,7 +84,64 @@ func AddCmd(cmd *cobra.Command, args []string) error {
 		return runIntegrateTarget(cmd.Context(), cmd, input)
 	}
 
-	return fmt.Errorf("unknown add target %q; expected https://..., github:owner/repo, gitlab:namespace/project, <id>, or <path-to.AppImage>", input)
+	return fmt.Errorf("unknown add target %q; expected https://..., GitHub/GitLab repo URL, <id>, or <path-to.AppImage>", input)
+}
+
+func resolveAddProviderRef(cmd *cobra.Command, args []string) (discovery.PackageRef, bool, error) {
+	return resolveProviderFlagRef(cmd, args, "add")
+}
+
+func resolveInfoProviderRef(cmd *cobra.Command, args []string) (discovery.PackageRef, bool, error) {
+	return resolveProviderFlagRef(cmd, args, "info")
+}
+
+func resolveProviderFlagRef(cmd *cobra.Command, args []string, cmdName string) (discovery.PackageRef, bool, error) {
+	githubValue, err := flagString(cmd, "github")
+	if err != nil {
+		return discovery.PackageRef{}, false, err
+	}
+	gitlabValue, err := flagString(cmd, "gitlab")
+	if err != nil {
+		return discovery.PackageRef{}, false, err
+	}
+
+	hasGitHub := strings.TrimSpace(githubValue) != ""
+	hasGitLab := strings.TrimSpace(gitlabValue) != ""
+
+	if !hasGitHub && !hasGitLab {
+		return discovery.PackageRef{}, false, nil
+	}
+	if hasGitHub && hasGitLab {
+		return discovery.PackageRef{}, false, fmt.Errorf("--github and --gitlab are mutually exclusive")
+	}
+	if len(args) > 0 {
+		return discovery.PackageRef{}, false, fmt.Errorf("when using --github or --gitlab, do not pass a positional target")
+	}
+
+	if hasGitHub {
+		ref, err := discovery.ParseGitHubRepoValue(githubValue)
+		return ref, true, err
+	}
+
+	ref, err := discovery.ParseGitLabProjectValue(gitlabValue)
+	return ref, true, err
+}
+
+func isLegacyPackageRef(input string) bool {
+	trimmed := strings.TrimSpace(input)
+	return strings.HasPrefix(trimmed, "github:") || strings.HasPrefix(trimmed, "gitlab:")
+}
+
+func legacyProviderRefGuidance(cmdName, input string) error {
+	trimmed := strings.TrimSpace(input)
+	switch {
+	case strings.HasPrefix(trimmed, "github:"):
+		return fmt.Errorf("github:... refs are no longer accepted; use 'aim %s --github owner/repo' or a GitHub repo URL", cmdName)
+	case strings.HasPrefix(trimmed, "gitlab:"):
+		return fmt.Errorf("gitlab:... refs are no longer accepted; use 'aim %s --gitlab namespace/project' or a GitLab project URL", cmdName)
+	default:
+		return fmt.Errorf("unsupported provider ref %q", input)
+	}
 }
 
 type integrateTargetKind string
@@ -188,20 +251,17 @@ func resolveInstallTarget(input string) (*installTarget, error) {
 		return nil, fmt.Errorf("missing required argument <ref>")
 	}
 
-	if strings.HasPrefix(trimmed, "github:") {
-		repoSlug := strings.TrimSpace(strings.TrimPrefix(trimmed, "github:"))
-		if repoSlug == "" || strings.Count(repoSlug, "/") != 1 {
-			return nil, fmt.Errorf("github add source must be in the form github:owner/repo")
-		}
-		return &installTarget{Kind: installTargetGitHub, Repo: repoSlug}, nil
+	if isLegacyPackageRef(trimmed) {
+		return nil, legacyProviderRefGuidance("add", trimmed)
 	}
 
-	if strings.HasPrefix(trimmed, "gitlab:") {
-		project := strings.TrimSpace(strings.TrimPrefix(trimmed, "gitlab:"))
-		if project == "" || strings.Count(project, "/") < 1 || strings.HasPrefix(project, "/") || strings.HasSuffix(project, "/") {
-			return nil, fmt.Errorf("gitlab add source must be in the form gitlab:namespace/project")
+	if ref, err := discovery.ParsePackageRefURL(trimmed); err == nil {
+		switch ref.Kind {
+		case discovery.ProviderGitHub:
+			return &installTarget{Kind: installTargetGitHub, Repo: ref.ProviderRef}, nil
+		case discovery.ProviderGitLab:
+			return &installTarget{Kind: installTargetGitLab, Project: ref.ProviderRef}, nil
 		}
-		return &installTarget{Kind: installTargetGitLab, Project: project}, nil
 	}
 
 	if isHTTPSURL(trimmed) {
@@ -244,7 +304,7 @@ func validateInstallTargetFlags(cmd *cobra.Command, target *installTarget) error
 		}
 	case installTargetDirectURL:
 		if assetPattern != "" {
-			return fmt.Errorf("--asset is only supported with github: or gitlab: add sources")
+			return fmt.Errorf("--asset is only supported with GitHub or GitLab provider sources")
 		}
 		if sha256 != "" && !isSHA256Hex(sha256) {
 			return fmt.Errorf("--sha256 must be a valid 64-character hexadecimal SHA-256")
@@ -597,28 +657,29 @@ func ListCmd(cmd *cobra.Command, args []string) error {
 }
 
 func InfoCmd(cmd *cobra.Command, args []string) error {
+	if ref, ok, err := resolveInfoProviderRef(cmd, args); err != nil {
+		return err
+	} else if ok {
+		return runShowPackageRef(cmd.Context(), cmd, ref)
+	}
+
 	input, err := commandSingleArg(args, "<target>")
 	if err != nil {
 		return err
 	}
 
-	if _, err := resolvePackageRefInput(input); err == nil {
-		return runShowTarget(cmd.Context(), cmd, input)
+	if ref, err := resolvePackageRefInput(input); err == nil {
+		return runShowPackageRef(cmd.Context(), cmd, ref)
 	}
 
 	if _, err := resolveInspectTarget(input); err == nil {
 		return runInspectTarget(cmd.Context(), cmd, input)
 	}
 
-	return fmt.Errorf("unknown info target %q; expected github:owner/repo, gitlab:namespace/project, <id>, or <path-to.AppImage>", input)
+	return fmt.Errorf("unknown info target %q; expected GitHub/GitLab repo URL, <id>, or <path-to.AppImage>", input)
 }
 
-func resolvePackageMetadataFromInput(ctx context.Context, input, assetOverride string) (*discovery.PackageMetadata, error) {
-	ref, err := resolvePackageRefInput(input)
-	if err != nil {
-		return nil, err
-	}
-
+func resolvePackageMetadataFromRef(ctx context.Context, ref discovery.PackageRef, assetOverride string) (*discovery.PackageMetadata, error) {
 	backend, err := backendForRef(ref)
 	if err != nil {
 		return nil, err
@@ -635,13 +696,26 @@ func resolvePackageMetadataFromInput(ctx context.Context, input, assetOverride s
 	return metadata, nil
 }
 
+func resolvePackageMetadataFromInput(ctx context.Context, input, assetOverride string) (*discovery.PackageMetadata, error) {
+	ref, err := resolvePackageRefInput(input)
+	if err != nil {
+		return nil, err
+	}
+
+	return resolvePackageMetadataFromRef(ctx, ref, assetOverride)
+}
+
 func resolvePackageRefInput(input string) (discovery.PackageRef, error) {
 	trimmed := strings.TrimSpace(input)
 	if trimmed == "" {
 		return discovery.PackageRef{}, fmt.Errorf("missing package ref")
 	}
 
-	return discovery.ParsePackageRef(trimmed)
+	if isLegacyPackageRef(trimmed) {
+		return discovery.PackageRef{}, legacyProviderRefGuidance("info", trimmed)
+	}
+
+	return discovery.ParsePackageRefURL(trimmed)
 }
 
 func backendForRef(ref discovery.PackageRef) (discovery.DiscoveryBackend, error) {
@@ -697,7 +771,9 @@ func installResolvedGitLabPackage(ctx context.Context, cmd *cobra.Command, metad
 func printPackageMetadata(cmd *cobra.Command, metadata *discovery.PackageMetadata) {
 	printSection(cmd, metadata.Name)
 	fmt.Printf("Provider: %s\n", strings.TrimSpace(metadata.Provider))
-	fmt.Printf("Ref: %s\n", discovery.FormatPackageRef(metadata.Ref))
+	if providerRef := formatProviderRef(metadata.Ref); providerRef != "" {
+		fmt.Printf("Provider ref: %s\n", providerRef)
+	}
 	if strings.TrimSpace(metadata.RepoURL) != "" {
 		fmt.Printf("Source URL: %s\n", strings.TrimSpace(metadata.RepoURL))
 	}
@@ -722,7 +798,39 @@ func printPackageMetadata(cmd *cobra.Command, metadata *discovery.PackageMetadat
 	fmt.Println("Managed updates: yes")
 
 	printSection(cmd, "Install Command")
-	fmt.Printf("  aim add %s\n", discovery.FormatPackageRef(metadata.Ref))
+	fmt.Printf("  %s\n", formatAddProviderCommand(metadata.Ref))
+}
+
+func formatProviderRef(ref discovery.PackageRef) string {
+	value := strings.TrimSpace(ref.ProviderRef)
+	if value == "" {
+		return ""
+	}
+
+	switch ref.Kind {
+	case discovery.ProviderGitHub:
+		return "GitHub " + value
+	case discovery.ProviderGitLab:
+		return "GitLab " + value
+	default:
+		return value
+	}
+}
+
+func formatAddProviderCommand(ref discovery.PackageRef) string {
+	value := strings.TrimSpace(ref.ProviderRef)
+	if value == "" {
+		return "aim add"
+	}
+
+	switch ref.Kind {
+	case discovery.ProviderGitHub:
+		return "aim add --github " + value
+	case discovery.ProviderGitLab:
+		return "aim add --gitlab " + value
+	default:
+		return "aim add"
+	}
 }
 
 func yesNo(value bool) string {
@@ -762,7 +870,16 @@ func runInspectTarget(ctx context.Context, cmd *cobra.Command, input string) err
 }
 
 func runShowTarget(ctx context.Context, cmd *cobra.Command, refArg string) error {
-	metadata, err := resolvePackageMetadataFromInput(ctx, refArg, "")
+	ref, err := resolvePackageRefInput(refArg)
+	if err != nil {
+		return err
+	}
+
+	return runShowPackageRef(ctx, cmd, ref)
+}
+
+func runShowPackageRef(ctx context.Context, cmd *cobra.Command, ref discovery.PackageRef) error {
+	metadata, err := resolvePackageMetadataFromRef(ctx, ref, "")
 	if err != nil {
 		return err
 	}
@@ -813,6 +930,36 @@ func runInstallTarget(ctx context.Context, cmd *cobra.Command, refArg string) er
 	return nil
 }
 
+func runInstallPackageRef(ctx context.Context, cmd *cobra.Command, ref discovery.PackageRef) error {
+	assetPattern, err := flagString(cmd, "asset")
+	if err != nil {
+		return err
+	}
+	sha256, err := flagString(cmd, "sha256")
+	if err != nil {
+		return err
+	}
+	if sha256 != "" {
+		return fmt.Errorf("--sha256 is only supported with direct https URLs")
+	}
+
+	metadata, err := resolvePackageMetadataFromRef(ctx, ref, assetPattern)
+	if err == nil && !metadata.Installable {
+		err = fmt.Errorf("package is not installable: %s", strings.TrimSpace(metadata.InstallReason))
+	}
+	if err != nil {
+		return err
+	}
+
+	app, err := installPackageMetadata(ctx, cmd, metadata)
+	if err != nil {
+		return err
+	}
+
+	printSuccess(cmd, fmt.Sprintf("Installed: %s", formatAppRef(app)))
+	return nil
+}
+
 func commandSingleArg(args []string, usage string) (string, error) {
 	if len(args) > 1 {
 		return "", fmt.Errorf("too many arguments")
@@ -844,7 +991,7 @@ func validateAddIntegrateFlags(cmd *cobra.Command) error {
 		return err
 	}
 	if assetPattern != "" {
-		return fmt.Errorf("--asset is only supported with github: or gitlab: add sources")
+		return fmt.Errorf("--asset is only supported with GitHub or GitLab provider sources")
 	}
 	sha256, err := flagString(cmd, "sha256")
 	if err != nil {

@@ -128,13 +128,14 @@ func TestResolveInstallTarget(t *testing.T) {
 		errText   string
 	}{
 		{name: "direct url", input: "https://example.com/MyApp.AppImage", expect: installTargetDirectURL},
-		{name: "github repo", input: "github:owner/repo", expect: installTargetGitHub},
-		{name: "gitlab repo", input: "gitlab:group/project", expect: installTargetGitLab},
+		{name: "github repo url", input: "https://github.com/owner/repo", expect: installTargetGitHub},
+		{name: "gitlab repo url", input: "https://gitlab.com/group/project", expect: installTargetGitLab},
+		{name: "github release download url falls back", input: "https://github.com/owner/repo/releases/download/v1/App.AppImage", expect: installTargetDirectURL},
 		{name: "http rejected", input: "http://example.com/MyApp.AppImage", wantError: true, errText: "direct URLs must use https"},
 		{name: "local path rejected", input: "/tmp/MyApp.AppImage", wantError: true, errText: "local AppImages are added with 'aim add <path-to.AppImage>'"},
 		{name: "managed id rejected", input: "managed", wantError: true, errText: "managed app IDs are added with 'aim add <id>'"},
-		{name: "malformed github", input: "github:owner", wantError: true, errText: "github add source must be in the form github:owner/repo"},
-		{name: "malformed gitlab", input: "gitlab:group", wantError: true, errText: "gitlab add source must be in the form gitlab:namespace/project"},
+		{name: "legacy github ref", input: "github:owner", wantError: true, errText: "github:... refs are no longer accepted"},
+		{name: "legacy gitlab ref", input: "gitlab:group", wantError: true, errText: "gitlab:... refs are no longer accepted"},
 		{name: "unknown target", input: "missing", wantError: true, errText: "unknown add target"},
 	}
 
@@ -389,16 +390,23 @@ func TestRootPackageCommandFlags(t *testing.T) {
 		t.Fatal("expected add and info commands")
 	}
 
-	if got := countFlags(addCmd.Flags()); got != 2 {
-		t.Fatalf("add flags = %d, want 2", got)
+	if got := countFlags(addCmd.Flags()); got != 4 {
+		t.Fatalf("add flags = %d, want 4", got)
 	}
 
-	if addCmd.Flags().Lookup("asset") == nil || addCmd.Flags().Lookup("sha256") == nil {
-		t.Fatalf("add flags missing asset or sha256")
+	for _, name := range []string{"github", "gitlab", "asset", "sha256"} {
+		if addCmd.Flags().Lookup(name) == nil {
+			t.Fatalf("add flags missing %s", name)
+		}
 	}
 
-	if got := countFlags(infoCmd.Flags()); got != 0 {
-		t.Fatalf("info flags = %d, want none", got)
+	if got := countFlags(infoCmd.Flags()); got != 2 {
+		t.Fatalf("info flags = %d, want 2", got)
+	}
+	for _, name := range []string{"github", "gitlab"} {
+		if infoCmd.Flags().Lookup(name) == nil {
+			t.Fatalf("info flags missing %s", name)
+		}
 	}
 }
 
@@ -731,13 +739,13 @@ func TestValidateInstallTargetFlags(t *testing.T) {
 		{
 			name:      "sha256 rejected for github",
 			target:    &installTarget{Kind: installTargetGitHub},
-			args:      []string{"github:owner/repo", "--sha256", strings.Repeat("a", 64)},
+			args:      []string{"--github", "owner/repo", "--sha256", strings.Repeat("a", 64)},
 			wantError: true,
 		},
 		{
 			name:      "sha256 rejected for gitlab",
 			target:    &installTarget{Kind: installTargetGitLab},
-			args:      []string{"gitlab:group/project", "--sha256", strings.Repeat("a", 64)},
+			args:      []string{"--gitlab", "group/project", "--sha256", strings.Repeat("a", 64)},
 			wantError: true,
 		},
 		{
@@ -754,12 +762,12 @@ func TestValidateInstallTargetFlags(t *testing.T) {
 		{
 			name:   "valid github asset",
 			target: &installTarget{Kind: installTargetGitHub},
-			args:   []string{"github:owner/repo", "--asset", "*.AppImage"},
+			args:   []string{"--github", "owner/repo", "--asset", "*.AppImage"},
 		},
 		{
 			name:   "valid gitlab asset",
 			target: &installTarget{Kind: installTargetGitLab},
-			args:   []string{"gitlab:group/project", "--asset", "*.AppImage"},
+			args:   []string{"--gitlab", "group/project", "--asset", "*.AppImage"},
 		},
 	}
 
@@ -801,7 +809,7 @@ func TestAddCmdRejectsLocalTargetsWithRemoteFlags(t *testing.T) {
 	}
 
 	err := runAddCommand(context.Background(), []string{"./MyApp.AppImage", "--asset", "*.AppImage"})
-	if err == nil || !strings.Contains(err.Error(), "--asset is only supported with github: or gitlab: add sources") {
+	if err == nil || !strings.Contains(err.Error(), "--asset is only supported with GitHub or GitLab provider sources") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -822,13 +830,32 @@ func TestAddCmdRejectsUnknownTarget(t *testing.T) {
 }
 
 func TestAddCmdRemoteFlagValidation(t *testing.T) {
-	err := runAddCommand(context.Background(), []string{"github:owner/repo", "--sha256", strings.Repeat("a", 64)})
+	err := runAddCommand(context.Background(), []string{"--github", "owner/repo", "--sha256", strings.Repeat("a", 64)})
 	if err == nil || !strings.Contains(err.Error(), "--sha256 is only supported with direct https URLs") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	err = runAddCommand(context.Background(), []string{"https://example.com/app.AppImage", "--asset", "*.AppImage"})
-	if err == nil || !strings.Contains(err.Error(), "--asset is only supported with github: or gitlab: add sources") {
+	if err == nil || !strings.Contains(err.Error(), "--asset is only supported with GitHub or GitLab provider sources") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestAddCmdRejectsMixedProviderSelectors(t *testing.T) {
+	err := runAddCommand(context.Background(), []string{"--github", "owner/repo", "--gitlab", "group/project"})
+	if err == nil || !strings.Contains(err.Error(), "--github and --gitlab are mutually exclusive") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	err = runAddCommand(context.Background(), []string{"--github", "owner/repo", "./MyApp.AppImage"})
+	if err == nil || !strings.Contains(err.Error(), "when using --github or --gitlab, do not pass a positional target") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestAddCmdRejectsLegacyProviderRef(t *testing.T) {
+	err := runAddCommand(context.Background(), []string{"github:owner/repo"})
+	if err == nil || !strings.Contains(err.Error(), "github:... refs are no longer accepted") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -1039,7 +1066,7 @@ func TestAddCmdGitHubSetsDefaultAssetSourceAndUpdate(t *testing.T) {
 	}
 	addSingleApp = repo.AddApp
 
-	if err := runAddCommand(context.Background(), []string{"github:owner/repo"}); err != nil {
+	if err := runAddCommand(context.Background(), []string{"--github", "owner/repo"}); err != nil {
 		t.Fatalf("runAddCommand returned error: %v", err)
 	}
 
@@ -1114,7 +1141,7 @@ func TestAddCmdGitHubPersistsCustomAsset(t *testing.T) {
 	}
 	addSingleApp = repo.AddApp
 
-	if err := runAddCommand(context.Background(), []string{"github:owner/repo", "--asset", "MyApp-*-x86_64.AppImage"}); err != nil {
+	if err := runAddCommand(context.Background(), []string{"--github", "owner/repo", "--asset", "MyApp-*-x86_64.AppImage"}); err != nil {
 		t.Fatalf("runAddCommand returned error: %v", err)
 	}
 
@@ -1181,7 +1208,7 @@ func TestAddCmdGitHubUsesCustomAsset(t *testing.T) {
 	addSingleApp = repo.AddApp
 
 	output := captureStdout(t, func() {
-		if err := runAddCommand(context.Background(), []string{"github:owner/repo", "--asset", "MyApp-*-x86_64.AppImage"}); err != nil {
+		if err := runAddCommand(context.Background(), []string{"--github", "owner/repo", "--asset", "MyApp-*-x86_64.AppImage"}); err != nil {
 			t.Fatalf("runAddCommand returned error: %v", err)
 		}
 	})
@@ -1247,7 +1274,7 @@ func TestAddCmdGitLabSetsDefaultAssetSourceAndUpdate(t *testing.T) {
 	}
 	addSingleApp = repo.AddApp
 
-	if err := runAddCommand(context.Background(), []string{"gitlab:group/project"}); err != nil {
+	if err := runAddCommand(context.Background(), []string{"--gitlab", "group/project"}); err != nil {
 		t.Fatalf("runAddCommand returned error: %v", err)
 	}
 
@@ -1319,7 +1346,7 @@ func TestAddCmdGitLabPersistsCustomAsset(t *testing.T) {
 	}
 	addSingleApp = repo.AddApp
 
-	if err := runAddCommand(context.Background(), []string{"gitlab:group/project", "--asset", "MyApp-*-x86_64.AppImage"}); err != nil {
+	if err := runAddCommand(context.Background(), []string{"--gitlab", "group/project", "--asset", "MyApp-*-x86_64.AppImage"}); err != nil {
 		t.Fatalf("runAddCommand returned error: %v", err)
 	}
 
@@ -1386,7 +1413,7 @@ func TestAddCmdGitLabProviderRef(t *testing.T) {
 	addSingleApp = repo.AddApp
 
 	output := captureStdout(t, func() {
-		if err := runAddCommand(context.Background(), []string{"gitlab:group/project"}); err != nil {
+		if err := runAddCommand(context.Background(), []string{"--gitlab", "group/project"}); err != nil {
 			t.Fatalf("runAddCommand returned error: %v", err)
 		}
 	})
@@ -1437,7 +1464,7 @@ func TestInfoCmdDirectProviderRef(t *testing.T) {
 	}
 
 	output := captureStdout(t, func() {
-		if err := runInfoCommand(context.Background(), []string{"github:owner/repo"}); err != nil {
+		if err := runInfoCommand(context.Background(), []string{"--github", "owner/repo"}); err != nil {
 			t.Fatalf("runInfoCommand returned error: %v", err)
 		}
 	})
@@ -1445,7 +1472,7 @@ func TestInfoCmdDirectProviderRef(t *testing.T) {
 	if !strings.Contains(output, "My App") || !strings.Contains(strings.ToLower(output), "install command") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
-	if !strings.Contains(output, "aim add github:owner/repo") {
+	if !strings.Contains(output, "aim add --github owner/repo") {
 		t.Fatalf("expected install preview, got:\n%s", output)
 	}
 	if !strings.Contains(output, "Managed updates: yes") {
@@ -1490,7 +1517,7 @@ func TestInfoCmdGitLabProviderRefOutput(t *testing.T) {
 	}
 
 	output := captureStdout(t, func() {
-		if err := runInfoCommand(context.Background(), []string{"gitlab:group/project"}); err != nil {
+		if err := runInfoCommand(context.Background(), []string{"--gitlab", "group/project"}); err != nil {
 			t.Fatalf("runInfoCommand returned error: %v", err)
 		}
 	})
@@ -1501,7 +1528,7 @@ func TestInfoCmdGitLabProviderRefOutput(t *testing.T) {
 	if !strings.Contains(output, "Managed updates: yes") {
 		t.Fatalf("expected managed updates summary, got:\n%s", output)
 	}
-	if !strings.Contains(output, "aim add gitlab:group/project") {
+	if !strings.Contains(output, "aim add --gitlab group/project") {
 		t.Fatalf("expected install preview, got:\n%s", output)
 	}
 	if strings.Contains(output, "Notes") {
@@ -1541,7 +1568,7 @@ func TestInfoCmdUninstallablePackageOmitsInstallPreview(t *testing.T) {
 	}
 
 	output := captureStdout(t, func() {
-		if err := runInfoCommand(context.Background(), []string{"github:owner/repo"}); err != nil {
+		if err := runInfoCommand(context.Background(), []string{"--github", "owner/repo"}); err != nil {
 			t.Fatalf("runInfoCommand returned error: %v", err)
 		}
 	})
@@ -1594,7 +1621,7 @@ func TestInfoCmdGitHubPackageRef(t *testing.T) {
 	}
 
 	output := captureStdout(t, func() {
-		if err := runInfoCommand(context.Background(), []string{"github:owner/repo"}); err != nil {
+		if err := runInfoCommand(context.Background(), []string{"--github", "owner/repo"}); err != nil {
 			t.Fatalf("runInfoCommand returned error: %v", err)
 		}
 	})
@@ -1602,7 +1629,7 @@ func TestInfoCmdGitHubPackageRef(t *testing.T) {
 	if !strings.Contains(output, "My App") || !strings.Contains(output, "Managed updates: yes") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
-	if !strings.Contains(output, "aim add github:owner/repo") {
+	if !strings.Contains(output, "aim add --github owner/repo") {
 		t.Fatalf("expected install preview, got:\n%s", output)
 	}
 }
@@ -1635,7 +1662,7 @@ func TestInfoCmdGitLabPackageRef(t *testing.T) {
 	}
 
 	output := captureStdout(t, func() {
-		if err := runInfoCommand(context.Background(), []string{"gitlab:group/project"}); err != nil {
+		if err := runInfoCommand(context.Background(), []string{"--gitlab", "group/project"}); err != nil {
 			t.Fatalf("runInfoCommand returned error: %v", err)
 		}
 	})
@@ -1643,7 +1670,7 @@ func TestInfoCmdGitLabPackageRef(t *testing.T) {
 	if !strings.Contains(output, "Foo App") || !strings.Contains(output, "Managed updates: yes") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
-	if !strings.Contains(output, "aim add gitlab:group/project") {
+	if !strings.Contains(output, "aim add --gitlab group/project") {
 		t.Fatalf("expected install preview, got:\n%s", output)
 	}
 }
@@ -1701,7 +1728,7 @@ func TestAddCmdDirectProviderRefDelegatesToExistingAddFlow(t *testing.T) {
 	}
 	addSingleApp = repo.AddApp
 
-	if err := runAddCommand(context.Background(), []string{"github:owner/repo"}); err != nil {
+	if err := runAddCommand(context.Background(), []string{"--github", "owner/repo"}); err != nil {
 		t.Fatalf("runAddCommand returned error: %v", err)
 	}
 
@@ -1711,6 +1738,64 @@ func TestAddCmdDirectProviderRefDelegatesToExistingAddFlow(t *testing.T) {
 	}
 	if app.Source.Kind != models.SourceGitHubRelease {
 		t.Fatalf("Source.Kind = %q", app.Source.Kind)
+	}
+}
+
+func TestAddCmdGitHubURLDelegatesToExistingAddFlow(t *testing.T) {
+	originalBackends := discoveryBackends
+	originalResolve := resolveGitHubReleaseAsset
+	originalDownload := downloadRemoteAsset
+	originalIntegrate := integrateLocalApp
+	originalAddSingle := addSingleApp
+	t.Cleanup(func() {
+		discoveryBackends = originalBackends
+		resolveGitHubReleaseAsset = originalResolve
+		downloadRemoteAsset = originalDownload
+		integrateLocalApp = originalIntegrate
+		addSingleApp = originalAddSingle
+	})
+
+	tempDir := t.TempDir()
+	setupAddCommandConfigForTest(t, tempDir)
+
+	discoveryBackends = func() []discovery.DiscoveryBackend {
+		return []discovery.DiscoveryBackend{
+			&stubDiscoveryBackend{
+				name: "GitHub",
+				resolveFn: func(context.Context, discovery.PackageRef, string) (*discovery.PackageMetadata, error) {
+					return &discovery.PackageMetadata{
+						Name:          "My App",
+						Provider:      "GitHub",
+						Ref:           discovery.PackageRef{Kind: discovery.ProviderGitHub, ProviderRef: "owner/repo"},
+						LatestVersion: "1.2.3",
+						AssetName:     "MyApp-x86_64.AppImage",
+						AssetPattern:  "*.AppImage",
+						DownloadURL:   "https://example.com/MyApp-x86_64.AppImage",
+						Installable:   true,
+						ReleaseTag:    "v1.2.3",
+					}, nil
+				},
+			},
+		}
+	}
+	resolveGitHubReleaseAsset = func(repoSlug, assetPattern string) (*core.GitHubReleaseAsset, error) {
+		if repoSlug != "owner/repo" || assetPattern != "*.AppImage" {
+			t.Fatalf("unexpected install resolution: %s %s", repoSlug, assetPattern)
+		}
+		return &core.GitHubReleaseAsset{
+			DownloadURL: "https://example.com/MyApp-x86_64.AppImage",
+			TagName:     "v1.2.3",
+			AssetName:   "MyApp-x86_64.AppImage",
+		}, nil
+	}
+	downloadRemoteAsset = func(context.Context, string, string, bool) error { return nil }
+	integrateLocalApp = func(context.Context, string, core.UpdateOverwritePrompt) (*models.App, error) {
+		return &models.App{ID: "my-app", Name: "My App", Version: "1.2.3", UpdatedAt: "2026-03-08T12:00:00Z"}, nil
+	}
+	addSingleApp = repo.AddApp
+
+	if err := runAddCommand(context.Background(), []string{"https://github.com/owner/repo"}); err != nil {
+		t.Fatalf("runAddCommand returned error: %v", err)
 	}
 }
 
@@ -1767,7 +1852,7 @@ func TestAddCmdDirectProviderRefAssetOverride(t *testing.T) {
 	}
 	addSingleApp = repo.AddApp
 
-	if err := runAddCommand(context.Background(), []string{"gitlab:group/project", "--asset", "Foo-*-x86_64.AppImage"}); err != nil {
+	if err := runAddCommand(context.Background(), []string{"--gitlab", "group/project", "--asset", "Foo-*-x86_64.AppImage"}); err != nil {
 		t.Fatalf("runAddCommand returned error: %v", err)
 	}
 
@@ -1777,6 +1862,47 @@ func TestAddCmdDirectProviderRefAssetOverride(t *testing.T) {
 	}
 	if app.Source.GitLabRelease == nil || app.Source.GitLabRelease.Asset != "Foo-*-x86_64.AppImage" {
 		t.Fatalf("unexpected gitlab source: %#v", app.Source.GitLabRelease)
+	}
+}
+
+func TestInfoCmdGitHubURL(t *testing.T) {
+	originalBackends := discoveryBackends
+	t.Cleanup(func() {
+		discoveryBackends = originalBackends
+	})
+
+	discoveryBackends = func() []discovery.DiscoveryBackend {
+		return []discovery.DiscoveryBackend{
+			&stubDiscoveryBackend{
+				name: "GitHub",
+				resolveFn: func(context.Context, discovery.PackageRef, string) (*discovery.PackageMetadata, error) {
+					return &discovery.PackageMetadata{
+						Name:          "My App",
+						Provider:      "GitHub",
+						Ref:           discovery.PackageRef{Kind: discovery.ProviderGitHub, ProviderRef: "owner/repo"},
+						RepoURL:       "https://github.com/owner/repo",
+						Summary:       "A test app",
+						LatestVersion: "1.2.3",
+						AssetName:     "MyApp-x86_64.AppImage",
+						AssetPattern:  "*.AppImage",
+						Installable:   true,
+					}, nil
+				},
+			},
+		}
+	}
+
+	output := captureStdout(t, func() {
+		if err := runInfoCommand(context.Background(), []string{"https://github.com/owner/repo"}); err != nil {
+			t.Fatalf("runInfoCommand returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "Provider ref: GitHub owner/repo") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+	if !strings.Contains(output, "aim add --github owner/repo") {
+		t.Fatalf("unexpected output:\n%s", output)
 	}
 }
 
@@ -1802,7 +1928,7 @@ func TestAddCmdFailsForUninstallablePackage(t *testing.T) {
 		}
 	}
 
-	err := runAddCommand(context.Background(), []string{"github:owner/repo"})
+	err := runAddCommand(context.Background(), []string{"--github", "owner/repo"})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -1816,7 +1942,7 @@ func TestResolvePackageRefInputRejectsMalformedRef(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(err.Error(), "github package ref must be in the form github:owner/repo") {
+	if !strings.Contains(err.Error(), "github:... refs are no longer accepted") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -1829,7 +1955,7 @@ func TestInfoCmdRejectsUnknownTarget(t *testing.T) {
 	if !strings.Contains(err.Error(), "unknown info target") {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(err.Error(), "expected github:owner/repo, gitlab:namespace/project, <id>, or <path-to.AppImage>") {
+	if !strings.Contains(err.Error(), "expected GitHub/GitLab repo URL, <id>, or <path-to.AppImage>") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -1849,7 +1975,7 @@ func TestAddCmdRejectsMalformedGitHubRef(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(err.Error(), "github add source must be in the form github:owner/repo") {
+	if !strings.Contains(err.Error(), "github:... refs are no longer accepted") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

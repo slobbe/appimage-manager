@@ -78,10 +78,12 @@ aim upgrade
 Add a remote source, managed app, or local `.AppImage`.
 
 ```sh
-aim add <https-url|github:owner/repo|gitlab:namespace/project|path-to.AppImage|id>
+aim add [<https-url|github-url|gitlab-url|path-to.AppImage|id>]
+aim add --github owner/repo
+aim add --gitlab namespace/project
 ```
 
-`aim add` is the umbrella command. It routes remote sources through the remote install flow and local paths or managed IDs through local integration.
+`aim add` is the umbrella command. It routes remote sources through the remote install flow and local paths or managed IDs through local integration. GitHub and GitLab providers are selected with `--github` / `--gitlab`, or by pasting a recognized provider URL directly.
 
 Examples:
 
@@ -89,31 +91,44 @@ Examples:
 aim add ./MyApp.AppImage
 aim add <id>
 aim add https://example.com/MyApp.AppImage
-aim add github:owner/repo
-aim add gitlab:namespace/project
-aim add github:owner/repo --asset "MyApp-*-x86_64.AppImage"
+aim add --github owner/repo
+aim add --gitlab namespace/project
+aim add https://github.com/owner/repo
+aim add https://gitlab.com/namespace/project
+aim add --github owner/repo --asset "MyApp-*-x86_64.AppImage"
 aim add https://example.com/MyApp.AppImage --sha256 <64-hex>
 ```
 
-| Option     | Meaning                                                               |
-| :--------- | :-------------------------------------------------------------------- |
-| `--asset`  | asset filename pattern override for `github:`/`gitlab:` add sources   |
-| `--sha256` | expected SHA-256 for direct `https://` add sources                    |
+Old `github:owner/repo` and `gitlab:namespace/project` add targets are no longer accepted. Use `--github`, `--gitlab`, or a GitHub/GitLab repo URL instead.
+
+| Option     | Meaning                                            |
+| :--------- | :------------------------------------------------- |
+| `--github` | GitHub repo in the form `owner/repo`               |
+| `--gitlab` | GitLab project path `namespace/project`            |
+| `--asset`  | asset filename pattern override for provider adds  |
+| `--sha256` | expected SHA-256 for direct `https://` add sources |
 
 For direct `https://` downloads, `--sha256` is optional. If omitted, `aim` warns that checksum verification is skipped for that download. Direct URL adds are one-off remote installs and persist `UpdateNone`.
 
-For `github:` and `gitlab:` adds, `aim` configures the matching update source automatically.
+For GitHub and GitLab adds, `aim` configures the matching update source automatically.
 
 ### `aim info`: Get information and metadata about an AppImage
 
 Inspect a package ref, managed app, or local `.AppImage` with one command.
 
 ```sh
-aim info github:owner/repo
-aim info gitlab:namespace/project
+aim info [<github-url|gitlab-url|id|path-to.AppImage>]
+aim info --github owner/repo
+aim info --gitlab namespace/project
+aim info https://github.com/owner/repo
+aim info https://gitlab.com/namespace/project
 aim info helium
 aim info ./MyApp.AppImage
 ```
+
+Old `github:owner/repo` and `gitlab:namespace/project` info targets are no longer accepted. Use `--github`, `--gitlab`, or a GitHub/GitLab repo URL instead.
+
+`aim info` accepts recognized GitHub/GitLab repo and project URLs, but it does not accept arbitrary `https://` download URLs.
 
 ### `aim remove`: Remove AppImage
 
