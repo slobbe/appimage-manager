@@ -10,12 +10,14 @@ import (
 )
 
 func main() {
+	root := newRootCommand(version)
+
 	outputPath := strings.TrimSpace(os.Getenv("AIM_MAN_OUTPUT"))
 	if outputPath == "" {
 		outputPath = filepath.Join("docs", "aim.1")
 	}
 
-	manPage, err := renderManPage(newRootCommand(version), 1)
+	manPage, err := renderManPage(root, 1)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -25,6 +27,15 @@ func main() {
 	}
 
 	if err := os.WriteFile(outputPath, []byte(manPage), 0o644); err != nil {
+		log.Fatal(err)
+	}
+
+	completionDir := strings.TrimSpace(os.Getenv("AIM_COMPLETION_DIR"))
+	if completionDir == "" {
+		return
+	}
+
+	if err := writeCompletionFiles(root, completionDir); err != nil {
 		log.Fatal(err)
 	}
 }

@@ -295,7 +295,7 @@ func TestRootHelpDoesNotAdvertiseRemovedCommands(t *testing.T) {
 		}
 	})
 
-	for _, unwanted := range []string{"--upgrade", " pin", " unpin"} {
+	for _, unwanted := range []string{"--upgrade", " pin", " unpin", "completion"} {
 		if strings.Contains(output, unwanted) {
 			t.Fatalf("root help unexpectedly contains %q:\n%s", unwanted, output)
 		}
@@ -311,7 +311,7 @@ func TestRootHelpDoesNotAdvertiseRemovedCommands(t *testing.T) {
 func TestRemovedCommandsAreUnavailable(t *testing.T) {
 	cmd := newRootTestCommand()
 
-	for _, unwanted := range []string{"pin", "unpin"} {
+	for _, unwanted := range []string{"pin", "unpin", "completion"} {
 		if findSubcommand(cmd, unwanted) != nil {
 			t.Fatalf("unexpected command registration for %q", unwanted)
 		}
@@ -2801,6 +2801,61 @@ func TestGeneratedManPageIsCurrent(t *testing.T) {
 
 	if got != string(wantBytes) {
 		t.Fatal("generated man page is stale; run `go run -tags docgen ./cmd/aim`")
+	}
+}
+
+func TestRenderShellCompletions(t *testing.T) {
+	root := newRootCommand("v1.2.3")
+
+	bashCompletion, err := renderBashCompletion(root)
+	if err != nil {
+		t.Fatalf("failed to render bash completion: %v", err)
+	}
+	if !strings.Contains(bashCompletion, "aim") {
+		t.Fatalf("unexpected bash completion output:\n%s", bashCompletion)
+	}
+
+	zshCompletion, err := renderZshCompletion(root)
+	if err != nil {
+		t.Fatalf("failed to render zsh completion: %v", err)
+	}
+	if !strings.Contains(zshCompletion, "#compdef aim") {
+		t.Fatalf("unexpected zsh completion output:\n%s", zshCompletion)
+	}
+
+	fishCompletion, err := renderFishCompletion(root)
+	if err != nil {
+		t.Fatalf("failed to render fish completion: %v", err)
+	}
+	if !strings.Contains(fishCompletion, "complete -c aim") {
+		t.Fatalf("unexpected fish completion output:\n%s", fishCompletion)
+	}
+}
+
+func TestWriteCompletionFiles(t *testing.T) {
+	outputDir := t.TempDir()
+
+	if err := writeCompletionFiles(newRootCommand(version), outputDir); err != nil {
+		t.Fatalf("writeCompletionFiles returned error: %v", err)
+	}
+
+	tests := []struct {
+		path            string
+		expectedSnippet string
+	}{
+		{path: bashCompletionRelativePath, expectedSnippet: "aim"},
+		{path: zshCompletionRelativePath, expectedSnippet: "#compdef aim"},
+		{path: fishCompletionRelativePath, expectedSnippet: "complete -c aim"},
+	}
+
+	for _, tt := range tests {
+		content, err := os.ReadFile(filepath.Join(outputDir, tt.path))
+		if err != nil {
+			t.Fatalf("failed to read generated completion %s: %v", tt.path, err)
+		}
+		if !strings.Contains(string(content), tt.expectedSnippet) {
+			t.Fatalf("generated completion %s missing %q:\n%s", tt.path, tt.expectedSnippet, string(content))
+		}
 	}
 }
 

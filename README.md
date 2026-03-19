@@ -13,6 +13,7 @@ Manage AppImages as desktop apps on Linux. Install, integrate, update and remove
 
 Downloads the latest release binary and installs it to `~/.local/bin/aim`.
 The installer also places the man page at `${XDG_DATA_HOME:-$HOME/.local/share}/man/man1/aim.1`.
+The installer also places shell completions under `${XDG_DATA_HOME:-$HOME/.local/share}` for Bash, Zsh, and Fish.
 The man page includes project metadata such as description, version, author, and copyright.
 
 ```sh
@@ -26,6 +27,15 @@ man aim
 
 If `aim` is not found, make sure `~/.local/bin` is on your `PATH`.
 If `man aim` is not found, make sure your local man path includes `${XDG_DATA_HOME:-$HOME/.local/share}/man`.
+If shell completion does not appear automatically, start a new shell session first.
+`scripts/install.sh` does not modify `.bashrc`, `.zshrc`, or Fish config files automatically.
+Completion files are installed to:
+
+- Bash: `${XDG_DATA_HOME:-$HOME/.local/share}/bash-completion/completions/aim`
+- Zsh: `${XDG_DATA_HOME:-$HOME/.local/share}/zsh/site-functions/_aim`
+- Fish: `${XDG_DATA_HOME:-$HOME/.local/share}/fish/vendor_completions.d/aim.fish`
+
+On Zsh, you may need to ensure `${XDG_DATA_HOME:-$HOME/.local/share}/zsh/site-functions` is present in `fpath`.
 
 ## Build from source
 

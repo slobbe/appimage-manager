@@ -11,10 +11,13 @@ const (
 
 func newRootCommand(version string) *cobra.Command {
 	root := &cobra.Command{
-		Use:           "aim",
-		Short:         rootCommandDescription,
-		Long:          rootCommandLong,
-		Version:       version,
+		Use:     "aim",
+		Short:   rootCommandDescription,
+		Long:    rootCommandLong,
+		Version: version,
+		CompletionOptions: cobra.CompletionOptions{
+			DisableDefaultCmd: true,
+		},
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE:          RootCmd,

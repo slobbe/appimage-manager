@@ -6,6 +6,9 @@ bin="aim"
 inst="${HOME}/.local/bin"
 data_home="${XDG_DATA_HOME:-${HOME}/.local/share}"
 mandir="${data_home}/man/man1"
+bashcompdir="${data_home}/bash-completion/completions"
+zshcompdir="${data_home}/zsh/site-functions"
+fishcompdir="${data_home}/fish/vendor_completions.d"
 arch="$(uname -m)"
 
 case "$arch" in
@@ -18,7 +21,7 @@ case "$arch" in
     ;;
 esac
 
-mkdir -p "$inst" "$mandir"
+mkdir -p "$inst" "$mandir" "$bashcompdir" "$zshcompdir" "$fishcompdir"
 
 tmpdir="$(mktemp -d)"
 cleanup() { rm -rf "$tmpdir"; }
@@ -81,5 +84,45 @@ else
   echo "warning: man page not found in release archive" >&2
 fi
 
+installed_completion=0
+
+bash_completion="$(find "$tmpdir" -type f -path "*/share/bash-completion/completions/${bin}" | head -n 1)"
+if [ -n "$bash_completion" ]; then
+  chmod 0644 "$bash_completion"
+  mv -f "$bash_completion" "${bashcompdir}/${bin}"
+  echo "installed Bash completion to ${bashcompdir}/${bin}"
+  installed_completion=1
+else
+  echo "warning: Bash completion not found in release archive" >&2
+fi
+
+zsh_completion="$(find "$tmpdir" -type f -path "*/share/zsh/site-functions/_${bin}" | head -n 1)"
+if [ -n "$zsh_completion" ]; then
+  chmod 0644 "$zsh_completion"
+  mv -f "$zsh_completion" "${zshcompdir}/_${bin}"
+  echo "installed Zsh completion to ${zshcompdir}/_${bin}"
+  installed_completion=1
+else
+  echo "warning: Zsh completion not found in release archive" >&2
+fi
+
+fish_completion="$(find "$tmpdir" -type f -path "*/share/fish/vendor_completions.d/${bin}.fish" | head -n 1)"
+if [ -n "$fish_completion" ]; then
+  chmod 0644 "$fish_completion"
+  mv -f "$fish_completion" "${fishcompdir}/${bin}.fish"
+  echo "installed Fish completion to ${fishcompdir}/${bin}.fish"
+  installed_completion=1
+else
+  echo "warning: Fish completion not found in release archive" >&2
+fi
+
 echo "installed to ${inst}/${bin}"
 echo "run: ${bin} --version"
+
+if [ "$installed_completion" -eq 1 ]; then
+  echo "completion notes:"
+  echo "  Bash/Zsh may require a new shell session before completions are available."
+  echo "  Zsh may require ${zshcompdir} to be present in fpath."
+  echo "  Fish usually auto-loads completions from ${fishcompdir}."
+  echo "  no shell startup files were modified automatically."
+fi
