@@ -3,7 +3,7 @@
 ![GitHub Release](https://img.shields.io/github/v/release/slobbe/appimage-manager?sort=semver&display_name=release&style=flat-square)
 ![GitHub License](https://img.shields.io/github/license/slobbe/appimage-manager?style=flat-square)
 
-Manage AppImages as desktop apps on Linux. Install, integrate, update and remove AppImages from the terminal.
+Manage AppImages from the command line. Add, inspect, update, and remove AppImages on Linux.
 
 > [!WARNING]
 > This project is still **work-in-progess**.
@@ -100,75 +100,19 @@ aim add https://example.com/MyApp.AppImage --sha256 <64-hex>
 | `--asset`  | asset filename pattern override for `github:`/`gitlab:` add sources   |
 | `--sha256` | expected SHA-256 for direct `https://` add sources                    |
 
-#### `aim integrate`: Integrate a local AppImage
+For direct `https://` downloads, `--sha256` is optional. If omitted, `aim` warns that checksum verification is skipped for that download. Direct URL adds are one-off remote installs and persist `UpdateNone`.
 
-Integrate a local `.AppImage` or reintegrate an existing managed ID explicitly.
-
-```sh
-aim integrate <path-to.AppImage|id>
-```
-
-Examples:
-
-```sh
-aim integrate ./MyApp.AppImage
-aim integrate <id>
-```
-
-#### `aim install`: Install AppImage from a remote source
-
-Download from a remote source and integrate the result. `aim add` is the umbrella/default path; `aim install` remains the explicit remote-only command.
-
-```sh
-aim install https://example.com/MyApp.AppImage
-aim install https://example.com/MyApp.AppImage --sha256 <64-hex>
-aim install github:owner/repo
-aim install gitlab:namespace/project
-aim install github:owner/repo --asset "MyApp-*-x86_64.AppImage"
-```
-
-| Option     | Meaning                                                                   |
-| :--------- | :------------------------------------------------------------------------ |
-| `--asset`  | asset filename pattern override for `github:`/`gitlab:` install sources   |
-| `--sha256` | expected SHA-256 for direct `https://` install sources                    |
-
-For direct `https://` installs, `--sha256` is optional. If omitted, `aim` warns that checksum verification is skipped for that download. Direct URL installs are one-off remote installs and persist `UpdateNone`.
-
-For `github:` and `gitlab:` installs, `aim` configures the matching update source automatically.
+For `github:` and `gitlab:` adds, `aim` configures the matching update source automatically.
 
 ### `aim info`: Get information and metadata about an AppImage
 
-Inspect a package ref, managed app, or local `.AppImage` with one command. `aim info` automatically routes to `show` or `inspect` based on the input.
+Inspect a package ref, managed app, or local `.AppImage` with one command.
 
 ```sh
 aim info github:owner/repo
 aim info gitlab:namespace/project
 aim info helium
 aim info ./MyApp.AppImage
-```
-
-#### `aim inspect`: Inspect local AppImage metadata
-
-Inspect a managed app or a local `.AppImage`. Use `aim info` if you want the same behavior behind a single umbrella command.
-
-```sh
-aim inspect <id|path-to.AppImage>
-```
-
-Examples:
-
-```sh
-aim inspect myapp
-aim inspect ./MyApp.AppImage
-```
-
-#### `aim show`: Show remote metadata before installing
-
-Inspect a package ref before installing it. Use `aim info` if you want a convenience command that also accepts managed app IDs and local AppImages.
-
-```sh
-aim show github:owner/repo
-aim show gitlab:namespace/project
 ```
 
 ### `aim remove`: Remove AppImage
@@ -275,9 +219,9 @@ When a GitHub or GitLab release asset also publishes a sibling `.zsync` file at 
 If the sibling `.zsync` is missing or `zsync` cannot be used, `aim` falls back to downloading the full AppImage.
 The configured update source remains GitHub or GitLab; `aim` only switches the transport used during update apply.
 
-If an AppImage embeds zsync update info, local integration via `aim add` or `aim integrate` preserves it automatically.
-For remote `aim add` and `aim install` commands, the selected remote source becomes the app's configured update source instead.
-Use `aim inspect` to view the embedded source in a managed or local AppImage.
+If an AppImage embeds zsync update info, local integration via `aim add` preserves it automatically.
+For remote `aim add` commands, the selected remote source becomes the app's configured update source instead.
+Use `aim info` to view the embedded source in a managed or local AppImage.
 Use `aim update set <id> --embedded` to switch back to the embedded source later.
 If the current AppImage does not embed an update source, `aim` tells you and, when another source is configured, offers to unset it or keep it.
 Use `aim update unset <id>` to clear any configured update source explicitly.

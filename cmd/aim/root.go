@@ -4,7 +4,7 @@ import "github.com/spf13/cobra"
 
 const (
 	rootCommandDescription   = "Manage AppImages from the command line"
-	rootCommandLong          = "Install, integrate, update, and remove AppImages on Linux."
+	rootCommandLong          = "Add, inspect, update, and remove AppImages on Linux."
 	rootCommandAuthor        = "Sebastian Lobbe <slobbe@lobbe.cc>"
 	rootCommandCopyright     = "Copyright (c) 2025 Sebastian Lobbe"
 	rootCommandLicense       = "MIT"
@@ -28,13 +28,9 @@ func newRootCommand(version string) *cobra.Command {
 
 	root.AddCommand(
 		newAddCommand(),
-		newIntegrateCommand(),
 		newRemoveCommand(),
 		newListCommand(),
-		newShowCommand(),
 		newInfoCommand(),
-		newInspectCommand(),
-		newInstallCommand(),
 		newUpdateCommand(),
 		newVersionCommand(),
 		newUpgradeCommand(),
@@ -54,14 +50,6 @@ func newAddCommand() *cobra.Command {
 	flags.String("asset", "", "asset filename pattern override for github:/gitlab: add sources")
 	flags.String("sha256", "", "expected SHA-256 for direct https:// add sources")
 	return cmd
-}
-
-func newIntegrateCommand() *cobra.Command {
-	return &cobra.Command{
-		Use:   "integrate <path-to.AppImage|id>",
-		Short: "Integrate a local AppImage or reintegrate an existing ID",
-		RunE:  IntegrateCmd,
-	}
 }
 
 func newRemoveCommand() *cobra.Command {
@@ -89,41 +77,12 @@ func newListCommand() *cobra.Command {
 	return cmd
 }
 
-func newShowCommand() *cobra.Command {
-	return &cobra.Command{
-		Use:   "show <github:owner/repo|gitlab:namespace/project>",
-		Short: "Show installability details for a package ref",
-		RunE:  ShowCmd,
-	}
-}
-
 func newInfoCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "info <github:owner/repo|gitlab:namespace/project|id|path-to.AppImage>",
 		Short: "Show package, managed app, or AppImage details",
 		RunE:  InfoCmd,
 	}
-}
-
-func newInspectCommand() *cobra.Command {
-	return &cobra.Command{
-		Use:   "inspect <id|path-to.AppImage>",
-		Short: "Inspect a managed app or local AppImage",
-		RunE:  InspectCmd,
-	}
-}
-
-func newInstallCommand() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:     "install <https-url|github:owner/repo|gitlab:namespace/project>",
-		Aliases: []string{"i"},
-		Short:   "Install from a remote source",
-		RunE:    InstallCmd,
-	}
-	flags := cmd.Flags()
-	flags.String("asset", "", "asset filename pattern override for github:/gitlab: install sources")
-	flags.String("sha256", "", "expected SHA-256 for direct https:// install sources")
-	return cmd
 }
 
 func newUpdateCommand() *cobra.Command {

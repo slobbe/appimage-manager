@@ -131,11 +131,11 @@ func TestResolveInstallTarget(t *testing.T) {
 		{name: "github repo", input: "github:owner/repo", expect: installTargetGitHub},
 		{name: "gitlab repo", input: "gitlab:group/project", expect: installTargetGitLab},
 		{name: "http rejected", input: "http://example.com/MyApp.AppImage", wantError: true, errText: "direct URLs must use https"},
-		{name: "local path rejected", input: "/tmp/MyApp.AppImage", wantError: true, errText: "local AppImages are integrated with 'aim integrate <path-to.AppImage>'"},
-		{name: "managed id rejected", input: "managed", wantError: true, errText: "managed app IDs are reintegrated with 'aim integrate <id>'"},
-		{name: "malformed github", input: "github:owner", wantError: true, errText: "github install source must be in the form github:owner/repo"},
-		{name: "malformed gitlab", input: "gitlab:group", wantError: true, errText: "gitlab install source must be in the form gitlab:namespace/project"},
-		{name: "unknown target", input: "missing", wantError: true, errText: "unknown install target"},
+		{name: "local path rejected", input: "/tmp/MyApp.AppImage", wantError: true, errText: "local AppImages are added with 'aim add <path-to.AppImage>'"},
+		{name: "managed id rejected", input: "managed", wantError: true, errText: "managed app IDs are added with 'aim add <id>'"},
+		{name: "malformed github", input: "github:owner", wantError: true, errText: "github add source must be in the form github:owner/repo"},
+		{name: "malformed gitlab", input: "gitlab:group", wantError: true, errText: "gitlab add source must be in the form gitlab:namespace/project"},
+		{name: "unknown target", input: "missing", wantError: true, errText: "unknown add target"},
 	}
 
 	for _, tt := range tests {
@@ -335,23 +335,22 @@ func TestRootHelpDoesNotAdvertiseRemovedCommands(t *testing.T) {
 		}
 	})
 
-	for _, unwanted := range []string{"--upgrade", " pin", " unpin", "completion"} {
+	for _, unwanted := range []string{"--upgrade", "\n  pin", "\n  unpin", "\n  completion", "\n  integrate", "\n  install", "\n  show", "\n  inspect"} {
 		if strings.Contains(output, unwanted) {
 			t.Fatalf("root help unexpectedly contains %q:\n%s", unwanted, output)
 		}
 	}
-	if !strings.Contains(output, "info") {
-		t.Fatalf("expected root help to list info command:\n%s", output)
-	}
-	if !strings.Contains(output, "integrate") {
-		t.Fatalf("expected root help to list integrate command:\n%s", output)
+	for _, required := range []string{"add", "info", "list", "remove", "update", "upgrade", "version"} {
+		if !strings.Contains(output, required) {
+			t.Fatalf("expected root help to list %q command:\n%s", required, output)
+		}
 	}
 }
 
 func TestRemovedCommandsAreUnavailable(t *testing.T) {
 	cmd := newRootTestCommand()
 
-	for _, unwanted := range []string{"pin", "unpin", "completion"} {
+	for _, unwanted := range []string{"pin", "unpin", "completion", "integrate", "install", "show", "inspect"} {
 		if findSubcommand(cmd, unwanted) != nil {
 			t.Fatalf("unexpected command registration for %q", unwanted)
 		}
@@ -362,12 +361,11 @@ func TestRootRegistersPackageCommands(t *testing.T) {
 	cmd := newRootTestCommand()
 
 	required := map[string]bool{
-		"add":       false,
-		"integrate": false,
-		"info":      false,
-		"show":      false,
-		"install":   false,
-		"version":   false,
+		"add":     false,
+		"info":    false,
+		"update":  false,
+		"upgrade": false,
+		"version": false,
 	}
 	for _, subcommand := range cmd.Commands() {
 		if _, ok := required[subcommand.Name()]; ok {
@@ -386,10 +384,9 @@ func TestRootPackageCommandFlags(t *testing.T) {
 	cmd := newRootTestCommand()
 
 	addCmd := findSubcommand(cmd, "add")
-	integrateCmd := findSubcommand(cmd, "integrate")
-	installCmd := findSubcommand(cmd, "install")
-	if addCmd == nil || integrateCmd == nil || installCmd == nil {
-		t.Fatal("expected add, integrate, and install commands")
+	infoCmd := findSubcommand(cmd, "info")
+	if addCmd == nil || infoCmd == nil {
+		t.Fatal("expected add and info commands")
 	}
 
 	if got := countFlags(addCmd.Flags()); got != 2 {
@@ -400,26 +397,22 @@ func TestRootPackageCommandFlags(t *testing.T) {
 		t.Fatalf("add flags missing asset or sha256")
 	}
 
-	if got := countFlags(integrateCmd.Flags()); got != 0 {
-		t.Fatalf("integrate flags = %d, want none", got)
-	}
-
-	if installCmd.Flags().Lookup("asset") == nil || installCmd.Flags().Lookup("sha256") == nil {
-		t.Fatalf("install flags missing asset or sha256")
+	if got := countFlags(infoCmd.Flags()); got != 0 {
+		t.Fatalf("info flags = %d, want none", got)
 	}
 }
 
 func TestRootPackageCommandAliases(t *testing.T) {
 	cmd := newRootTestCommand()
 
-	installCmd := findSubcommand(cmd, "install")
+	listCmd := findSubcommand(cmd, "list")
 	updateCmd := findSubcommand(cmd, "update")
-	if installCmd == nil || updateCmd == nil {
-		t.Fatal("expected install and update commands")
+	if listCmd == nil || updateCmd == nil {
+		t.Fatal("expected list and update commands")
 	}
 
-	if aliases := installCmd.Aliases; len(aliases) != 1 || aliases[0] != "i" {
-		t.Fatalf("install aliases = %v, want [i]", aliases)
+	if aliases := listCmd.Aliases; len(aliases) != 1 || aliases[0] != "ls" {
+		t.Fatalf("list aliases = %v, want [ls]", aliases)
 	}
 	if aliases := updateCmd.Aliases; len(aliases) != 1 || aliases[0] != "u" {
 		t.Fatalf("update aliases = %v, want [u]", aliases)
@@ -543,7 +536,7 @@ func TestUpdateCheckMetadata(t *testing.T) {
 	}
 }
 
-func TestIntegrateCmdAlreadyIntegratedMessage(t *testing.T) {
+func TestAddCmdManagedIDAlreadyIntegratedMessage(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "apps.json")
 
@@ -568,8 +561,8 @@ func TestIntegrateCmdAlreadyIntegratedMessage(t *testing.T) {
 	}
 
 	output := captureStdout(t, func() {
-		if err := runIntegrateCommand(context.Background(), []string{"my-app"}); err != nil {
-			t.Fatalf("runIntegrateCommand returned error: %v", err)
+		if err := runAddCommand(context.Background(), []string{"my-app"}); err != nil {
+			t.Fatalf("runAddCommand returned error: %v", err)
 		}
 	})
 
@@ -578,7 +571,7 @@ func TestIntegrateCmdAlreadyIntegratedMessage(t *testing.T) {
 	}
 }
 
-func TestIntegrateCmdReintegratedMessage(t *testing.T) {
+func TestAddCmdManagedIDReintegratedMessage(t *testing.T) {
 	original := integrateExistingApp
 	t.Cleanup(func() {
 		integrateExistingApp = original
@@ -610,8 +603,8 @@ func TestIntegrateCmdReintegratedMessage(t *testing.T) {
 	}
 
 	output := captureStdout(t, func() {
-		if err := runIntegrateCommand(context.Background(), []string{"my-app"}); err != nil {
-			t.Fatalf("runIntegrateCommand returned error: %v", err)
+		if err := runAddCommand(context.Background(), []string{"my-app"}); err != nil {
+			t.Fatalf("runAddCommand returned error: %v", err)
 		}
 	})
 
@@ -620,7 +613,7 @@ func TestIntegrateCmdReintegratedMessage(t *testing.T) {
 	}
 }
 
-func TestIntegrateCmdIntegratedMessage(t *testing.T) {
+func TestAddCmdLocalAppImageIntegratedMessage(t *testing.T) {
 	original := integrateLocalApp
 	t.Cleanup(func() {
 		integrateLocalApp = original
@@ -635,8 +628,8 @@ func TestIntegrateCmdIntegratedMessage(t *testing.T) {
 	}
 
 	output := captureStdout(t, func() {
-		if err := runIntegrateCommand(context.Background(), []string{"/tmp/MyApp.AppImage"}); err != nil {
-			t.Fatalf("runIntegrateCommand returned error: %v", err)
+		if err := runAddCommand(context.Background(), []string{"/tmp/MyApp.AppImage"}); err != nil {
+			t.Fatalf("runAddCommand returned error: %v", err)
 		}
 	})
 
@@ -648,24 +641,14 @@ func TestIntegrateCmdIntegratedMessage(t *testing.T) {
 	}
 }
 
-func TestIntegrateCmdRejectsRemoteSources(t *testing.T) {
-	tests := []struct {
-		name    string
-		args    []string
-		errText string
-	}{
-		{name: "direct url", args: []string{"https://example.com/MyApp.AppImage"}, errText: "remote sources are added with 'aim add'"},
-		{name: "github", args: []string{"github:owner/repo"}, errText: "remote sources are added with 'aim add'"},
-		{name: "gitlab", args: []string{"gitlab:group/project"}, errText: "remote sources are added with 'aim add'"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := runIntegrateCommand(context.Background(), tt.args)
+func TestRemovedUmbrellaCommandsReturnUnknownCommand(t *testing.T) {
+	for _, name := range []string{"integrate", "install", "show", "inspect"} {
+		t.Run(name, func(t *testing.T) {
+			err := runRootCommand(context.Background(), []string{name})
 			if err == nil {
 				t.Fatal("expected error")
 			}
-			if !strings.Contains(err.Error(), tt.errText) {
+			if !strings.Contains(err.Error(), fmt.Sprintf("unknown command %q for %q", name, "aim")) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 		})
@@ -782,7 +765,7 @@ func TestValidateInstallTargetFlags(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cmd := newInstallTestCommand()
+			cmd := newAddTestCommand()
 			if err := executeTestCommand(context.Background(), cmd, tt.args...); err == nil {
 				t.Fatal("expected install action placeholder error")
 			}
@@ -845,123 +828,15 @@ func TestAddCmdRemoteFlagValidation(t *testing.T) {
 	}
 
 	err = runAddCommand(context.Background(), []string{"https://example.com/app.AppImage", "--asset", "*.AppImage"})
-	if err == nil || !strings.Contains(err.Error(), "--asset is only supported with github: or gitlab: install sources") {
+	if err == nil || !strings.Contains(err.Error(), "--asset is only supported with github: or gitlab: add sources") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
-func TestAddAndIntegrateRejectRemovedPostCheckFlag(t *testing.T) {
+func TestAddRejectsRemovedPostCheckFlag(t *testing.T) {
 	err := runAddCommand(context.Background(), []string{"./MyApp.AppImage", "--post-check"})
 	if err == nil || !strings.Contains(err.Error(), "unknown flag: --post-check") {
 		t.Fatalf("unexpected add error: %v", err)
-	}
-
-	err = runIntegrateCommand(context.Background(), []string{"./MyApp.AppImage", "--post-check"})
-	if err == nil || !strings.Contains(err.Error(), "unknown flag: --post-check") {
-		t.Fatalf("unexpected integrate error: %v", err)
-	}
-}
-
-func TestInstallCmdDirectURLWithChecksum(t *testing.T) {
-	tempDir := t.TempDir()
-	setupAddCommandConfigForTest(t, tempDir)
-
-	originalDownload := downloadRemoteAsset
-	originalIntegrate := integrateLocalApp
-	originalAddSingle := addSingleApp
-	t.Cleanup(func() {
-		downloadRemoteAsset = originalDownload
-		integrateLocalApp = originalIntegrate
-		addSingleApp = originalAddSingle
-	})
-
-	payload := []byte("remote-appimage")
-	sum := sha256.Sum256(payload)
-	expectedSHA256 := hex.EncodeToString(sum[:])
-
-	downloadRemoteAsset = func(ctx context.Context, assetURL, destination string, interactive bool) error {
-		_ = ctx
-		_ = interactive
-		if assetURL != "https://example.com/MyApp.AppImage" {
-			t.Fatalf("assetURL = %q", assetURL)
-		}
-		return os.WriteFile(destination, payload, 0o644)
-	}
-	integrateLocalApp = func(context.Context, string, core.UpdateOverwritePrompt) (*models.App, error) {
-		return &models.App{
-			ID:        "my-app",
-			Name:      "My App",
-			Version:   "1.0.0",
-			UpdatedAt: "2026-03-08T12:00:00Z",
-		}, nil
-	}
-	addSingleApp = repo.AddApp
-
-	output := captureStdout(t, func() {
-		if err := runInstallCommand(context.Background(), []string{"https://example.com/MyApp.AppImage", "--sha256", expectedSHA256}); err != nil {
-			t.Fatalf("runInstallCommand returned error: %v", err)
-		}
-	})
-
-	if strings.Contains(output, "skipping checksum verification") {
-		t.Fatalf("did not expect checksum warning:\n%s", output)
-	}
-
-	app, err := repo.GetApp("my-app")
-	if err != nil {
-		t.Fatalf("failed to load persisted app: %v", err)
-	}
-	if app.Source.Kind != models.SourceDirectURL {
-		t.Fatalf("Source.Kind = %q", app.Source.Kind)
-	}
-	if app.Source.DirectURL == nil {
-		t.Fatal("expected direct URL source")
-	}
-	if app.Source.DirectURL.URL != "https://example.com/MyApp.AppImage" {
-		t.Fatalf("direct URL source URL = %q", app.Source.DirectURL.URL)
-	}
-	if app.Source.DirectURL.SHA256 != expectedSHA256 {
-		t.Fatalf("direct URL source SHA256 = %q", app.Source.DirectURL.SHA256)
-	}
-	if app.Update == nil || app.Update.Kind != models.UpdateNone {
-		t.Fatalf("Update.Kind = %v, want none", app.Update)
-	}
-}
-
-func TestInstallCmdDirectURLWithoutChecksumWarns(t *testing.T) {
-	tempDir := t.TempDir()
-	setupAddCommandConfigForTest(t, tempDir)
-
-	originalDownload := downloadRemoteAsset
-	originalIntegrate := integrateLocalApp
-	originalAddSingle := addSingleApp
-	t.Cleanup(func() {
-		downloadRemoteAsset = originalDownload
-		integrateLocalApp = originalIntegrate
-		addSingleApp = originalAddSingle
-	})
-
-	downloadRemoteAsset = func(context.Context, string, string, bool) error {
-		return nil
-	}
-	integrateLocalApp = func(context.Context, string, core.UpdateOverwritePrompt) (*models.App, error) {
-		return &models.App{
-			ID:        "my-app",
-			Name:      "My App",
-			Version:   "1.0.0",
-			UpdatedAt: "2026-03-08T12:00:00Z",
-		}, nil
-	}
-	addSingleApp = repo.AddApp
-
-	output := captureStdout(t, func() {
-		if err := runInstallCommand(context.Background(), []string{"https://example.com/MyApp.AppImage"}); err != nil {
-			t.Fatalf("runInstallCommand returned error: %v", err)
-		}
-	})
-
-	if !strings.Contains(output, "No SHA-256 provided; skipping checksum verification") {
-		t.Fatalf("expected checksum warning, got:\n%s", output)
 	}
 }
 
@@ -991,7 +866,12 @@ func TestAddCmdDirectURLWithChecksum(t *testing.T) {
 		return os.WriteFile(destination, payload, 0o644)
 	}
 	integrateLocalApp = func(context.Context, string, core.UpdateOverwritePrompt) (*models.App, error) {
-		return &models.App{ID: "my-app", Name: "My App", Version: "1.0.0", UpdatedAt: "2026-03-08T12:00:00Z"}, nil
+		return &models.App{
+			ID:        "my-app",
+			Name:      "My App",
+			Version:   "1.0.0",
+			UpdatedAt: "2026-03-08T12:00:00Z",
+		}, nil
 	}
 	addSingleApp = repo.AddApp
 
@@ -1001,12 +881,69 @@ func TestAddCmdDirectURLWithChecksum(t *testing.T) {
 		}
 	})
 
-	if !strings.Contains(output, "Installed: My App v1.0.0 [my-app]") {
-		t.Fatalf("unexpected output:\n%s", output)
+	if strings.Contains(output, "skipping checksum verification") {
+		t.Fatalf("did not expect checksum warning:\n%s", output)
+	}
+
+	app, err := repo.GetApp("my-app")
+	if err != nil {
+		t.Fatalf("failed to load persisted app: %v", err)
+	}
+	if app.Source.Kind != models.SourceDirectURL {
+		t.Fatalf("Source.Kind = %q", app.Source.Kind)
+	}
+	if app.Source.DirectURL == nil {
+		t.Fatal("expected direct URL source")
+	}
+	if app.Source.DirectURL.URL != "https://example.com/MyApp.AppImage" {
+		t.Fatalf("direct URL source URL = %q", app.Source.DirectURL.URL)
+	}
+	if app.Source.DirectURL.SHA256 != expectedSHA256 {
+		t.Fatalf("direct URL source SHA256 = %q", app.Source.DirectURL.SHA256)
+	}
+	if app.Update == nil || app.Update.Kind != models.UpdateNone {
+		t.Fatalf("Update.Kind = %v, want none", app.Update)
 	}
 }
 
-func TestInstallCmdDirectURLChecksumMismatch(t *testing.T) {
+func TestAddCmdDirectURLWithoutChecksumWarns(t *testing.T) {
+	tempDir := t.TempDir()
+	setupAddCommandConfigForTest(t, tempDir)
+
+	originalDownload := downloadRemoteAsset
+	originalIntegrate := integrateLocalApp
+	originalAddSingle := addSingleApp
+	t.Cleanup(func() {
+		downloadRemoteAsset = originalDownload
+		integrateLocalApp = originalIntegrate
+		addSingleApp = originalAddSingle
+	})
+
+	downloadRemoteAsset = func(context.Context, string, string, bool) error {
+		return nil
+	}
+	integrateLocalApp = func(context.Context, string, core.UpdateOverwritePrompt) (*models.App, error) {
+		return &models.App{
+			ID:        "my-app",
+			Name:      "My App",
+			Version:   "1.0.0",
+			UpdatedAt: "2026-03-08T12:00:00Z",
+		}, nil
+	}
+	addSingleApp = repo.AddApp
+
+	output := captureStdout(t, func() {
+		if err := runAddCommand(context.Background(), []string{"https://example.com/MyApp.AppImage"}); err != nil {
+			t.Fatalf("runAddCommand returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "No SHA-256 provided; skipping checksum verification") {
+		t.Fatalf("expected checksum warning, got:\n%s", output)
+	}
+}
+
+func TestAddCmdDirectURLChecksumMismatch(t *testing.T) {
 	tempDir := t.TempDir()
 	setupAddCommandConfigForTest(t, tempDir)
 
@@ -1030,7 +967,7 @@ func TestInstallCmdDirectURLChecksumMismatch(t *testing.T) {
 		return &models.App{ID: "my-app"}, nil
 	}
 
-	err := runInstallCommand(context.Background(), []string{"https://example.com/MyApp.AppImage", "--sha256", strings.Repeat("a", 64)})
+	err := runAddCommand(context.Background(), []string{"https://example.com/MyApp.AppImage", "--sha256", strings.Repeat("a", 64)})
 	if err == nil {
 		t.Fatal("expected checksum mismatch")
 	}
@@ -1039,7 +976,7 @@ func TestInstallCmdDirectURLChecksumMismatch(t *testing.T) {
 	}
 }
 
-func TestInstallCmdGitHubSetsDefaultAssetSourceAndUpdate(t *testing.T) {
+func TestAddCmdGitHubSetsDefaultAssetSourceAndUpdate(t *testing.T) {
 	tempDir := t.TempDir()
 	setupAddCommandConfigForTest(t, tempDir)
 
@@ -1102,8 +1039,8 @@ func TestInstallCmdGitHubSetsDefaultAssetSourceAndUpdate(t *testing.T) {
 	}
 	addSingleApp = repo.AddApp
 
-	if err := runInstallCommand(context.Background(), []string{"github:owner/repo"}); err != nil {
-		t.Fatalf("runInstallCommand returned error: %v", err)
+	if err := runAddCommand(context.Background(), []string{"github:owner/repo"}); err != nil {
+		t.Fatalf("runAddCommand returned error: %v", err)
 	}
 
 	app, err := repo.GetApp("my-app")
@@ -1124,7 +1061,7 @@ func TestInstallCmdGitHubSetsDefaultAssetSourceAndUpdate(t *testing.T) {
 	}
 }
 
-func TestInstallCmdGitHubUsesCustomAsset(t *testing.T) {
+func TestAddCmdGitHubPersistsCustomAsset(t *testing.T) {
 	tempDir := t.TempDir()
 	setupAddCommandConfigForTest(t, tempDir)
 
@@ -1177,8 +1114,8 @@ func TestInstallCmdGitHubUsesCustomAsset(t *testing.T) {
 	}
 	addSingleApp = repo.AddApp
 
-	if err := runInstallCommand(context.Background(), []string{"github:owner/repo", "--asset", "MyApp-*-x86_64.AppImage"}); err != nil {
-		t.Fatalf("runInstallCommand returned error: %v", err)
+	if err := runAddCommand(context.Background(), []string{"github:owner/repo", "--asset", "MyApp-*-x86_64.AppImage"}); err != nil {
+		t.Fatalf("runAddCommand returned error: %v", err)
 	}
 
 	app, err := repo.GetApp("my-app")
@@ -1254,7 +1191,7 @@ func TestAddCmdGitHubUsesCustomAsset(t *testing.T) {
 	}
 }
 
-func TestInstallCmdGitLabSetsDefaultAssetSourceAndUpdate(t *testing.T) {
+func TestAddCmdGitLabSetsDefaultAssetSourceAndUpdate(t *testing.T) {
 	tempDir := t.TempDir()
 	setupAddCommandConfigForTest(t, tempDir)
 
@@ -1310,8 +1247,8 @@ func TestInstallCmdGitLabSetsDefaultAssetSourceAndUpdate(t *testing.T) {
 	}
 	addSingleApp = repo.AddApp
 
-	if err := runInstallCommand(context.Background(), []string{"gitlab:group/project"}); err != nil {
-		t.Fatalf("runInstallCommand returned error: %v", err)
+	if err := runAddCommand(context.Background(), []string{"gitlab:group/project"}); err != nil {
+		t.Fatalf("runAddCommand returned error: %v", err)
 	}
 
 	app, err := repo.GetApp("my-app")
@@ -1329,7 +1266,7 @@ func TestInstallCmdGitLabSetsDefaultAssetSourceAndUpdate(t *testing.T) {
 	}
 }
 
-func TestInstallCmdGitLabUsesCustomAsset(t *testing.T) {
+func TestAddCmdGitLabPersistsCustomAsset(t *testing.T) {
 	tempDir := t.TempDir()
 	setupAddCommandConfigForTest(t, tempDir)
 
@@ -1382,8 +1319,8 @@ func TestInstallCmdGitLabUsesCustomAsset(t *testing.T) {
 	}
 	addSingleApp = repo.AddApp
 
-	if err := runInstallCommand(context.Background(), []string{"gitlab:group/project", "--asset", "MyApp-*-x86_64.AppImage"}); err != nil {
-		t.Fatalf("runInstallCommand returned error: %v", err)
+	if err := runAddCommand(context.Background(), []string{"gitlab:group/project", "--asset", "MyApp-*-x86_64.AppImage"}); err != nil {
+		t.Fatalf("runAddCommand returned error: %v", err)
 	}
 
 	app, err := repo.GetApp("my-app")
@@ -1472,7 +1409,7 @@ func (b *stubDiscoveryBackend) Resolve(ctx context.Context, ref discovery.Packag
 	return b.resolveFn(ctx, ref, asset)
 }
 
-func TestShowCmdDirectProviderRef(t *testing.T) {
+func TestInfoCmdDirectProviderRef(t *testing.T) {
 	originalBackends := discoveryBackends
 	t.Cleanup(func() {
 		discoveryBackends = originalBackends
@@ -1500,15 +1437,15 @@ func TestShowCmdDirectProviderRef(t *testing.T) {
 	}
 
 	output := captureStdout(t, func() {
-		if err := runShowCommand(context.Background(), []string{"github:owner/repo"}); err != nil {
-			t.Fatalf("runShowCommand returned error: %v", err)
+		if err := runInfoCommand(context.Background(), []string{"github:owner/repo"}); err != nil {
+			t.Fatalf("runInfoCommand returned error: %v", err)
 		}
 	})
 
 	if !strings.Contains(output, "My App") || !strings.Contains(strings.ToLower(output), "install command") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
-	if !strings.Contains(output, "aim install github:owner/repo") {
+	if !strings.Contains(output, "aim add github:owner/repo") {
 		t.Fatalf("expected install preview, got:\n%s", output)
 	}
 	if !strings.Contains(output, "Managed updates: yes") {
@@ -1525,7 +1462,7 @@ func TestShowCmdDirectProviderRef(t *testing.T) {
 	}
 }
 
-func TestShowCmdGitLabProviderRefOutput(t *testing.T) {
+func TestInfoCmdGitLabProviderRefOutput(t *testing.T) {
 	originalBackends := discoveryBackends
 	t.Cleanup(func() {
 		discoveryBackends = originalBackends
@@ -1553,8 +1490,8 @@ func TestShowCmdGitLabProviderRefOutput(t *testing.T) {
 	}
 
 	output := captureStdout(t, func() {
-		if err := runShowCommand(context.Background(), []string{"gitlab:group/project"}); err != nil {
-			t.Fatalf("runShowCommand returned error: %v", err)
+		if err := runInfoCommand(context.Background(), []string{"gitlab:group/project"}); err != nil {
+			t.Fatalf("runInfoCommand returned error: %v", err)
 		}
 	})
 
@@ -1564,7 +1501,7 @@ func TestShowCmdGitLabProviderRefOutput(t *testing.T) {
 	if !strings.Contains(output, "Managed updates: yes") {
 		t.Fatalf("expected managed updates summary, got:\n%s", output)
 	}
-	if !strings.Contains(output, "aim install gitlab:group/project") {
+	if !strings.Contains(output, "aim add gitlab:group/project") {
 		t.Fatalf("expected install preview, got:\n%s", output)
 	}
 	if strings.Contains(output, "Notes") {
@@ -1578,7 +1515,7 @@ func TestShowCmdGitLabProviderRefOutput(t *testing.T) {
 	}
 }
 
-func TestShowCmdUninstallablePackageOmitsInstallPreview(t *testing.T) {
+func TestInfoCmdUninstallablePackageOmitsInstallPreview(t *testing.T) {
 	originalBackends := discoveryBackends
 	t.Cleanup(func() {
 		discoveryBackends = originalBackends
@@ -1604,8 +1541,8 @@ func TestShowCmdUninstallablePackageOmitsInstallPreview(t *testing.T) {
 	}
 
 	output := captureStdout(t, func() {
-		if err := runShowCommand(context.Background(), []string{"github:owner/repo"}); err != nil {
-			t.Fatalf("runShowCommand returned error: %v", err)
+		if err := runInfoCommand(context.Background(), []string{"github:owner/repo"}); err != nil {
+			t.Fatalf("runInfoCommand returned error: %v", err)
 		}
 	})
 
@@ -1665,7 +1602,7 @@ func TestInfoCmdGitHubPackageRef(t *testing.T) {
 	if !strings.Contains(output, "My App") || !strings.Contains(output, "Managed updates: yes") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
-	if !strings.Contains(output, "aim install github:owner/repo") {
+	if !strings.Contains(output, "aim add github:owner/repo") {
 		t.Fatalf("expected install preview, got:\n%s", output)
 	}
 }
@@ -1706,12 +1643,12 @@ func TestInfoCmdGitLabPackageRef(t *testing.T) {
 	if !strings.Contains(output, "Foo App") || !strings.Contains(output, "Managed updates: yes") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
-	if !strings.Contains(output, "aim install gitlab:group/project") {
+	if !strings.Contains(output, "aim add gitlab:group/project") {
 		t.Fatalf("expected install preview, got:\n%s", output)
 	}
 }
 
-func TestInstallCmdDirectProviderRefDelegatesToExistingAddFlow(t *testing.T) {
+func TestAddCmdDirectProviderRefDelegatesToExistingAddFlow(t *testing.T) {
 	originalBackends := discoveryBackends
 	originalResolve := resolveGitHubReleaseAsset
 	originalDownload := downloadRemoteAsset
@@ -1764,8 +1701,8 @@ func TestInstallCmdDirectProviderRefDelegatesToExistingAddFlow(t *testing.T) {
 	}
 	addSingleApp = repo.AddApp
 
-	if err := runInstallCommand(context.Background(), []string{"github:owner/repo"}); err != nil {
-		t.Fatalf("runInstallCommand returned error: %v", err)
+	if err := runAddCommand(context.Background(), []string{"github:owner/repo"}); err != nil {
+		t.Fatalf("runAddCommand returned error: %v", err)
 	}
 
 	app, err := repo.GetApp("my-app")
@@ -1777,7 +1714,7 @@ func TestInstallCmdDirectProviderRefDelegatesToExistingAddFlow(t *testing.T) {
 	}
 }
 
-func TestInstallCmdDirectProviderRefAssetOverride(t *testing.T) {
+func TestAddCmdDirectProviderRefAssetOverride(t *testing.T) {
 	originalBackends := discoveryBackends
 	originalResolve := resolveGitLabReleaseAsset
 	originalDownload := downloadRemoteAsset
@@ -1830,8 +1767,8 @@ func TestInstallCmdDirectProviderRefAssetOverride(t *testing.T) {
 	}
 	addSingleApp = repo.AddApp
 
-	if err := runInstallCommand(context.Background(), []string{"gitlab:group/project", "--asset", "Foo-*-x86_64.AppImage"}); err != nil {
-		t.Fatalf("runInstallCommand returned error: %v", err)
+	if err := runAddCommand(context.Background(), []string{"gitlab:group/project", "--asset", "Foo-*-x86_64.AppImage"}); err != nil {
+		t.Fatalf("runAddCommand returned error: %v", err)
 	}
 
 	app, err := repo.GetApp("foo-app")
@@ -1843,7 +1780,7 @@ func TestInstallCmdDirectProviderRefAssetOverride(t *testing.T) {
 	}
 }
 
-func TestInstallCmdFailsForUninstallablePackage(t *testing.T) {
+func TestAddCmdFailsForUninstallablePackage(t *testing.T) {
 	originalBackends := discoveryBackends
 	t.Cleanup(func() {
 		discoveryBackends = originalBackends
@@ -1865,7 +1802,7 @@ func TestInstallCmdFailsForUninstallablePackage(t *testing.T) {
 		}
 	}
 
-	err := runInstallCommand(context.Background(), []string{"github:owner/repo"})
+	err := runAddCommand(context.Background(), []string{"github:owner/repo"})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -1874,12 +1811,12 @@ func TestInstallCmdFailsForUninstallablePackage(t *testing.T) {
 	}
 }
 
-func TestShowCmdRejectsNumericRef(t *testing.T) {
-	err := runShowCommand(context.Background(), []string{"1"})
+func TestResolvePackageRefInputRejectsMalformedRef(t *testing.T) {
+	_, err := resolvePackageRefInput("github:owner")
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(err.Error(), "unsupported package ref") {
+	if !strings.Contains(err.Error(), "github package ref must be in the form github:owner/repo") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -1912,32 +1849,32 @@ func TestAddCmdRejectsMalformedGitHubRef(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(err.Error(), "github install source must be in the form github:owner/repo") {
+	if !strings.Contains(err.Error(), "github add source must be in the form github:owner/repo") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
-func TestInstallCmdRejectsNumericRef(t *testing.T) {
-	err := runInstallCommand(context.Background(), []string{"1"})
+func TestAddCmdRejectsNumericRef(t *testing.T) {
+	err := runAddCommand(context.Background(), []string{"1"})
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(err.Error(), "unknown install target") {
+	if !strings.Contains(err.Error(), "unknown add target") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
-func TestInstallCmdRejectsLocalPath(t *testing.T) {
-	err := runInstallCommand(context.Background(), []string{"./MyApp.AppImage"})
+func TestAddRemoteResolverRejectsLocalPath(t *testing.T) {
+	_, err := resolveInstallTarget("./MyApp.AppImage")
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(err.Error(), "local AppImages are integrated with 'aim integrate <path-to.AppImage>'") {
+	if !strings.Contains(err.Error(), "local AppImages are added with 'aim add <path-to.AppImage>'") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
-func TestInstallCmdRejectsManagedID(t *testing.T) {
+func TestAddRemoteResolverRejectsManagedID(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "apps.json")
 
@@ -1956,11 +1893,11 @@ func TestInstallCmdRejectsManagedID(t *testing.T) {
 		t.Fatalf("failed to write test DB: %v", err)
 	}
 
-	err := runInstallCommand(context.Background(), []string{"my-app"})
+	_, err := resolveInstallTarget("my-app")
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(err.Error(), "managed app IDs are reintegrated with 'aim integrate <id>'") {
+	if !strings.Contains(err.Error(), "managed app IDs are added with 'aim add <id>'") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -2213,7 +2150,7 @@ func newUpdateSetTestCommand(t *testing.T, values map[string]string) *cobra.Comm
 	return cmd
 }
 
-func TestInspectCmdManagedShowsEmbeddedSource(t *testing.T) {
+func TestInfoCmdManagedShowsEmbeddedSource(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "apps.json")
 
@@ -2264,8 +2201,8 @@ func TestInspectCmdManagedShowsEmbeddedSource(t *testing.T) {
 	}
 
 	output := captureStdout(t, func() {
-		if err := runInspectCommand(context.Background(), []string{"my-app"}); err != nil {
-			t.Fatalf("runInspectCommand returned error: %v", err)
+		if err := runInfoCommand(context.Background(), []string{"my-app"}); err != nil {
+			t.Fatalf("runInfoCommand returned error: %v", err)
 		}
 	})
 
@@ -2292,7 +2229,7 @@ func TestInspectCmdManagedShowsEmbeddedSource(t *testing.T) {
 	}
 }
 
-func TestInspectCmdManagedShowsMissingEmbeddedSource(t *testing.T) {
+func TestInfoCmdManagedShowsMissingEmbeddedSource(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "apps.json")
 
@@ -2332,8 +2269,8 @@ func TestInspectCmdManagedShowsMissingEmbeddedSource(t *testing.T) {
 	}
 
 	output := captureStdout(t, func() {
-		if err := runInspectCommand(context.Background(), []string{"my-app"}); err != nil {
-			t.Fatalf("runInspectCommand returned error: %v", err)
+		if err := runInfoCommand(context.Background(), []string{"my-app"}); err != nil {
+			t.Fatalf("runInfoCommand returned error: %v", err)
 		}
 	})
 
@@ -2348,7 +2285,7 @@ func TestInspectCmdManagedShowsMissingEmbeddedSource(t *testing.T) {
 	}
 }
 
-func TestInspectCmdLocalAppImage(t *testing.T) {
+func TestInfoCmdLocalAppImageEmbeddedSource(t *testing.T) {
 	originalRead := readAppImageInfo
 	originalUpdateInfo := getAppImageUpdateInfo
 	t.Cleanup(func() {
@@ -2371,8 +2308,8 @@ func TestInspectCmdLocalAppImage(t *testing.T) {
 	}
 
 	output := captureStdout(t, func() {
-		if err := runInspectCommand(context.Background(), []string{"./MyApp.AppImage"}); err != nil {
-			t.Fatalf("runInspectCommand returned error: %v", err)
+		if err := runInfoCommand(context.Background(), []string{"./MyApp.AppImage"}); err != nil {
+			t.Fatalf("runInfoCommand returned error: %v", err)
 		}
 	})
 
@@ -4517,8 +4454,8 @@ func newUpgradeTestCommand() *cobra.Command {
 	return cmd
 }
 
-func newInstallTestCommand() *cobra.Command {
-	cmd := newInstallCommand()
+func newAddTestCommand() *cobra.Command {
+	cmd := newAddCommand()
 	cmd.SilenceUsage = true
 	cmd.SilenceErrors = true
 	cmd.RunE = func(*cobra.Command, []string) error {
@@ -4593,28 +4530,12 @@ func runAddCommand(ctx context.Context, args []string) error {
 	return runRootCommand(ctx, append([]string{"add"}, args...))
 }
 
-func runIntegrateCommand(ctx context.Context, args []string) error {
-	return runRootCommand(ctx, append([]string{"integrate"}, args...))
-}
-
 func runListCommand(ctx context.Context, args []string) error {
 	return runRootCommand(ctx, append([]string{"list"}, args...))
 }
 
-func runShowCommand(ctx context.Context, args []string) error {
-	return runRootCommand(ctx, append([]string{"show"}, args...))
-}
-
 func runInfoCommand(ctx context.Context, args []string) error {
 	return runRootCommand(ctx, append([]string{"info"}, args...))
-}
-
-func runInspectCommand(ctx context.Context, args []string) error {
-	return runRootCommand(ctx, append([]string{"inspect"}, args...))
-}
-
-func runInstallCommand(ctx context.Context, args []string) error {
-	return runRootCommand(ctx, append([]string{"install"}, args...))
 }
 
 func runUpdateSetCommand(ctx context.Context, args []string) error {

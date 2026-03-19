@@ -81,15 +81,6 @@ func AddCmd(cmd *cobra.Command, args []string) error {
 	return fmt.Errorf("unknown add target %q; expected https://..., github:owner/repo, gitlab:namespace/project, <id>, or <path-to.AppImage>", input)
 }
 
-func IntegrateCmd(cmd *cobra.Command, args []string) error {
-	input, err := commandSingleArg(args, "<path-to.AppImage|id>")
-	if err != nil {
-		return err
-	}
-
-	return runIntegrateTarget(cmd.Context(), cmd, input)
-}
-
 type integrateTargetKind string
 
 const (
@@ -200,7 +191,7 @@ func resolveInstallTarget(input string) (*installTarget, error) {
 	if strings.HasPrefix(trimmed, "github:") {
 		repoSlug := strings.TrimSpace(strings.TrimPrefix(trimmed, "github:"))
 		if repoSlug == "" || strings.Count(repoSlug, "/") != 1 {
-			return nil, fmt.Errorf("github install source must be in the form github:owner/repo")
+			return nil, fmt.Errorf("github add source must be in the form github:owner/repo")
 		}
 		return &installTarget{Kind: installTargetGitHub, Repo: repoSlug}, nil
 	}
@@ -208,7 +199,7 @@ func resolveInstallTarget(input string) (*installTarget, error) {
 	if strings.HasPrefix(trimmed, "gitlab:") {
 		project := strings.TrimSpace(strings.TrimPrefix(trimmed, "gitlab:"))
 		if project == "" || strings.Count(project, "/") < 1 || strings.HasPrefix(project, "/") || strings.HasSuffix(project, "/") {
-			return nil, fmt.Errorf("gitlab install source must be in the form gitlab:namespace/project")
+			return nil, fmt.Errorf("gitlab add source must be in the form gitlab:namespace/project")
 		}
 		return &installTarget{Kind: installTargetGitLab, Project: project}, nil
 	}
@@ -222,19 +213,19 @@ func resolveInstallTarget(input string) (*installTarget, error) {
 	}
 
 	if app, err := repo.GetApp(trimmed); err == nil && app != nil {
-		return nil, fmt.Errorf("managed app IDs are reintegrated with 'aim integrate <id>'")
+		return nil, fmt.Errorf("managed app IDs are added with 'aim add <id>'")
 	}
 
 	if util.HasExtension(trimmed, ".AppImage") {
-		return nil, fmt.Errorf("local AppImages are integrated with 'aim integrate <path-to.AppImage>'")
+		return nil, fmt.Errorf("local AppImages are added with 'aim add <path-to.AppImage>'")
 	}
 
-	return nil, fmt.Errorf("unknown install target %s", input)
+	return nil, fmt.Errorf("unknown add target %s", input)
 }
 
 func validateInstallTargetFlags(cmd *cobra.Command, target *installTarget) error {
 	if target == nil {
-		return fmt.Errorf("missing install target")
+		return fmt.Errorf("missing add target")
 	}
 
 	assetPattern, err := flagString(cmd, "asset")
@@ -253,13 +244,13 @@ func validateInstallTargetFlags(cmd *cobra.Command, target *installTarget) error
 		}
 	case installTargetDirectURL:
 		if assetPattern != "" {
-			return fmt.Errorf("--asset is only supported with github: or gitlab: install sources")
+			return fmt.Errorf("--asset is only supported with github: or gitlab: add sources")
 		}
 		if sha256 != "" && !isSHA256Hex(sha256) {
 			return fmt.Errorf("--sha256 must be a valid 64-character hexadecimal SHA-256")
 		}
 	default:
-		return fmt.Errorf("unsupported install target")
+		return fmt.Errorf("unsupported add target")
 	}
 
 	return nil
@@ -605,15 +596,6 @@ func ListCmd(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func ShowCmd(cmd *cobra.Command, args []string) error {
-	refArg, err := commandSingleArg(args, "<ref>")
-	if err != nil {
-		return err
-	}
-
-	return runShowTarget(cmd.Context(), cmd, refArg)
-}
-
 func InfoCmd(cmd *cobra.Command, args []string) error {
 	input, err := commandSingleArg(args, "<target>")
 	if err != nil {
@@ -629,15 +611,6 @@ func InfoCmd(cmd *cobra.Command, args []string) error {
 	}
 
 	return fmt.Errorf("unknown info target %q; expected github:owner/repo, gitlab:namespace/project, <id>, or <path-to.AppImage>", input)
-}
-
-func InstallCmd(cmd *cobra.Command, args []string) error {
-	refArg, err := commandSingleArg(args, "<ref>")
-	if err != nil {
-		return err
-	}
-
-	return runInstallTarget(cmd.Context(), cmd, refArg)
 }
 
 func resolvePackageMetadataFromInput(ctx context.Context, input, assetOverride string) (*discovery.PackageMetadata, error) {
@@ -695,7 +668,7 @@ func installPackageMetadata(ctx context.Context, cmd *cobra.Command, metadata *d
 	case discovery.ProviderGitLab:
 		return installResolvedGitLabPackage(ctx, cmd, metadata)
 	default:
-		return nil, fmt.Errorf("unsupported install provider %q", metadata.Ref.Kind)
+		return nil, fmt.Errorf("unsupported add provider %q", metadata.Ref.Kind)
 	}
 }
 
@@ -749,7 +722,7 @@ func printPackageMetadata(cmd *cobra.Command, metadata *discovery.PackageMetadat
 	fmt.Println("Managed updates: yes")
 
 	printSection(cmd, "Install Command")
-	fmt.Printf("  aim install %s\n", discovery.FormatPackageRef(metadata.Ref))
+	fmt.Printf("  aim add %s\n", discovery.FormatPackageRef(metadata.Ref))
 }
 
 func yesNo(value bool) string {
@@ -770,15 +743,6 @@ type inspectTarget struct {
 	Kind inspectTargetKind
 	App  *models.App
 	Path string
-}
-
-func InspectCmd(cmd *cobra.Command, args []string) error {
-	input, err := commandSingleArg(args, "<id|path-to.AppImage>")
-	if err != nil {
-		return err
-	}
-
-	return runInspectTarget(cmd.Context(), cmd, input)
 }
 
 func runInspectTarget(ctx context.Context, cmd *cobra.Command, input string) error {
@@ -839,7 +803,7 @@ func runInstallTarget(ctx context.Context, cmd *cobra.Command, refArg string) er
 			app, err = installPackageMetadata(ctx, cmd, metadata)
 		}
 	default:
-		err = fmt.Errorf("unsupported install target")
+		err = fmt.Errorf("unsupported add target")
 	}
 	if err != nil {
 		return err
