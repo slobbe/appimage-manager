@@ -43,7 +43,7 @@ To regenerate the committed man page from the CLI definition:
 go run -tags docgen ./cmd/aim
 ```
 
-That committed man page is generated with the development version string (`dev`).
+That committed man page is generated from the Cobra command tree with the development version string (`dev`).
 Release builds inject the actual release version into the packaged man page via `scripts/build.sh`.
 
 ## Usage

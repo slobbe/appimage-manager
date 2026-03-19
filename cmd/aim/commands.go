@@ -23,16 +23,17 @@ import (
 	util "github.com/slobbe/appimage-manager/internal/helpers"
 	repo "github.com/slobbe/appimage-manager/internal/repository"
 	models "github.com/slobbe/appimage-manager/internal/types"
-	"github.com/urfave/cli/v3"
+	"github.com/spf13/cobra"
 )
 
-func RootCmd(ctx context.Context, cmd *cli.Command) error {
-	_ = ctx
-	return cli.ShowRootCommandHelp(cmd)
+func RootCmd(cmd *cobra.Command, args []string) error {
+	_ = args
+	return cmd.Help()
 }
 
-func UpgradeCmd(ctx context.Context, cmd *cli.Command) error {
-	result, err := runSelfUpgrade(ctx, version)
+func UpgradeCmd(cmd *cobra.Command, args []string) error {
+	_ = args
+	result, err := runSelfUpgrade(cmd.Context(), version)
 	if err != nil {
 		return err
 	}
@@ -46,33 +47,33 @@ func UpgradeCmd(ctx context.Context, cmd *cli.Command) error {
 	return nil
 }
 
-func AddCmd(ctx context.Context, cmd *cli.Command) error {
-	input, err := commandSingleArg(cmd, "target", "<https-url|github:owner/repo|gitlab:namespace/project|id|path-to.AppImage>")
+func AddCmd(cmd *cobra.Command, args []string) error {
+	input, err := commandSingleArg(args, "<https-url|github:owner/repo|gitlab:namespace/project|id|path-to.AppImage>")
 	if err != nil {
 		return err
 	}
 
 	if isRemoteAddInput(input) {
-		return runInstallTarget(ctx, cmd, input)
+		return runInstallTarget(cmd.Context(), cmd, input)
 	}
 
 	if _, err := resolveIntegrateTarget(input); err == nil {
 		if err := validateAddIntegrateFlags(cmd); err != nil {
 			return err
 		}
-		return runIntegrateTarget(ctx, cmd, input)
+		return runIntegrateTarget(cmd.Context(), cmd, input)
 	}
 
 	return fmt.Errorf("unknown add target %q; expected https://..., github:owner/repo, gitlab:namespace/project, <id>, or <path-to.AppImage>", input)
 }
 
-func IntegrateCmd(ctx context.Context, cmd *cli.Command) error {
-	input, err := commandSingleArg(cmd, "target", "<path-to.AppImage|id>")
+func IntegrateCmd(cmd *cobra.Command, args []string) error {
+	input, err := commandSingleArg(args, "<path-to.AppImage|id>")
 	if err != nil {
 		return err
 	}
 
-	return runIntegrateTarget(ctx, cmd, input)
+	return runIntegrateTarget(cmd.Context(), cmd, input)
 }
 
 type integrateTargetKind string
@@ -89,7 +90,7 @@ type integrateTarget struct {
 	LocalPath string
 }
 
-func runIntegrateTarget(ctx context.Context, cmd *cli.Command, input string) error {
+func runIntegrateTarget(ctx context.Context, cmd *cobra.Command, input string) error {
 	target, err := resolveIntegrateTarget(input)
 	if err != nil {
 		return err
@@ -217,13 +218,19 @@ func resolveInstallTarget(input string) (*installTarget, error) {
 	return nil, fmt.Errorf("unknown install target %s", input)
 }
 
-func validateInstallTargetFlags(cmd *cli.Command, target *installTarget) error {
+func validateInstallTargetFlags(cmd *cobra.Command, target *installTarget) error {
 	if target == nil {
 		return fmt.Errorf("missing install target")
 	}
 
-	assetPattern := strings.TrimSpace(cmd.String("asset"))
-	sha256 := strings.TrimSpace(cmd.String("sha256"))
+	assetPattern, err := flagString(cmd, "asset")
+	if err != nil {
+		return err
+	}
+	sha256, err := flagString(cmd, "sha256")
+	if err != nil {
+		return err
+	}
 
 	switch target.Kind {
 	case installTargetGitHub, installTargetGitLab:
@@ -244,7 +251,7 @@ func validateInstallTargetFlags(cmd *cli.Command, target *installTarget) error {
 	return nil
 }
 
-func integrateFromDirectURL(ctx context.Context, cmd *cli.Command, target *installTarget, sha256 string) (*models.App, error) {
+func integrateFromDirectURL(ctx context.Context, cmd *cobra.Command, target *installTarget, sha256 string) (*models.App, error) {
 	if strings.TrimSpace(sha256) == "" {
 		printWarning(cmd, "No SHA-256 provided; skipping checksum verification")
 	}
@@ -269,7 +276,7 @@ func integrateFromDirectURL(ctx context.Context, cmd *cli.Command, target *insta
 	})
 }
 
-func integrateFromGitHubRelease(ctx context.Context, cmd *cli.Command, target *installTarget, assetPattern string) (*models.App, error) {
+func integrateFromGitHubRelease(ctx context.Context, cmd *cobra.Command, target *installTarget, assetPattern string) (*models.App, error) {
 	if strings.TrimSpace(assetPattern) == "" {
 		assetPattern = defaultReleaseAssetPattern
 	}
@@ -283,7 +290,7 @@ func integrateFromGitHubRelease(ctx context.Context, cmd *cli.Command, target *i
 	return integrateGitHubReleaseAsset(ctx, cmd, target, assetPattern, release)
 }
 
-func integrateGitHubReleaseAsset(ctx context.Context, cmd *cli.Command, target *installTarget, assetPattern string, release *core.GitHubReleaseAsset) (*models.App, error) {
+func integrateGitHubReleaseAsset(ctx context.Context, cmd *cobra.Command, target *installTarget, assetPattern string, release *core.GitHubReleaseAsset) (*models.App, error) {
 	return integrateRemoteInstall(ctx, cmd, remoteInstallRequest{
 		DisplayLabel: target.Repo,
 		DownloadURL:  release.DownloadURL,
@@ -312,7 +319,7 @@ func integrateGitHubReleaseAsset(ctx context.Context, cmd *cli.Command, target *
 	})
 }
 
-func integrateFromGitLabRelease(ctx context.Context, cmd *cli.Command, target *installTarget, assetPattern string) (*models.App, error) {
+func integrateFromGitLabRelease(ctx context.Context, cmd *cobra.Command, target *installTarget, assetPattern string) (*models.App, error) {
 	if strings.TrimSpace(assetPattern) == "" {
 		assetPattern = defaultReleaseAssetPattern
 	}
@@ -326,7 +333,7 @@ func integrateFromGitLabRelease(ctx context.Context, cmd *cli.Command, target *i
 	return integrateGitLabReleaseAsset(ctx, cmd, target, assetPattern, release)
 }
 
-func integrateGitLabReleaseAsset(ctx context.Context, cmd *cli.Command, target *installTarget, assetPattern string, release *core.GitLabReleaseAsset) (*models.App, error) {
+func integrateGitLabReleaseAsset(ctx context.Context, cmd *cobra.Command, target *installTarget, assetPattern string, release *core.GitLabReleaseAsset) (*models.App, error) {
 	return integrateRemoteInstall(ctx, cmd, remoteInstallRequest{
 		DisplayLabel: target.Project,
 		DownloadURL:  release.DownloadURL,
@@ -364,7 +371,7 @@ type remoteInstallRequest struct {
 	BuildUpdate    func(app *models.App) *models.UpdateSource
 }
 
-func integrateRemoteInstall(ctx context.Context, cmd *cli.Command, req remoteInstallRequest) (*models.App, error) {
+func integrateRemoteInstall(ctx context.Context, cmd *cobra.Command, req remoteInstallRequest) (*models.App, error) {
 	tempDir, err := os.MkdirTemp(config.TempDir, "aim-install-*")
 	if err != nil {
 		return nil, err
@@ -488,11 +495,17 @@ func isSHA256Hex(value string) bool {
 	return err == nil
 }
 
-func RemoveCmd(ctx context.Context, cmd *cli.Command) error {
-	id := cmd.StringArg("id")
-	unlink := cmd.Bool("unlink")
+func RemoveCmd(cmd *cobra.Command, args []string) error {
+	id, err := commandSingleArg(args, "<id>")
+	if err != nil {
+		return err
+	}
+	unlink, err := flagBool(cmd, "unlink")
+	if err != nil {
+		return err
+	}
 
-	app, err := removeManagedApp(ctx, id, unlink)
+	app, err := removeManagedApp(cmd.Context(), id, unlink)
 
 	if err == nil {
 		label := "Removed"
@@ -505,10 +518,20 @@ func RemoveCmd(ctx context.Context, cmd *cli.Command) error {
 	return err
 }
 
-func ListCmd(ctx context.Context, cmd *cli.Command) error {
-	all := cmd.Bool("all")
-	integrated := cmd.Bool("integrated")
-	unlinked := cmd.Bool("unlinked")
+func ListCmd(cmd *cobra.Command, args []string) error {
+	_ = args
+	all, err := flagBool(cmd, "all")
+	if err != nil {
+		return err
+	}
+	integrated, err := flagBool(cmd, "integrated")
+	if err != nil {
+		return err
+	}
+	unlinked, err := flagBool(cmd, "unlinked")
+	if err != nil {
+		return err
+	}
 
 	if (integrated && unlinked) || (all && (integrated || unlinked)) {
 		return fmt.Errorf("flags --all, --integrated, and --unlinked are mutually exclusive")
@@ -568,39 +591,39 @@ func ListCmd(ctx context.Context, cmd *cli.Command) error {
 	return nil
 }
 
-func ShowCmd(ctx context.Context, cmd *cli.Command) error {
-	refArg, err := commandSingleArg(cmd, "ref", "<ref>")
+func ShowCmd(cmd *cobra.Command, args []string) error {
+	refArg, err := commandSingleArg(args, "<ref>")
 	if err != nil {
 		return err
 	}
 
-	return runShowTarget(ctx, cmd, refArg)
+	return runShowTarget(cmd.Context(), cmd, refArg)
 }
 
-func InfoCmd(ctx context.Context, cmd *cli.Command) error {
-	input, err := commandSingleArg(cmd, "target", "<target>")
+func InfoCmd(cmd *cobra.Command, args []string) error {
+	input, err := commandSingleArg(args, "<target>")
 	if err != nil {
 		return err
 	}
 
 	if _, err := resolvePackageRefInput(input); err == nil {
-		return runShowTarget(ctx, cmd, input)
+		return runShowTarget(cmd.Context(), cmd, input)
 	}
 
 	if _, err := resolveInspectTarget(input); err == nil {
-		return runInspectTarget(ctx, cmd, input)
+		return runInspectTarget(cmd.Context(), cmd, input)
 	}
 
 	return fmt.Errorf("unknown info target %q; expected github:owner/repo, gitlab:namespace/project, <id>, or <path-to.AppImage>", input)
 }
 
-func InstallCmd(ctx context.Context, cmd *cli.Command) error {
-	refArg, err := commandSingleArg(cmd, "ref", "<ref>")
+func InstallCmd(cmd *cobra.Command, args []string) error {
+	refArg, err := commandSingleArg(args, "<ref>")
 	if err != nil {
 		return err
 	}
 
-	return runInstallTarget(ctx, cmd, refArg)
+	return runInstallTarget(cmd.Context(), cmd, refArg)
 }
 
 func resolvePackageMetadataFromInput(ctx context.Context, input, assetOverride string) (*discovery.PackageMetadata, error) {
@@ -647,7 +670,7 @@ func backendForRef(ref discovery.PackageRef) (discovery.DiscoveryBackend, error)
 	return nil, fmt.Errorf("no discovery backend available for %s", discovery.FormatPackageRef(ref))
 }
 
-func installPackageMetadata(ctx context.Context, cmd *cli.Command, metadata *discovery.PackageMetadata) (*models.App, error) {
+func installPackageMetadata(ctx context.Context, cmd *cobra.Command, metadata *discovery.PackageMetadata) (*models.App, error) {
 	if metadata == nil {
 		return nil, fmt.Errorf("package metadata cannot be empty")
 	}
@@ -662,7 +685,7 @@ func installPackageMetadata(ctx context.Context, cmd *cli.Command, metadata *dis
 	}
 }
 
-func installResolvedGitHubPackage(ctx context.Context, cmd *cli.Command, metadata *discovery.PackageMetadata) (*models.App, error) {
+func installResolvedGitHubPackage(ctx context.Context, cmd *cobra.Command, metadata *discovery.PackageMetadata) (*models.App, error) {
 	release := &core.GitHubReleaseAsset{
 		DownloadURL:       strings.TrimSpace(metadata.DownloadURL),
 		TagName:           strings.TrimSpace(metadata.ReleaseTag),
@@ -673,7 +696,7 @@ func installResolvedGitHubPackage(ctx context.Context, cmd *cli.Command, metadat
 	return integrateGitHubReleaseAsset(ctx, cmd, target, metadata.AssetPattern, release)
 }
 
-func installResolvedGitLabPackage(ctx context.Context, cmd *cli.Command, metadata *discovery.PackageMetadata) (*models.App, error) {
+func installResolvedGitLabPackage(ctx context.Context, cmd *cobra.Command, metadata *discovery.PackageMetadata) (*models.App, error) {
 	release := &core.GitLabReleaseAsset{
 		DownloadURL:       strings.TrimSpace(metadata.DownloadURL),
 		TagName:           strings.TrimSpace(metadata.ReleaseTag),
@@ -684,7 +707,7 @@ func installResolvedGitLabPackage(ctx context.Context, cmd *cli.Command, metadat
 	return integrateGitLabReleaseAsset(ctx, cmd, target, metadata.AssetPattern, release)
 }
 
-func printPackageMetadata(cmd *cli.Command, metadata *discovery.PackageMetadata) {
+func printPackageMetadata(cmd *cobra.Command, metadata *discovery.PackageMetadata) {
 	printSection(cmd, metadata.Name)
 	fmt.Printf("Provider: %s\n", strings.TrimSpace(metadata.Provider))
 	fmt.Printf("Ref: %s\n", discovery.FormatPackageRef(metadata.Ref))
@@ -735,16 +758,16 @@ type inspectTarget struct {
 	Path string
 }
 
-func InspectCmd(ctx context.Context, cmd *cli.Command) error {
-	input, err := commandSingleArg(cmd, "target", "<id|path-to.AppImage>")
+func InspectCmd(cmd *cobra.Command, args []string) error {
+	input, err := commandSingleArg(args, "<id|path-to.AppImage>")
 	if err != nil {
 		return err
 	}
 
-	return runInspectTarget(ctx, cmd, input)
+	return runInspectTarget(cmd.Context(), cmd, input)
 }
 
-func runInspectTarget(ctx context.Context, cmd *cli.Command, input string) error {
+func runInspectTarget(ctx context.Context, cmd *cobra.Command, input string) error {
 	target, err := resolveInspectTarget(input)
 	if err != nil {
 		return err
@@ -760,7 +783,7 @@ func runInspectTarget(ctx context.Context, cmd *cli.Command, input string) error
 	}
 }
 
-func runShowTarget(ctx context.Context, cmd *cli.Command, refArg string) error {
+func runShowTarget(ctx context.Context, cmd *cobra.Command, refArg string) error {
 	metadata, err := resolvePackageMetadataFromInput(ctx, refArg, "")
 	if err != nil {
 		return err
@@ -770,7 +793,7 @@ func runShowTarget(ctx context.Context, cmd *cli.Command, refArg string) error {
 	return nil
 }
 
-func runInstallTarget(ctx context.Context, cmd *cli.Command, refArg string) error {
+func runInstallTarget(ctx context.Context, cmd *cobra.Command, refArg string) error {
 	target, err := resolveInstallTarget(refArg)
 	if err != nil {
 		return err
@@ -779,8 +802,14 @@ func runInstallTarget(ctx context.Context, cmd *cli.Command, refArg string) erro
 		return err
 	}
 
-	assetPattern := strings.TrimSpace(cmd.String("asset"))
-	sha256 := strings.TrimSpace(cmd.String("sha256"))
+	assetPattern, err := flagString(cmd, "asset")
+	if err != nil {
+		return err
+	}
+	sha256, err := flagString(cmd, "sha256")
+	if err != nil {
+		return err
+	}
 
 	var app *models.App
 	switch target.Kind {
@@ -806,12 +835,15 @@ func runInstallTarget(ctx context.Context, cmd *cli.Command, refArg string) erro
 	return nil
 }
 
-func commandSingleArg(cmd *cli.Command, name, usage string) (string, error) {
-	if cmd.Args().Len() > 0 {
+func commandSingleArg(args []string, usage string) (string, error) {
+	if len(args) > 1 {
 		return "", fmt.Errorf("too many arguments")
 	}
 
-	value := strings.TrimSpace(cmd.StringArg(name))
+	value := ""
+	if len(args) > 0 {
+		value = strings.TrimSpace(args[0])
+	}
 	if value == "" {
 		return "", fmt.Errorf("missing required argument %s", usage)
 	}
@@ -828,11 +860,19 @@ func isRemoteAddInput(input string) bool {
 		strings.HasPrefix(trimmed, "gitlab:")
 }
 
-func validateAddIntegrateFlags(cmd *cli.Command) error {
-	if strings.TrimSpace(cmd.String("asset")) != "" {
+func validateAddIntegrateFlags(cmd *cobra.Command) error {
+	assetPattern, err := flagString(cmd, "asset")
+	if err != nil {
+		return err
+	}
+	if assetPattern != "" {
 		return fmt.Errorf("--asset is only supported with github: or gitlab: add sources")
 	}
-	if strings.TrimSpace(cmd.String("sha256")) != "" {
+	sha256, err := flagString(cmd, "sha256")
+	if err != nil {
+		return err
+	}
+	if sha256 != "" {
 		return fmt.Errorf("--sha256 is only supported with direct https:// add sources")
 	}
 
@@ -856,7 +896,7 @@ func resolveInspectTarget(input string) (*inspectTarget, error) {
 	return nil, fmt.Errorf("unknown inspect target %s", input)
 }
 
-func inspectManagedApp(ctx context.Context, cmd *cli.Command, app *models.App) error {
+func inspectManagedApp(ctx context.Context, cmd *cobra.Command, app *models.App) error {
 	if app == nil {
 		return fmt.Errorf("managed app cannot be empty")
 	}
@@ -886,7 +926,7 @@ func inspectManagedApp(ctx context.Context, cmd *cli.Command, app *models.App) e
 	return nil
 }
 
-func inspectLocalAppImage(ctx context.Context, cmd *cli.Command, src string) error {
+func inspectLocalAppImage(ctx context.Context, cmd *cobra.Command, src string) error {
 	info, err := readAppImageInfo(ctx, src)
 	if err != nil {
 		return err
@@ -938,19 +978,7 @@ func embeddedUpdateSourceForPath(path string) (*models.UpdateSource, error) {
 	return updateSourceFromEmbeddedInfo(info)
 }
 
-func UpdateCmd(ctx context.Context, cmd *cli.Command) error {
-	args := cmd.Args().Slice()
-	if len(args) > 0 {
-		switch args[0] {
-		case "set":
-			return UpdateSetCmd(ctx, cmd, args[1:])
-		case "unset":
-			return UpdateUnsetCmd(ctx, cmd, args[1:])
-		case "check":
-			return fmt.Errorf("`aim update check` has been removed; use `aim update [<id>]` for managed apps")
-		}
-	}
-
+func UpdateCmd(cmd *cobra.Command, args []string) error {
 	if hasUpdateSetFlags(cmd) {
 		return fmt.Errorf("update source flags can only be used with `aim update set`")
 	}
@@ -963,24 +991,17 @@ func UpdateCmd(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("too many arguments")
 	}
 
-	return runManagedUpdate(ctx, cmd, targetID)
+	return runManagedUpdate(cmd.Context(), cmd, targetID)
 }
 
-func UpdateSetCmd(ctx context.Context, cmd *cli.Command, args []string) error {
-	_ = ctx
-	if cmd.IsSet("yes") || cmd.IsSet("check-only") {
+func UpdateSetCmd(cmd *cobra.Command, args []string) error {
+	if flagChanged(cmd, "yes") || flagChanged(cmd, "check-only") {
 		return fmt.Errorf("flags --yes/-y and --check-only/-c are not supported with `aim update set`")
 	}
 
-	id := ""
-	if len(args) > 0 {
-		id = strings.TrimSpace(args[0])
-	}
-	if id == "" {
-		return fmt.Errorf("missing required argument <id>")
-	}
-	if len(args) > 1 {
-		return fmt.Errorf("too many arguments")
+	id, err := commandSingleArg(args, "<id>")
+	if err != nil {
+		return err
 	}
 
 	app, err := repo.GetApp(id)
@@ -989,7 +1010,11 @@ func UpdateSetCmd(ctx context.Context, cmd *cli.Command, args []string) error {
 	}
 
 	var incomingSource *models.UpdateSource
-	if cmd.Bool("embedded") {
+	embedded, err := flagBool(cmd, "embedded")
+	if err != nil {
+		return err
+	}
+	if embedded {
 		if err := validateEmbeddedUpdateSetFlags(cmd); err != nil {
 			return err
 		}
@@ -1038,24 +1063,17 @@ func UpdateSetCmd(ctx context.Context, cmd *cli.Command, args []string) error {
 	return nil
 }
 
-func UpdateUnsetCmd(ctx context.Context, cmd *cli.Command, args []string) error {
-	_ = ctx
-	if cmd.IsSet("yes") || cmd.IsSet("check-only") {
+func UpdateUnsetCmd(cmd *cobra.Command, args []string) error {
+	if flagChanged(cmd, "yes") || flagChanged(cmd, "check-only") {
 		return fmt.Errorf("flags --yes/-y and --check-only/-c are not supported with `aim update unset`")
 	}
 	if hasUpdateSetFlags(cmd) {
 		return fmt.Errorf("update source flags are not supported with `aim update unset`")
 	}
 
-	id := ""
-	if len(args) > 0 {
-		id = strings.TrimSpace(args[0])
-	}
-	if id == "" {
-		return fmt.Errorf("missing required argument <id>")
-	}
-	if len(args) > 1 {
-		return fmt.Errorf("too many arguments")
+	id, err := commandSingleArg(args, "<id>")
+	if err != nil {
+		return err
 	}
 
 	app, err := repo.GetApp(id)
@@ -1068,7 +1086,13 @@ func UpdateUnsetCmd(ctx context.Context, cmd *cli.Command, args []string) error 
 	return err
 }
 
-func unsetManagedUpdateSource(cmd *cli.Command, app *models.App, prompt string, showCurrent bool) (bool, error) {
+func UpdateCheckRemovedCmd(cmd *cobra.Command, args []string) error {
+	_ = cmd
+	_ = args
+	return fmt.Errorf("`aim update check` has been removed; use `aim update [<id>]` for managed apps")
+}
+
+func unsetManagedUpdateSource(cmd *cobra.Command, app *models.App, prompt string, showCurrent bool) (bool, error) {
 	if app == nil {
 		return false, fmt.Errorf("managed app cannot be empty")
 	}
@@ -1100,24 +1124,45 @@ func unsetManagedUpdateSource(cmd *cli.Command, app *models.App, prompt string, 
 	return true, nil
 }
 
-func hasUpdateSetFlags(cmd *cli.Command) bool {
+func hasUpdateSetFlags(cmd *cobra.Command) bool {
 	keys := []string{"github", "gitlab", "asset", "zsync-url", "embedded", "manifest-url", "url", "sha256"}
 	for _, key := range keys {
-		if cmd.IsSet(key) {
+		if flagChanged(cmd, key) {
 			return true
 		}
 	}
 	return false
 }
 
-func validateEmbeddedUpdateSetFlags(cmd *cli.Command) error {
-	githubRepo := strings.TrimSpace(cmd.String("github"))
-	gitlabProject := strings.TrimSpace(cmd.String("gitlab"))
-	zsyncURL := strings.TrimSpace(cmd.String("zsync-url"))
-	assetPattern := strings.TrimSpace(cmd.String("asset"))
-	manifestURL := strings.TrimSpace(cmd.String("manifest-url"))
-	directURL := strings.TrimSpace(cmd.String("url"))
-	sha256 := strings.TrimSpace(cmd.String("sha256"))
+func validateEmbeddedUpdateSetFlags(cmd *cobra.Command) error {
+	githubRepo, err := flagString(cmd, "github")
+	if err != nil {
+		return err
+	}
+	gitlabProject, err := flagString(cmd, "gitlab")
+	if err != nil {
+		return err
+	}
+	zsyncURL, err := flagString(cmd, "zsync-url")
+	if err != nil {
+		return err
+	}
+	assetPattern, err := flagString(cmd, "asset")
+	if err != nil {
+		return err
+	}
+	manifestURL, err := flagString(cmd, "manifest-url")
+	if err != nil {
+		return err
+	}
+	directURL, err := flagString(cmd, "url")
+	if err != nil {
+		return err
+	}
+	sha256, err := flagString(cmd, "sha256")
+	if err != nil {
+		return err
+	}
 
 	if manifestURL != "" {
 		return fmt.Errorf("--manifest-url is no longer supported; use --github, --gitlab, --zsync-url, or --embedded")
@@ -1145,14 +1190,35 @@ func validateEmbeddedUpdateSetFlags(cmd *cli.Command) error {
 	return nil
 }
 
-func resolveUpdateSourceFromSetFlags(cmd *cli.Command) (*models.UpdateSource, error) {
-	githubRepo := strings.TrimSpace(cmd.String("github"))
-	gitlabProject := strings.TrimSpace(cmd.String("gitlab"))
-	assetPattern := strings.TrimSpace(cmd.String("asset"))
-	zsyncURL := strings.TrimSpace(cmd.String("zsync-url"))
-	manifestURL := strings.TrimSpace(cmd.String("manifest-url"))
-	directURL := strings.TrimSpace(cmd.String("url"))
-	sha256 := strings.TrimSpace(cmd.String("sha256"))
+func resolveUpdateSourceFromSetFlags(cmd *cobra.Command) (*models.UpdateSource, error) {
+	githubRepo, err := flagString(cmd, "github")
+	if err != nil {
+		return nil, err
+	}
+	gitlabProject, err := flagString(cmd, "gitlab")
+	if err != nil {
+		return nil, err
+	}
+	assetPattern, err := flagString(cmd, "asset")
+	if err != nil {
+		return nil, err
+	}
+	zsyncURL, err := flagString(cmd, "zsync-url")
+	if err != nil {
+		return nil, err
+	}
+	manifestURL, err := flagString(cmd, "manifest-url")
+	if err != nil {
+		return nil, err
+	}
+	directURL, err := flagString(cmd, "url")
+	if err != nil {
+		return nil, err
+	}
+	sha256, err := flagString(cmd, "sha256")
+	if err != nil {
+		return nil, err
+	}
 
 	if manifestURL != "" {
 		return nil, fmt.Errorf("--manifest-url is no longer supported; use --github, --gitlab, --zsync-url, or --embedded")
@@ -1276,14 +1342,20 @@ var terminalOutputChecker = detectTerminalOutput
 
 const defaultReleaseAssetPattern = "*.AppImage"
 
-func runManagedUpdate(ctx context.Context, cmd *cli.Command, targetID string) error {
+func runManagedUpdate(ctx context.Context, cmd *cobra.Command, targetID string) error {
 	apps, err := collectManagedUpdateTargets(targetID)
 	if err != nil {
 		return err
 	}
 
-	autoApply := cmd.Bool("yes")
-	checkOnly := cmd.Bool("check-only")
+	autoApply, err := flagBool(cmd, "yes")
+	if err != nil {
+		return err
+	}
+	checkOnly, err := flagBool(cmd, "check-only")
+	if err != nil {
+		return err
+	}
 
 	var pending []pendingManagedUpdate
 	checkFailures := 0
@@ -2108,7 +2180,7 @@ func isHTTPSURL(value string) bool {
 	return true
 }
 
-func useColor(cmd *cli.Command) bool {
+func useColor(cmd *cobra.Command) bool {
 	_ = cmd
 	return isTerminalOutput()
 }
@@ -2134,23 +2206,23 @@ func colorize(enabled bool, code, value string) string {
 	return code + value + "\033[0m"
 }
 
-func printSuccess(cmd *cli.Command, text string) {
+func printSuccess(cmd *cobra.Command, text string) {
 	fmt.Println(colorize(useColor(cmd), "\033[0;32m", text))
 }
 
-func printWarning(cmd *cli.Command, text string) {
+func printWarning(cmd *cobra.Command, text string) {
 	fmt.Println(colorize(useColor(cmd), "\033[0;33m", text))
 }
 
-func printError(cmd *cli.Command, text string) {
+func printError(cmd *cobra.Command, text string) {
 	fmt.Println(colorize(useColor(cmd), "\033[0;31m", text))
 }
 
-func printInfo(cmd *cli.Command, text string) {
+func printInfo(cmd *cobra.Command, text string) {
 	fmt.Println(colorize(useColor(cmd), "\033[0;36m", text))
 }
 
-func printSection(cmd *cli.Command, text string) {
+func printSection(cmd *cobra.Command, text string) {
 	fmt.Println(colorize(useColor(cmd), "\033[1m", text))
 }
 

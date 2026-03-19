@@ -22,7 +22,8 @@ import (
 	util "github.com/slobbe/appimage-manager/internal/helpers"
 	repo "github.com/slobbe/appimage-manager/internal/repository"
 	models "github.com/slobbe/appimage-manager/internal/types"
-	"github.com/urfave/cli/v3"
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 func TestResolveIntegrateTarget(t *testing.T) {
@@ -194,12 +195,9 @@ func TestUpgradeCmdUsesSelfUpgradeFlow(t *testing.T) {
 		return nil, fmt.Errorf("self-upgrade is unavailable for development builds")
 	}
 
-	cmd := &cli.Command{
-		Name:   "upgrade",
-		Action: UpgradeCmd,
-	}
+	cmd := newUpgradeTestCommand()
 
-	err := cmd.Run(context.Background(), []string{"upgrade"})
+	err := executeTestCommand(context.Background(), cmd)
 	if err == nil {
 		t.Fatal("expected dev-build self-upgrade error")
 	}
@@ -221,9 +219,9 @@ func TestUpgradeCmdOutputsUpdatedMessage(t *testing.T) {
 		}, nil
 	}
 
-	cmd := &cli.Command{Name: "upgrade", Action: UpgradeCmd}
+	cmd := newUpgradeTestCommand()
 	output := captureStdout(t, func() {
-		if err := cmd.Run(context.Background(), []string{"upgrade"}); err != nil {
+		if err := executeTestCommand(context.Background(), cmd); err != nil {
 			t.Fatalf("run returned error: %v", err)
 		}
 	})
@@ -246,9 +244,9 @@ func TestUpgradeCmdOutputsUpToDateMessage(t *testing.T) {
 		}, nil
 	}
 
-	cmd := &cli.Command{Name: "upgrade", Action: UpgradeCmd}
+	cmd := newUpgradeTestCommand()
 	output := captureStdout(t, func() {
-		if err := cmd.Run(context.Background(), []string{"upgrade"}); err != nil {
+		if err := executeTestCommand(context.Background(), cmd); err != nil {
 			t.Fatalf("run returned error: %v", err)
 		}
 	})
@@ -261,30 +259,21 @@ func TestUpgradeCmdOutputsUpToDateMessage(t *testing.T) {
 func TestRootCommandDoesNotAcceptUpgradeFlag(t *testing.T) {
 	cmd := newRootTestCommand()
 
-	err := cmd.Run(context.Background(), []string{"aim", "--upgrade"})
+	err := executeTestCommand(context.Background(), cmd, "--upgrade")
 	if err == nil {
 		t.Fatal("expected unknown flag error")
 	}
-	if !strings.Contains(err.Error(), "flag provided but not defined: -upgrade") {
+	if !strings.Contains(err.Error(), "unknown flag: --upgrade") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
 func TestRootVersionOutputIsCompact(t *testing.T) {
-	original := cli.VersionPrinter
-	t.Cleanup(func() {
-		cli.VersionPrinter = original
-	})
-	cli.VersionPrinter = func(cmd *cli.Command) {
-		root := cmd.Root()
-		_, _ = fmt.Fprintf(root.Writer, "%s %s\n", root.Name, root.Version)
-	}
-
 	cmd := newRootTestCommand()
 	cmd.Version = "v0.8.0"
 
 	output := captureStdout(t, func() {
-		if err := cmd.Run(context.Background(), []string{"aim", "--version"}); err != nil {
+		if err := executeTestCommand(context.Background(), cmd, "--version"); err != nil {
 			t.Fatalf("run returned error: %v", err)
 		}
 	})
@@ -301,7 +290,7 @@ func TestRootHelpDoesNotAdvertiseRemovedCommands(t *testing.T) {
 	cmd := newRootTestCommand()
 
 	output := captureStdout(t, func() {
-		if err := cmd.Run(context.Background(), []string{"aim"}); err != nil {
+		if err := executeTestCommand(context.Background(), cmd); err != nil {
 			t.Fatalf("run returned error: %v", err)
 		}
 	})
@@ -323,10 +312,8 @@ func TestRemovedCommandsAreUnavailable(t *testing.T) {
 	cmd := newRootTestCommand()
 
 	for _, unwanted := range []string{"pin", "unpin"} {
-		for _, subcommand := range cmd.Commands {
-			if subcommand.Name == unwanted {
-				t.Fatalf("unexpected command registration for %q", unwanted)
-			}
+		if findSubcommand(cmd, unwanted) != nil {
+			t.Fatalf("unexpected command registration for %q", unwanted)
 		}
 	}
 }
@@ -341,9 +328,9 @@ func TestRootRegistersPackageCommands(t *testing.T) {
 		"show":      false,
 		"install":   false,
 	}
-	for _, subcommand := range cmd.Commands {
-		if _, ok := required[subcommand.Name]; ok {
-			required[subcommand.Name] = true
+	for _, subcommand := range cmd.Commands() {
+		if _, ok := required[subcommand.Name()]; ok {
+			required[subcommand.Name()] = true
 		}
 	}
 
@@ -357,133 +344,67 @@ func TestRootRegistersPackageCommands(t *testing.T) {
 func TestRootPackageCommandFlags(t *testing.T) {
 	cmd := newRootTestCommand()
 
-	var addCmd *cli.Command
-	var integrateCmd *cli.Command
-	var installCmd *cli.Command
-	for _, subcommand := range cmd.Commands {
-		switch subcommand.Name {
-		case "add":
-			addCmd = subcommand
-		case "integrate":
-			integrateCmd = subcommand
-		case "install":
-			installCmd = subcommand
-		}
-	}
+	addCmd := findSubcommand(cmd, "add")
+	integrateCmd := findSubcommand(cmd, "integrate")
+	installCmd := findSubcommand(cmd, "install")
 	if addCmd == nil || integrateCmd == nil || installCmd == nil {
 		t.Fatal("expected add, integrate, and install commands")
 	}
 
-	if len(addCmd.Flags) != 2 {
-		t.Fatalf("add flags = %d, want 2", len(addCmd.Flags))
+	if got := countFlags(addCmd.Flags()); got != 2 {
+		t.Fatalf("add flags = %d, want 2", got)
 	}
 
-	foundAddAsset := false
-	foundAddSHA256 := false
-	for _, flag := range addCmd.Flags {
-		switch typed := flag.(type) {
-		case *cli.StringFlag:
-			if typed.Name == "asset" {
-				foundAddAsset = true
-			}
-			if typed.Name == "sha256" {
-				foundAddSHA256 = true
-			}
-		}
-	}
-	if !foundAddAsset || !foundAddSHA256 {
-		t.Fatalf("add flags missing asset or sha256: %#v", addCmd.Flags)
+	if addCmd.Flags().Lookup("asset") == nil || addCmd.Flags().Lookup("sha256") == nil {
+		t.Fatalf("add flags missing asset or sha256")
 	}
 
-	if len(integrateCmd.Flags) != 0 {
-		t.Fatalf("integrate flags = %#v, want none", integrateCmd.Flags)
+	if got := countFlags(integrateCmd.Flags()); got != 0 {
+		t.Fatalf("integrate flags = %d, want none", got)
 	}
 
-	foundAsset := false
-	foundSHA256 := false
-	for _, flag := range installCmd.Flags {
-		switch typed := flag.(type) {
-		case *cli.StringFlag:
-			if typed.Name == "asset" {
-				foundAsset = true
-			}
-			if typed.Name == "sha256" {
-				foundSHA256 = true
-			}
-		}
-	}
-	if !foundAsset || !foundSHA256 {
-		t.Fatalf("install flags missing asset or sha256: %#v", installCmd.Flags)
+	if installCmd.Flags().Lookup("asset") == nil || installCmd.Flags().Lookup("sha256") == nil {
+		t.Fatalf("install flags missing asset or sha256")
 	}
 }
 
 func TestRootPackageCommandAliases(t *testing.T) {
 	cmd := newRootTestCommand()
 
-	var installCmd *cli.Command
-	var updateCmd *cli.Command
-	for _, subcommand := range cmd.Commands {
-		switch subcommand.Name {
-		case "install":
-			installCmd = subcommand
-		case "update":
-			updateCmd = subcommand
-		}
-	}
+	installCmd := findSubcommand(cmd, "install")
+	updateCmd := findSubcommand(cmd, "update")
 	if installCmd == nil || updateCmd == nil {
 		t.Fatal("expected install and update commands")
 	}
 
-	if len(installCmd.Aliases) != 1 || installCmd.Aliases[0] != "i" {
-		t.Fatalf("install aliases = %v, want [i]", installCmd.Aliases)
+	if aliases := installCmd.Aliases; len(aliases) != 1 || aliases[0] != "i" {
+		t.Fatalf("install aliases = %v, want [i]", aliases)
 	}
-	if len(updateCmd.Aliases) != 1 || updateCmd.Aliases[0] != "u" {
-		t.Fatalf("update aliases = %v, want [u]", updateCmd.Aliases)
+	if aliases := updateCmd.Aliases; len(aliases) != 1 || aliases[0] != "u" {
+		t.Fatalf("update aliases = %v, want [u]", aliases)
 	}
 }
 
 func TestRemoveCommandUsesUnlinkFlag(t *testing.T) {
 	cmd := newRootTestCommand()
 
-	var removeCmd *cli.Command
-	for _, subcommand := range cmd.Commands {
-		if subcommand.Name == "remove" {
-			removeCmd = subcommand
-			break
-		}
-	}
+	removeCmd := findSubcommand(cmd, "remove")
 	if removeCmd == nil {
 		t.Fatal("expected remove command")
 	}
 
-	var (
-		foundUnlink bool
-		foundKeep   bool
-	)
-	for _, flag := range removeCmd.Flags {
-		boolFlag, ok := flag.(*cli.BoolFlag)
-		if !ok {
-			continue
-		}
-		if boolFlag.Name == "unlink" {
-			foundUnlink = true
-			if len(boolFlag.Aliases) != 0 {
-				t.Fatalf("expected no aliases for --unlink, got %v", boolFlag.Aliases)
-			}
-			if boolFlag.Usage != "remove only desktop integration; keep managed AppImage files" {
-				t.Fatalf("unexpected --unlink usage: %q", boolFlag.Usage)
-			}
-		}
-		if boolFlag.Name == "keep" {
-			foundKeep = true
-		}
-	}
-
-	if !foundUnlink {
+	unlinkFlag := removeCmd.Flags().Lookup("unlink")
+	if unlinkFlag == nil {
 		t.Fatal("expected --unlink flag on remove command")
 	}
-	if foundKeep {
+	if removeCmd.Flags().Lookup("keep") != nil {
 		t.Fatal("did not expect --keep flag on remove command")
+	}
+	if unlinkFlag.Shorthand != "" {
+		t.Fatalf("expected no shorthand for --unlink, got %q", unlinkFlag.Shorthand)
+	}
+	if unlinkFlag.Usage != "remove only desktop integration; keep managed AppImage files" {
+		t.Fatalf("unexpected --unlink usage: %q", unlinkFlag.Usage)
 	}
 }
 
@@ -496,16 +417,8 @@ func TestRemoveCmdOutputsRemovedMessage(t *testing.T) {
 		return &models.App{ID: "my-app", Name: "My App"}, nil
 	}
 
-	cmd := &cli.Command{
-		Name: "remove",
-		Arguments: []cli.Argument{
-			&cli.StringArg{Name: "id"},
-		},
-		Action: RemoveCmd,
-	}
-
 	output := captureStdout(t, func() {
-		if err := cmd.Run(context.Background(), []string{"remove", "my-app"}); err != nil {
+		if err := runRootCommand(context.Background(), []string{"remove", "my-app"}); err != nil {
 			t.Fatalf("run returned error: %v", err)
 		}
 	})
@@ -524,19 +437,8 @@ func TestRemoveCmdOutputsUnlinkedMessage(t *testing.T) {
 		return &models.App{ID: "my-app", Name: "My App"}, nil
 	}
 
-	cmd := &cli.Command{
-		Name: "remove",
-		Arguments: []cli.Argument{
-			&cli.StringArg{Name: "id"},
-		},
-		Flags: []cli.Flag{
-			&cli.BoolFlag{Name: "unlink"},
-		},
-		Action: RemoveCmd,
-	}
-
 	output := captureStdout(t, func() {
-		if err := cmd.Run(context.Background(), []string{"remove", "--unlink", "my-app"}); err != nil {
+		if err := runRootCommand(context.Background(), []string{"remove", "--unlink", "my-app"}); err != nil {
 			t.Fatalf("run returned error: %v", err)
 		}
 	})
@@ -547,20 +449,7 @@ func TestRemoveCmdOutputsUnlinkedMessage(t *testing.T) {
 }
 
 func TestUpdateCheckSubcommandRemoved(t *testing.T) {
-	cmd := &cli.Command{
-		Name: "update",
-		Flags: []cli.Flag{
-			&cli.BoolFlag{Name: "yes"},
-			&cli.BoolFlag{Name: "check-only"},
-			&cli.StringFlag{Name: "github"},
-			&cli.StringFlag{Name: "asset"},
-			&cli.StringFlag{Name: "gitlab"},
-			&cli.StringFlag{Name: "zsync-url"},
-		},
-		Action: UpdateCmd,
-	}
-
-	err := cmd.Run(context.Background(), []string{"update", "check", "./MyApp.AppImage"})
+	err := runRootCommand(context.Background(), []string{"update", "check", "./MyApp.AppImage"})
 	if err == nil {
 		t.Fatal("expected removed-subcommand error")
 	}
@@ -853,8 +742,7 @@ func TestValidateInstallTargetFlags(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cmd := newInstallTestCommand()
-			argv := append([]string{"install"}, tt.args...)
-			if err := cmd.Run(context.Background(), argv); err == nil {
+			if err := executeTestCommand(context.Background(), cmd, tt.args...); err == nil {
 				t.Fatal("expected install action placeholder error")
 			}
 
@@ -923,12 +811,12 @@ func TestAddCmdRemoteFlagValidation(t *testing.T) {
 
 func TestAddAndIntegrateRejectRemovedPostCheckFlag(t *testing.T) {
 	err := runAddCommand(context.Background(), []string{"./MyApp.AppImage", "--post-check"})
-	if err == nil || !strings.Contains(err.Error(), "flag provided but not defined: -post-check") {
+	if err == nil || !strings.Contains(err.Error(), "unknown flag: --post-check") {
 		t.Fatalf("unexpected add error: %v", err)
 	}
 
 	err = runIntegrateCommand(context.Background(), []string{"./MyApp.AppImage", "--post-check"})
-	if err == nil || !strings.Contains(err.Error(), "flag provided but not defined: -post-check") {
+	if err == nil || !strings.Contains(err.Error(), "unknown flag: --post-check") {
 		t.Fatalf("unexpected integrate error: %v", err)
 	}
 }
@@ -2269,24 +2157,14 @@ func TestResolveUpdateSourceFromSetFlags(t *testing.T) {
 	}
 }
 
-func newUpdateSetTestCommand(t *testing.T, values map[string]string) *cli.Command {
+func newUpdateSetTestCommand(t *testing.T, values map[string]string) *cobra.Command {
 	t.Helper()
 
-	cmd := &cli.Command{
-		Flags: []cli.Flag{
-			&cli.StringFlag{Name: "github"},
-			&cli.StringFlag{Name: "gitlab"},
-			&cli.StringFlag{Name: "asset"},
-			&cli.StringFlag{Name: "zsync-url"},
-			&cli.BoolFlag{Name: "embedded"},
-			&cli.StringFlag{Name: "manifest-url"},
-			&cli.StringFlag{Name: "url"},
-			&cli.StringFlag{Name: "sha256"},
-		},
-	}
+	cmd := &cobra.Command{Use: "update"}
+	addUpdateSharedFlags(cmd)
 
 	for key, value := range values {
-		if err := cmd.Set(key, value); err != nil {
+		if err := cmd.PersistentFlags().Set(key, value); err != nil {
 			t.Fatalf("failed to set %s: %v", key, err)
 		}
 	}
@@ -2870,59 +2748,42 @@ func TestUpdateUnsetCommand(t *testing.T) {
 	}
 }
 
-func newRootTestCommand() *cli.Command {
-	return newRootCommand("test")
+func newRootTestCommand() *cobra.Command {
+	cmd := newRootCommand("test")
+	cmd.SetVersionTemplate("{{.Name}} {{.Version}}\n")
+	return cmd
 }
 
 func TestNewRootCommandMetadata(t *testing.T) {
 	cmd := newRootCommand("v1.2.3")
 
-	if strings.TrimSpace(cmd.Description) == "" {
+	if strings.TrimSpace(cmd.Long) == "" {
 		t.Fatal("expected root command description")
 	}
-	if len(cmd.Authors) != 1 || fmt.Sprint(cmd.Authors[0]) != "Sebastian Lobbe <slobbe@lobbe.cc>" {
-		t.Fatalf("unexpected root command authors: %#v", cmd.Authors)
+	if got := rootCommandAuthor; got != "Sebastian Lobbe <slobbe@lobbe.cc>" {
+		t.Fatalf("unexpected root command author: %q", got)
 	}
-	if strings.TrimSpace(cmd.Copyright) == "" {
+	if strings.TrimSpace(rootCommandCopyright) == "" {
 		t.Fatal("expected root command copyright")
 	}
 }
 
 func TestRenderManPageIncludesMetadata(t *testing.T) {
-	got, err := renderManMarkdown(newRootCommand("v1.2.3"), 1)
+	got, err := renderManPage(newRootCommand("v1.2.3"), 1)
 	if err != nil {
-		t.Fatalf("failed to generate markdown man page: %v", err)
+		t.Fatalf("failed to generate man page: %v", err)
 	}
 
 	for _, expected := range []string{
-		"# DESCRIPTION",
-		"# VERSION",
-		"# AUTHOR",
-		"# COPYRIGHT",
+		".SH VERSION",
+		".SH AUTHOR",
+		".SH COPYRIGHT",
 		"v1.2.3",
 		"Sebastian Lobbe <slobbe@lobbe.cc>",
 		"Copyright (c) 2025 Sebastian Lobbe",
 	} {
 		if !strings.Contains(got, expected) {
-			t.Fatalf("generated markdown man page missing %q:\n%s", expected, got)
-		}
-	}
-}
-
-func TestRenderManPageOmitsEmptyMetadataSections(t *testing.T) {
-	cmd := &cli.Command{
-		Name:  "aim",
-		Usage: "Manage AppImages as desktop apps on Linux",
-	}
-
-	got, err := renderManMarkdown(cmd, 1)
-	if err != nil {
-		t.Fatalf("failed to generate markdown man page: %v", err)
-	}
-
-	for _, unexpected := range []string{"# DESCRIPTION", "# VERSION", "# AUTHOR", "# COPYRIGHT"} {
-		if strings.Contains(got, unexpected) {
-			t.Fatalf("generated markdown man page unexpectedly contains %q:\n%s", unexpected, got)
+			t.Fatalf("generated man page missing %q:\n%s", expected, got)
 		}
 	}
 }
@@ -2965,7 +2826,7 @@ func TestRunManagedUpdateSingleUpToDatePrintedOnce(t *testing.T) {
 		t.Fatalf("failed to write test DB: %v", err)
 	}
 
-	cmd := &cli.Command{Flags: []cli.Flag{&cli.BoolFlag{Name: "yes"}, &cli.BoolFlag{Name: "check-only"}}}
+	cmd := newManagedUpdateTestCommand(t, nil)
 	originalCheck := runAppUpdateCheck
 	t.Cleanup(func() {
 		runAppUpdateCheck = originalCheck
@@ -3011,7 +2872,7 @@ func TestRunManagedUpdateSingleNoSourceConfigured(t *testing.T) {
 		t.Fatalf("failed to write test DB: %v", err)
 	}
 
-	cmd := &cli.Command{Flags: []cli.Flag{&cli.BoolFlag{Name: "yes"}, &cli.BoolFlag{Name: "check-only"}}}
+	cmd := newManagedUpdateTestCommand(t, nil)
 	originalCheck := runAppUpdateCheck
 	t.Cleanup(func() {
 		runAppUpdateCheck = originalCheck
@@ -3077,7 +2938,7 @@ func TestRunManagedUpdateBatchContinuesOnCheckFailure(t *testing.T) {
 		return nil, nil
 	}
 
-	cmd := &cli.Command{Flags: []cli.Flag{&cli.BoolFlag{Name: "yes"}, &cli.BoolFlag{Name: "check-only"}}}
+	cmd := newManagedUpdateTestCommand(t, nil)
 	output := captureStdout(t, func() {
 		if err := runManagedUpdate(context.Background(), cmd, ""); err != nil {
 			t.Fatalf("runManagedUpdate returned error: %v", err)
@@ -3120,7 +2981,7 @@ func TestRunManagedUpdateBatchAllUpToDateSummary(t *testing.T) {
 		return &pendingManagedUpdate{App: app, Available: false}, nil
 	}
 
-	cmd := &cli.Command{Flags: []cli.Flag{&cli.BoolFlag{Name: "check-only"}}}
+	cmd := newManagedUpdateTestCommand(t, map[string]string{"check-only": "true"})
 	output := captureStdout(t, func() {
 		if err := runManagedUpdate(context.Background(), cmd, ""); err != nil {
 			t.Fatalf("runManagedUpdate returned error: %v", err)
@@ -3169,10 +3030,7 @@ func TestRunManagedUpdateCheckOnlyShowsDownloadAndAsset(t *testing.T) {
 		}, nil
 	}
 
-	cmd := &cli.Command{Flags: []cli.Flag{&cli.BoolFlag{Name: "check-only"}}}
-	if err := cmd.Set("check-only", "true"); err != nil {
-		t.Fatalf("failed to set check-only: %v", err)
-	}
+	cmd := newManagedUpdateTestCommand(t, map[string]string{"check-only": "true"})
 	output := captureStdout(t, func() {
 		if err := runManagedUpdate(context.Background(), cmd, "my-app"); err != nil {
 			t.Fatalf("runManagedUpdate returned error: %v", err)
@@ -3223,7 +3081,7 @@ func TestRunManagedUpdateSinglePromptText(t *testing.T) {
 		}, nil
 	}
 
-	cmd := &cli.Command{Flags: []cli.Flag{&cli.BoolFlag{Name: "yes"}, &cli.BoolFlag{Name: "check-only"}}}
+	cmd := newManagedUpdateTestCommand(t, nil)
 	output := captureStdoutWithInput(t, "n\n", func() {
 		if err := runManagedUpdate(context.Background(), cmd, "my-app"); err != nil {
 			t.Fatalf("runManagedUpdate returned error: %v", err)
@@ -3272,7 +3130,7 @@ func TestRunManagedUpdateBatchPromptText(t *testing.T) {
 		}, nil
 	}
 
-	cmd := &cli.Command{Flags: []cli.Flag{&cli.BoolFlag{Name: "yes"}, &cli.BoolFlag{Name: "check-only"}}}
+	cmd := newManagedUpdateTestCommand(t, nil)
 	output := captureStdoutWithInput(t, "n\n", func() {
 		if err := runManagedUpdate(context.Background(), cmd, ""); err != nil {
 			t.Fatalf("runManagedUpdate returned error: %v", err)
@@ -3789,7 +3647,7 @@ func TestManagedApplyRendererTTYRendersStableRows(t *testing.T) {
 	withTerminalOutput(t, true)
 
 	output := captureStdout(t, func() {
-		renderer := newManagedApplyRenderer(&cli.Command{}, []pendingManagedUpdate{
+		renderer := newManagedApplyRenderer(&cobra.Command{}, []pendingManagedUpdate{
 			{App: &models.App{ID: "app-a"}},
 			{App: &models.App{ID: "app-b"}},
 		})
@@ -3852,10 +3710,7 @@ func TestRunManagedUpdateUsesUnifiedApplyUIForSingleApp(t *testing.T) {
 		return &models.App{ID: update.App.ID, Version: "1.1.0"}, nil
 	}
 
-	cmd := &cli.Command{Flags: []cli.Flag{&cli.BoolFlag{Name: "yes"}}}
-	if err := cmd.Set("yes", "true"); err != nil {
-		t.Fatalf("failed to set yes: %v", err)
-	}
+	cmd := newManagedUpdateTestCommand(t, map[string]string{"yes": "true"})
 	output := captureStdout(t, func() {
 		if err := runManagedUpdate(context.Background(), cmd, "my-app"); err != nil {
 			t.Fatalf("runManagedUpdate returned error: %v", err)
@@ -3931,10 +3786,7 @@ func TestRunManagedUpdateAppliesConcurrentlyWithMaxFiveWorkers(t *testing.T) {
 		return &models.App{ID: update.App.ID, Version: "2.0.0"}, nil
 	}
 
-	cmd := &cli.Command{Flags: []cli.Flag{&cli.BoolFlag{Name: "yes"}}}
-	if err := cmd.Set("yes", "true"); err != nil {
-		t.Fatalf("failed to set yes: %v", err)
-	}
+	cmd := newManagedUpdateTestCommand(t, map[string]string{"yes": "true"})
 	output := captureStdout(t, func() {
 		if err := runManagedUpdate(context.Background(), cmd, ""); err != nil {
 			t.Fatalf("runManagedUpdate returned error: %v", err)
@@ -4004,10 +3856,7 @@ func TestRunManagedUpdatePersistsSuccessesInPendingOrder(t *testing.T) {
 		return nil
 	}
 
-	cmd := &cli.Command{Flags: []cli.Flag{&cli.BoolFlag{Name: "yes"}}}
-	if err := cmd.Set("yes", "true"); err != nil {
-		t.Fatalf("failed to set yes: %v", err)
-	}
+	cmd := newManagedUpdateTestCommand(t, map[string]string{"yes": "true"})
 	if err := runManagedUpdate(context.Background(), cmd, ""); err != nil {
 		t.Fatalf("runManagedUpdate returned error: %v", err)
 	}
@@ -4064,10 +3913,7 @@ func TestRunManagedUpdateContinuesAfterApplyFailure(t *testing.T) {
 		return nil
 	}
 
-	cmd := &cli.Command{Flags: []cli.Flag{&cli.BoolFlag{Name: "yes"}}}
-	if err := cmd.Set("yes", "true"); err != nil {
-		t.Fatalf("failed to set yes: %v", err)
-	}
+	cmd := newManagedUpdateTestCommand(t, map[string]string{"yes": "true"})
 	output := captureStdout(t, func() {
 		err := runManagedUpdate(context.Background(), cmd, "")
 		if err == nil {
@@ -4557,48 +4403,68 @@ func captureStdoutWithInput(t *testing.T, input string, fn func()) string {
 	return captureStdout(t, fn)
 }
 
-func newAddTestCommand() *cli.Command {
-	return &cli.Command{
-		Name: "add",
-		Arguments: []cli.Argument{
-			&cli.StringArg{Name: "target"},
-		},
-		Flags: []cli.Flag{
-			&cli.StringFlag{Name: "asset"},
-			&cli.StringFlag{Name: "sha256"},
-		},
-		Action: func(context.Context, *cli.Command) error {
-			return fmt.Errorf("test sentinel")
-		},
+func newUpgradeTestCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:           "upgrade",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE:          UpgradeCmd,
 	}
+	cmd.SetOut(os.Stdout)
+	cmd.SetErr(os.Stdout)
+	return cmd
 }
 
-func newIntegrateTestCommand() *cli.Command {
-	return &cli.Command{
-		Name: "integrate",
-		Arguments: []cli.Argument{
-			&cli.StringArg{Name: "target"},
-		},
-		Action: func(context.Context, *cli.Command) error {
-			return fmt.Errorf("test sentinel")
-		},
+func newInstallTestCommand() *cobra.Command {
+	cmd := newInstallCommand()
+	cmd.SilenceUsage = true
+	cmd.SilenceErrors = true
+	cmd.RunE = func(*cobra.Command, []string) error {
+		return fmt.Errorf("test sentinel")
 	}
+	return cmd
 }
 
-func newInstallTestCommand() *cli.Command {
-	return &cli.Command{
-		Name: "install",
-		Arguments: []cli.Argument{
-			&cli.StringArg{Name: "ref"},
-		},
-		Flags: []cli.Flag{
-			&cli.StringFlag{Name: "asset"},
-			&cli.StringFlag{Name: "sha256"},
-		},
-		Action: func(context.Context, *cli.Command) error {
-			return fmt.Errorf("test sentinel")
-		},
+func newManagedUpdateTestCommand(t *testing.T, values map[string]string) *cobra.Command {
+	t.Helper()
+
+	cmd := &cobra.Command{Use: "update"}
+	cmd.Flags().Bool("yes", false, "")
+	cmd.Flags().Bool("check-only", false, "")
+	cmd.SetOut(os.Stdout)
+	cmd.SetErr(os.Stdout)
+
+	for key, value := range values {
+		if err := cmd.Flags().Set(key, value); err != nil {
+			t.Fatalf("failed to set %s: %v", key, err)
+		}
 	}
+
+	return cmd
+}
+
+func executeTestCommand(ctx context.Context, cmd *cobra.Command, args ...string) error {
+	cmd.SetOut(os.Stdout)
+	cmd.SetErr(os.Stdout)
+	cmd.SetArgs(args)
+	return cmd.ExecuteContext(ctx)
+}
+
+func findSubcommand(cmd *cobra.Command, name string) *cobra.Command {
+	for _, subcommand := range cmd.Commands() {
+		if subcommand.Name() == name {
+			return subcommand
+		}
+	}
+	return nil
+}
+
+func countFlags(flags interface{ VisitAll(func(*pflag.Flag)) }) int {
+	count := 0
+	flags.VisitAll(func(*pflag.Flag) {
+		count++
+	})
+	return count
 }
 
 func setupAddCommandConfigForTest(t *testing.T, tmp string) {
@@ -4622,117 +4488,42 @@ func setupAddCommandConfigForTest(t *testing.T, tmp string) {
 }
 
 func runAddCommand(ctx context.Context, args []string) error {
-	cmd := newAddTestCommand()
-	cmd.Action = AddCmd
-
-	argv := append([]string{"add"}, args...)
-	return cmd.Run(ctx, argv)
+	return runRootCommand(ctx, append([]string{"add"}, args...))
 }
 
 func runIntegrateCommand(ctx context.Context, args []string) error {
-	cmd := newIntegrateTestCommand()
-	cmd.Action = IntegrateCmd
-
-	argv := append([]string{"integrate"}, args...)
-	return cmd.Run(ctx, argv)
+	return runRootCommand(ctx, append([]string{"integrate"}, args...))
 }
 
 func runListCommand(ctx context.Context, args []string) error {
-	cmd := &cli.Command{
-		Name: "list",
-		Flags: []cli.Flag{
-			&cli.BoolFlag{Name: "all"},
-			&cli.BoolFlag{Name: "integrated"},
-			&cli.BoolFlag{Name: "unlinked"},
-		},
-		Action: ListCmd,
-	}
-
-	argv := append([]string{"list"}, args...)
-	return cmd.Run(ctx, argv)
+	return runRootCommand(ctx, append([]string{"list"}, args...))
 }
 
 func runShowCommand(ctx context.Context, args []string) error {
-	cmd := &cli.Command{
-		Name: "show",
-		Arguments: []cli.Argument{
-			&cli.StringArg{Name: "ref"},
-		},
-		Action: ShowCmd,
-	}
-
-	argv := append([]string{"show"}, args...)
-	return cmd.Run(ctx, argv)
+	return runRootCommand(ctx, append([]string{"show"}, args...))
 }
 
 func runInfoCommand(ctx context.Context, args []string) error {
-	cmd := &cli.Command{
-		Name: "info",
-		Arguments: []cli.Argument{
-			&cli.StringArg{Name: "target"},
-		},
-		Action: InfoCmd,
-	}
-
-	argv := append([]string{"info"}, args...)
-	return cmd.Run(ctx, argv)
+	return runRootCommand(ctx, append([]string{"info"}, args...))
 }
 
 func runInspectCommand(ctx context.Context, args []string) error {
-	cmd := &cli.Command{
-		Name: "inspect",
-		Arguments: []cli.Argument{
-			&cli.StringArg{Name: "target"},
-		},
-		Action: InspectCmd,
-	}
-
-	argv := append([]string{"inspect"}, args...)
-	return cmd.Run(ctx, argv)
+	return runRootCommand(ctx, append([]string{"inspect"}, args...))
 }
 
 func runInstallCommand(ctx context.Context, args []string) error {
-	cmd := newInstallTestCommand()
-	cmd.Action = InstallCmd
-
-	argv := append([]string{"install"}, args...)
-	return cmd.Run(ctx, argv)
+	return runRootCommand(ctx, append([]string{"install"}, args...))
 }
 
 func runUpdateSetCommand(ctx context.Context, args []string) error {
-	cmd := &cli.Command{
-		Name: "update",
-		Flags: []cli.Flag{
-			&cli.BoolFlag{Name: "yes"},
-			&cli.BoolFlag{Name: "check-only"},
-			&cli.StringFlag{Name: "github"},
-			&cli.StringFlag{Name: "asset"},
-			&cli.StringFlag{Name: "gitlab"},
-			&cli.StringFlag{Name: "zsync-url"},
-			&cli.BoolFlag{Name: "embedded"},
-		},
-		Action: UpdateCmd,
-	}
-
-	argv := append([]string{"update", "set"}, args...)
-	return cmd.Run(ctx, argv)
+	return runRootCommand(ctx, append([]string{"update", "set"}, args...))
 }
 
 func runUpdateUnsetCommand(ctx context.Context, args []string) error {
-	cmd := &cli.Command{
-		Name: "update",
-		Flags: []cli.Flag{
-			&cli.BoolFlag{Name: "yes"},
-			&cli.BoolFlag{Name: "check-only"},
-			&cli.StringFlag{Name: "github"},
-			&cli.StringFlag{Name: "asset"},
-			&cli.StringFlag{Name: "gitlab"},
-			&cli.StringFlag{Name: "zsync-url"},
-			&cli.BoolFlag{Name: "embedded"},
-		},
-		Action: UpdateCmd,
-	}
+	return runRootCommand(ctx, append([]string{"update", "unset"}, args...))
+}
 
-	argv := append([]string{"update", "unset"}, args...)
-	return cmd.Run(ctx, argv)
+func runRootCommand(ctx context.Context, args []string) error {
+	cmd := newRootTestCommand()
+	return executeTestCommand(ctx, cmd, args...)
 }

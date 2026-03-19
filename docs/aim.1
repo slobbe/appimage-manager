@@ -1,141 +1,34 @@
 .nh
-.TH aim 1
+.TH "AIM" "1" "Mar 2026" "aim dev" "Manage AppImages as desktop apps on Linux"
 
 .SH NAME
-.PP
 aim - Manage AppImages as desktop apps on Linux
 
 
 .SH SYNOPSIS
-.PP
-aim
+\fBaim [flags]\fP
 
 
 .SH DESCRIPTION
-.PP
 aim manages AppImages on Linux. It installs, integrates, updates, and removes AppImages while keeping desktop integration and a local managed-app database in sync.
 
 
-.SH VERSION
+.SH OPTIONS
+\fB-h\fP, \fB--help\fP[=false]
+	help for aim
+
 .PP
+\fB-v\fP, \fB--version\fP[=false]
+	version for aim
+
+
+.SH SEE ALSO
+\fBaim-add(1)\fP, \fBaim-info(1)\fP, \fBaim-inspect(1)\fP, \fBaim-install(1)\fP, \fBaim-integrate(1)\fP, \fBaim-list(1)\fP, \fBaim-remove(1)\fP, \fBaim-show(1)\fP, \fBaim-update(1)\fP, \fBaim-upgrade(1)\fP
+.SH VERSION
 dev
 
-
 .SH AUTHOR
-.PP
-Sebastian Lobbe slobbe@lobbe.cc
-\[la]mailto:slobbe@lobbe.cc\[ra]
-
+Sebastian Lobbe <slobbe@lobbe.cc>
 
 .SH COPYRIGHT
-.PP
 Copyright (c) 2025 Sebastian Lobbe
-
-
-.SH USAGE
-.PP
-.RS
-
-.nf
-aim [GLOBAL OPTIONS] [command [COMMAND OPTIONS]] [ARGUMENTS...]
-
-.fi
-.RE
-
-
-.SH COMMANDS
-.SH add
-.PP
-Add a remote source, managed app, or local AppImage
-
-.PP
-\fB--asset string\fP: asset filename pattern override for github:/gitlab: add sources
-
-.PP
-\fB--sha256 string\fP: expected SHA-256 for direct https:// add sources
-
-.SH integrate
-.PP
-Integrate a local AppImage or reintegrate an existing ID
-
-.SH remove, rm
-.PP
-Remove or unlink a managed AppImage
-
-.PP
-\fB--unlink\fP: remove only desktop integration; keep managed AppImage files
-
-.SH list, ls
-.PP
-List managed AppImages
-
-.PP
-\fB--all, -a\fP: list all AppImages (default)
-
-.PP
-\fB--integrated, -i\fP: list integrated AppImages only
-
-.PP
-\fB--unlinked, -u\fP: list unlinked AppImages only
-
-.SH show
-.PP
-Show installability details for a package ref
-
-.SH info
-.PP
-Show package, managed app, or AppImage details
-
-.SH inspect
-.PP
-Inspect a managed app or local AppImage
-
-.SH install, i
-.PP
-Install from a remote source
-
-.PP
-\fB--asset string\fP: asset filename pattern override for github:/gitlab: install sources
-
-.PP
-\fB--sha256 string\fP: expected SHA-256 for direct https:// install sources
-
-.SH update, u
-.PP
-Check or apply updates, or set an update source
-
-.PP
-.RS
-
-.nf
-aim update [<id>] [--yes|-y] [--check-only|-c]
-   aim update set <id> (--github owner/repo [--asset "*.AppImage"] | --gitlab namespace/project [--asset "*.AppImage"] | --zsync-url <https-url> | --embedded)
-   aim update unset <id>
-
-.fi
-.RE
-
-.PP
-\fB--yes, -y\fP: apply updates without prompting
-
-.PP
-\fB--check-only, -c\fP: check only; do not apply updates
-
-.PP
-\fB--github string\fP: GitHub repo in the form owner/repo (for 'update set')
-
-.PP
-\fB--asset string\fP: asset filename pattern; defaults to "*.AppImage" for GitHub/GitLab (for 'update set')
-
-.PP
-\fB--gitlab string\fP: GitLab project path namespace/project (for 'update set')
-
-.PP
-\fB--zsync-url string\fP: direct zsync metadata URL (https, for 'update set')
-
-.PP
-\fB--embedded\fP: use the update source embedded in the current AppImage (for 'update set')
-
-.SH upgrade
-.PP
-Upgrade aim to the latest stable release

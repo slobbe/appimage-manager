@@ -7,7 +7,7 @@ import (
 	"sync"
 
 	models "github.com/slobbe/appimage-manager/internal/types"
-	"github.com/urfave/cli/v3"
+	"github.com/spf13/cobra"
 )
 
 const maxManagedApplyWorkers = 5
@@ -64,7 +64,7 @@ type managedApplyRowState struct {
 }
 
 type managedApplyRenderer struct {
-	cmd    *cli.Command
+	cmd    *cobra.Command
 	total  int
 	tty    bool
 	rows   []managedApplyRowState
@@ -73,7 +73,7 @@ type managedApplyRenderer struct {
 	header string
 }
 
-func runManagedApplies(ctx context.Context, cmd *cli.Command, pending []pendingManagedUpdate) []managedApplyResult {
+func runManagedApplies(ctx context.Context, cmd *cobra.Command, pending []pendingManagedUpdate) []managedApplyResult {
 	if len(pending) == 0 {
 		return nil
 	}
@@ -137,7 +137,7 @@ func emitManagedApplyEvent(reporter managedApplyReporter, event managedApplyEven
 	}
 }
 
-func newManagedApplyRenderer(cmd *cli.Command, pending []pendingManagedUpdate) *managedApplyRenderer {
+func newManagedApplyRenderer(cmd *cobra.Command, pending []pendingManagedUpdate) *managedApplyRenderer {
 	rows := make([]managedApplyRowState, len(pending))
 	for idx, item := range pending {
 		appID := ""
