@@ -320,6 +320,54 @@ func TestRootUpgradeFlagInvokesInstallerUpgrade(t *testing.T) {
 	}
 }
 
+func TestRootUpgradeFlagPassesNonNilContext(t *testing.T) {
+	original := runUpgradeViaInstaller
+	t.Cleanup(func() {
+		runUpgradeViaInstaller = original
+	})
+
+	runUpgradeViaInstaller = func(ctx context.Context) error {
+		if ctx == nil {
+			t.Fatal("expected non-nil context")
+		}
+		if err := ctx.Err(); err != nil {
+			t.Fatalf("unexpected context error: %v", err)
+		}
+		return nil
+	}
+
+	cmd := newRootTestCommand()
+	_ = captureStdout(t, func() {
+		if err := executeTestCommand(context.Background(), cmd, "--upgrade"); err != nil {
+			t.Fatalf("run returned error: %v", err)
+		}
+	})
+}
+
+func TestRootUpgradeShortFlagPassesNonNilContext(t *testing.T) {
+	original := runUpgradeViaInstaller
+	t.Cleanup(func() {
+		runUpgradeViaInstaller = original
+	})
+
+	runUpgradeViaInstaller = func(ctx context.Context) error {
+		if ctx == nil {
+			t.Fatal("expected non-nil context")
+		}
+		if err := ctx.Err(); err != nil {
+			t.Fatalf("unexpected context error: %v", err)
+		}
+		return nil
+	}
+
+	cmd := newRootTestCommand()
+	_ = captureStdout(t, func() {
+		if err := executeTestCommand(context.Background(), cmd, "-U"); err != nil {
+			t.Fatalf("run returned error: %v", err)
+		}
+	})
+}
+
 func TestRootVersionOutputIsCompact(t *testing.T) {
 	cmd := newRootTestCommand()
 	cmd.Version = "v0.8.0"

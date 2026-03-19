@@ -43,6 +43,30 @@ func TestUpgradeViaInstallerUsesPublishedScriptURL(t *testing.T) {
 	}
 }
 
+func TestUpgradeViaInstallerHandlesNilContext(t *testing.T) {
+	originalRunInstallerScript := upgradeRunInstallerScript
+	t.Cleanup(func() {
+		upgradeRunInstallerScript = originalRunInstallerScript
+	})
+
+	upgradeRunInstallerScript = func(ctx context.Context, scriptURL string) error {
+		if ctx == nil {
+			t.Fatal("expected non-nil context")
+		}
+		if err := ctx.Err(); err != nil {
+			t.Fatalf("unexpected context error: %v", err)
+		}
+		if scriptURL == "" {
+			t.Fatal("expected installer script URL")
+		}
+		return nil
+	}
+
+	if err := UpgradeViaInstaller(nil); err != nil {
+		t.Fatalf("UpgradeViaInstaller returned error: %v", err)
+	}
+}
+
 func TestRunInstallerScriptRejectsBadStatus(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "nope", http.StatusBadGateway)

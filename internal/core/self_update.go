@@ -24,6 +24,9 @@ var (
 )
 
 func UpgradeViaInstaller(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	return upgradeRunInstallerScript(ctx, upgradeInstallScriptURL(upgradeRepoSlug))
 }
 

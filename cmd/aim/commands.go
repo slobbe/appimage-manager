@@ -35,7 +35,7 @@ func RootCmd(cmd *cobra.Command, args []string) error {
 		if len(args) > 0 {
 			return fmt.Errorf("--upgrade does not accept positional arguments")
 		}
-		return UpgradeCmd(cmd, nil)
+		return runUpgrade(cmd.Context(), cmd)
 	}
 	return cmd.Help()
 }
@@ -50,7 +50,7 @@ func maybeRunRootUpgradeFlag(ctx context.Context, cmd *cobra.Command, args []str
 		if len(args) != 1 {
 			return true, fmt.Errorf("--upgrade does not accept positional arguments")
 		}
-		return true, UpgradeCmd(cmd, nil)
+		return true, runUpgrade(ctx, cmd)
 	default:
 		return false, nil
 	}
@@ -58,7 +58,14 @@ func maybeRunRootUpgradeFlag(ctx context.Context, cmd *cobra.Command, args []str
 
 func UpgradeCmd(cmd *cobra.Command, args []string) error {
 	_ = args
-	if err := runUpgradeViaInstaller(cmd.Context()); err != nil {
+	return runUpgrade(cmd.Context(), cmd)
+}
+
+func runUpgrade(ctx context.Context, cmd *cobra.Command) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := runUpgradeViaInstaller(ctx); err != nil {
 		return err
 	}
 	printSuccess(cmd, "Updated aim via installer")
