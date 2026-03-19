@@ -68,7 +68,7 @@ func AddCmd(cmd *cobra.Command, args []string) error {
 		return runInstallPackageRef(cmd.Context(), cmd, ref)
 	}
 
-	input, err := commandSingleArg(args, "<https-url|github-url|gitlab-url|id|path-to.AppImage>")
+	input, err := commandSingleArg(args, "<https-url|github-url|gitlab-url|id|Path/To.AppImage>")
 	if err != nil {
 		return err
 	}
@@ -84,7 +84,7 @@ func AddCmd(cmd *cobra.Command, args []string) error {
 		return runIntegrateTarget(cmd.Context(), cmd, input)
 	}
 
-	return fmt.Errorf("unknown add target %q; expected https://..., GitHub/GitLab repo URL, <id>, or <path-to.AppImage>", input)
+	return fmt.Errorf("unknown add target %q; expected https://..., GitHub/GitLab repo URL, <id>, or <Path/To.AppImage>", input)
 }
 
 func resolveAddProviderRef(cmd *cobra.Command, args []string) (discovery.PackageRef, bool, error) {
@@ -204,7 +204,7 @@ func runIntegrateTarget(ctx context.Context, cmd *cobra.Command, input string) e
 func resolveIntegrateTarget(input string) (*integrateTarget, error) {
 	trimmed := strings.TrimSpace(input)
 	if trimmed == "" {
-		return nil, fmt.Errorf("missing required argument <path-to.AppImage|id>")
+		return nil, fmt.Errorf("missing required argument <Path/To.AppImage|id>")
 	}
 
 	if app, err := repo.GetApp(trimmed); err == nil {
@@ -277,7 +277,7 @@ func resolveInstallTarget(input string) (*installTarget, error) {
 	}
 
 	if util.HasExtension(trimmed, ".AppImage") {
-		return nil, fmt.Errorf("local AppImages are added with 'aim add <path-to.AppImage>'")
+		return nil, fmt.Errorf("local AppImages are added with 'aim add <Path/To.AppImage>'")
 	}
 
 	return nil, fmt.Errorf("unknown add target %s", input)
@@ -676,7 +676,7 @@ func InfoCmd(cmd *cobra.Command, args []string) error {
 		return runInspectTarget(cmd.Context(), cmd, input)
 	}
 
-	return fmt.Errorf("unknown info target %q; expected GitHub/GitLab repo URL, <id>, or <path-to.AppImage>", input)
+	return fmt.Errorf("unknown info target %q; expected GitHub/GitLab repo URL, <id>, or <Path/To.AppImage>", input)
 }
 
 func resolvePackageMetadataFromRef(ctx context.Context, ref discovery.PackageRef, assetOverride string) (*discovery.PackageMetadata, error) {
@@ -1007,7 +1007,7 @@ func validateAddIntegrateFlags(cmd *cobra.Command) error {
 func resolveInspectTarget(input string) (*inspectTarget, error) {
 	trimmed := strings.TrimSpace(input)
 	if trimmed == "" {
-		return nil, fmt.Errorf("missing required argument <id|path-to.AppImage>")
+		return nil, fmt.Errorf("missing required argument <id|Path/To.AppImage>")
 	}
 
 	if app, err := repo.GetApp(trimmed); err == nil {

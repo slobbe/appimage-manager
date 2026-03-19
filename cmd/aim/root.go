@@ -42,7 +42,7 @@ func newRootCommand(version string) *cobra.Command {
 
 func newAddCommand() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "add [<https-url|github-url|gitlab-url|id|path-to.AppImage>]",
+		Use:   "add [<https-url|github-url|gitlab-url|id|Path/To.AppImage>]",
 		Short: "Add a remote source, managed app, or local AppImage",
 		RunE:  AddCmd,
 	}
@@ -81,7 +81,7 @@ func newListCommand() *cobra.Command {
 
 func newInfoCommand() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "info [<github-url|gitlab-url|id|path-to.AppImage>]",
+		Use:   "info [<github-url|gitlab-url|id|Path/To.AppImage>]",
 		Short: "Show package, managed app, or AppImage details",
 		RunE:  InfoCmd,
 	}

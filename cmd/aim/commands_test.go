@@ -132,7 +132,7 @@ func TestResolveInstallTarget(t *testing.T) {
 		{name: "gitlab repo url", input: "https://gitlab.com/group/project", expect: installTargetGitLab},
 		{name: "github release download url falls back", input: "https://github.com/owner/repo/releases/download/v1/App.AppImage", expect: installTargetDirectURL},
 		{name: "http rejected", input: "http://example.com/MyApp.AppImage", wantError: true, errText: "direct URLs must use https"},
-		{name: "local path rejected", input: "/tmp/MyApp.AppImage", wantError: true, errText: "local AppImages are added with 'aim add <path-to.AppImage>'"},
+		{name: "local path rejected", input: "/tmp/MyApp.AppImage", wantError: true, errText: "local AppImages are added with 'aim add <Path/To.AppImage>'"},
 		{name: "managed id rejected", input: "managed", wantError: true, errText: "managed app IDs are added with 'aim add <id>'"},
 		{name: "legacy github ref", input: "github:owner", wantError: true, errText: "github:... refs are no longer accepted"},
 		{name: "legacy gitlab ref", input: "gitlab:group", wantError: true, errText: "gitlab:... refs are no longer accepted"},
@@ -2029,7 +2029,7 @@ func TestInfoCmdRejectsUnknownTarget(t *testing.T) {
 	if !strings.Contains(err.Error(), "unknown info target") {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(err.Error(), "expected GitHub/GitLab repo URL, <id>, or <path-to.AppImage>") {
+	if !strings.Contains(err.Error(), "expected GitHub/GitLab repo URL, <id>, or <Path/To.AppImage>") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -2069,7 +2069,7 @@ func TestAddRemoteResolverRejectsLocalPath(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(err.Error(), "local AppImages are added with 'aim add <path-to.AppImage>'") {
+	if !strings.Contains(err.Error(), "local AppImages are added with 'aim add <Path/To.AppImage>'") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

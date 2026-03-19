@@ -72,7 +72,7 @@ aim upgrade
 Add a remote source, managed app, or local `.AppImage`.
 
 ```sh
-aim add [<https-url|github-url|gitlab-url|path-to.AppImage|id>]
+aim add [<https-url|github-url|gitlab-url|Path/To.AppImage|id>]
 aim add --github owner/repo
 aim add --gitlab namespace/project
 ```
@@ -106,7 +106,7 @@ For direct `https://` downloads, `--sha256` is optional. If omitted, `aim` warns
 Inspect a provider package, managed app, or local `.AppImage`.
 
 ```sh
-aim info [<github-url|gitlab-url|id|path-to.AppImage>]
+aim info [<github-url|gitlab-url|id|Path/To.AppImage>]
 aim info --github owner/repo
 aim info --gitlab namespace/project
 aim info https://github.com/owner/repo
