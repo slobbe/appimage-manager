@@ -65,13 +65,27 @@ func runUpgrade(ctx context.Context, cmd *cobra.Command) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+
+	checkResult, err := checkAimUpgrade(ctx, version)
+	if err != nil {
+		return err
+	}
+	if checkResult != nil && checkResult.Comparable && !checkResult.HasUpdate {
+		current := checkResult.LatestVersion
+		if strings.TrimSpace(current) == "" {
+			current = checkResult.CurrentVersion
+		}
+		printSuccess(cmd, fmt.Sprintf("aim is up to date (%s)", displayVersion(current)))
+		return nil
+	}
+
 	result, err := runUpgradeViaInstaller(ctx, version)
 	if err != nil {
 		return err
 	}
 	if result != nil && strings.TrimSpace(result.InstalledVersion) != "" {
 		printSuccess(cmd, fmt.Sprintf(
-			"Updated aim %s -> %s",
+			"Upgraded aim %s -> %s",
 			displayVersion(result.PreviousVersion),
 			displayVersion(result.InstalledVersion),
 		))
@@ -1488,6 +1502,7 @@ var downloadManagedRemoteAsset = downloadUpdateAssetWithProgress
 var integrateManagedUpdate = core.IntegrateFromLocalFileWithoutCacheRefreshOrPersist
 var zsyncLookPath = exec.LookPath
 var zsyncCommandContext = exec.CommandContext
+var checkAimUpgrade = core.CheckForAimUpgrade
 var runUpgradeViaInstaller = core.UpgradeViaInstaller
 var runManagedApply = applyManagedUpdate
 var integrateExistingApp = core.IntegrateExisting

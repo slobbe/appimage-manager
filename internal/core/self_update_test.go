@@ -2,12 +2,142 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 )
+
+func TestCheckForAimUpgradeReturnsUpdateWhenLatestIsNewer(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/releases/latest" {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(latestReleaseResponse{TagName: "v0.12.5"})
+	}))
+	defer server.Close()
+
+	originalHTTPClient := upgradeHTTPClient
+	originalLatestReleaseURL := upgradeLatestReleaseURL
+	t.Cleanup(func() {
+		upgradeHTTPClient = originalHTTPClient
+		upgradeLatestReleaseURL = originalLatestReleaseURL
+	})
+	upgradeHTTPClient = server.Client()
+	upgradeLatestReleaseURL = func(string) string {
+		return server.URL + "/releases/latest"
+	}
+
+	result, err := CheckForAimUpgrade(context.Background(), "0.12.4")
+	if err != nil {
+		t.Fatalf("CheckForAimUpgrade returned error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected upgrade check result")
+	}
+	if !result.Comparable {
+		t.Fatal("expected comparable result")
+	}
+	if !result.HasUpdate {
+		t.Fatal("expected update to be available")
+	}
+	if result.LatestVersion != "v0.12.5" {
+		t.Fatalf("LatestVersion = %q, want %q", result.LatestVersion, "v0.12.5")
+	}
+}
+
+func TestCheckForAimUpgradeReturnsNoUpdateWhenVersionsMatch(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(latestReleaseResponse{TagName: "v0.12.5"})
+	}))
+	defer server.Close()
+
+	originalHTTPClient := upgradeHTTPClient
+	originalLatestReleaseURL := upgradeLatestReleaseURL
+	t.Cleanup(func() {
+		upgradeHTTPClient = originalHTTPClient
+		upgradeLatestReleaseURL = originalLatestReleaseURL
+	})
+	upgradeHTTPClient = server.Client()
+	upgradeLatestReleaseURL = func(string) string {
+		return server.URL
+	}
+
+	result, err := CheckForAimUpgrade(context.Background(), "0.12.5")
+	if err != nil {
+		t.Fatalf("CheckForAimUpgrade returned error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected upgrade check result")
+	}
+	if !result.Comparable {
+		t.Fatal("expected comparable result")
+	}
+	if result.HasUpdate {
+		t.Fatal("did not expect update to be available")
+	}
+}
+
+func TestCheckForAimUpgradeTreatsDevAsNonComparable(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(latestReleaseResponse{TagName: "v0.12.5"})
+	}))
+	defer server.Close()
+
+	originalHTTPClient := upgradeHTTPClient
+	originalLatestReleaseURL := upgradeLatestReleaseURL
+	t.Cleanup(func() {
+		upgradeHTTPClient = originalHTTPClient
+		upgradeLatestReleaseURL = originalLatestReleaseURL
+	})
+	upgradeHTTPClient = server.Client()
+	upgradeLatestReleaseURL = func(string) string {
+		return server.URL
+	}
+
+	result, err := CheckForAimUpgrade(context.Background(), "dev")
+	if err != nil {
+		t.Fatalf("CheckForAimUpgrade returned error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected upgrade check result")
+	}
+	if result.Comparable {
+		t.Fatal("did not expect comparable result for dev")
+	}
+	if !result.HasUpdate {
+		t.Fatal("expected upgrade path to remain allowed for dev")
+	}
+}
+
+func TestCheckForAimUpgradeRejectsBadGitHubStatus(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "nope", http.StatusBadGateway)
+	}))
+	defer server.Close()
+
+	originalHTTPClient := upgradeHTTPClient
+	originalLatestReleaseURL := upgradeLatestReleaseURL
+	t.Cleanup(func() {
+		upgradeHTTPClient = originalHTTPClient
+		upgradeLatestReleaseURL = originalLatestReleaseURL
+	})
+	upgradeHTTPClient = server.Client()
+	upgradeLatestReleaseURL = func(string) string {
+		return server.URL
+	}
+
+	_, err := CheckForAimUpgrade(context.Background(), "0.12.4")
+	if err == nil {
+		t.Fatal("expected latest release request error")
+	}
+	if !strings.Contains(err.Error(), "latest release request failed with status 502 Bad Gateway") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
 
 func TestUpgradeViaInstallerReturnsInstalledVersion(t *testing.T) {
 	originalRepoSlug := upgradeRepoSlug
@@ -57,10 +187,10 @@ func TestUpgradeViaInstallerReturnsInstalledVersion(t *testing.T) {
 		if binaryPath != "/opt/bin/aim" {
 			t.Fatalf("unexpected binary path %q", binaryPath)
 		}
-		return "0.12.4\n", nil
+		return "0.12.5\n", nil
 	}
 
-	result, err := UpgradeViaInstaller(context.Background(), "0.12.3")
+	result, err := UpgradeViaInstaller(context.Background(), "0.12.4")
 	if err != nil {
 		t.Fatalf("UpgradeViaInstaller returned error: %v", err)
 	}
@@ -70,11 +200,11 @@ func TestUpgradeViaInstallerReturnsInstalledVersion(t *testing.T) {
 	if result == nil {
 		t.Fatal("expected upgrade result")
 	}
-	if result.PreviousVersion != "0.12.3" {
-		t.Fatalf("PreviousVersion = %q, want %q", result.PreviousVersion, "0.12.3")
+	if result.PreviousVersion != "0.12.4" {
+		t.Fatalf("PreviousVersion = %q, want %q", result.PreviousVersion, "0.12.4")
 	}
-	if result.InstalledVersion != "0.12.4" {
-		t.Fatalf("InstalledVersion = %q, want %q", result.InstalledVersion, "0.12.4")
+	if result.InstalledVersion != "0.12.5" {
+		t.Fatalf("InstalledVersion = %q, want %q", result.InstalledVersion, "0.12.5")
 	}
 }
 
@@ -110,14 +240,14 @@ func TestUpgradeViaInstallerHandlesNilContext(t *testing.T) {
 		if binaryPath == "" {
 			t.Fatal("expected binary path")
 		}
-		return "0.12.4", nil
+		return "0.12.5", nil
 	}
 
-	result, err := UpgradeViaInstaller(nil, "0.12.3")
+	result, err := UpgradeViaInstaller(nil, "0.12.4")
 	if err != nil {
 		t.Fatalf("UpgradeViaInstaller returned error: %v", err)
 	}
-	if result == nil || result.InstalledVersion != "0.12.4" {
+	if result == nil || result.InstalledVersion != "0.12.5" {
 		t.Fatalf("unexpected result: %#v", result)
 	}
 }
@@ -142,15 +272,15 @@ func TestUpgradeViaInstallerFallsBackWhenVersionProbeFails(t *testing.T) {
 		return "", fmt.Errorf("version probe failed")
 	}
 
-	result, err := UpgradeViaInstaller(context.Background(), "0.12.3")
+	result, err := UpgradeViaInstaller(context.Background(), "0.12.4")
 	if err != nil {
 		t.Fatalf("UpgradeViaInstaller returned error: %v", err)
 	}
 	if result == nil {
 		t.Fatal("expected upgrade result")
 	}
-	if result.PreviousVersion != "0.12.3" {
-		t.Fatalf("PreviousVersion = %q, want %q", result.PreviousVersion, "0.12.3")
+	if result.PreviousVersion != "0.12.4" {
+		t.Fatalf("PreviousVersion = %q, want %q", result.PreviousVersion, "0.12.4")
 	}
 	if result.InstalledVersion != "" {
 		t.Fatalf("InstalledVersion = %q, want empty string", result.InstalledVersion)
@@ -167,7 +297,7 @@ func TestUpgradeViaInstallerPropagatesInstallerFailure(t *testing.T) {
 		return fmt.Errorf("installer failed")
 	}
 
-	result, err := UpgradeViaInstaller(context.Background(), "0.12.3")
+	result, err := UpgradeViaInstaller(context.Background(), "0.12.4")
 	if err == nil {
 		t.Fatal("expected installer failure")
 	}
@@ -186,15 +316,48 @@ func TestReadInstalledAimVersionTrimsWhitespace(t *testing.T) {
 	})
 
 	upgradeRunVersionCommand = func(context.Context, string) (string, error) {
-		return "0.12.4\n", nil
+		return "0.12.5\n", nil
 	}
 
 	version, err := readInstalledAimVersion(context.Background(), "/tmp/aim")
 	if err != nil {
 		t.Fatalf("readInstalledAimVersion returned error: %v", err)
 	}
-	if version != "0.12.4" {
-		t.Fatalf("version = %q, want %q", version, "0.12.4")
+	if version != "0.12.5" {
+		t.Fatalf("version = %q, want %q", version, "0.12.5")
+	}
+}
+
+func TestCompareUpgradeVersions(t *testing.T) {
+	tests := []struct {
+		name    string
+		left    string
+		right   string
+		expect  int
+		wantErr bool
+	}{
+		{name: "newer", left: "0.12.5", right: "0.12.4", expect: 1},
+		{name: "same", left: "0.12.5", right: "0.12.5", expect: 0},
+		{name: "older", left: "0.12.4", right: "0.12.5", expect: -1},
+		{name: "invalid", left: "dev", right: "0.12.5", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := compareUpgradeVersions(tt.left, tt.right)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("compareUpgradeVersions returned error: %v", err)
+			}
+			if got != tt.expect {
+				t.Fatalf("compareUpgradeVersions(%q, %q) = %d, want %d", tt.left, tt.right, got, tt.expect)
+			}
+		})
 	}
 }
 

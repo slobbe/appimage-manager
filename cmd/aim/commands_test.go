@@ -188,10 +188,15 @@ func TestUpdateDownloadFilename(t *testing.T) {
 }
 
 func TestUpgradeCmdRunsInstallerUpgrade(t *testing.T) {
+	originalCheck := checkAimUpgrade
 	original := runUpgradeViaInstaller
 	t.Cleanup(func() {
+		checkAimUpgrade = originalCheck
 		runUpgradeViaInstaller = original
 	})
+	checkAimUpgrade = func(context.Context, string) (*core.AimUpgradeCheckResult, error) {
+		return &core.AimUpgradeCheckResult{CurrentVersion: "0.12.4", LatestVersion: "0.12.5", HasUpdate: true, Comparable: true}, nil
+	}
 	runUpgradeViaInstaller = func(context.Context, string) (*core.InstallerUpgradeResult, error) {
 		return nil, fmt.Errorf("installer failed")
 	}
@@ -208,14 +213,19 @@ func TestUpgradeCmdRunsInstallerUpgrade(t *testing.T) {
 }
 
 func TestUpgradeCmdOutputsVersionTransitionMessage(t *testing.T) {
+	originalCheck := checkAimUpgrade
 	original := runUpgradeViaInstaller
 	t.Cleanup(func() {
+		checkAimUpgrade = originalCheck
 		runUpgradeViaInstaller = original
 	})
+	checkAimUpgrade = func(context.Context, string) (*core.AimUpgradeCheckResult, error) {
+		return &core.AimUpgradeCheckResult{CurrentVersion: "0.12.4", LatestVersion: "0.12.5", HasUpdate: true, Comparable: true}, nil
+	}
 	runUpgradeViaInstaller = func(context.Context, string) (*core.InstallerUpgradeResult, error) {
 		return &core.InstallerUpgradeResult{
-			PreviousVersion:  "0.12.3",
-			InstalledVersion: "0.12.4",
+			PreviousVersion:  "0.12.4",
+			InstalledVersion: "0.12.5",
 		}, nil
 	}
 
@@ -226,22 +236,27 @@ func TestUpgradeCmdOutputsVersionTransitionMessage(t *testing.T) {
 		}
 	})
 
-	if !strings.Contains(output, "Updated aim v0.12.3 -> v0.12.4") {
+	if !strings.Contains(output, "Upgraded aim v0.12.4 -> v0.12.5") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
 }
 
 func TestUpgradeCmdShortFlagRunsInstallerUpgrade(t *testing.T) {
+	originalCheck := checkAimUpgrade
 	original := runUpgradeViaInstaller
 	t.Cleanup(func() {
+		checkAimUpgrade = originalCheck
 		runUpgradeViaInstaller = original
 	})
 	called := false
+	checkAimUpgrade = func(context.Context, string) (*core.AimUpgradeCheckResult, error) {
+		return &core.AimUpgradeCheckResult{CurrentVersion: "0.12.4", LatestVersion: "0.12.5", HasUpdate: true, Comparable: true}, nil
+	}
 	runUpgradeViaInstaller = func(context.Context, string) (*core.InstallerUpgradeResult, error) {
 		called = true
 		return &core.InstallerUpgradeResult{
-			PreviousVersion:  "0.12.3",
-			InstalledVersion: "0.12.4",
+			PreviousVersion:  "0.12.4",
+			InstalledVersion: "0.12.5",
 		}, nil
 	}
 
@@ -257,14 +272,19 @@ func TestUpgradeCmdShortFlagRunsInstallerUpgrade(t *testing.T) {
 }
 
 func TestRootUpgradeShortFlagOutputsVersionTransitionMessage(t *testing.T) {
+	originalCheck := checkAimUpgrade
 	original := runUpgradeViaInstaller
 	t.Cleanup(func() {
+		checkAimUpgrade = originalCheck
 		runUpgradeViaInstaller = original
 	})
+	checkAimUpgrade = func(context.Context, string) (*core.AimUpgradeCheckResult, error) {
+		return &core.AimUpgradeCheckResult{CurrentVersion: "0.12.4", LatestVersion: "0.12.5", HasUpdate: true, Comparable: true}, nil
+	}
 	runUpgradeViaInstaller = func(context.Context, string) (*core.InstallerUpgradeResult, error) {
 		return &core.InstallerUpgradeResult{
-			PreviousVersion:  "0.12.3",
-			InstalledVersion: "0.12.4",
+			PreviousVersion:  "0.12.4",
+			InstalledVersion: "0.12.5",
 		}, nil
 	}
 
@@ -275,19 +295,24 @@ func TestRootUpgradeShortFlagOutputsVersionTransitionMessage(t *testing.T) {
 		}
 	})
 
-	if !strings.Contains(output, "Updated aim v0.12.3 -> v0.12.4") {
+	if !strings.Contains(output, "Upgraded aim v0.12.4 -> v0.12.5") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
 }
 
 func TestUpgradeCmdFallsBackWhenInstalledVersionUnknown(t *testing.T) {
+	originalCheck := checkAimUpgrade
 	original := runUpgradeViaInstaller
 	t.Cleanup(func() {
+		checkAimUpgrade = originalCheck
 		runUpgradeViaInstaller = original
 	})
+	checkAimUpgrade = func(context.Context, string) (*core.AimUpgradeCheckResult, error) {
+		return &core.AimUpgradeCheckResult{CurrentVersion: "0.12.4", LatestVersion: "0.12.5", HasUpdate: true, Comparable: true}, nil
+	}
 	runUpgradeViaInstaller = func(context.Context, string) (*core.InstallerUpgradeResult, error) {
 		return &core.InstallerUpgradeResult{
-			PreviousVersion:  "0.12.3",
+			PreviousVersion:  "0.12.4",
 			InstalledVersion: "",
 		}, nil
 	}
@@ -300,6 +325,82 @@ func TestUpgradeCmdFallsBackWhenInstalledVersionUnknown(t *testing.T) {
 	})
 
 	if !strings.Contains(output, "Updated aim via installer") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+}
+
+func TestUpgradeCmdReportsUpToDateWhenNoNewReleaseExists(t *testing.T) {
+	originalCheck := checkAimUpgrade
+	originalRun := runUpgradeViaInstaller
+	t.Cleanup(func() {
+		checkAimUpgrade = originalCheck
+		runUpgradeViaInstaller = originalRun
+	})
+
+	checkAimUpgrade = func(context.Context, string) (*core.AimUpgradeCheckResult, error) {
+		return &core.AimUpgradeCheckResult{
+			CurrentVersion: "0.12.5",
+			LatestVersion:  "0.12.5",
+			HasUpdate:      false,
+			Comparable:     true,
+		}, nil
+	}
+	runUpgradeViaInstaller = func(context.Context, string) (*core.InstallerUpgradeResult, error) {
+		t.Fatal("installer should not run when already up to date")
+		return nil, nil
+	}
+
+	cmd := newUpgradeTestCommand()
+	output := captureStdout(t, func() {
+		if err := executeTestCommand(context.Background(), cmd, "--upgrade"); err != nil {
+			t.Fatalf("run returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "aim is up to date (v0.12.5)") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+}
+
+func TestUpgradeCmdDevBuildSkipsNoUpdateOptimization(t *testing.T) {
+	originalCheck := checkAimUpgrade
+	originalRun := runUpgradeViaInstaller
+	originalVersion := version
+	t.Cleanup(func() {
+		checkAimUpgrade = originalCheck
+		runUpgradeViaInstaller = originalRun
+		version = originalVersion
+	})
+
+	version = "dev"
+	called := false
+	checkAimUpgrade = func(context.Context, string) (*core.AimUpgradeCheckResult, error) {
+		return &core.AimUpgradeCheckResult{
+			CurrentVersion: "dev",
+			LatestVersion:  "0.12.5",
+			HasUpdate:      true,
+			Comparable:     false,
+		}, nil
+	}
+	runUpgradeViaInstaller = func(context.Context, string) (*core.InstallerUpgradeResult, error) {
+		called = true
+		return &core.InstallerUpgradeResult{
+			PreviousVersion:  "dev",
+			InstalledVersion: "0.12.5",
+		}, nil
+	}
+
+	cmd := newUpgradeTestCommand()
+	output := captureStdout(t, func() {
+		if err := executeTestCommand(context.Background(), cmd, "--upgrade"); err != nil {
+			t.Fatalf("run returned error: %v", err)
+		}
+	})
+
+	if !called {
+		t.Fatal("expected installer to run for dev build")
+	}
+	if !strings.Contains(output, "Upgraded aim dev -> v0.12.5") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
 }
@@ -349,16 +450,21 @@ func TestUpgradeCommandIsUnavailable(t *testing.T) {
 }
 
 func TestRootUpgradeFlagInvokesInstallerUpgrade(t *testing.T) {
+	originalCheck := checkAimUpgrade
 	original := runUpgradeViaInstaller
 	t.Cleanup(func() {
+		checkAimUpgrade = originalCheck
 		runUpgradeViaInstaller = original
 	})
 	called := false
+	checkAimUpgrade = func(context.Context, string) (*core.AimUpgradeCheckResult, error) {
+		return &core.AimUpgradeCheckResult{CurrentVersion: "0.12.4", LatestVersion: "0.12.5", HasUpdate: true, Comparable: true}, nil
+	}
 	runUpgradeViaInstaller = func(context.Context, string) (*core.InstallerUpgradeResult, error) {
 		called = true
 		return &core.InstallerUpgradeResult{
-			PreviousVersion:  "0.12.3",
-			InstalledVersion: "0.12.4",
+			PreviousVersion:  "0.12.4",
+			InstalledVersion: "0.12.5",
 		}, nil
 	}
 
@@ -372,16 +478,21 @@ func TestRootUpgradeFlagInvokesInstallerUpgrade(t *testing.T) {
 	if !called {
 		t.Fatal("expected installer upgrade to run")
 	}
-	if !strings.Contains(output, "Updated aim v0.12.3 -> v0.12.4") {
+	if !strings.Contains(output, "Upgraded aim v0.12.4 -> v0.12.5") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
 }
 
 func TestRootUpgradeFlagPassesNonNilContext(t *testing.T) {
+	originalCheck := checkAimUpgrade
 	original := runUpgradeViaInstaller
 	t.Cleanup(func() {
+		checkAimUpgrade = originalCheck
 		runUpgradeViaInstaller = original
 	})
+	checkAimUpgrade = func(context.Context, string) (*core.AimUpgradeCheckResult, error) {
+		return &core.AimUpgradeCheckResult{CurrentVersion: "dev", LatestVersion: "0.12.5", HasUpdate: true, Comparable: false}, nil
+	}
 
 	runUpgradeViaInstaller = func(ctx context.Context, currentVersion string) (*core.InstallerUpgradeResult, error) {
 		if ctx == nil {
@@ -395,7 +506,7 @@ func TestRootUpgradeFlagPassesNonNilContext(t *testing.T) {
 		}
 		return &core.InstallerUpgradeResult{
 			PreviousVersion:  currentVersion,
-			InstalledVersion: "0.12.4",
+			InstalledVersion: "0.12.5",
 		}, nil
 	}
 
@@ -408,10 +519,15 @@ func TestRootUpgradeFlagPassesNonNilContext(t *testing.T) {
 }
 
 func TestRootUpgradeShortFlagPassesNonNilContext(t *testing.T) {
+	originalCheck := checkAimUpgrade
 	original := runUpgradeViaInstaller
 	t.Cleanup(func() {
+		checkAimUpgrade = originalCheck
 		runUpgradeViaInstaller = original
 	})
+	checkAimUpgrade = func(context.Context, string) (*core.AimUpgradeCheckResult, error) {
+		return &core.AimUpgradeCheckResult{CurrentVersion: "dev", LatestVersion: "0.12.5", HasUpdate: true, Comparable: false}, nil
+	}
 
 	runUpgradeViaInstaller = func(ctx context.Context, currentVersion string) (*core.InstallerUpgradeResult, error) {
 		if ctx == nil {
@@ -425,7 +541,7 @@ func TestRootUpgradeShortFlagPassesNonNilContext(t *testing.T) {
 		}
 		return &core.InstallerUpgradeResult{
 			PreviousVersion:  currentVersion,
-			InstalledVersion: "0.12.4",
+			InstalledVersion: "0.12.5",
 		}, nil
 	}
 
