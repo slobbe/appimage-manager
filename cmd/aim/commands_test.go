@@ -2979,6 +2979,25 @@ func TestRenderManPageIncludesMetadata(t *testing.T) {
 	}
 
 	for _, expected := range []string{
+		".SH COMMANDS",
+		".SS aim add",
+		".SS aim info",
+		".SS aim list",
+		".SS aim remove",
+		".SS aim update",
+		".SS aim update set",
+		".SS aim update unset",
+		".SS aim upgrade",
+		".SS aim version",
+		"Add a remote source, managed app, or local AppImage",
+		"Check or apply updates for managed apps, or manage configured update sources.",
+		"Aliases",
+		"rm",
+		"ls",
+		"u",
+		"\\-\\-github owner/repo",
+		"\\-\\-gitlab namespace/project",
+		"\\-\\-zsync URL",
 		".SH VERSION",
 		".SH AUTHOR",
 		".SH COPYRIGHT",
@@ -2994,6 +3013,15 @@ func TestRenderManPageIncludesMetadata(t *testing.T) {
 	} {
 		if !strings.Contains(got, expected) {
 			t.Fatalf("generated man page missing %q:\n%s", expected, got)
+		}
+	}
+	for _, unwanted := range []string{
+		".SH SEE ALSO",
+		"aim-add(1)",
+		"aim update check",
+	} {
+		if strings.Contains(got, unwanted) {
+			t.Fatalf("generated man page unexpectedly contains %q:\n%s", unwanted, got)
 		}
 	}
 }

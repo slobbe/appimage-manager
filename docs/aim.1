@@ -22,8 +22,198 @@ Add, inspect, update, and remove AppImages on Linux.
 	version for aim
 
 
-.SH SEE ALSO
-\fBaim-add(1)\fP, \fBaim-info(1)\fP, \fBaim-list(1)\fP, \fBaim-remove(1)\fP, \fBaim-update(1)\fP, \fBaim-upgrade(1)\fP, \fBaim-version(1)\fP
+.SH COMMANDS
+.SS aim add [<https\-url|github\-url|gitlab\-url|id|Path/To.AppImage>]
+.TP
+\fBSynopsis\fP
+aim add [<https\-url|github\-url|gitlab\-url|id|Path/To.AppImage>]
+.TP
+\fBDescription\fP
+Add a remote source, managed app, or local AppImage
+.TP
+\fBOptions\fP
+.TP
+\-\-asset string
+asset filename pattern override for GitHub/GitLab provider add sources
+.TP
+\-\-github owner/repo
+GitHub repo in the form owner/repo
+.TP
+\-\-gitlab namespace/project
+GitLab project path namespace/project
+.TP
+\-\-sha256 SHA256
+expected SHA\-256 for direct https:// add sources
+.SS aim help [command]
+.TP
+\fBSynopsis\fP
+aim help [command]
+.TP
+\fBDescription\fP
+Help provides help for any command in the application.
+Simply type aim help [path to command] for full details.
+.SS aim info [<github\-url|gitlab\-url|id|Path/To.AppImage>]
+.TP
+\fBSynopsis\fP
+aim info [<github\-url|gitlab\-url|id|Path/To.AppImage>]
+.TP
+\fBDescription\fP
+Show package, managed app, or AppImage details
+.TP
+\fBOptions\fP
+.TP
+\-\-github owner/repo
+GitHub repo in the form owner/repo
+.TP
+\-\-gitlab namespace/project
+GitLab project path namespace/project
+.SS aim list
+.TP
+\fBSynopsis\fP
+aim list
+.TP
+\fBDescription\fP
+List managed AppImages
+.TP
+\fBAliases\fP
+ls
+.TP
+\fBOptions\fP
+.TP
+\-a, \-\-all
+list all AppImages (default)
+.TP
+\-i, \-\-integrated
+list integrated AppImages only
+.TP
+\-u, \-\-unlinked
+list unlinked AppImages only
+.SS aim remove <id>
+.TP
+\fBSynopsis\fP
+aim remove <id>
+.TP
+\fBDescription\fP
+Remove or unlink a managed AppImage
+.TP
+\fBAliases\fP
+rm
+.TP
+\fBOptions\fP
+.TP
+\-\-unlink
+remove only desktop integration; keep managed AppImage files
+.SS aim update [id]
+.TP
+\fBSynopsis\fP
+aim update [id]
+.TP
+\fBDescription\fP
+Check or apply updates for managed apps, or manage configured update sources.
+.TP
+\fBAliases\fP
+u
+.TP
+\fBOptions\fP
+.TP
+\-\-asset string
+asset filename pattern; defaults to "*.AppImage" for GitHub/GitLab (for 'update set')
+.TP
+\-c, \-\-check\-only
+check only; do not apply updates
+.TP
+\-\-embedded
+use the update source embedded in the current AppImage (for 'update set')
+.TP
+\-\-github owner/repo
+GitHub repo in the form owner/repo (for 'update set')
+.TP
+\-\-gitlab namespace/project
+GitLab project path namespace/project (for 'update set')
+.TP
+\-y, \-\-yes
+apply updates without prompting
+.TP
+\-\-zsync URL
+direct zsync metadata URL (https, for 'update set')
+.TP
+\fBSubcommands\fP
+aim update set <id>: Set the update source for a managed AppImage
+aim update unset <id>: Unset the update source for a managed AppImage
+.SS aim update set <id>
+.TP
+\fBSynopsis\fP
+aim update set <id>
+.TP
+\fBDescription\fP
+Set the update source for a managed AppImage
+.TP
+\fBOptions\fP
+.TP
+\-\-asset string
+asset filename pattern; defaults to "*.AppImage" for GitHub/GitLab (for 'update set')
+.TP
+\-c, \-\-check\-only
+check only; do not apply updates
+.TP
+\-\-embedded
+use the update source embedded in the current AppImage (for 'update set')
+.TP
+\-\-github owner/repo
+GitHub repo in the form owner/repo (for 'update set')
+.TP
+\-\-gitlab namespace/project
+GitLab project path namespace/project (for 'update set')
+.TP
+\-y, \-\-yes
+apply updates without prompting
+.TP
+\-\-zsync URL
+direct zsync metadata URL (https, for 'update set')
+.SS aim update unset <id>
+.TP
+\fBSynopsis\fP
+aim update unset <id>
+.TP
+\fBDescription\fP
+Unset the update source for a managed AppImage
+.TP
+\fBOptions\fP
+.TP
+\-\-asset string
+asset filename pattern; defaults to "*.AppImage" for GitHub/GitLab (for 'update set')
+.TP
+\-c, \-\-check\-only
+check only; do not apply updates
+.TP
+\-\-embedded
+use the update source embedded in the current AppImage (for 'update set')
+.TP
+\-\-github owner/repo
+GitHub repo in the form owner/repo (for 'update set')
+.TP
+\-\-gitlab namespace/project
+GitLab project path namespace/project (for 'update set')
+.TP
+\-y, \-\-yes
+apply updates without prompting
+.TP
+\-\-zsync URL
+direct zsync metadata URL (https, for 'update set')
+.SS aim upgrade
+.TP
+\fBSynopsis\fP
+aim upgrade
+.TP
+\fBDescription\fP
+Upgrade aim to the latest stable release
+.SS aim version
+.TP
+\fBSynopsis\fP
+aim version
+.TP
+\fBDescription\fP
+Show version and project metadata
 .SH VERSION
 dev
 
@@ -41,3 +231,4 @@ https://github.com/slobbe/appimage\-manager
 
 .SH ISSUES
 https://github.com/slobbe/appimage\-manager/issues
+
