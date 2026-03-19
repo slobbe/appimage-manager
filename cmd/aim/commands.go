@@ -39,7 +39,11 @@ func UpgradeCmd(cmd *cobra.Command, args []string) error {
 	}
 
 	if result.Updated {
-		printSuccess(cmd, fmt.Sprintf("Updated aim %s -> %s", displayVersion(result.CurrentVersion), displayVersion(result.LatestVersion)))
+		message := fmt.Sprintf("Updated aim %s -> %s", displayVersion(result.CurrentVersion), displayVersion(result.LatestVersion))
+		if result.UsedInstallerFallback {
+			message += " (installer fallback)"
+		}
+		printSuccess(cmd, message)
 		return nil
 	}
 

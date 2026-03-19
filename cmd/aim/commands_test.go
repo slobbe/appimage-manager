@@ -232,6 +232,32 @@ func TestUpgradeCmdOutputsUpdatedMessage(t *testing.T) {
 	}
 }
 
+func TestUpgradeCmdOutputsInstallerFallbackMessage(t *testing.T) {
+	original := runSelfUpgrade
+	t.Cleanup(func() {
+		runSelfUpgrade = original
+	})
+	runSelfUpgrade = func(context.Context, string) (*core.SelfUpgradeResult, error) {
+		return &core.SelfUpgradeResult{
+			Updated:               true,
+			CurrentVersion:        "0.11.0",
+			LatestVersion:         "0.12.1",
+			UsedInstallerFallback: true,
+		}, nil
+	}
+
+	cmd := newUpgradeTestCommand()
+	output := captureStdout(t, func() {
+		if err := executeTestCommand(context.Background(), cmd); err != nil {
+			t.Fatalf("run returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "Updated aim v0.11.0 -> v0.12.1 (installer fallback)") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+}
+
 func TestUpgradeCmdOutputsUpToDateMessage(t *testing.T) {
 	original := runSelfUpgrade
 	t.Cleanup(func() {

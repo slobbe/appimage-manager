@@ -2,6 +2,7 @@ package core
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"context"
 	"encoding/json"
@@ -9,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"runtime"
@@ -18,9 +20,10 @@ import (
 )
 
 type SelfUpgradeResult struct {
-	Updated        bool
-	CurrentVersion string
-	LatestVersion  string
+	Updated               bool
+	CurrentVersion        string
+	LatestVersion         string
+	UsedInstallerFallback bool
 }
 
 type selfUpdateReleaseResponse struct {
@@ -39,10 +42,15 @@ var (
 
 	selfUpdateExecutablePath = os.Executable
 	selfUpdateInstall        = installDownloadedRelease
+	selfUpdateRunInstaller   = runInstallerScript
 
 	selfUpdateLatestReleaseURL = func(repoSlug string) string {
 		return fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repoSlug)
 	}
+	selfUpdateInstallScriptURL = func(repoSlug string) string {
+		return fmt.Sprintf("https://raw.githubusercontent.com/%s/main/scripts/install.sh", repoSlug)
+	}
+	selfUpdateShellCommand = "/bin/sh"
 )
 
 func SelfUpgrade(ctx context.Context, currentVersion string) (*SelfUpgradeResult, error) {
@@ -90,7 +98,17 @@ func SelfUpgrade(ctx context.Context, currentVersion string) (*SelfUpgradeResult
 	}
 
 	if err := selfUpdateInstall(ctx, assetURL, latest, selfUpdateGOARCH); err != nil {
-		return nil, err
+		fallbackErr := selfUpdateRunInstaller(ctx, selfUpdateInstallScriptURL(selfUpdateRepoSlug))
+		if fallbackErr != nil {
+			return nil, fmt.Errorf("built-in self-upgrade failed: %v; installer fallback failed: %w", err, fallbackErr)
+		}
+
+		return &SelfUpgradeResult{
+			Updated:               true,
+			CurrentVersion:        current,
+			LatestVersion:         latest,
+			UsedInstallerFallback: true,
+		}, nil
 	}
 
 	return &SelfUpgradeResult{
@@ -272,12 +290,7 @@ func extractReleaseBinary(archivePath, outputPath, arch string) error {
 			continue
 		}
 
-		baseName := filepath.Base(name)
-		if baseName != name {
-			continue
-		}
-
-		if !isReleaseBinaryName(baseName, arch) {
+		if !isReleaseBinaryPath(name, arch) {
 			continue
 		}
 
@@ -307,6 +320,70 @@ func isReleaseBinaryName(name, arch string) bool {
 		return false
 	}
 	return strings.HasPrefix(name, "aim-") && strings.HasSuffix(name, "-linux-"+arch)
+}
+
+func isReleaseBinaryPath(name, arch string) bool {
+	baseName := filepath.Base(name)
+	if !isReleaseBinaryName(baseName, arch) {
+		return false
+	}
+
+	dir := filepath.Clean(filepath.Dir(name))
+	return dir == "." || dir == "bin"
+}
+
+func runInstallerScript(ctx context.Context, scriptURL string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, scriptURL, nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err := selfUpdateHTTPClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return fmt.Errorf("installer script download failed with status %s", resp.Status)
+	}
+
+	tempDir, err := os.MkdirTemp("", "aim-upgrade-installer-*")
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = os.RemoveAll(tempDir)
+	}()
+
+	scriptPath := filepath.Join(tempDir, "install.sh")
+	scriptFile, err := os.OpenFile(scriptPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o700)
+	if err != nil {
+		return err
+	}
+
+	if _, err := io.Copy(scriptFile, resp.Body); err != nil {
+		_ = scriptFile.Close()
+		return err
+	}
+	if err := scriptFile.Close(); err != nil {
+		return err
+	}
+
+	cmd := exec.CommandContext(ctx, selfUpdateShellCommand, scriptPath)
+	var output bytes.Buffer
+	cmd.Stdout = &output
+	cmd.Stderr = &output
+
+	if err := cmd.Run(); err != nil {
+		msg := strings.TrimSpace(output.String())
+		if msg == "" {
+			return err
+		}
+		return fmt.Errorf("%w: %s", err, msg)
+	}
+
+	return nil
 }
 
 func replaceExecutableBinary(sourcePath, targetPath string) error {
