@@ -410,6 +410,80 @@ func TestRootPackageCommandFlags(t *testing.T) {
 	}
 }
 
+func TestStructuredFlagHelpUsesSemanticMetavars(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     []string
+		required []string
+		unwanted []string
+	}{
+		{
+			name: "add help",
+			args: []string{"add", "--help"},
+			required: []string{
+				"--github owner/repo",
+				"--gitlab namespace/project",
+				"--sha256 SHA256",
+				"--asset string",
+			},
+			unwanted: []string{
+				"--github string",
+				"--gitlab string",
+				"--sha256 string",
+			},
+		},
+		{
+			name: "info help",
+			args: []string{"info", "--help"},
+			required: []string{
+				"--github owner/repo",
+				"--gitlab namespace/project",
+			},
+			unwanted: []string{
+				"--github string",
+				"--gitlab string",
+			},
+		},
+		{
+			name: "update set help",
+			args: []string{"update", "set", "--help"},
+			required: []string{
+				"--github owner/repo",
+				"--gitlab namespace/project",
+				"--zsync-url URL",
+				"--asset string",
+			},
+			unwanted: []string{
+				"--github string",
+				"--gitlab string",
+				"--zsync-url string",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := newRootTestCommand()
+			output := captureStdout(t, func() {
+				if err := executeTestCommand(context.Background(), cmd, tt.args...); err != nil {
+					t.Fatalf("run returned error: %v", err)
+				}
+			})
+
+			for _, required := range tt.required {
+				if !strings.Contains(output, required) {
+					t.Fatalf("expected help to contain %q:\n%s", required, output)
+				}
+			}
+			for _, unwanted := range tt.unwanted {
+				if strings.Contains(output, unwanted) {
+					t.Fatalf("help unexpectedly contains %q:\n%s", unwanted, output)
+				}
+			}
+		})
+	}
+}
+
 func TestRootPackageCommandAliases(t *testing.T) {
 	cmd := newRootTestCommand()
 

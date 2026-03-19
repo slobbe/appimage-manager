@@ -47,10 +47,10 @@ func newAddCommand() *cobra.Command {
 		RunE:  AddCmd,
 	}
 	flags := cmd.Flags()
-	flags.String("github", "", "GitHub repo in the form owner/repo")
-	flags.String("gitlab", "", "GitLab project path namespace/project")
+	stringFlagWithMetavar(flags, "github", "", "", "GitHub repo in the form owner/repo", "owner/repo")
+	stringFlagWithMetavar(flags, "gitlab", "", "", "GitLab project path namespace/project", "namespace/project")
 	flags.String("asset", "", "asset filename pattern override for GitHub/GitLab provider add sources")
-	flags.String("sha256", "", "expected SHA-256 for direct https:// add sources")
+	stringFlagWithMetavar(flags, "sha256", "", "", "expected SHA-256 for direct https:// add sources", "SHA256")
 	return cmd
 }
 
@@ -86,8 +86,8 @@ func newInfoCommand() *cobra.Command {
 		RunE:  InfoCmd,
 	}
 	flags := cmd.Flags()
-	flags.String("github", "", "GitHub repo in the form owner/repo")
-	flags.String("gitlab", "", "GitLab project path namespace/project")
+	stringFlagWithMetavar(flags, "github", "", "", "GitHub repo in the form owner/repo", "owner/repo")
+	stringFlagWithMetavar(flags, "gitlab", "", "", "GitLab project path namespace/project", "namespace/project")
 	return cmd
 }
 
@@ -139,10 +139,10 @@ func addUpdateSharedFlags(cmd *cobra.Command) {
 	flags := cmd.PersistentFlags()
 	flags.BoolP("yes", "y", false, "apply updates without prompting")
 	flags.BoolP("check-only", "c", false, "check only; do not apply updates")
-	flags.String("github", "", "GitHub repo in the form owner/repo (for 'update set')")
+	stringFlagWithMetavar(flags, "github", "", "", "GitHub repo in the form owner/repo (for 'update set')", "owner/repo")
 	flags.String("asset", "", "asset filename pattern; defaults to \"*.AppImage\" for GitHub/GitLab (for 'update set')")
-	flags.String("gitlab", "", "GitLab project path namespace/project (for 'update set')")
-	flags.String("zsync-url", "", "direct zsync metadata URL (https, for 'update set')")
+	stringFlagWithMetavar(flags, "gitlab", "", "", "GitLab project path namespace/project (for 'update set')", "namespace/project")
+	stringFlagWithMetavar(flags, "zsync-url", "", "", "direct zsync metadata URL (https, for 'update set')", "URL")
 	flags.Bool("embedded", false, "use the update source embedded in the current AppImage (for 'update set')")
 	flags.String("manifest-url", "", "deprecated manifest update source flag")
 	flags.String("url", "", "deprecated direct update source flag")
