@@ -1878,11 +1878,12 @@ func checkAppUpdate(app *models.App) (*pendingManagedUpdate, error) {
 				FromKind:  models.UpdateZsync,
 			}, nil
 		}
+		latest := strings.TrimSpace(update.NormalizedVersion)
 		if !update.Available {
 			return &pendingManagedUpdate{
 				App:       app,
 				Available: false,
-				Latest:    "",
+				Latest:    latest,
 				FromKind:  models.UpdateZsync,
 			}, nil
 		}
@@ -1896,7 +1897,7 @@ func checkAppUpdate(app *models.App) (*pendingManagedUpdate, error) {
 			Asset:        update.AssetName,
 			Label:        label,
 			Available:    true,
-			Latest:       "",
+			Latest:       latest,
 			ExpectedSHA1: strings.TrimSpace(update.RemoteSHA1),
 			FromKind:     models.UpdateZsync,
 		}, nil

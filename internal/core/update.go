@@ -20,14 +20,15 @@ type UpdateInfo struct {
 }
 
 type UpdateData struct {
-	Available        bool
-	DownloadUrl      string
-	DownloadUrlZsync string
-	RemoteTime       string
-	RemoteSHA1       string
-	RemoteFilename   string
-	PreRelease       bool
-	AssetName        string
+	Available         bool
+	DownloadUrl       string
+	DownloadUrlZsync  string
+	RemoteTime        string
+	RemoteSHA1        string
+	RemoteFilename    string
+	NormalizedVersion string
+	PreRelease        bool
+	AssetName         string
 }
 
 func ZsyncUpdateCheck(upd *models.UpdateSource, localSHA1 string) (*UpdateData, error) {
@@ -84,6 +85,7 @@ func ZsyncUpdateCheck(upd *models.UpdateSource, localSHA1 string) (*UpdateData, 
 	if update.RemoteFilename != "" {
 		update.RemoteFilename = strings.TrimSuffix(update.RemoteFilename, ".zsync")
 	}
+	update.NormalizedVersion = normalizeComparableVersion(update.RemoteFilename)
 
 	if update.RemoteFilename == "" || update.RemoteSHA1 == "" {
 		return nil, fmt.Errorf("invalid zsync metadata")

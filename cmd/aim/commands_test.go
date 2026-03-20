@@ -3737,6 +3737,134 @@ func TestCheckAppUpdateGitHubUsesNormalizedVersion(t *testing.T) {
 	}
 }
 
+func TestCheckAppUpdateZsyncUsesNormalizedVersionWhenAvailable(t *testing.T) {
+	originalCheck := runZsyncUpdateCheck
+	t.Cleanup(func() {
+		runZsyncUpdateCheck = originalCheck
+	})
+
+	runZsyncUpdateCheck = func(update *models.UpdateSource, localSHA1 string) (*core.UpdateData, error) {
+		return &core.UpdateData{
+			Available:         true,
+			DownloadUrl:       "https://example.com/helium-v0.10.6.1-x86_64.AppImage",
+			RemoteSHA1:        strings.Repeat("b", 40),
+			AssetName:         "helium-v0.10.6.1-x86_64.AppImage",
+			NormalizedVersion: "0.10.6.1",
+		}, nil
+	}
+
+	result, err := checkAppUpdate(&models.App{
+		ID:      "helium",
+		Version: "0.10.5.1",
+		SHA1:    strings.Repeat("a", 40),
+		Update: &models.UpdateSource{
+			Kind: models.UpdateZsync,
+			Zsync: &models.ZsyncUpdateSource{
+				UpdateInfo: "zsync|https://example.com/helium.AppImage.zsync",
+				Transport:  "zsync",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("checkAppUpdate returned error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected pending update result")
+	}
+	if result.Latest != "0.10.6.1" {
+		t.Fatalf("Latest = %q, want %q", result.Latest, "0.10.6.1")
+	}
+
+	msg := buildManagedUpdateMessage(*result, false)
+	if !strings.Contains(msg, "Update available: helium v0.10.5.1 -> v0.10.6.1") {
+		t.Fatalf("expected normalized version transition, got:\n%s", msg)
+	}
+}
+
+func TestCheckAppUpdateZsyncKeepsNormalizedVersionWhenUpToDate(t *testing.T) {
+	originalCheck := runZsyncUpdateCheck
+	t.Cleanup(func() {
+		runZsyncUpdateCheck = originalCheck
+	})
+
+	runZsyncUpdateCheck = func(update *models.UpdateSource, localSHA1 string) (*core.UpdateData, error) {
+		return &core.UpdateData{
+			Available:         false,
+			RemoteSHA1:        strings.Repeat("a", 40),
+			AssetName:         "helium-v0.10.6.1-x86_64.AppImage",
+			NormalizedVersion: "0.10.6.1",
+		}, nil
+	}
+
+	result, err := checkAppUpdate(&models.App{
+		ID:      "helium",
+		Version: "0.10.6.1",
+		SHA1:    strings.Repeat("a", 40),
+		Update: &models.UpdateSource{
+			Kind: models.UpdateZsync,
+			Zsync: &models.ZsyncUpdateSource{
+				UpdateInfo: "zsync|https://example.com/helium.AppImage.zsync",
+				Transport:  "zsync",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("checkAppUpdate returned error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected pending update result")
+	}
+	if result.Available {
+		t.Fatal("expected no update")
+	}
+	if result.Latest != "0.10.6.1" {
+		t.Fatalf("Latest = %q, want %q", result.Latest, "0.10.6.1")
+	}
+}
+
+func TestCheckAppUpdateZsyncFallsBackToUnknownWithoutNormalizedVersion(t *testing.T) {
+	originalCheck := runZsyncUpdateCheck
+	t.Cleanup(func() {
+		runZsyncUpdateCheck = originalCheck
+	})
+
+	runZsyncUpdateCheck = func(update *models.UpdateSource, localSHA1 string) (*core.UpdateData, error) {
+		return &core.UpdateData{
+			Available:   true,
+			DownloadUrl: "https://example.com/helium.AppImage",
+			RemoteSHA1:  strings.Repeat("b", 40),
+			AssetName:   "helium.AppImage",
+		}, nil
+	}
+
+	result, err := checkAppUpdate(&models.App{
+		ID:      "helium",
+		Version: "0.10.5.1",
+		SHA1:    strings.Repeat("a", 40),
+		Update: &models.UpdateSource{
+			Kind: models.UpdateZsync,
+			Zsync: &models.ZsyncUpdateSource{
+				UpdateInfo: "zsync|https://example.com/helium.AppImage.zsync",
+				Transport:  "zsync",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("checkAppUpdate returned error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected pending update result")
+	}
+	if result.Latest != "" {
+		t.Fatalf("Latest = %q, want empty", result.Latest)
+	}
+
+	msg := buildManagedUpdateMessage(*result, false)
+	if !strings.Contains(msg, "Update available: helium v0.10.5.1 -> unknown") {
+		t.Fatalf("expected unknown fallback, got:\n%s", msg)
+	}
+}
+
 func TestCheckAppUpdateGitHubDisplaysNormalizedLatest(t *testing.T) {
 	originalCheck := runGitHubReleaseUpdateCheck
 	t.Cleanup(func() {

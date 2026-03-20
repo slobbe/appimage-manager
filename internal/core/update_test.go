@@ -1,6 +1,8 @@
 package core
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -75,5 +77,35 @@ func TestParseUpdateInfoStringErrors(t *testing.T) {
 				t.Fatalf("error = %q, want substring %q", err.Error(), tt.errLike)
 			}
 		})
+	}
+}
+
+func TestZsyncUpdateCheckDerivesNormalizedVersionFromFilename(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(strings.Join([]string{
+			"SHA-1: " + strings.Repeat("b", 40),
+			"Filename: helium-v0.10.6.1-x86_64.AppImage",
+			"",
+			"payload ignored",
+		}, "\n")))
+	}))
+	defer server.Close()
+
+	update, err := ZsyncUpdateCheck(&models.UpdateSource{
+		Kind: models.UpdateZsync,
+		Zsync: &models.ZsyncUpdateSource{
+			UpdateInfo: "zsync|" + server.URL + "/helium.AppImage.zsync",
+			Transport:  "zsync",
+		},
+	}, strings.Repeat("a", 40))
+	if err != nil {
+		t.Fatalf("ZsyncUpdateCheck returned error: %v", err)
+	}
+
+	if update.RemoteFilename != "helium-v0.10.6.1-x86_64.AppImage" {
+		t.Fatalf("RemoteFilename = %q", update.RemoteFilename)
+	}
+	if update.NormalizedVersion != "0.10.6.1" {
+		t.Fatalf("NormalizedVersion = %q, want %q", update.NormalizedVersion, "0.10.6.1")
 	}
 }
