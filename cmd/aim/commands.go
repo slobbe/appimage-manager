@@ -1600,8 +1600,11 @@ func runManagedUpdate(ctx context.Context, cmd *cobra.Command, targetID string) 
 
 		msg := buildManagedUpdateMessage(*update, checkOnly)
 		if targetID == "" {
-			header := fmt.Sprintf("[%s]", app.ID)
-			printSection(cmd, header)
+			transition := strings.TrimSpace(updateVersionTransition(*update))
+			if transition == "" {
+				transition = "unknown"
+			}
+			msg = fmt.Sprintf("[%s] %s", app.ID, transition)
 		}
 		printWarning(cmd, msg)
 		if checkOnly {
@@ -2154,14 +2157,15 @@ func verifyDownloadedUpdate(downloadPath string, update pendingManagedUpdate) er
 }
 
 func buildManagedUpdateMessage(update pendingManagedUpdate, checkOnly bool) string {
-	base := update.Label
-	if update.App != nil {
-		base = fmt.Sprintf("%s: %s", base, update.App.ID)
-		if transition := updateVersionTransition(update); transition != "" {
-			base = fmt.Sprintf("%s %s", base, transition)
+	base := strings.TrimSpace(update.Label)
+	if transition := strings.TrimSpace(updateVersionTransition(update)); transition != "" {
+		if update.App != nil && strings.TrimSpace(update.App.ID) != "" {
+			base = fmt.Sprintf("[%s] %s", strings.TrimSpace(update.App.ID), transition)
+		} else {
+			base = transition
 		}
-	} else if transition := updateVersionTransition(update); transition != "" {
-		base = fmt.Sprintf("%s %s", base, transition)
+	} else if update.App != nil && strings.TrimSpace(update.App.ID) != "" {
+		base = fmt.Sprintf("[%s] unknown", strings.TrimSpace(update.App.ID))
 	}
 
 	if !checkOnly {

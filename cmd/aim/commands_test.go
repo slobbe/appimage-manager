@@ -3590,7 +3590,7 @@ func TestRunManagedUpdateCheckOnlyShowsDownloadAndAsset(t *testing.T) {
 		}
 	})
 
-	if !strings.Contains(output, "Update available: my-app v1.0.0 -> v1.1.0") {
+	if !strings.Contains(output, "[my-app] v1.0.0 -> v1.1.0") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
 	if !strings.Contains(output, "  Download: https://example.com/MyApp.AppImage") {
@@ -3693,6 +3693,15 @@ func TestRunManagedUpdateBatchPromptText(t *testing.T) {
 	if !strings.Contains(output, "Apply 2 updates? [y/N]: ") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
+	if !strings.Contains(output, "[app-a] v1.0.0 -> v9.9.9") {
+		t.Fatalf("expected compact batch summary for app-a, got:\n%s", output)
+	}
+	if !strings.Contains(output, "[app-b] v2.0.0 -> v9.9.9") {
+		t.Fatalf("expected compact batch summary for app-b, got:\n%s", output)
+	}
+	if strings.Contains(output, "Update available: app-a") || strings.Contains(output, "Update available: app-b") {
+		t.Fatalf("expected batch output to omit old update label, got:\n%s", output)
+	}
 	if !strings.Contains(output, "No updates applied") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
@@ -3776,7 +3785,7 @@ func TestCheckAppUpdateZsyncUsesNormalizedVersionWhenAvailable(t *testing.T) {
 	}
 
 	msg := buildManagedUpdateMessage(*result, false)
-	if !strings.Contains(msg, "Update available: helium v0.10.5.1 -> v0.10.6.1") {
+	if !strings.Contains(msg, "[helium] v0.10.5.1 -> v0.10.6.1") {
 		t.Fatalf("expected normalized version transition, got:\n%s", msg)
 	}
 }
@@ -3860,7 +3869,7 @@ func TestCheckAppUpdateZsyncFallsBackToUnknownWithoutNormalizedVersion(t *testin
 	}
 
 	msg := buildManagedUpdateMessage(*result, false)
-	if !strings.Contains(msg, "Update available: helium v0.10.5.1 -> unknown") {
+	if !strings.Contains(msg, "[helium] v0.10.5.1 -> unknown") {
 		t.Fatalf("expected unknown fallback, got:\n%s", msg)
 	}
 }
@@ -3903,7 +3912,7 @@ func TestCheckAppUpdateGitHubDisplaysNormalizedLatest(t *testing.T) {
 	}
 
 	msg := buildManagedUpdateMessage(*result, false)
-	if !strings.Contains(msg, "Update available: standard-notes v3.201.19 -> v3.202.0") {
+	if !strings.Contains(msg, "[standard-notes] v3.201.19 -> v3.202.0") {
 		t.Fatalf("expected normalized version transition, got:\n%s", msg)
 	}
 	if strings.Contains(msg, "@standardnotes/desktop@3.202.0") {
@@ -4226,7 +4235,7 @@ func TestBuildManagedUpdateMessage(t *testing.T) {
 	if strings.Contains(msgManaged, "Download:") {
 		t.Fatalf("managed update message should not include manual download hint: %s", msgManaged)
 	}
-	if !strings.Contains(msgManaged, "Update available: obsidian v1.11.6 -> v1.11.7") {
+	if !strings.Contains(msgManaged, "[obsidian] v1.11.6 -> v1.11.7") {
 		t.Fatalf("managed update message should include version transition: %s", msgManaged)
 	}
 
@@ -4341,9 +4350,6 @@ func TestManagedApplyRendererTTYRendersStableRows(t *testing.T) {
 		})
 	})
 
-	if !strings.Contains(output, "Applying 2 updates concurrently (max 5 workers)") {
-		t.Fatalf("unexpected output:\n%s", output)
-	}
 	if !strings.Contains(output, "\033[2K\r[1/2] app-a") {
 		t.Fatalf("expected tty redraw output, got:\n%s", output)
 	}
@@ -4530,8 +4536,8 @@ func TestRunManagedUpdateAppliesConcurrentlyWithMaxFiveWorkers(t *testing.T) {
 	if atomic.LoadInt32(&observedMax) != 5 {
 		t.Fatalf("observed concurrency = %d, want 5", observedMax)
 	}
-	if !strings.Contains(output, "Applying 7 updates concurrently (max 5 workers)") {
-		t.Fatalf("unexpected output:\n%s", output)
+	if strings.Contains(output, "Applying 7 updates concurrently (max 5 workers)") {
+		t.Fatalf("expected multi-update header to be absent, got:\n%s", output)
 	}
 }
 

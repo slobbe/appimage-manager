@@ -165,7 +165,9 @@ func newManagedApplyRenderer(cmd *cobra.Command, pending []pendingManagedUpdate)
 		header: managedApplyHeader(len(pending)),
 	}
 
-	printInfo(cmd, renderer.header)
+	if strings.TrimSpace(renderer.header) != "" {
+		printInfo(cmd, renderer.header)
+	}
 	if renderer.tty {
 		renderer.dirty = false
 		renderer.renderLocked()
@@ -179,7 +181,7 @@ func managedApplyHeader(total int) string {
 	if total == 1 {
 		return "Applying 1 update"
 	}
-	return fmt.Sprintf("Applying %d updates concurrently (max %d workers)", total, maxManagedApplyWorkers)
+	return ""
 }
 
 func (r *managedApplyRenderer) Event(event managedApplyEvent) {
