@@ -4326,6 +4326,7 @@ func TestManagedApplyStatusText(t *testing.T) {
 
 func TestManagedApplyRendererTTYRendersStableRows(t *testing.T) {
 	withTerminalOutput(t, true)
+	withManagedApplyRenderInterval(t, time.Hour)
 
 	output := captureStdout(t, func() {
 		renderer := newManagedApplyRenderer(&cobra.Command{}, []pendingManagedUpdate{
@@ -4348,6 +4349,58 @@ func TestManagedApplyRendererTTYRendersStableRows(t *testing.T) {
 	}
 	if !strings.Contains(output, "[2/2] app-b") {
 		t.Fatalf("expected second row, got:\n%s", output)
+	}
+}
+
+func TestManagedApplyRendererTTYCoalescesProgressRedraws(t *testing.T) {
+	withTerminalOutput(t, true)
+	withManagedApplyRenderInterval(t, time.Hour)
+
+	output := captureStdout(t, func() {
+		renderer := newManagedApplyRenderer(&cobra.Command{}, []pendingManagedUpdate{
+			{App: &models.App{ID: "app-a"}},
+		})
+		renderer.Event(managedApplyEvent{Index: 0, AppID: "app-a", Stage: managedApplyStageDownload, Downloaded: 256, DownloadTotal: 1024})
+		renderer.Event(managedApplyEvent{Index: 0, AppID: "app-a", Stage: managedApplyStageDownload, Downloaded: 512, DownloadTotal: 1024})
+		renderer.Event(managedApplyEvent{Index: 0, AppID: "app-a", Stage: managedApplyStageDownload, Downloaded: 768, DownloadTotal: 1024})
+		renderer.Finish([]managedApplyResult{
+			{index: 0, app: &models.App{ID: "app-a"}, updatedApp: &models.App{ID: "app-a", Version: "1.1.0"}},
+		})
+	})
+
+	if count := strings.Count(output, "\033[2K\r[1/1] app-a"); count != 2 {
+		t.Fatalf("render count = %d, want 2 (initial + final), output:\n%s", count, output)
+	}
+	if strings.Contains(output, "downloading 75.0%") {
+		t.Fatalf("expected progress events to avoid synchronous redraws, got:\n%s", output)
+	}
+	if !strings.Contains(output, "updated -> v1.1.0") {
+		t.Fatalf("expected final row, got:\n%s", output)
+	}
+}
+
+func TestManagedApplyRendererTTYFinishRendersDoneAndFailedRows(t *testing.T) {
+	withTerminalOutput(t, true)
+	withManagedApplyRenderInterval(t, time.Hour)
+
+	output := captureStdout(t, func() {
+		renderer := newManagedApplyRenderer(&cobra.Command{}, []pendingManagedUpdate{
+			{App: &models.App{ID: "app-a"}},
+			{App: &models.App{ID: "app-b"}},
+		})
+		renderer.Event(managedApplyEvent{Index: 0, AppID: "app-a", Stage: managedApplyStageDownload, Downloaded: 512, DownloadTotal: 1024})
+		renderer.Event(managedApplyEvent{Index: 1, AppID: "app-b", Stage: managedApplyStageDownload, Downloaded: 256, DownloadTotal: 1024})
+		renderer.Finish([]managedApplyResult{
+			{index: 0, app: &models.App{ID: "app-a"}, updatedApp: &models.App{ID: "app-a", Version: "1.1.0"}},
+			{index: 1, app: &models.App{ID: "app-b"}, err: fmt.Errorf("boom")},
+		})
+	})
+
+	if !strings.Contains(output, "app-a \033[0;32mupdated -> v1.1.0\033[0m") {
+		t.Fatalf("expected success row, got:\n%s", output)
+	}
+	if !strings.Contains(output, "app-b \033[0;31mfailed\033[0m") {
+		t.Fatalf("expected failed row, got:\n%s", output)
 	}
 }
 
@@ -4479,6 +4532,96 @@ func TestRunManagedUpdateAppliesConcurrentlyWithMaxFiveWorkers(t *testing.T) {
 	}
 	if !strings.Contains(output, "Applying 7 updates concurrently (max 5 workers)") {
 		t.Fatalf("unexpected output:\n%s", output)
+	}
+}
+
+func TestRunManagedUpdateAllowsConcurrentDownloadStages(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "apps.json")
+
+	originalDbSrc := config.DbSrc
+	originalCheck := runAppUpdateCheck
+	originalApply := runManagedApply
+	config.DbSrc = dbPath
+	t.Cleanup(func() {
+		config.DbSrc = originalDbSrc
+		runAppUpdateCheck = originalCheck
+		runManagedApply = originalApply
+	})
+
+	if err := repo.SaveDB(dbPath, &repo.DB{
+		SchemaVersion: 1,
+		Apps: map[string]*models.App{
+			"app-a": {ID: "app-a", Version: "1.0.0"},
+			"app-b": {ID: "app-b", Version: "1.0.0"},
+		},
+	}); err != nil {
+		t.Fatalf("failed to write test DB: %v", err)
+	}
+
+	runAppUpdateCheck = func(app *models.App) (*pendingManagedUpdate, error) {
+		return &pendingManagedUpdate{
+			App:       app,
+			Available: true,
+			URL:       "https://example.com/" + app.ID + ".AppImage",
+		}, nil
+	}
+
+	started := make(chan string, 2)
+	release := make(chan struct{})
+	var activeDownloads int32
+	var observedMax int32
+	runManagedApply = func(ctx context.Context, update pendingManagedUpdate, reporter managedApplyReporter) (*models.App, error) {
+		emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageDownload, Downloaded: 512, DownloadTotal: 1024})
+
+		active := atomic.AddInt32(&activeDownloads, 1)
+		for {
+			max := atomic.LoadInt32(&observedMax)
+			if active <= max {
+				break
+			}
+			if atomic.CompareAndSwapInt32(&observedMax, max, active) {
+				break
+			}
+		}
+
+		started <- update.App.ID
+		<-release
+		atomic.AddInt32(&activeDownloads, -1)
+
+		emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageDone, Version: "2.0.0"})
+		return &models.App{ID: update.App.ID, Version: "2.0.0"}, nil
+	}
+
+	cmd := newManagedUpdateTestCommand(t, map[string]string{"yes": "true"})
+	done := make(chan error, 1)
+	go func() {
+		done <- runManagedUpdate(context.Background(), cmd, "")
+	}()
+
+	seen := map[string]bool{}
+	for len(seen) < 2 {
+		select {
+		case id := <-started:
+			seen[id] = true
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for concurrent download stages")
+		}
+	}
+
+	if atomic.LoadInt32(&observedMax) < 2 {
+		t.Fatalf("observed concurrent downloads = %d, want at least 2", observedMax)
+	}
+
+	close(release)
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("runManagedUpdate returned error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for managed update to finish")
 	}
 }
 
@@ -5019,6 +5162,16 @@ func withTerminalOutput(t *testing.T, value bool) {
 	}
 	t.Cleanup(func() {
 		terminalOutputChecker = original
+	})
+}
+
+func withManagedApplyRenderInterval(t *testing.T, value time.Duration) {
+	t.Helper()
+
+	original := managedApplyRenderInterval
+	managedApplyRenderInterval = value
+	t.Cleanup(func() {
+		managedApplyRenderInterval = original
 	})
 }
 

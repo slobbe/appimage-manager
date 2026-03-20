@@ -5,12 +5,15 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	models "github.com/slobbe/appimage-manager/internal/types"
 	"github.com/spf13/cobra"
 )
 
 const maxManagedApplyWorkers = 5
+
+var managedApplyRenderInterval = 120 * time.Millisecond
 
 type managedApplyStage string
 
@@ -64,13 +67,17 @@ type managedApplyRowState struct {
 }
 
 type managedApplyRenderer struct {
-	cmd    *cobra.Command
-	total  int
-	tty    bool
-	rows   []managedApplyRowState
-	mu     sync.Mutex
-	drawn  bool
-	header string
+	cmd      *cobra.Command
+	total    int
+	tty      bool
+	rows     []managedApplyRowState
+	mu       sync.Mutex
+	drawn    bool
+	dirty    bool
+	header   string
+	stopCh   chan struct{}
+	stopOnce sync.Once
+	doneCh   chan struct{}
 }
 
 func runManagedApplies(ctx context.Context, cmd *cobra.Command, pending []pendingManagedUpdate) []managedApplyResult {
@@ -160,7 +167,9 @@ func newManagedApplyRenderer(cmd *cobra.Command, pending []pendingManagedUpdate)
 
 	printInfo(cmd, renderer.header)
 	if renderer.tty {
+		renderer.dirty = false
 		renderer.renderLocked()
+		renderer.startRenderLoop()
 	}
 
 	return renderer
@@ -196,13 +205,12 @@ func (r *managedApplyRenderer) Event(event managedApplyEvent) {
 	if strings.TrimSpace(event.Message) != "" {
 		row.message = strings.TrimSpace(event.Message)
 	}
-
-	if r.tty {
-		r.renderLocked()
-	}
+	r.dirty = true
 }
 
 func (r *managedApplyRenderer) Finish(results []managedApplyResult) {
+	r.stopRenderLoop()
+
 	r.mu.Lock()
 	for idx, result := range results {
 		if idx < 0 || idx >= len(r.rows) {
@@ -223,6 +231,7 @@ func (r *managedApplyRenderer) Finish(results []managedApplyResult) {
 			row.version = result.updatedApp.Version
 		}
 	}
+	r.dirty = true
 
 	if r.tty {
 		r.renderLocked()
@@ -265,6 +274,53 @@ func (r *managedApplyRenderer) Finish(results []managedApplyResult) {
 		return
 	}
 	printSuccess(r.cmd, summary)
+}
+
+func (r *managedApplyRenderer) startRenderLoop() {
+	if !r.tty {
+		return
+	}
+
+	r.stopCh = make(chan struct{})
+	r.doneCh = make(chan struct{})
+
+	go func() {
+		ticker := time.NewTicker(managedApplyRenderInterval)
+		defer ticker.Stop()
+		defer close(r.doneCh)
+
+		for {
+			select {
+			case <-ticker.C:
+				r.renderIfDirty()
+			case <-r.stopCh:
+				return
+			}
+		}
+	}()
+}
+
+func (r *managedApplyRenderer) stopRenderLoop() {
+	if !r.tty || r.stopCh == nil {
+		return
+	}
+
+	r.stopOnce.Do(func() {
+		close(r.stopCh)
+		<-r.doneCh
+	})
+}
+
+func (r *managedApplyRenderer) renderIfDirty() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if !r.dirty {
+		return
+	}
+
+	r.renderLocked()
+	r.dirty = false
 }
 
 func (r *managedApplyRenderer) renderLocked() {
