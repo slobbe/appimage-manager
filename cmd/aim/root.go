@@ -3,8 +3,8 @@ package main
 import "github.com/spf13/cobra"
 
 const (
-	rootCommandDescription   = "Manage AppImages from the command line"
-	rootCommandLong          = "Add, inspect, update, and remove AppImages on Linux."
+	rootCommandDescription   = "Manage AppImages from the terminal without manual desktop setup or update juggling"
+	rootCommandLong          = "Install, integrate, update, and remove AppImages from one terminal tool."
 	rootCommandAuthor        = "Sebastian Lobbe <slobbe@lobbe.cc>"
 	rootCommandCopyright     = "Copyright (c) 2025 Sebastian Lobbe"
 	rootCommandLicense       = "MIT"
@@ -43,7 +43,7 @@ func newRootCommand(version string) *cobra.Command {
 func newAddCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "add [<https-url|github-url|gitlab-url|id|Path/To.AppImage>]",
-		Short: "Add a remote source, managed app, or local AppImage",
+		Short: "Install an AppImage from a file, URL, or provider",
 		RunE:  AddCmd,
 	}
 	flags := cmd.Flags()
@@ -82,7 +82,7 @@ func newListCommand() *cobra.Command {
 func newInfoCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "info [<github-url|gitlab-url|id|Path/To.AppImage>]",
-		Short: "Show package, managed app, or AppImage details",
+		Short: "Show AppImage or package details",
 		RunE:  InfoCmd,
 	}
 	flags := cmd.Flags()
@@ -95,8 +95,8 @@ func newUpdateCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "update [id]",
 		Aliases: []string{"u"},
-		Short:   "Check or apply updates, or set an update source",
-		Long:    "Check or apply updates for managed apps, or manage configured update sources.",
+		Short:   "Check, apply, or configure updates",
+		Long:    "Check or apply updates for managed AppImages, or manage configured update sources.",
 		RunE:    UpdateCmd,
 	}
 
