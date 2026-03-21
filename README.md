@@ -3,15 +3,21 @@
 ![GitHub Release](https://img.shields.io/github/v/release/slobbe/appimage-manager?sort=semver&display_name=release&style=flat-square)
 ![GitHub License](https://img.shields.io/github/license/slobbe/appimage-manager?style=flat-square)
 
-Manage AppImages from the command line. Add, inspect, update, and remove AppImages on Linux.
+AppImage Manager helps you manage AppImages from the terminal without manual desktop setup or update juggling. It handles install, integration, updates, and removal in one place. The goal is to make AppImage integration seamless and as close to a common package manager as possible.
 
-> [!WARNING]
-> This project is still **work-in-progess**.
-> Breaking changes may occur anytime while still in **v0.x.x**.
+> [!NOTE]
+> This project is still a work in progress.
+> Breaking changes may occur at any time while it remains in **v0.x.x**.
+
+## Features
+
+- Install AppImages from local files, direct URLs, GitHub, and GitLab
+- Integrate AppImages with desktop menus, icons, and launchers
+- Track managed apps and update them from configured sources
+- Remove apps or unlink their desktop integration
+- Inspect AppImage metadata and update-source details
 
 ## Installation
-
-`scripts/install.sh` installs the latest release to `~/.local/bin/aim`, the man page to `${XDG_DATA_HOME:-$HOME/.local/share}/man/man1/aim.1`, and shell completions under `${XDG_DATA_HOME:-$HOME/.local/share}`.
 
 ```sh
 # Download and install
@@ -19,18 +25,9 @@ curl -fsSL https://raw.githubusercontent.com/slobbe/appimage-manager/main/script
 
 # Verify
 aim --version
-man aim
 ```
 
-If `aim` is not found, make sure `~/.local/bin` is on your `PATH`. If `man aim` is not found, make sure your local man path includes `${XDG_DATA_HOME:-$HOME/.local/share}/man`. Start a new shell session if completions do not appear immediately.
-
-Completion files are installed to:
-
-- Bash: `${XDG_DATA_HOME:-$HOME/.local/share}/bash-completion/completions/aim`
-- Zsh: `${XDG_DATA_HOME:-$HOME/.local/share}/zsh/site-functions/_aim`
-- Fish: `${XDG_DATA_HOME:-$HOME/.local/share}/fish/vendor_completions.d/aim.fish`
-
-On Zsh, you may need to ensure `${XDG_DATA_HOME:-$HOME/.local/share}/zsh/site-functions` is present in `fpath`.
+If `aim` is not found, make sure `~/.local/bin` is on your `PATH`.
 
 ## Build from source
 
@@ -52,13 +49,6 @@ The committed man page is generated from the Cobra command tree with the develop
 
 ## Usage
 
-`aim` is intentionally scoped to:
-
-- desktop integration and removal
-- a small local database of managed apps
-- update checks and apply for managed apps
-- installer-driven upgrade via `aim --upgrade`
-
 ### Upgrade `aim`
 
 Upgrade `aim` to the latest stable release with the official installer. This also refreshes the man page and shell completions.
@@ -70,7 +60,7 @@ aim -U
 
 ### `aim add`: Add/Install an AppImage
 
-Add a remote source, managed app, or local `.AppImage`.
+Add a remote source, a managed app, or a local `.AppImage`.
 
 ```sh
 aim add [<https-url|github-url|gitlab-url|Path/To.AppImage|id>]
@@ -78,7 +68,7 @@ aim add --github owner/repo
 aim add --gitlab namespace/project
 ```
 
-`aim add` handles remote sources, managed IDs, and local AppImages. Use `--github`, `--gitlab`, or a recognized provider URL for provider sources.
+`aim add` handles remote sources, managed IDs, and local AppImages. Use `--github`, `--gitlab`, or a recognized provider URL for provider-based sources.
 
 Examples:
 
@@ -100,11 +90,11 @@ aim add https://example.com/MyApp.AppImage --sha256 <64-hex>
 | `--asset`  | asset filename pattern override for provider adds  |
 | `--sha256` | expected SHA-256 for direct `https://` add sources |
 
-For direct `https://` downloads, `--sha256` is optional. If omitted, `aim` warns that checksum verification is skipped. Direct URL adds are one-off installs and persist `UpdateNone`. Provider adds configure the matching update source automatically.
+For direct `https://` downloads, `--sha256` is optional. If omitted, `aim` warns that checksum verification is skipped. Direct URL adds are one-off installs and remain `UpdateNone`. Provider adds configure the matching update source automatically.
 
 ### `aim info`: Get information and metadata about an AppImage
 
-Inspect a provider package, managed app, or local `.AppImage`.
+Inspect a provider package, a managed app, or a local `.AppImage`.
 
 ```sh
 aim info [<github-url|gitlab-url|id|Path/To.AppImage>]
@@ -119,7 +109,7 @@ aim info ./MyApp.AppImage
 
 ### `aim remove`: Remove AppImage
 
-Remove a managed AppImage or unlink its desktop integration.
+Remove a managed AppImage or unlink it from the desktop.
 
 ```sh
 aim remove [--unlink] <id>
@@ -127,13 +117,7 @@ aim remove [--unlink] <id>
 
 | Option         | Meaning                                                  |
 | :------------- | :------------------------------------------------------- |
-| `--unlink`     | remove only desktop integration; keep managed AppImage files |
-
-Without `--unlink`, `aim remove` also removes the managed app entry and files.
-
-```sh
-aim remove --unlink <id>
-```
+| `--unlink`     | remove only desktop integration; keep `.AppImage` and its data |
 
 ### `aim list`: List all managed AppImages
 
@@ -193,14 +177,14 @@ If an AppImage embeds zsync update info, local `aim add` preserves it automatica
 
 ## Where `aim` stores files
 
+`aim` uses XDG base directories.
+
 - App files: `${XDG_DATA_HOME:-~/.local/share}/aim`
 - Desktop links: `${XDG_DATA_HOME:-~/.local/share}/applications`
 - Desktop icons: `${XDG_DATA_HOME:-~/.local/share}/icons/hicolor` and `${XDG_DATA_HOME:-~/.local/share}/pixmaps`
 - Config files: `${XDG_CONFIG_HOME:-~/.config}/aim`
 - Database: `${XDG_STATE_HOME:-~/.local/state}/aim/apps.json`
 - Temporary files: `${XDG_CACHE_HOME:-~/.cache}/aim/tmp`
-
-`aim` uses XDG base directories.
 
 ## License
 
