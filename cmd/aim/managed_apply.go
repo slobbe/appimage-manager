@@ -179,7 +179,7 @@ func newManagedApplyRenderer(cmd *cobra.Command, pending []pendingManagedUpdate)
 
 func managedApplyHeader(total int) string {
 	if total == 1 {
-		return "Applying 1 update"
+		return "Updating 1 app"
 	}
 	return ""
 }

@@ -330,7 +330,7 @@ func TestUpgradeCmdFallsBackWhenInstalledVersionUnknown(t *testing.T) {
 		}
 	})
 
-	if !strings.Contains(output, "Updated aim via installer") {
+	if !strings.Contains(output, "Upgraded aim") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
 }
@@ -641,10 +641,10 @@ func TestMigrateCmdRunsFullMigration(t *testing.T) {
 	if !called {
 		t.Fatal("expected full migration to be called")
 	}
-	if !strings.Contains(output, "Migrating and repairing managed apps...") {
+	if !strings.Contains(output, "Migrating managed apps...") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
-	if !strings.Contains(output, "Migration completed") {
+	if !strings.Contains(output, "Migration complete") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
 }
@@ -670,10 +670,10 @@ func TestMigrateCmdRunsTargetedMigration(t *testing.T) {
 	if gotID != "my-app" {
 		t.Fatalf("targeted migrate id = %q, want %q", gotID, "my-app")
 	}
-	if !strings.Contains(output, "Migrating and repairing my-app...") {
+	if !strings.Contains(output, "Migrating my-app...") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
-	if !strings.Contains(output, "Migration completed for my-app") {
+	if !strings.Contains(output, "Migration complete for my-app") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
 }
@@ -2604,7 +2604,7 @@ func TestListCmdEmptyStates(t *testing.T) {
 			}
 		})
 
-		if !strings.Contains(output, "No managed AppImages") {
+		if !strings.Contains(output, "No managed apps") {
 			t.Fatalf("unexpected output:\n%s", output)
 		}
 	})
@@ -2634,7 +2634,7 @@ func TestListCmdEmptyStates(t *testing.T) {
 			}
 		})
 
-		if !strings.Contains(output, "No integrated AppImages") {
+		if !strings.Contains(output, "No integrated apps") {
 			t.Fatalf("unexpected output:\n%s", output)
 		}
 	})
@@ -2664,7 +2664,7 @@ func TestListCmdEmptyStates(t *testing.T) {
 			}
 		})
 
-		if !strings.Contains(output, "No unlinked AppImages") {
+		if !strings.Contains(output, "No unlinked apps") {
 			t.Fatalf("unexpected output:\n%s", output)
 		}
 	})
@@ -2887,10 +2887,10 @@ func TestInfoCmdManagedShowsEmbeddedSource(t *testing.T) {
 		}
 	})
 
-	if !strings.Contains(output, "Configured update source: none") {
+	if !strings.Contains(output, "Configured source: none") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
-	if !strings.Contains(output, "Embedded update source: zsync: zsync|https://example.com/MyApp.AppImage.zsync") {
+	if !strings.Contains(output, "Embedded source: zsync: zsync|https://example.com/MyApp.AppImage.zsync") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
 	if strings.Contains(output, "Commands") {
@@ -2955,7 +2955,7 @@ func TestInfoCmdManagedShowsMissingEmbeddedSource(t *testing.T) {
 		}
 	})
 
-	if !strings.Contains(output, "Embedded update source: none") {
+	if !strings.Contains(output, "Embedded source: none") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
 	if strings.Contains(output, "Active update source:") {
@@ -3003,7 +3003,7 @@ func TestInfoCmdLocalAppImageEmbeddedSource(t *testing.T) {
 	if !strings.Contains(output, "Name: My App") || !strings.Contains(output, "ID: my-app") || !strings.Contains(output, "Version: v1.2.3") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
-	if !strings.Contains(output, "Embedded update source: zsync: gh-releases-zsync|owner|repo|latest|MyApp-*.AppImage.zsync") {
+	if !strings.Contains(output, "Embedded source: zsync: gh-releases-zsync|owner|repo|latest|MyApp-*.AppImage.zsync") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
 	if strings.Contains(output, "Embedded source status:") {
@@ -3066,10 +3066,10 @@ func TestInfoCmdManagedApp(t *testing.T) {
 		}
 	})
 
-	if !strings.Contains(output, "Configured update source: github: owner/repo, asset: *.AppImage") {
+	if !strings.Contains(output, "Configured source: github: owner/repo, asset: *.AppImage") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
-	if !strings.Contains(output, "Embedded update source: zsync: zsync|https://example.com/MyApp.AppImage.zsync") {
+	if !strings.Contains(output, "Embedded source: zsync: zsync|https://example.com/MyApp.AppImage.zsync") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
 	if !strings.Contains(output, "Latest known version: v1.1.0") || !strings.Contains(output, "Last checked: 2026-03-17T12:00:00Z") {
@@ -3111,7 +3111,7 @@ func TestInfoCmdLocalAppImage(t *testing.T) {
 	if !strings.Contains(output, "Inspecting MyApp.AppImage...") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
-	if !strings.Contains(output, "Embedded update source: zsync: gh-releases-zsync|owner|repo|latest|MyApp-*.AppImage.zsync") {
+	if !strings.Contains(output, "Embedded source: zsync: gh-releases-zsync|owner|repo|latest|MyApp-*.AppImage.zsync") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
 }
@@ -3250,10 +3250,13 @@ func TestUpdateSetEmbeddedMissingPromptsToUnsetOrKeep(t *testing.T) {
 	if appKeep.Update == nil || appKeep.Update.Kind != models.UpdateGitHubRelease {
 		t.Fatalf("unexpected update source after keep: %#v", appKeep.Update)
 	}
-	if !strings.Contains(outputKeep, "No embedded update source found in the current AppImage.") {
+	if !strings.Contains(outputKeep, "No embedded update source found in the current AppImage") {
 		t.Fatalf("unexpected output:\n%s", outputKeep)
 	}
-	if !strings.Contains(outputKeep, "Unset current update source github: owner/repo, asset: *.AppImage for my-app? [y/N]: ") {
+	if !strings.Contains(outputKeep, "Current:\n  github: owner/repo, asset: *.AppImage") {
+		t.Fatalf("unexpected output:\n%s", outputKeep)
+	}
+	if !strings.Contains(outputKeep, "Unset source for my-app? [y/N]: ") {
 		t.Fatalf("unexpected output:\n%s", outputKeep)
 	}
 	if !strings.Contains(outputKeep, "Update source unchanged") {
@@ -3324,7 +3327,7 @@ func TestUpdateSetEmbeddedMissingWithoutConfiguredSource(t *testing.T) {
 		}
 	})
 
-	if !strings.Contains(output, "No embedded update source found in the current AppImage.") {
+	if !strings.Contains(output, "No embedded update source found in the current AppImage") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
 	if strings.Contains(output, "Update source unchanged") {
@@ -3371,7 +3374,10 @@ func TestUpdateUnsetCommand(t *testing.T) {
 			t.Fatalf("runUpdateUnsetCommand returned error: %v", err)
 		}
 	})
-	if !strings.Contains(outputKeep, "Unset update source for my-app? [y/N]: ") {
+	if !strings.Contains(outputKeep, "Current:\n  github: owner/repo, asset: *.AppImage") {
+		t.Fatalf("unexpected output:\n%s", outputKeep)
+	}
+	if !strings.Contains(outputKeep, "Unset source for my-app? [y/N]: ") {
 		t.Fatalf("unexpected output:\n%s", outputKeep)
 	}
 	if !strings.Contains(outputKeep, "Update source unchanged") {
@@ -3845,7 +3851,7 @@ func TestRunManagedUpdateSinglePromptText(t *testing.T) {
 		}
 	})
 
-	if !strings.Contains(output, "Apply update for my-app? [y/N]: ") {
+	if !strings.Contains(output, "Apply updates to my-app? [y/N]: ") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
 	if !strings.Contains(output, "No updates applied") {
@@ -3894,7 +3900,7 @@ func TestRunManagedUpdateBatchPromptText(t *testing.T) {
 		}
 	})
 
-	if !strings.Contains(output, "Apply 2 updates? [y/N]: ") {
+	if !strings.Contains(output, "Apply updates to 2 app(s)? [y/N]: ") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
 	if !strings.Contains(output, "[app-a] v1.0.0 -> v9.9.9") {
@@ -4661,7 +4667,7 @@ func TestRunManagedUpdateUsesUnifiedApplyUIForSingleApp(t *testing.T) {
 		}
 	})
 
-	if !strings.Contains(output, "Applying 1 update") {
+	if !strings.Contains(output, "Updating 1 app") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
 	if !strings.Contains(output, "[1/1] my-app updated -> v1.1.0") {
@@ -5329,7 +5335,13 @@ func TestUpdateSetPromptText(t *testing.T) {
 		}
 	})
 
-	if !strings.Contains(output, "Replace update source for my-app? [y/N]: ") {
+	if !strings.Contains(output, "Current:\n  github: owner/repo, asset: *.AppImage") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+	if !strings.Contains(output, "Incoming:\n  gitlab: group/project, asset: *.AppImage") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+	if !strings.Contains(output, "Replace source for my-app? [y/N]: ") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
 	if !strings.Contains(output, "Update source unchanged") {

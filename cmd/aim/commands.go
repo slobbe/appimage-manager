@@ -66,7 +66,7 @@ func runUpgrade(ctx context.Context, cmd *cobra.Command) error {
 		ctx = context.Background()
 	}
 
-	checkResult, err := runWithBusyIndicator(cmd, "Checking for aim updates", func() (*core.AimUpgradeCheckResult, error) {
+	checkResult, err := runWithBusyIndicator(cmd, progressCheckAimUpdates(), func() (*core.AimUpgradeCheckResult, error) {
 		return checkAimUpgrade(ctx, version)
 	})
 	if err != nil {
@@ -81,7 +81,7 @@ func runUpgrade(ctx context.Context, cmd *cobra.Command) error {
 		return nil
 	}
 
-	result, err := runWithBusyIndicator(cmd, "Upgrading aim", func() (*core.InstallerUpgradeResult, error) {
+	result, err := runWithBusyIndicator(cmd, progressUpgradeAim(), func() (*core.InstallerUpgradeResult, error) {
 		return runUpgradeViaInstaller(ctx, version)
 	})
 	if err != nil {
@@ -95,7 +95,7 @@ func runUpgrade(ctx context.Context, cmd *cobra.Command) error {
 		))
 		return nil
 	}
-	printSuccess(cmd, "Updated aim via installer")
+	printSuccess(cmd, "Upgraded aim")
 	return nil
 }
 
@@ -119,17 +119,17 @@ func MigrateCmd(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(args) == 0 {
-		changed, err := runWithBusyIndicator(cmd, "Migrating and repairing managed apps", func() (bool, error) {
+		changed, err := runWithBusyIndicator(cmd, progressMigrateApps(), func() (bool, error) {
 			return migrateAllApps()
 		})
 		if err != nil {
 			return err
 		}
 		if !changed {
-			printSuccess(cmd, "No migration changes needed")
+			printSuccess(cmd, successMigrationNoop(""))
 			return nil
 		}
-		printSuccess(cmd, "Migration completed")
+		printSuccess(cmd, successMigrationComplete(""))
 		return nil
 	}
 
@@ -138,17 +138,17 @@ func MigrateCmd(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("missing required argument <id>")
 	}
 
-	changed, err := runWithBusyIndicator(cmd, fmt.Sprintf("Migrating and repairing %s", id), func() (bool, error) {
+	changed, err := runWithBusyIndicator(cmd, progressMigrateApp(id), func() (bool, error) {
 		return migrateSingleApp(id)
 	})
 	if err != nil {
 		return err
 	}
 	if !changed {
-		printSuccess(cmd, fmt.Sprintf("No migration changes needed for %s", id))
+		printSuccess(cmd, successMigrationNoop(id))
 		return nil
 	}
-	printSuccess(cmd, fmt.Sprintf("Migration completed for %s", id))
+	printSuccess(cmd, successMigrationComplete(id))
 	return nil
 }
 
@@ -274,11 +274,8 @@ func runIntegrateTarget(ctx context.Context, cmd *cobra.Command, input string) e
 
 		app, err := runWithBusyIndicator(cmd, fmt.Sprintf("Integrating %s", inputLabel), func() (*models.App, error) {
 			return integrateLocalApp(ctx, target.LocalPath, func(existing, incoming *models.UpdateSource) (bool, error) {
-				fmt.Println("Current update source:")
-				fmt.Println("  " + updateSummary(existing))
-				fmt.Println("Incoming AppImage update info:")
-				fmt.Println("  " + updateSummary(incoming))
-				prompt := fmt.Sprintf("Replace update source %s with AppImage update info? [y/N]: ", existing.Kind)
+				printCurrentIncoming(updateSummary(existing), updateSummary(incoming))
+				prompt := formatPrompt("Replace source from", "AppImage metadata")
 				return confirmOverwrite(prompt)
 			})
 		})
@@ -547,7 +544,7 @@ func integrateRemoteInstall(ctx context.Context, cmd *cobra.Command, req remoteI
 	}
 
 	if strings.TrimSpace(req.ExpectedSHA256) != "" {
-		fmt.Println("  Verifying")
+		printInfo(cmd, fmt.Sprintf("Verifying %s", fileName))
 		if err := verifyDownloadedUpdate(downloadPath, pendingManagedUpdate{ExpectedSHA256: req.ExpectedSHA256}); err != nil {
 			return nil, err
 		}
@@ -598,11 +595,8 @@ func chooseRemoteUpdateSource(id string, incoming *models.UpdateSource) (*models
 		return incoming, nil
 	}
 
-	fmt.Printf("Current update source for %s:\n", id)
-	fmt.Println("  " + updateSummary(existing))
-	fmt.Println("New update source:")
-	fmt.Println("  " + updateSummary(incoming))
-	prompt := fmt.Sprintf("Replace update source for %s? [y/N]: ", id)
+	printCurrentIncoming(updateSummary(existing), updateSummary(incoming))
+	prompt := formatPrompt("Replace source for", id)
 	confirmed, err := confirmOverwrite(prompt)
 	if err != nil {
 		return nil, err
@@ -706,7 +700,7 @@ func ListCmd(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(apps) == 0 {
-		printSuccess(cmd, "No managed AppImages")
+		printSuccess(cmd, "No managed apps")
 		return nil
 	}
 
@@ -721,11 +715,11 @@ func ListCmd(cmd *cobra.Command, args []string) error {
 	}
 
 	if integrated && len(integratedRows) == 0 {
-		printSuccess(cmd, "No integrated AppImages")
+		printSuccess(cmd, "No integrated apps")
 		return nil
 	}
 	if unlinked && len(unlinkedRows) == 0 {
-		printSuccess(cmd, "No unlinked AppImages")
+		printSuccess(cmd, "No unlinked apps")
 		return nil
 	}
 
@@ -1151,17 +1145,17 @@ func inspectManagedApp(ctx context.Context, cmd *cobra.Command, app *models.App)
 
 	embeddedSource, _ := embeddedUpdateSourceForPath(app.ExecPath)
 
-	printSection(cmd, "App")
+	printSection(cmd, sectionApp)
 	fmt.Printf("Name: %s\n", strings.TrimSpace(app.Name))
 	fmt.Printf("ID: %s\n", strings.TrimSpace(app.ID))
 	fmt.Printf("Version: %s\n", displayVersion(app.Version))
-	fmt.Printf("Exec Path: %s\n", strings.TrimSpace(app.ExecPath))
+	fmt.Printf("Exec path: %s\n", strings.TrimSpace(app.ExecPath))
 
-	printSection(cmd, "Management")
-	fmt.Printf("Configured update source: %s\n", updateSummaryOrNone(app.Update))
-	fmt.Printf("Embedded update source: %s\n", updateSummaryOrNone(embeddedSource))
+	printSection(cmd, sectionUpdates)
+	fmt.Printf("Configured source: %s\n", updateSummaryOrNone(app.Update))
+	fmt.Printf("Embedded source: %s\n", updateSummaryOrNone(embeddedSource))
 
-	printSection(cmd, "Update State")
+	printSection(cmd, sectionState)
 	fmt.Printf("Update available: %s\n", yesNo(app.UpdateAvailable))
 	if strings.TrimSpace(app.LatestVersion) != "" {
 		fmt.Printf("Latest known version: %s\n", displayVersion(app.LatestVersion))
@@ -1204,14 +1198,14 @@ func inspectLocalAppImage(ctx context.Context, cmd *cobra.Command, src string) e
 	info := result.info
 	embeddedSource := result.embeddedSource
 
-	printSection(cmd, "AppImage")
+	printSection(cmd, sectionAppImage)
 	fmt.Printf("Path: %s\n", strings.TrimSpace(src))
 	fmt.Printf("Name: %s\n", strings.TrimSpace(info.Name))
 	fmt.Printf("ID: %s\n", strings.TrimSpace(info.ID))
 	fmt.Printf("Version: %s\n", displayVersion(info.Version))
 
-	printSection(cmd, "Embedded Update")
-	fmt.Printf("Embedded update source: %s\n", updateSummaryOrNone(embeddedSource))
+	printSection(cmd, sectionUpdates)
+	fmt.Printf("Embedded source: %s\n", updateSummaryOrNone(embeddedSource))
 
 	return nil
 }
@@ -1291,12 +1285,13 @@ func UpdateSetCmd(cmd *cobra.Command, args []string) error {
 
 		incomingSource, err = embeddedUpdateSourceForPath(app.ExecPath)
 		if err != nil {
-			printWarning(cmd, "No embedded update source found in the current AppImage.")
+			printWarning(cmd, warningNoEmbeddedSource())
 			if app.Update == nil || app.Update.Kind == models.UpdateNone {
 				return nil
 			}
 
-			prompt := fmt.Sprintf("Unset current update source %s for %s? [y/N]: ", updateSummary(app.Update), id)
+			printCurrentValue(updateSummary(app.Update))
+			prompt := formatPrompt("Unset source for", id)
 			_, err := unsetManagedUpdateSource(cmd, app, prompt, false)
 			return err
 		}
@@ -1308,11 +1303,8 @@ func UpdateSetCmd(cmd *cobra.Command, args []string) error {
 	}
 
 	if app.Update != nil && app.Update.Kind != models.UpdateNone && !updateSourcesEqual(app.Update, incomingSource) {
-		fmt.Printf("Current update source for %s:\n", id)
-		fmt.Println("  " + updateSummary(app.Update))
-		fmt.Println("New update source:")
-		fmt.Println("  " + updateSummary(incomingSource))
-		prompt := fmt.Sprintf("Replace update source for %s? [y/N]: ", id)
+		printCurrentIncoming(updateSummary(app.Update), updateSummary(incomingSource))
+		prompt := formatPrompt("Replace source for", id)
 		confirmed, err := confirmOverwrite(prompt)
 		if err != nil {
 			return err
@@ -1351,7 +1343,7 @@ func UpdateUnsetCmd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	prompt := fmt.Sprintf("Unset update source for %s? [y/N]: ", id)
+	prompt := formatPrompt("Unset source for", id)
 	_, err = unsetManagedUpdateSource(cmd, app, prompt, true)
 	return err
 }
@@ -1372,8 +1364,7 @@ func unsetManagedUpdateSource(cmd *cobra.Command, app *models.App, prompt string
 	}
 
 	if showCurrent {
-		fmt.Printf("Current update source for %s:\n", app.ID)
-		fmt.Println("  " + updateSummary(app.Update))
+		printCurrentValue(updateSummary(app.Update))
 	}
 
 	confirmed, err := confirmOverwrite(prompt)
@@ -1741,9 +1732,9 @@ func runManagedUpdate(ctx context.Context, cmd *cobra.Command, targetID string) 
 	}
 
 	if !autoApply {
-		prompt := fmt.Sprintf("Apply %d updates? [y/N]: ", len(pending))
+		prompt := formatPrompt("Apply updates to", fmt.Sprintf("%d app(s)", len(pending)))
 		if targetID != "" {
-			prompt = fmt.Sprintf("Apply update for %s? [y/N]: ", targetID)
+			prompt = formatPrompt("Apply updates to", targetID)
 		}
 
 		confirmed, err := confirmOverwrite(prompt)
