@@ -39,24 +39,29 @@ type treeEntry struct {
 }
 
 func MigrateToCurrentPaths() error {
+	_, err := MigrateToCurrentPathsChanged()
+	return err
+}
+
+func MigrateToCurrentPathsChanged() (bool, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	sourceStates, err := discoverMigrationSources(home)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	destExists, err := fileExists(config.DbSrc)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	orderedStates := orderedLegacyStates(sourceStates)
 	if err := migrateConfigTree(orderedStates); err != nil {
-		return fmt.Errorf("failed to migrate config directory: %w", err)
+		return false, fmt.Errorf("failed to migrate config directory: %w", err)
 	}
 
 	orderedSources := extractMigrationSources(orderedStates)
@@ -64,43 +69,93 @@ func MigrateToCurrentPaths() error {
 	if destExists {
 		destDB, err := LoadDB(config.DbSrc)
 		if err != nil {
-			return fmt.Errorf("failed to load current database: %w", err)
+			return false, fmt.Errorf("failed to load current database: %w", err)
 		}
 
 		changed, err := repairCurrentDB(destDB, orderedSources)
 		if err != nil {
-			return err
+			return false, err
 		}
 		if !changed {
-			return nil
+			return false, nil
 		}
 		if err := SaveDB(config.DbSrc, destDB); err != nil {
-			return fmt.Errorf("failed to write current database: %w", err)
+			return false, fmt.Errorf("failed to write current database: %w", err)
 		}
 		refreshMigratedDesktopIntegrationCaches()
-		return nil
+		return true, nil
 	}
 
 	canonicalState := chooseCanonicalLegacyDB(orderedStates)
 	if canonicalState == nil {
-		return nil
+		return false, nil
 	}
 
 	destDB, err := LoadDB(canonicalState.Source.DBPath)
 	if err != nil {
-		return fmt.Errorf("failed to load %s database: %w", canonicalState.Source.Name, err)
+		return false, fmt.Errorf("failed to load %s database: %w", canonicalState.Source.Name, err)
 	}
 
-	if _, err := repairCurrentDB(destDB, orderedSources); err != nil {
-		return err
+	changed, err := repairCurrentDB(destDB, orderedSources)
+	if err != nil {
+		return false, err
 	}
 
 	if err := SaveDB(config.DbSrc, destDB); err != nil {
-		return fmt.Errorf("failed to write current database: %w", err)
+		return false, fmt.Errorf("failed to write current database: %w", err)
 	}
 	refreshMigratedDesktopIntegrationCaches()
 
-	return nil
+	return changed, nil
+}
+
+func MigrateAppToCurrentPaths(id string) (bool, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return false, fmt.Errorf("id cannot be empty")
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false, err
+	}
+
+	sourceStates, err := discoverMigrationSources(home)
+	if err != nil {
+		return false, err
+	}
+
+	orderedStates := orderedLegacyStates(sourceStates)
+	if err := migrateConfigTree(orderedStates); err != nil {
+		return false, fmt.Errorf("failed to migrate config directory: %w", err)
+	}
+
+	destExists, err := fileExists(config.DbSrc)
+	if err != nil {
+		return false, err
+	}
+	if !destExists {
+		return false, fmt.Errorf("%s does not exists in database", id)
+	}
+
+	db, err := LoadDB(config.DbSrc)
+	if err != nil {
+		return false, fmt.Errorf("failed to load current database: %w", err)
+	}
+
+	changed, err := repairCurrentApp(db, extractMigrationSources(orderedStates), id)
+	if err != nil {
+		return false, err
+	}
+	if !changed {
+		return false, nil
+	}
+
+	if err := SaveDB(config.DbSrc, db); err != nil {
+		return false, fmt.Errorf("failed to write current database: %w", err)
+	}
+	refreshMigratedDesktopIntegrationCaches()
+	return true, nil
 }
 
 func migrationSources(home string) []migrationSource {
@@ -278,6 +333,50 @@ func repairCurrentDB(db *DB, sources []migrationSource) (bool, error) {
 	}
 
 	db.Apps = updatedApps
+
+	return changed, nil
+}
+
+func repairCurrentApp(db *DB, sources []migrationSource, id string) (bool, error) {
+	if db == nil {
+		return false, nil
+	}
+
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return false, fmt.Errorf("id cannot be empty")
+	}
+
+	changed := false
+	if db.Apps == nil {
+		db.Apps = map[string]*models.App{}
+		changed = true
+	}
+	if db.SchemaVersion == 0 {
+		db.SchemaVersion = 1
+		changed = true
+	}
+
+	app, ok := db.Apps[id]
+	if !ok || app == nil {
+		return false, fmt.Errorf("%s does not exists in database", id)
+	}
+	if strings.TrimSpace(app.ID) == "" {
+		app.ID = id
+		changed = true
+	}
+
+	updated, err := reconcileAppToCurrentPaths(app, nil, sources, db.Apps, map[string]*models.App{})
+	if err != nil {
+		return false, err
+	}
+	changed = changed || updated
+
+	if app.ID != id {
+		delete(db.Apps, id)
+		db.Apps[app.ID] = app
+		changed = true
+	}
 
 	return changed, nil
 }

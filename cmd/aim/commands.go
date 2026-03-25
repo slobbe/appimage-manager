@@ -109,6 +109,41 @@ func VersionCmd(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+func MigrateCmd(cmd *cobra.Command, args []string) error {
+	if len(args) > 1 {
+		return fmt.Errorf("too many arguments")
+	}
+
+	if len(args) == 0 {
+		changed, err := migrateAllApps()
+		if err != nil {
+			return err
+		}
+		if !changed {
+			printSuccess(cmd, "No migration changes needed")
+			return nil
+		}
+		printSuccess(cmd, "Migration completed")
+		return nil
+	}
+
+	id := strings.TrimSpace(args[0])
+	if id == "" {
+		return fmt.Errorf("missing required argument <id>")
+	}
+
+	changed, err := migrateSingleApp(id)
+	if err != nil {
+		return err
+	}
+	if !changed {
+		printSuccess(cmd, fmt.Sprintf("No migration changes needed for %s", id))
+		return nil
+	}
+	printSuccess(cmd, fmt.Sprintf("Migration completed for %s", id))
+	return nil
+}
+
 func AddCmd(cmd *cobra.Command, args []string) error {
 	if ref, ok, err := resolveAddProviderRef(cmd, args); err != nil {
 		return err
@@ -1509,6 +1544,8 @@ var integrateExistingApp = core.IntegrateExisting
 var integrateLocalApp = core.IntegrateFromLocalFile
 var readAppImageInfo = core.ReadAppImageInfo
 var getAppImageUpdateInfo = core.GetUpdateInfo
+var migrateAllApps = repo.MigrateToCurrentPathsChanged
+var migrateSingleApp = repo.MigrateAppToCurrentPaths
 var removeManagedApp = core.Remove
 var addAppsBatch = repo.AddAppsBatch
 var addSingleApp = repo.AddApp

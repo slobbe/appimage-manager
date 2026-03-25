@@ -864,6 +864,120 @@ func TestMigrateToCurrentPathsRepairsMissingCurrentIconFromOldManagedIcon(t *tes
 	}
 }
 
+func TestMigrateAppToCurrentPathsRepairsOnlyRequestedApp(t *testing.T) {
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+
+	configureMigrationTestPaths(t, homeDir)
+	mustEnsureCurrentDirs(t)
+
+	targetID := "t3-code-desktop"
+	otherID := "other-app"
+	targetAppDir := filepath.Join(config.AimDir, targetID)
+	otherAppDir := filepath.Join(config.AimDir, otherID)
+	targetExecPath := filepath.Join(targetAppDir, targetID+".AppImage")
+	targetDesktopPath := filepath.Join(targetAppDir, targetID+".desktop")
+	targetRecordedIconPath := filepath.Join(config.IconThemeDir, "256x256", "apps", targetID+".png")
+	targetOldIconPath := filepath.Join(config.IconThemeDir, "256x256", "apps", "t3-code-alpha.png")
+	otherExecPath := filepath.Join(otherAppDir, otherID+".AppImage")
+	otherDesktopPath := filepath.Join(otherAppDir, otherID+".desktop")
+	otherIconPath := filepath.Join(config.IconThemeDir, "256x256", "apps", otherID+".png")
+
+	writeFakeMigratingAppImage(t, targetExecPath, targetID, "T3 Code (Alpha)")
+	writeTestFile(t, targetDesktopPath, []byte("[Desktop Entry]\nName=T3 Code (Alpha)\nExec="+targetExecPath+" --no-sandbox %U\nIcon="+targetRecordedIconPath+"\n"), 0o644)
+	writeTestFile(t, targetOldIconPath, []byte("target-old-icon"), 0o644)
+
+	writeFakeMigratingAppImage(t, otherExecPath, otherID, "Other App")
+	writeTestFile(t, otherDesktopPath, []byte("[Desktop Entry]\nName=Other App\nExec="+otherExecPath+" %U\nIcon="+otherIconPath+"\n"), 0o644)
+
+	if err := SaveDB(config.DbSrc, &DB{
+		SchemaVersion: 1,
+		Apps: map[string]*models.App{
+			targetID: {
+				ID:               targetID,
+				Name:             "T3 Code (Alpha)",
+				ExecPath:         targetExecPath,
+				DesktopEntryPath: targetDesktopPath,
+				IconPath:         targetRecordedIconPath,
+			},
+			otherID: {
+				ID:               otherID,
+				Name:             "Other App",
+				ExecPath:         otherExecPath,
+				DesktopEntryPath: otherDesktopPath,
+				IconPath:         otherIconPath,
+			},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	changed, err := MigrateAppToCurrentPaths(targetID)
+	if err != nil {
+		t.Fatalf("targeted migration failed: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected targeted migration to report changes")
+	}
+
+	if got := string(readTestFile(t, targetRecordedIconPath)); got != "target-old-icon" {
+		t.Fatalf("target repaired icon content = %q, want target-old-icon", got)
+	}
+	if _, err := os.Stat(otherIconPath); !os.IsNotExist(err) {
+		t.Fatalf("other app icon should remain untouched, stat err=%v", err)
+	}
+}
+
+func TestMigrateAppToCurrentPathsRenamesRequestedAppID(t *testing.T) {
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+
+	configureMigrationTestPaths(t, homeDir)
+	mustEnsureCurrentDirs(t)
+
+	oldID := "t3-code-alpha"
+	newID := "t3-code-desktop"
+	oldAppDir := filepath.Join(config.AimDir, oldID)
+	execPath := filepath.Join(oldAppDir, oldID+".AppImage")
+	desktopPath := filepath.Join(oldAppDir, oldID+".desktop")
+	iconPath := filepath.Join(config.IconThemeDir, "256x256", "apps", oldID+".png")
+
+	writeFakeMigratingAppImage(t, execPath, newID, "T3 Code (Alpha)")
+	writeTestFile(t, desktopPath, []byte("[Desktop Entry]\nName=T3 Code (Alpha)\nExec="+execPath+" --no-sandbox %U\nIcon="+iconPath+"\n"), 0o644)
+	writeTestFile(t, iconPath, []byte("icon"), 0o644)
+
+	if err := SaveDB(config.DbSrc, &DB{
+		SchemaVersion: 1,
+		Apps: map[string]*models.App{
+			oldID: {
+				ID:               oldID,
+				Name:             "T3 Code (Alpha)",
+				ExecPath:         execPath,
+				DesktopEntryPath: desktopPath,
+				IconPath:         iconPath,
+			},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	changed, err := MigrateAppToCurrentPaths(oldID)
+	if err != nil {
+		t.Fatalf("targeted migration failed: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected targeted migration to report changes")
+	}
+
+	db := loadCurrentDBForTest(t)
+	if db.Apps[newID] == nil {
+		t.Fatalf("expected renamed app %q", newID)
+	}
+	if _, ok := db.Apps[oldID]; ok {
+		t.Fatalf("old app id %q should be removed", oldID)
+	}
+}
+
 func TestMigrateToCurrentPathsIsIdempotentAndLeavesNoMarker(t *testing.T) {
 	homeDir := t.TempDir()
 	t.Setenv("HOME", homeDir)

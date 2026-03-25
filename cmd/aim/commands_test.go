@@ -611,6 +611,89 @@ func TestVersionCmdRejectsExtraArgs(t *testing.T) {
 	}
 }
 
+func TestMigrateCmdRunsFullMigration(t *testing.T) {
+	originalMigrateAllApps := migrateAllApps
+	t.Cleanup(func() {
+		migrateAllApps = originalMigrateAllApps
+	})
+
+	called := false
+	migrateAllApps = func() (bool, error) {
+		called = true
+		return true, nil
+	}
+
+	output := captureStdout(t, func() {
+		if err := runRootCommand(context.Background(), []string{"migrate"}); err != nil {
+			t.Fatalf("runRootCommand returned error: %v", err)
+		}
+	})
+
+	if !called {
+		t.Fatal("expected full migration to be called")
+	}
+	if !strings.Contains(output, "Migration completed") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+}
+
+func TestMigrateCmdRunsTargetedMigration(t *testing.T) {
+	originalMigrateSingleApp := migrateSingleApp
+	t.Cleanup(func() {
+		migrateSingleApp = originalMigrateSingleApp
+	})
+
+	var gotID string
+	migrateSingleApp = func(id string) (bool, error) {
+		gotID = id
+		return true, nil
+	}
+
+	output := captureStdout(t, func() {
+		if err := runRootCommand(context.Background(), []string{"migrate", "my-app"}); err != nil {
+			t.Fatalf("runRootCommand returned error: %v", err)
+		}
+	})
+
+	if gotID != "my-app" {
+		t.Fatalf("targeted migrate id = %q, want %q", gotID, "my-app")
+	}
+	if !strings.Contains(output, "Migration completed for my-app") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+}
+
+func TestMigrateCmdNoopOutput(t *testing.T) {
+	originalMigrateAllApps := migrateAllApps
+	t.Cleanup(func() {
+		migrateAllApps = originalMigrateAllApps
+	})
+
+	migrateAllApps = func() (bool, error) {
+		return false, nil
+	}
+
+	output := captureStdout(t, func() {
+		if err := runRootCommand(context.Background(), []string{"migrate"}); err != nil {
+			t.Fatalf("runRootCommand returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "No migration changes needed") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+}
+
+func TestMigrateCmdRejectsExtraArgs(t *testing.T) {
+	err := runRootCommand(context.Background(), []string{"migrate", "one", "two"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "accepts at most 1 arg") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestRootHelpDoesNotAdvertiseRemovedCommands(t *testing.T) {
 	cmd := newRootTestCommand()
 
@@ -775,8 +858,9 @@ func TestRootPackageCommandAliases(t *testing.T) {
 
 	listCmd := findSubcommand(cmd, "list")
 	updateCmd := findSubcommand(cmd, "update")
-	if listCmd == nil || updateCmd == nil {
-		t.Fatal("expected list and update commands")
+	migrateCmd := findSubcommand(cmd, "migrate")
+	if listCmd == nil || updateCmd == nil || migrateCmd == nil {
+		t.Fatal("expected list, update, and migrate commands")
 	}
 
 	if aliases := listCmd.Aliases; len(aliases) != 1 || aliases[0] != "ls" {
@@ -784,6 +868,9 @@ func TestRootPackageCommandAliases(t *testing.T) {
 	}
 	if aliases := updateCmd.Aliases; len(aliases) != 1 || aliases[0] != "u" {
 		t.Fatalf("update aliases = %v, want [u]", aliases)
+	}
+	if aliases := migrateCmd.Aliases; len(aliases) != 1 || aliases[0] != "repair" {
+		t.Fatalf("migrate aliases = %v, want [repair]", aliases)
 	}
 }
 
@@ -3243,16 +3330,19 @@ func TestRenderManPageIncludesMetadata(t *testing.T) {
 		".SS aim add",
 		".SS aim info",
 		".SS aim list",
+		".SS aim migrate",
 		".SS aim remove",
 		".SS aim update",
 		".SS aim update set",
 		".SS aim update unset",
 		".SS aim version",
 		"Install an AppImage from a file, URL, or provider",
+		"Repair managed AppImage state, migrate legacy paths, and reconcile desktop integration. This command may inspect AppImages and can take longer than ordinary commands.",
 		"Check or apply updates for managed AppImages, or manage configured update sources.",
 		"Aliases",
 		"rm",
 		"ls",
+		"repair",
 		"u",
 		"\\-\\-github owner/repo",
 		"\\-\\-gitlab namespace/project",

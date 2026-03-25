@@ -14,6 +14,7 @@ AppImage Manager helps you manage AppImages from the terminal without manual des
 - Install AppImages from local files, direct URLs, GitHub, and GitLab
 - Integrate AppImages with desktop menus, icons, and launchers
 - Track managed apps and update them from configured sources
+- Run explicit migration and desktop integration repair when needed
 - Remove apps or unlink their desktop integration
 - Inspect AppImage metadata and update-source details
 
@@ -106,6 +107,19 @@ aim info ./MyApp.AppImage
 ```
 
 `aim info` accepts recognized GitHub/GitLab repo and project URLs, but it does not accept arbitrary `https://` download URLs.
+
+### `aim migrate`: Run migration and desktop integration repair
+
+Run legacy path migration, desktop integration repair, and deep managed AppImage reconciliation explicitly.
+
+```sh
+aim migrate
+aim migrate <id>
+aim repair
+aim repair <id>
+```
+
+`aim migrate` may inspect AppImages and can take noticeably longer than ordinary commands. Normal commands like `aim list` and `aim info` do not automatically run migration or repair work.
 
 ### `aim remove`: Remove AppImage
 

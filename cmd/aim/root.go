@@ -31,6 +31,7 @@ func newRootCommand(version string) *cobra.Command {
 		newRemoveCommand(),
 		newListCommand(),
 		newInfoCommand(),
+		newMigrateCommand(),
 		newUpdateCommand(),
 		newVersionCommand(),
 	)
@@ -108,6 +109,17 @@ func newUpdateCommand() *cobra.Command {
 	)
 
 	return cmd
+}
+
+func newMigrateCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:     "migrate [id]",
+		Aliases: []string{"repair"},
+		Short:   "Run migration and desktop integration repair",
+		Long:    "Repair managed AppImage state, migrate legacy paths, and reconcile desktop integration. This command may inspect AppImages and can take longer than ordinary commands.",
+		Args:    cobra.MaximumNArgs(1),
+		RunE:    MigrateCmd,
+	}
 }
 
 func newUpdateSetCommand() *cobra.Command {
