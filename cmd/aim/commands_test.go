@@ -236,6 +236,12 @@ func TestUpgradeCmdOutputsVersionTransitionMessage(t *testing.T) {
 		}
 	})
 
+	if !strings.Contains(output, "Checking for aim updates...") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+	if !strings.Contains(output, "Upgrading aim...") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
 	if !strings.Contains(output, "Upgraded aim v0.12.4 -> v0.12.5") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
@@ -357,6 +363,9 @@ func TestUpgradeCmdReportsUpToDateWhenNoNewReleaseExists(t *testing.T) {
 		}
 	})
 
+	if !strings.Contains(output, "Checking for aim updates...") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
 	if !strings.Contains(output, "aim is up to date (v0.12.5)") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
@@ -632,6 +641,9 @@ func TestMigrateCmdRunsFullMigration(t *testing.T) {
 	if !called {
 		t.Fatal("expected full migration to be called")
 	}
+	if !strings.Contains(output, "Migrating and repairing managed apps...") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
 	if !strings.Contains(output, "Migration completed") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
@@ -658,6 +670,9 @@ func TestMigrateCmdRunsTargetedMigration(t *testing.T) {
 	if gotID != "my-app" {
 		t.Fatalf("targeted migrate id = %q, want %q", gotID, "my-app")
 	}
+	if !strings.Contains(output, "Migrating and repairing my-app...") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
 	if !strings.Contains(output, "Migration completed for my-app") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
@@ -681,6 +696,32 @@ func TestMigrateCmdNoopOutput(t *testing.T) {
 
 	if !strings.Contains(output, "No migration changes needed") {
 		t.Fatalf("unexpected output:\n%s", output)
+	}
+}
+
+func TestBusyIndicatorTTYRendersAndClearsBeforeFinalOutput(t *testing.T) {
+	withTerminalOutput(t, true)
+	withBusyIndicatorRenderInterval(t, 5*time.Millisecond)
+
+	output := captureStdout(t, func() {
+		_, err := runWithBusyIndicator(&cobra.Command{}, "Working", func() (string, error) {
+			time.Sleep(20 * time.Millisecond)
+			fmt.Println("done")
+			return "ok", nil
+		})
+		if err != nil {
+			t.Fatalf("runWithBusyIndicator returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "\r") {
+		t.Fatalf("expected carriage return output, got:\n%q", output)
+	}
+	if !strings.Contains(output, "Working") {
+		t.Fatalf("expected spinner label in output, got:\n%q", output)
+	}
+	if !strings.Contains(output, "done") {
+		t.Fatalf("expected final output after spinner, got:\n%q", output)
 	}
 }
 
@@ -1665,6 +1706,67 @@ func TestAddCmdGitHubUsesCustomAsset(t *testing.T) {
 	}
 }
 
+func TestAddCmdGitHubShowsProgressStages(t *testing.T) {
+	tempDir := t.TempDir()
+	setupAddCommandConfigForTest(t, tempDir)
+
+	originalBackends := discoveryBackends
+	originalDownload := downloadRemoteAsset
+	originalIntegrate := integrateLocalApp
+	originalAddSingle := addSingleApp
+	t.Cleanup(func() {
+		discoveryBackends = originalBackends
+		downloadRemoteAsset = originalDownload
+		integrateLocalApp = originalIntegrate
+		addSingleApp = originalAddSingle
+	})
+
+	discoveryBackends = func() []discovery.DiscoveryBackend {
+		return []discovery.DiscoveryBackend{
+			&stubDiscoveryBackend{
+				name: "GitHub",
+				resolveFn: func(context.Context, discovery.PackageRef, string) (*discovery.PackageMetadata, error) {
+					return &discovery.PackageMetadata{
+						Name:          "My App",
+						Provider:      "GitHub",
+						Ref:           discovery.PackageRef{Kind: discovery.ProviderGitHub, ProviderRef: "owner/repo"},
+						LatestVersion: "1.2.3",
+						AssetName:     "MyApp-x86_64.AppImage",
+						AssetPattern:  "*.AppImage",
+						DownloadURL:   "https://example.com/MyApp-x86_64.AppImage",
+						Installable:   true,
+						ReleaseTag:    "v1.2.3",
+					}, nil
+				},
+			},
+		}
+	}
+	downloadRemoteAsset = func(context.Context, string, string, bool) error { return nil }
+	integrateLocalApp = func(context.Context, string, core.UpdateOverwritePrompt) (*models.App, error) {
+		return &models.App{ID: "my-app", Name: "My App", Version: "1.2.3", UpdatedAt: "2026-03-08T12:00:00Z"}, nil
+	}
+	addSingleApp = repo.AddApp
+
+	output := captureStdout(t, func() {
+		if err := runAddCommand(context.Background(), []string{"--github", "owner/repo"}); err != nil {
+			t.Fatalf("runAddCommand returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "Resolving package metadata for GitHub owner/repo...") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+	if !strings.Contains(output, "Downloading owner/repo") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+	if !strings.Contains(output, "Integrating MyApp-x86_64.AppImage...") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+	if !strings.Contains(output, "Installed: My App v1.2.3 [my-app]") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+}
+
 func TestAddCmdGitLabSetsDefaultAssetSourceAndUpdate(t *testing.T) {
 	tempDir := t.TempDir()
 	setupAddCommandConfigForTest(t, tempDir)
@@ -1916,6 +2018,9 @@ func TestInfoCmdDirectProviderRef(t *testing.T) {
 		}
 	})
 
+	if !strings.Contains(output, "Resolving package metadata for GitHub owner/repo...") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
 	if !strings.Contains(output, "My App") || !strings.Contains(strings.ToLower(output), "install command") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
@@ -1969,6 +2074,9 @@ func TestInfoCmdGitLabProviderRefOutput(t *testing.T) {
 		}
 	})
 
+	if !strings.Contains(output, "Resolving package metadata for GitLab group/project...") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
 	if !strings.Contains(output, "Foo App") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
@@ -2889,6 +2997,9 @@ func TestInfoCmdLocalAppImageEmbeddedSource(t *testing.T) {
 	if !strings.Contains(output, "Path: ./MyApp.AppImage") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
+	if !strings.Contains(output, "Inspecting MyApp.AppImage...") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
 	if !strings.Contains(output, "Name: My App") || !strings.Contains(output, "ID: my-app") || !strings.Contains(output, "Version: v1.2.3") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
@@ -2995,6 +3106,9 @@ func TestInfoCmdLocalAppImage(t *testing.T) {
 	})
 
 	if !strings.Contains(output, "Path: ./MyApp.AppImage") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+	if !strings.Contains(output, "Inspecting MyApp.AppImage...") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
 	if !strings.Contains(output, "Embedded update source: zsync: gh-releases-zsync|owner|repo|latest|MyApp-*.AppImage.zsync") {
@@ -5268,6 +5382,16 @@ func withManagedApplyRenderInterval(t *testing.T, value time.Duration) {
 	managedApplyRenderInterval = value
 	t.Cleanup(func() {
 		managedApplyRenderInterval = original
+	})
+}
+
+func withBusyIndicatorRenderInterval(t *testing.T, value time.Duration) {
+	t.Helper()
+
+	original := busyIndicatorRenderInterval
+	busyIndicatorRenderInterval = value
+	t.Cleanup(func() {
+		busyIndicatorRenderInterval = original
 	})
 }
 

@@ -54,6 +54,8 @@ The committed man page is generated from the Cobra command tree with the develop
 
 Upgrade `aim` to the latest stable release with the official installer. This also refreshes the man page and shell completions.
 
+Interactive terminals show progress while `aim` checks for updates and runs the installer.
+
 ```sh
 aim --upgrade
 aim -U
@@ -70,6 +72,8 @@ aim add --gitlab namespace/project
 ```
 
 `aim add` handles remote sources, managed IDs, and local AppImages. Use `--github`, `--gitlab`, or a recognized provider URL for provider-based sources.
+
+Interactive terminals show progress while `aim` resolves provider metadata, inspects AppImages, and integrates installed files.
 
 Examples:
 
@@ -108,6 +112,8 @@ aim info ./MyApp.AppImage
 
 `aim info` accepts recognized GitHub/GitLab repo and project URLs, but it does not accept arbitrary `https://` download URLs.
 
+Interactive terminals show progress while `aim` resolves provider metadata or inspects a local AppImage.
+
 ### `aim migrate`: Run migration and desktop integration repair
 
 Run legacy path migration, desktop integration repair, and deep managed AppImage reconciliation explicitly.
@@ -120,6 +126,7 @@ aim repair <id>
 ```
 
 `aim migrate` may inspect AppImages and can take noticeably longer than ordinary commands. Normal commands like `aim list` and `aim info` do not automatically run migration or repair work.
+Interactive terminals show progress while migration and repair are running.
 
 ### `aim remove`: Remove AppImage
 

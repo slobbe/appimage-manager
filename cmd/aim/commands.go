@@ -66,7 +66,9 @@ func runUpgrade(ctx context.Context, cmd *cobra.Command) error {
 		ctx = context.Background()
 	}
 
-	checkResult, err := checkAimUpgrade(ctx, version)
+	checkResult, err := runWithBusyIndicator(cmd, "Checking for aim updates", func() (*core.AimUpgradeCheckResult, error) {
+		return checkAimUpgrade(ctx, version)
+	})
 	if err != nil {
 		return err
 	}
@@ -79,7 +81,9 @@ func runUpgrade(ctx context.Context, cmd *cobra.Command) error {
 		return nil
 	}
 
-	result, err := runUpgradeViaInstaller(ctx, version)
+	result, err := runWithBusyIndicator(cmd, "Upgrading aim", func() (*core.InstallerUpgradeResult, error) {
+		return runUpgradeViaInstaller(ctx, version)
+	})
 	if err != nil {
 		return err
 	}
@@ -115,7 +119,9 @@ func MigrateCmd(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(args) == 0 {
-		changed, err := migrateAllApps()
+		changed, err := runWithBusyIndicator(cmd, "Migrating and repairing managed apps", func() (bool, error) {
+			return migrateAllApps()
+		})
 		if err != nil {
 			return err
 		}
@@ -132,7 +138,9 @@ func MigrateCmd(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("missing required argument <id>")
 	}
 
-	changed, err := migrateSingleApp(id)
+	changed, err := runWithBusyIndicator(cmd, fmt.Sprintf("Migrating and repairing %s", id), func() (bool, error) {
+		return migrateSingleApp(id)
+	})
 	if err != nil {
 		return err
 	}
@@ -264,15 +272,15 @@ func runIntegrateTarget(ctx context.Context, cmd *cobra.Command, input string) e
 			inputLabel = strings.TrimSpace(target.LocalPath)
 		}
 
-		printInfo(cmd, fmt.Sprintf("Integrating %s", inputLabel))
-
-		app, err := integrateLocalApp(ctx, target.LocalPath, func(existing, incoming *models.UpdateSource) (bool, error) {
-			fmt.Println("Current update source:")
-			fmt.Println("  " + updateSummary(existing))
-			fmt.Println("Incoming AppImage update info:")
-			fmt.Println("  " + updateSummary(incoming))
-			prompt := fmt.Sprintf("Replace update source %s with AppImage update info? [y/N]: ", existing.Kind)
-			return confirmOverwrite(prompt)
+		app, err := runWithBusyIndicator(cmd, fmt.Sprintf("Integrating %s", inputLabel), func() (*models.App, error) {
+			return integrateLocalApp(ctx, target.LocalPath, func(existing, incoming *models.UpdateSource) (bool, error) {
+				fmt.Println("Current update source:")
+				fmt.Println("  " + updateSummary(existing))
+				fmt.Println("Incoming AppImage update info:")
+				fmt.Println("  " + updateSummary(incoming))
+				prompt := fmt.Sprintf("Replace update source %s with AppImage update info? [y/N]: ", existing.Kind)
+				return confirmOverwrite(prompt)
+			})
 		})
 		if err != nil {
 			return err
@@ -429,8 +437,9 @@ func integrateFromGitHubRelease(ctx context.Context, cmd *cobra.Command, target 
 		assetPattern = defaultReleaseAssetPattern
 	}
 
-	printInfo(cmd, fmt.Sprintf("Resolving GitHub release for %s", target.Repo))
-	release, err := resolveGitHubReleaseAsset(target.Repo, assetPattern)
+	release, err := runWithBusyIndicator(cmd, fmt.Sprintf("Resolving GitHub release for %s", target.Repo), func() (*core.GitHubReleaseAsset, error) {
+		return resolveGitHubReleaseAsset(target.Repo, assetPattern)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -472,8 +481,9 @@ func integrateFromGitLabRelease(ctx context.Context, cmd *cobra.Command, target 
 		assetPattern = defaultReleaseAssetPattern
 	}
 
-	printInfo(cmd, fmt.Sprintf("Resolving GitLab release for %s", target.Project))
-	release, err := resolveGitLabReleaseAsset(target.Project, assetPattern)
+	release, err := runWithBusyIndicator(cmd, fmt.Sprintf("Resolving GitLab release for %s", target.Project), func() (*core.GitLabReleaseAsset, error) {
+		return resolveGitLabReleaseAsset(target.Project, assetPattern)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -543,11 +553,12 @@ func integrateRemoteInstall(ctx context.Context, cmd *cobra.Command, req remoteI
 		}
 	}
 
-	printInfo(cmd, fmt.Sprintf("Integrating %s", fileName))
-	app, err := integrateLocalApp(ctx, downloadPath, func(existing, incoming *models.UpdateSource) (bool, error) {
-		_ = existing
-		_ = incoming
-		return false, nil
+	app, err := runWithBusyIndicator(cmd, fmt.Sprintf("Integrating %s", fileName), func() (*models.App, error) {
+		return integrateLocalApp(ctx, downloadPath, func(existing, incoming *models.UpdateSource) (bool, error) {
+			_ = existing
+			_ = incoming
+			return false, nil
+		})
 	})
 	if err != nil {
 		return nil, err
@@ -900,6 +911,29 @@ func formatProviderRef(ref discovery.PackageRef) string {
 	}
 }
 
+func installTargetLabel(target *installTarget) string {
+	if target == nil {
+		return "package"
+	}
+
+	switch target.Kind {
+	case installTargetGitHub:
+		if value := strings.TrimSpace(target.Repo); value != "" {
+			return "GitHub " + value
+		}
+	case installTargetGitLab:
+		if value := strings.TrimSpace(target.Project); value != "" {
+			return "GitLab " + value
+		}
+	case installTargetDirectURL:
+		if value := strings.TrimSpace(target.URL); value != "" {
+			return value
+		}
+	}
+
+	return "package"
+}
+
 func formatAddProviderCommand(ref discovery.PackageRef) string {
 	value := strings.TrimSpace(ref.ProviderRef)
 	if value == "" {
@@ -962,7 +996,9 @@ func runShowTarget(ctx context.Context, cmd *cobra.Command, refArg string) error
 }
 
 func runShowPackageRef(ctx context.Context, cmd *cobra.Command, ref discovery.PackageRef) error {
-	metadata, err := resolvePackageMetadataFromRef(ctx, ref, "")
+	metadata, err := runWithBusyIndicator(cmd, fmt.Sprintf("Resolving package metadata for %s", formatProviderRef(ref)), func() (*discovery.PackageMetadata, error) {
+		return resolvePackageMetadataFromRef(ctx, ref, "")
+	})
 	if err != nil {
 		return err
 	}
@@ -995,7 +1031,9 @@ func runInstallTarget(ctx context.Context, cmd *cobra.Command, refArg string) er
 		app, err = integrateFromDirectURL(ctx, cmd, target, sha256)
 	case installTargetGitHub, installTargetGitLab:
 		var metadata *discovery.PackageMetadata
-		metadata, err = resolvePackageMetadataFromInput(ctx, refArg, assetPattern)
+		metadata, err = runWithBusyIndicator(cmd, fmt.Sprintf("Resolving package metadata for %s", installTargetLabel(target)), func() (*discovery.PackageMetadata, error) {
+			return resolvePackageMetadataFromInput(ctx, refArg, assetPattern)
+		})
 		if err == nil && !metadata.Installable {
 			err = fmt.Errorf("package is not installable: %s", strings.TrimSpace(metadata.InstallReason))
 		}
@@ -1026,7 +1064,9 @@ func runInstallPackageRef(ctx context.Context, cmd *cobra.Command, ref discovery
 		return fmt.Errorf("--sha256 is only supported with direct https URLs")
 	}
 
-	metadata, err := resolvePackageMetadataFromRef(ctx, ref, assetPattern)
+	metadata, err := runWithBusyIndicator(cmd, fmt.Sprintf("Resolving package metadata for %s", formatProviderRef(ref)), func() (*discovery.PackageMetadata, error) {
+		return resolvePackageMetadataFromRef(ctx, ref, assetPattern)
+	})
 	if err == nil && !metadata.Installable {
 		err = fmt.Errorf("package is not installable: %s", strings.TrimSpace(metadata.InstallReason))
 	}
@@ -1135,12 +1175,34 @@ func inspectManagedApp(ctx context.Context, cmd *cobra.Command, app *models.App)
 }
 
 func inspectLocalAppImage(ctx context.Context, cmd *cobra.Command, src string) error {
-	info, err := readAppImageInfo(ctx, src)
+	label := strings.TrimSpace(filepath.Base(src))
+	if label == "" || label == "." || label == string(filepath.Separator) {
+		label = strings.TrimSpace(src)
+	}
+
+	result, err := runWithBusyIndicator(cmd, fmt.Sprintf("Inspecting %s", label), func() (*struct {
+		info           *core.AppInfo
+		embeddedSource *models.UpdateSource
+	}, error) {
+		info, err := readAppImageInfo(ctx, src)
+		if err != nil {
+			return nil, err
+		}
+
+		embeddedSource, _ := embeddedUpdateSourceForPath(src)
+		return &struct {
+			info           *core.AppInfo
+			embeddedSource *models.UpdateSource
+		}{
+			info:           info,
+			embeddedSource: embeddedSource,
+		}, nil
+	})
 	if err != nil {
 		return err
 	}
-
-	embeddedSource, _ := embeddedUpdateSourceForPath(src)
+	info := result.info
+	embeddedSource := result.embeddedSource
 
 	printSection(cmd, "AppImage")
 	fmt.Printf("Path: %s\n", strings.TrimSpace(src))
