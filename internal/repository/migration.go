@@ -1,9 +1,11 @@
 package repo
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -11,6 +13,7 @@ import (
 	"time"
 
 	"github.com/slobbe/appimage-manager/internal/config"
+	util "github.com/slobbe/appimage-manager/internal/helpers"
 	models "github.com/slobbe/appimage-manager/internal/types"
 )
 
@@ -74,6 +77,7 @@ func MigrateToCurrentPaths() error {
 		if err := SaveDB(config.DbSrc, destDB); err != nil {
 			return fmt.Errorf("failed to write current database: %w", err)
 		}
+		refreshMigratedDesktopIntegrationCaches()
 		return nil
 	}
 
@@ -94,6 +98,7 @@ func MigrateToCurrentPaths() error {
 	if err := SaveDB(config.DbSrc, destDB); err != nil {
 		return fmt.Errorf("failed to write current database: %w", err)
 	}
+	refreshMigratedDesktopIntegrationCaches()
 
 	return nil
 }
@@ -240,7 +245,16 @@ func repairCurrentDB(db *DB, sources []migrationSource) (bool, error) {
 		changed = true
 	}
 
-	for key, app := range db.Apps {
+	keys := make([]string, 0, len(db.Apps))
+	for key := range db.Apps {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	updatedApps := make(map[string]*models.App, len(db.Apps))
+
+	for _, key := range keys {
+		app := db.Apps[key]
 		if app == nil {
 			continue
 		}
@@ -252,22 +266,36 @@ func repairCurrentDB(db *DB, sources []migrationSource) (bool, error) {
 			changed = true
 		}
 
-		updated, err := reconcileAppToCurrentPaths(app, nil, sources)
+		updated, err := reconcileAppToCurrentPaths(app, nil, sources, db.Apps, updatedApps)
 		if err != nil {
 			return false, err
 		}
 		changed = changed || updated
+		if key != app.ID {
+			changed = true
+		}
+		updatedApps[app.ID] = app
 	}
+
+	db.Apps = updatedApps
 
 	return changed, nil
 }
 
-func reconcileAppToCurrentPaths(app, fallback *models.App, sources []migrationSource) (bool, error) {
+func reconcileAppToCurrentPaths(app, fallback *models.App, sources []migrationSource, existingApps, updatedApps map[string]*models.App) (bool, error) {
 	if app == nil || strings.TrimSpace(app.ID) == "" {
 		return false, nil
 	}
 
 	changed := false
+	preRenameIconPath := strings.TrimSpace(app.IconPath)
+	preRenameID := strings.TrimSpace(app.ID)
+
+	renamed, err := migrateAppIdentityToUpstreamDesktopStem(app, existingApps, updatedApps)
+	if err != nil {
+		return false, err
+	}
+	changed = changed || renamed
 
 	if err := mergeAppDirFromSources(app.ID, sources); err != nil {
 		return false, err
@@ -281,7 +309,14 @@ func reconcileAppToCurrentPaths(app, fallback *models.App, sources []migrationSo
 		changed = true
 	}
 
-	installedIconPath, desktopIconValue, iconChanged, err := installMigratedIcon(app.ID, app.IconPath, iconCandidatePaths(app.ID, app, fallback, sources)...)
+	iconCandidates := iconCandidatePaths(app.ID, app, fallback, sources)
+	if preRenameIconPath != "" {
+		iconCandidates = append(iconCandidates, preRenameIconPath)
+	}
+	if preRenameID != "" && preRenameID != app.ID {
+		iconCandidates = append(iconCandidates, managedIconRepairCandidates(preRenameID, app, fallback)...)
+	}
+	installedIconPath, desktopIconValue, iconChanged, err := installMigratedIcon(app.ID, app.IconPath, iconCandidates...)
 	if err != nil {
 		return false, err
 	}
@@ -371,26 +406,19 @@ func reconcileDesktopLink(app, fallback *models.App) (bool, error) {
 		return false, nil
 	}
 
-	linkCandidate := strings.TrimSpace(app.DesktopEntryLink)
-	if linkCandidate == "" && fallback != nil {
-		linkCandidate = strings.TrimSpace(fallback.DesktopEntryLink)
-	}
-	if linkCandidate == "" {
-		return false, nil
-	}
-
-	linkName := filepath.Base(linkCandidate)
-	if linkName == "" || linkName == "." || linkName == string(filepath.Separator) {
-		if app.DesktopEntryLink != "" {
-			app.DesktopEntryLink = ""
-			return true, nil
-		}
+	if strings.TrimSpace(app.DesktopEntryPath) == "" {
 		return false, nil
 	}
 
 	changed := false
-	expectedLink := filepath.Join(config.DesktopDir, linkName)
+	expectedLink, err := util.ResolveDesktopLinkPath(config.DesktopDir, app.DesktopEntryPath, app.ID+".desktop", "aim-"+app.ID+".desktop")
+	if err != nil {
+		return false, err
+	}
 	if app.DesktopEntryLink != expectedLink {
+		if owned, exists, err := util.DesktopLinkOwnedBy(app.DesktopEntryLink, app.DesktopEntryPath); err == nil && owned && exists {
+			_ = os.Remove(app.DesktopEntryLink)
+		}
 		app.DesktopEntryLink = expectedLink
 		changed = true
 	}
@@ -498,6 +526,8 @@ func iconCandidatePaths(appID string, app, fallback *models.App, sources []migra
 		paths = append(paths, fallback.IconPath)
 	}
 
+	paths = append(paths, managedIconRepairCandidates(util.Slugify(app.Name), app, fallback)...)
+
 	for _, root := range allPathRoots(sources) {
 		paths = append(paths, deriveSourcePath(app.IconPath, root))
 		paths = append(paths, deriveAppDirIconPath(appID, root, app.IconPath))
@@ -508,6 +538,31 @@ func iconCandidatePaths(appID string, app, fallback *models.App, sources []migra
 	}
 
 	return paths
+}
+
+func managedIconRepairCandidates(candidateID string, app, fallback *models.App) []string {
+	candidateID = strings.TrimSpace(candidateID)
+	if candidateID == "" {
+		return nil
+	}
+
+	var paths []string
+	for _, iconPath := range []string{strings.TrimSpace(app.IconPath), strings.TrimSpace(pathOrEmpty(fallback))} {
+		ext := strings.ToLower(filepath.Ext(iconPath))
+		if ext == "" {
+			continue
+		}
+		paths = append(paths, filepath.Join(iconInstallDir(ext), candidateID+ext))
+	}
+
+	return paths
+}
+
+func pathOrEmpty(app *models.App) string {
+	if app == nil {
+		return ""
+	}
+	return app.IconPath
 }
 
 func deriveAppDirIconPath(appID, sourceRoot, iconPath string) string {
@@ -521,6 +576,290 @@ func deriveAppDirIconPath(appID, sourceRoot, iconPath string) string {
 	}
 
 	return filepath.Join(filepath.Clean(sourceRoot), appID, appID+ext)
+}
+
+func migrateAppIdentityToUpstreamDesktopStem(app *models.App, existingApps, updatedApps map[string]*models.App) (bool, error) {
+	if app == nil {
+		return false, nil
+	}
+
+	oldID := strings.TrimSpace(app.ID)
+	if oldID == "" {
+		return false, nil
+	}
+
+	newID := desiredManagedAppID(app)
+	if newID == "" || newID == oldID {
+		return false, nil
+	}
+
+	if existing, ok := existingApps[newID]; ok && existing != nil && existing != app {
+		return false, nil
+	}
+	if existing, ok := updatedApps[newID]; ok && existing != nil && existing != app {
+		return false, nil
+	}
+
+	oldAppDir := filepath.Join(config.AimDir, oldID)
+	newAppDir := filepath.Join(config.AimDir, newID)
+
+	if _, err := os.Stat(newAppDir); err == nil {
+		return false, nil
+	} else if !os.IsNotExist(err) {
+		return false, err
+	}
+
+	if _, err := os.Stat(oldAppDir); err == nil {
+		if err := os.Rename(oldAppDir, newAppDir); err != nil {
+			return false, err
+		}
+	} else if !os.IsNotExist(err) {
+		return false, err
+	}
+
+	app.ID = newID
+	rewriteOwnedAppPathsForIDChange(app, oldID, newID)
+	if err := renameManagedAppFilesForIDChange(app, oldID, newID); err != nil {
+		return false, err
+	}
+
+	if owned, exists, err := util.DesktopLinkOwnedBy(app.DesktopEntryLink, app.DesktopEntryPath); err == nil && owned && exists {
+		_ = os.Remove(app.DesktopEntryLink)
+	}
+	app.DesktopEntryLink = ""
+
+	return true, nil
+}
+
+func desiredManagedAppID(app *models.App) string {
+	if app == nil {
+		return ""
+	}
+
+	if stem := upstreamDesktopStemFromAppImage(app.ExecPath); stem != "" {
+		return stem
+	}
+
+	if stem := util.SanitizeDesktopStem(util.DesktopStemFromPath(app.DesktopEntryPath)); stem != "" {
+		return stem
+	}
+
+	return strings.TrimSpace(app.ID)
+}
+
+func rewriteOwnedAppPathsForIDChange(app *models.App, oldID, newID string) {
+	if app == nil {
+		return
+	}
+
+	oldDir := filepath.Join(config.AimDir, oldID)
+	newDir := filepath.Join(config.AimDir, newID)
+
+	app.ExecPath = rewritePrefix(app.ExecPath, oldDir, newDir)
+	app.DesktopEntryPath = rewritePrefix(app.DesktopEntryPath, oldDir, newDir)
+	app.IconPath = rewriteOwnedIconPathForIDChange(app.IconPath, oldID, newID)
+
+	if app.Source.LocalFile != nil {
+		app.Source.LocalFile.OriginalPath = rewritePrefix(app.Source.LocalFile.OriginalPath, oldDir, newDir)
+	}
+}
+
+func rewriteOwnedIconPathForIDChange(path, oldID, newID string) string {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return ""
+	}
+
+	ext := filepath.Ext(trimmed)
+	if ext == "" {
+		return trimmed
+	}
+
+	if filepath.Base(trimmed) != oldID+ext {
+		return trimmed
+	}
+
+	dir := filepath.Dir(trimmed)
+	if !isManagedIconDir(dir) {
+		return trimmed
+	}
+
+	return filepath.Join(dir, newID+ext)
+}
+
+func renameManagedAppFilesForIDChange(app *models.App, oldID, newID string) error {
+	if app == nil {
+		return nil
+	}
+
+	var err error
+	app.ExecPath, err = renameManagedFileWithIDChange(app.ExecPath, oldID, newID)
+	if err != nil {
+		return err
+	}
+	app.DesktopEntryPath, err = renameManagedFileWithIDChange(app.DesktopEntryPath, oldID, newID)
+	if err != nil {
+		return err
+	}
+	app.IconPath, err = renameManagedFileWithIDChange(app.IconPath, oldID, newID)
+	if err != nil {
+		return err
+	}
+
+	if app.Source.LocalFile != nil {
+		app.Source.LocalFile.OriginalPath, err = renameManagedFileWithIDChange(app.Source.LocalFile.OriginalPath, oldID, newID)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func renameManagedFileWithIDChange(path, oldID, newID string) (string, error) {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return path, nil
+	}
+
+	ext := filepath.Ext(trimmed)
+	if ext == "" {
+		return path, nil
+	}
+
+	if filepath.Base(trimmed) != oldID+ext {
+		return path, nil
+	}
+
+	dir := filepath.Dir(trimmed)
+	cleanDir := filepath.Clean(dir)
+	if !strings.HasPrefix(cleanDir, filepath.Clean(config.AimDir)+string(filepath.Separator)) && !isManagedIconDir(cleanDir) {
+		return path, nil
+	}
+
+	target := filepath.Join(dir, newID+ext)
+	if filepath.Clean(trimmed) == filepath.Clean(target) {
+		return target, nil
+	}
+
+	if _, err := os.Stat(trimmed); err != nil {
+		if os.IsNotExist(err) {
+			return target, nil
+		}
+		return path, err
+	}
+	if _, err := os.Stat(target); err == nil {
+		return path, nil
+	} else if !os.IsNotExist(err) {
+		return path, err
+	}
+
+	if err := os.Rename(trimmed, target); err != nil {
+		return path, err
+	}
+
+	return target, nil
+}
+
+func isManagedIconDir(dir string) bool {
+	cleanDir := filepath.Clean(dir)
+	roots := []string{
+		filepath.Clean(config.IconThemeDir),
+		filepath.Clean(config.PixmapsDir),
+	}
+
+	for _, root := range roots {
+		if cleanDir == root || strings.HasPrefix(cleanDir, root+string(filepath.Separator)) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func upstreamDesktopStemFromAppImage(appImagePath string) string {
+	appImagePath = strings.TrimSpace(appImagePath)
+	if appImagePath == "" || !strings.EqualFold(filepath.Ext(appImagePath), ".AppImage") {
+		return ""
+	}
+
+	info, err := os.Stat(appImagePath)
+	if err != nil || info.IsDir() {
+		return ""
+	}
+
+	tmpDir, err := os.MkdirTemp("", "aim-migrate-*")
+	if err != nil {
+		return ""
+	}
+	defer func() {
+		_ = os.RemoveAll(tmpDir)
+	}()
+
+	if err := os.Chmod(appImagePath, 0o755); err != nil && !os.IsPermission(err) {
+		return ""
+	}
+
+	cmd := exec.Command(appImagePath, "--appimage-extract")
+	cmd.Dir = tmpDir
+	if err := cmd.Run(); err != nil {
+		return ""
+	}
+
+	root := filepath.Join(tmpDir, "squashfs-root")
+	desktopPath, err := locateDesktopFileForMigration(root)
+	if err != nil {
+		return ""
+	}
+
+	if resolved, err := filepath.EvalSymlinks(desktopPath); err == nil {
+		desktopPath = resolved
+	}
+
+	return util.SanitizeDesktopStem(util.DesktopStemFromPath(desktopPath))
+}
+
+func locateDesktopFileForMigration(root string) (string, error) {
+	matches, err := filepath.Glob(filepath.Join(root, "*.desktop"))
+	if err != nil {
+		return "", err
+	}
+	if len(matches) == 0 {
+		err = filepath.WalkDir(root, func(path string, d os.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			if d.IsDir() {
+				return nil
+			}
+			if strings.EqualFold(filepath.Ext(d.Name()), ".desktop") {
+				matches = append(matches, path)
+			}
+			return nil
+		})
+		if err != nil {
+			return "", err
+		}
+	}
+	if len(matches) == 0 {
+		return "", os.ErrNotExist
+	}
+
+	sort.Strings(matches)
+	dirName := filepath.Base(root)
+	for _, candidate := range matches {
+		if util.DesktopStemFromPath(candidate) == dirName {
+			return candidate, nil
+		}
+	}
+	for _, candidate := range matches {
+		rel, err := filepath.Rel(root, candidate)
+		if err == nil && strings.HasPrefix(filepath.ToSlash(rel), "usr/share/applications/") {
+			return candidate, nil
+		}
+	}
+
+	return matches[0], nil
 }
 
 func deriveSourcePath(path, sourceRoot string) string {
@@ -549,7 +888,10 @@ func deriveSourcePath(path, sourceRoot string) string {
 func installMigratedIcon(appID, currentIconPath string, candidates ...string) (string, string, bool, error) {
 	sourceIconPath := selectExistingPath(candidates...)
 	if sourceIconPath == "" {
-		return currentIconPath, currentIconPath, false, nil
+		if existing := selectExistingPath(currentIconPath); existing != "" {
+			return existing, existing, filepath.Clean(currentIconPath) != filepath.Clean(existing), nil
+		}
+		return currentIconPath, "", false, nil
 	}
 
 	ext := strings.ToLower(filepath.Ext(sourceIconPath))
@@ -958,6 +1300,40 @@ func copyDirMissing(srcDir, dstDir string) error {
 	}
 
 	return nil
+}
+
+func refreshMigratedDesktopIntegrationCaches() {
+	ctx := context.Background()
+
+	if _, err := runMigrationCommandIfAvailable(ctx, "update-desktop-database", config.DesktopDir); err != nil {
+		return
+	}
+
+	ranXDG, err := runMigrationCommandIfAvailable(ctx, "xdg-icon-resource", "forceupdate")
+	if err != nil {
+		return
+	}
+	if ranXDG {
+		return
+	}
+
+	_, _ = runMigrationCommandIfAvailable(ctx, "gtk-update-icon-cache", "-f", config.IconThemeDir)
+}
+
+func runMigrationCommandIfAvailable(ctx context.Context, name string, args ...string) (bool, error) {
+	binary, err := exec.LookPath(name)
+	if err != nil {
+		if err == exec.ErrNotFound {
+			return false, nil
+		}
+		return false, err
+	}
+
+	if err := exec.CommandContext(ctx, binary, args...).Run(); err != nil {
+		return true, err
+	}
+
+	return true, nil
 }
 
 func copyFile(srcPath, dstPath string, perm os.FileMode) error {

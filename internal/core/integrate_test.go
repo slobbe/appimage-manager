@@ -10,6 +10,7 @@ import (
 
 	"github.com/slobbe/appimage-manager/internal/config"
 	repo "github.com/slobbe/appimage-manager/internal/repository"
+	models "github.com/slobbe/appimage-manager/internal/types"
 )
 
 func TestIntegrateFromLocalFileWithSymlinkedDesktopEntry(t *testing.T) {
@@ -32,8 +33,8 @@ func TestIntegrateFromLocalFileWithSymlinkedDesktopEntry(t *testing.T) {
 	if app.Name != "0 A.D." {
 		t.Fatalf("app.Name = %q, want %q", app.Name, "0 A.D.")
 	}
-	if app.ID != "0-ad" {
-		t.Fatalf("app.ID = %q, want %q", app.ID, "0-ad")
+	if app.ID != "0ad" {
+		t.Fatalf("app.ID = %q, want %q", app.ID, "0ad")
 	}
 
 	desktopInfo, err := os.Lstat(app.DesktopEntryPath)
@@ -115,6 +116,88 @@ func TestIntegrateFromLocalFileWithoutCacheRefreshOrPersistSkipsDatabaseSave(t *
 
 	if _, err := repo.GetApp(app.ID); err == nil {
 		t.Fatalf("expected app %q not to be persisted", app.ID)
+	}
+}
+
+func TestIntegrateFromLocalFilePreservesUpstreamDesktopStemForManagedIdentity(t *testing.T) {
+	tmp := t.TempDir()
+	setupIntegrationConfigForTest(t, tmp)
+	stubDesktopValidationForTest(t)
+	stubIntegrationCacheRefreshForTest(t)
+
+	appImagePath := filepath.Join(tmp, "t3-code-alpha.AppImage")
+	writeFakeAppImageExtractorWithDesktop(t, appImagePath, "t3-code-desktop.desktop", "T3 Code (Alpha)", "0.0.14", "t3-code-desktop", "t3-code-desktop.svg")
+
+	app, err := IntegrateFromLocalFile(context.Background(), appImagePath, nil)
+	if err != nil {
+		t.Fatalf("IntegrateFromLocalFile returned error: %v", err)
+	}
+
+	if app.ID != "t3-code-desktop" {
+		t.Fatalf("app.ID = %q, want %q", app.ID, "t3-code-desktop")
+	}
+
+	expectedAppDir := filepath.Join(config.AimDir, "t3-code-desktop")
+	if app.ExecPath != filepath.Join(expectedAppDir, "t3-code-desktop.AppImage") {
+		t.Fatalf("ExecPath = %q", app.ExecPath)
+	}
+	if app.DesktopEntryPath != filepath.Join(expectedAppDir, "t3-code-desktop.desktop") {
+		t.Fatalf("DesktopEntryPath = %q", app.DesktopEntryPath)
+	}
+	if app.IconPath != filepath.Join(config.IconThemeDir, "scalable", "apps", "t3-code-desktop.svg") {
+		t.Fatalf("IconPath = %q", app.IconPath)
+	}
+	if _, err := os.Stat(app.IconPath); err != nil {
+		t.Fatalf("expected installed icon at %q: %v", app.IconPath, err)
+	}
+	if app.DesktopEntryLink != filepath.Join(config.DesktopDir, "t3-code-desktop.desktop") {
+		t.Fatalf("DesktopEntryLink = %q", app.DesktopEntryLink)
+	}
+}
+
+func TestIntegrateExistingPrefersUnprefixedDesktopLink(t *testing.T) {
+	tmp := t.TempDir()
+	setupIntegrationConfigForTest(t, tmp)
+	stubDesktopValidationForTest(t)
+	stubIntegrationCacheRefreshForTest(t)
+
+	appDir := filepath.Join(config.AimDir, "my-app")
+	execPath := filepath.Join(appDir, "my-app.AppImage")
+	desktopPath := filepath.Join(appDir, "my-app.desktop")
+	iconPath := filepath.Join(config.IconThemeDir, "256x256", "apps", "my-app.png")
+
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(execPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(desktopPath, []byte("[Desktop Entry]\nName=My App\nExec="+execPath+"\nIcon="+iconPath+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(iconPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(iconPath, []byte("icon"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := repo.AddApp(&models.App{
+		ID:               "my-app",
+		Name:             "My App",
+		ExecPath:         execPath,
+		DesktopEntryPath: desktopPath,
+		IconPath:         iconPath,
+	}, true); err != nil {
+		t.Fatal(err)
+	}
+
+	integrated, err := IntegrateExisting(context.Background(), "my-app")
+	if err != nil {
+		t.Fatalf("IntegrateExisting returned error: %v", err)
+	}
+	if integrated.DesktopEntryLink != filepath.Join(config.DesktopDir, "my-app.desktop") {
+		t.Fatalf("DesktopEntryLink = %q", integrated.DesktopEntryLink)
 	}
 }
 

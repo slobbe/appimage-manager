@@ -16,15 +16,17 @@ import (
 )
 
 type AppInfo struct {
-	Name    string
-	ID      string
-	Version string
+	Name        string
+	ID          string
+	DesktopStem string
+	Version     string
 }
 
 type ExtractionData struct {
 	Dir              string
 	ExecPath         string
 	DesktopEntryPath string
+	DesktopStem      string
 	IconPath         string
 }
 
@@ -172,6 +174,7 @@ func ExtractAppImage(ctx context.Context, src string) (*ExtractionData, error) {
 		Dir:              extractDir,
 		ExecPath:         execSrc,
 		DesktopEntryPath: desktopSrc,
+		DesktopStem:      util.SanitizeDesktopStem(util.DesktopStemFromPath(tempDesktopSrc)),
 		IconPath:         iconSrc,
 	}
 
@@ -297,7 +300,9 @@ func GetAppInfo(ctx context.Context, desktopSrc string) (*AppInfo, error) {
 		return nil, err
 	}
 
-	appInfo := AppInfo{}
+	appInfo := AppInfo{
+		DesktopStem: util.SanitizeDesktopStem(util.DesktopStemFromPath(desktopSrc)),
+	}
 	inDesktopEntry := false
 	for line := range strings.SplitSeq(content, "\n") {
 		trimmed := strings.TrimSpace(line)
@@ -352,7 +357,10 @@ func GetAppInfo(ctx context.Context, desktopSrc string) (*AppInfo, error) {
 		appInfo.Version = "unknown"
 	}
 
-	appInfo.ID = util.Slugify(appInfo.Name)
+	appInfo.ID = appInfo.DesktopStem
+	if appInfo.ID == "" {
+		appInfo.ID = util.Slugify(appInfo.Name)
+	}
 
 	return &appInfo, nil
 }

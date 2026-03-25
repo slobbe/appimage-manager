@@ -85,7 +85,7 @@ func TestMigrateToCurrentPathsFromLegacyHome(t *testing.T) {
 	expectedExec := filepath.Join(config.AimDir, "my-app", "my-app.AppImage")
 	expectedDesktop := filepath.Join(config.AimDir, "my-app", "my-app.desktop")
 	expectedIcon := filepath.Join(config.IconThemeDir, "256x256", "apps", "my-app.png")
-	expectedLink := filepath.Join(config.DesktopDir, "aim-my-app.desktop")
+	expectedLink := filepath.Join(config.DesktopDir, "my-app.desktop")
 
 	if app.ExecPath != expectedExec {
 		t.Fatalf("ExecPath = %q, want %q", app.ExecPath, expectedExec)
@@ -694,6 +694,176 @@ func TestMigrateToCurrentPathsDoesNotImportLegacyAppsIntoExistingAimDB(t *testin
 	}
 }
 
+func TestMigrateToCurrentPathsRenamesManagedAppToUpstreamDesktopStem(t *testing.T) {
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+
+	configureMigrationTestPaths(t, homeDir)
+	mustEnsureCurrentDirs(t)
+
+	oldID := "t3-code-alpha"
+	newID := "t3-code-desktop"
+	oldAppDir := filepath.Join(config.AimDir, oldID)
+	execPath := filepath.Join(oldAppDir, oldID+".AppImage")
+	desktopPath := filepath.Join(oldAppDir, oldID+".desktop")
+	iconPath := filepath.Join(config.IconThemeDir, "256x256", "apps", oldID+".png")
+	oldLink := filepath.Join(config.DesktopDir, "aim-"+oldID+".desktop")
+
+	writeFakeMigratingAppImage(t, execPath, newID, "T3 Code (Alpha)")
+	writeTestFile(t, desktopPath, []byte("[Desktop Entry]\nName=T3 Code (Alpha)\nExec="+execPath+" --no-sandbox %U\nIcon="+iconPath+"\nStartupWMClass=T3 Code (Alpha)\n"), 0o644)
+	writeTestFile(t, iconPath, []byte("icon"), 0o644)
+	if err := os.Symlink(desktopPath, oldLink); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := SaveDB(config.DbSrc, &DB{
+		SchemaVersion: 1,
+		Apps: map[string]*models.App{
+			oldID: {
+				ID:               oldID,
+				Name:             "T3 Code (Alpha)",
+				ExecPath:         execPath,
+				DesktopEntryPath: desktopPath,
+				DesktopEntryLink: oldLink,
+				IconPath:         iconPath,
+			},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := MigrateToCurrentPaths(); err != nil {
+		t.Fatalf("migration failed: %v", err)
+	}
+
+	db := loadCurrentDBForTest(t)
+	app := db.Apps[newID]
+	if app == nil {
+		t.Fatalf("expected migrated app %q", newID)
+	}
+	if _, ok := db.Apps[oldID]; ok {
+		t.Fatalf("old app id %q should be removed", oldID)
+	}
+	if app.ExecPath != filepath.Join(config.AimDir, newID, newID+".AppImage") {
+		t.Fatalf("ExecPath = %q", app.ExecPath)
+	}
+	if app.DesktopEntryPath != filepath.Join(config.AimDir, newID, newID+".desktop") {
+		t.Fatalf("DesktopEntryPath = %q", app.DesktopEntryPath)
+	}
+	if app.IconPath != filepath.Join(config.IconThemeDir, "256x256", "apps", newID+".png") {
+		t.Fatalf("IconPath = %q", app.IconPath)
+	}
+	if app.DesktopEntryLink != filepath.Join(config.DesktopDir, newID+".desktop") {
+		t.Fatalf("DesktopEntryLink = %q", app.DesktopEntryLink)
+	}
+	if _, err := os.Stat(oldLink); !os.IsNotExist(err) {
+		t.Fatalf("old desktop link should be removed, got err=%v", err)
+	}
+}
+
+func TestMigrateToCurrentPathsFallsBackToPrefixedLinkWhenDesktopNameCollides(t *testing.T) {
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+
+	configureMigrationTestPaths(t, homeDir)
+	mustEnsureCurrentDirs(t)
+
+	oldID := "t3-code-alpha"
+	newID := "t3-code-desktop"
+	oldAppDir := filepath.Join(config.AimDir, oldID)
+	execPath := filepath.Join(oldAppDir, oldID+".AppImage")
+	desktopPath := filepath.Join(oldAppDir, oldID+".desktop")
+	iconPath := filepath.Join(config.IconThemeDir, "256x256", "apps", oldID+".png")
+
+	writeFakeMigratingAppImage(t, execPath, newID, "T3 Code (Alpha)")
+	writeTestFile(t, desktopPath, []byte("[Desktop Entry]\nName=T3 Code (Alpha)\nExec="+execPath+" --no-sandbox %U\nIcon="+iconPath+"\n"), 0o644)
+	writeTestFile(t, iconPath, []byte("icon"), 0o644)
+	writeTestFile(t, filepath.Join(config.DesktopDir, newID+".desktop"), []byte("foreign"), 0o644)
+
+	if err := SaveDB(config.DbSrc, &DB{
+		SchemaVersion: 1,
+		Apps: map[string]*models.App{
+			oldID: {
+				ID:               oldID,
+				Name:             "T3 Code (Alpha)",
+				ExecPath:         execPath,
+				DesktopEntryPath: desktopPath,
+				IconPath:         iconPath,
+			},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := MigrateToCurrentPaths(); err != nil {
+		t.Fatalf("migration failed: %v", err)
+	}
+
+	db := loadCurrentDBForTest(t)
+	app := db.Apps[newID]
+	if app == nil {
+		t.Fatalf("expected migrated app %q", newID)
+	}
+	if app.DesktopEntryLink != filepath.Join(config.DesktopDir, "aim-"+newID+".desktop") {
+		t.Fatalf("DesktopEntryLink = %q", app.DesktopEntryLink)
+	}
+	if _, err := os.Stat(filepath.Join(config.IconThemeDir, "256x256", "apps", newID+".png")); err != nil {
+		t.Fatalf("expected migrated icon for collision fallback: %v", err)
+	}
+}
+
+func TestMigrateToCurrentPathsRepairsMissingCurrentIconFromOldManagedIcon(t *testing.T) {
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+
+	configureMigrationTestPaths(t, homeDir)
+	mustEnsureCurrentDirs(t)
+
+	appID := "t3-code-desktop"
+	oldManagedID := "t3-code-alpha"
+	appDir := filepath.Join(config.AimDir, appID)
+	execPath := filepath.Join(appDir, appID+".AppImage")
+	desktopPath := filepath.Join(appDir, appID+".desktop")
+	recordedIconPath := filepath.Join(config.IconThemeDir, "256x256", "apps", appID+".png")
+	oldIconPath := filepath.Join(config.IconThemeDir, "256x256", "apps", oldManagedID+".png")
+	desktopLink := filepath.Join(config.DesktopDir, appID+".desktop")
+
+	writeFakeMigratingAppImage(t, execPath, appID, "T3 Code (Alpha)")
+	writeTestFile(t, desktopPath, []byte("[Desktop Entry]\nName=T3 Code (Alpha)\nExec="+execPath+" --no-sandbox %U\nIcon="+recordedIconPath+"\nStartupWMClass=T3 Code (Alpha)\n"), 0o644)
+	writeTestFile(t, oldIconPath, []byte("old-icon"), 0o644)
+	if err := os.Symlink(desktopPath, desktopLink); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := SaveDB(config.DbSrc, &DB{
+		SchemaVersion: 1,
+		Apps: map[string]*models.App{
+			appID: {
+				ID:               appID,
+				Name:             "T3 Code (Alpha)",
+				ExecPath:         execPath,
+				DesktopEntryPath: desktopPath,
+				DesktopEntryLink: desktopLink,
+				IconPath:         recordedIconPath,
+			},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := MigrateToCurrentPaths(); err != nil {
+		t.Fatalf("migration failed: %v", err)
+	}
+
+	if got := string(readTestFile(t, recordedIconPath)); got != "old-icon" {
+		t.Fatalf("repaired icon content = %q, want old-icon", got)
+	}
+	desktopText := string(readTestFile(t, desktopPath))
+	if !strings.Contains(desktopText, "Icon="+recordedIconPath) {
+		t.Fatalf("desktop file icon should point to repaired current icon: %s", desktopText)
+	}
+}
+
 func TestMigrateToCurrentPathsIsIdempotentAndLeavesNoMarker(t *testing.T) {
 	homeDir := t.TempDir()
 	t.Setenv("HOME", homeDir)
@@ -855,4 +1025,30 @@ func assertPathExists(t *testing.T, path string) {
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("expected path to exist %q: %v", path, err)
 	}
+}
+
+func writeFakeMigratingAppImage(t *testing.T, path, desktopStem, appName string) {
+	t.Helper()
+
+	script := strings.Join([]string{
+		"#!/bin/sh",
+		"set -eu",
+		"if [ \"${1:-}\" != \"--appimage-extract\" ]; then",
+		"  echo \"unexpected args: $*\" >&2",
+		"  exit 1",
+		"fi",
+		"mkdir -p squashfs-root/usr/share/applications",
+		"cat > squashfs-root/usr/share/applications/" + desktopStem + ".desktop <<'EOF'",
+		"[Desktop Entry]",
+		"Name=" + appName,
+		"Exec=AppRun --no-sandbox %U",
+		"Icon=" + desktopStem,
+		"StartupWMClass=" + appName,
+		"EOF",
+		"cat > squashfs-root/" + desktopStem + ".png <<'EOF'",
+		"icon",
+		"EOF",
+	}, "\n") + "\n"
+
+	writeTestFile(t, path, []byte(script), 0o755)
 }

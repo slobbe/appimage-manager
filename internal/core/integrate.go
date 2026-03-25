@@ -47,6 +47,10 @@ func integrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 	if err != nil {
 		return nil, err
 	}
+	if extractionData.DesktopStem != "" {
+		appInfo.DesktopStem = extractionData.DesktopStem
+		appInfo.ID = extractionData.DesktopStem
+	}
 
 	appID := appInfo.ID
 
@@ -90,7 +94,7 @@ func integrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 		return nil, err
 	}
 
-	desktopEntryLink, err := MakeDesktopLink(extractionData.DesktopEntryPath, "aim-"+appID+".desktop")
+	desktopEntryLink, err := MakeDesktopLink(extractionData.DesktopEntryPath, appID+".desktop", "aim-"+appID+".desktop")
 	if err != nil {
 		return nil, err
 	}
@@ -242,7 +246,7 @@ func IntegrateExisting(ctx context.Context, id string) (*models.App, error) {
 		return nil, err
 	}
 
-	app.DesktopEntryLink, err = MakeDesktopLink(app.DesktopEntryPath, "aim-"+app.ID+".desktop")
+	app.DesktopEntryLink, err = MakeDesktopLink(app.DesktopEntryPath, app.ID+".desktop", "aim-"+app.ID+".desktop")
 	if err != nil {
 		return app, err
 	}
@@ -256,21 +260,24 @@ func IntegrateExisting(ctx context.Context, id string) (*models.App, error) {
 	return app, nil
 }
 
-func MakeDesktopLink(src string, name string) (string, error) {
+func MakeDesktopLink(src, preferredName, fallbackName string) (string, error) {
 	if src == "" {
 		return "", fmt.Errorf("source cannot be empty")
 	}
 
-	if name == "" {
-		return "", fmt.Errorf("name cannot be empty")
+	if preferredName == "" && fallbackName == "" {
+		return "", fmt.Errorf("desktop link name cannot be empty")
 	}
 
-	desktopLink := filepath.Join(config.DesktopDir, name)
+	desktopLink, err := util.ResolveDesktopLinkPath(config.DesktopDir, src, preferredName, fallbackName)
+	if err != nil {
+		return "", err
+	}
 
 	_ = os.Remove(desktopLink)
 
 	if err := os.Symlink(src, desktopLink); err != nil {
-		return src, err
+		return "", err
 	}
 
 	return desktopLink, nil

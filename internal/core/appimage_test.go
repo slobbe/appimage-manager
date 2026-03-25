@@ -196,6 +196,58 @@ func TestGetAppInfoNormalizesPlatformSuffixedMetadataVersion(t *testing.T) {
 	}
 }
 
+func TestGetAppInfoPrefersDesktopStemForID(t *testing.T) {
+	dir := t.TempDir()
+	desktopPath := filepath.Join(dir, "t3-code-desktop.desktop")
+
+	content := strings.Join([]string{
+		"[Desktop Entry]",
+		"Name=T3 Code (Alpha)",
+		"X-AppImage-Version=0.0.14",
+	}, "\n") + "\n"
+
+	if err := os.WriteFile(desktopPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("failed to write desktop file: %v", err)
+	}
+
+	appInfo, err := GetAppInfo(context.Background(), desktopPath)
+	if err != nil {
+		t.Fatalf("GetAppInfo returned error: %v", err)
+	}
+	if appInfo.DesktopStem != "t3-code-desktop" {
+		t.Fatalf("appInfo.DesktopStem = %q, want %q", appInfo.DesktopStem, "t3-code-desktop")
+	}
+	if appInfo.ID != "t3-code-desktop" {
+		t.Fatalf("appInfo.ID = %q, want %q", appInfo.ID, "t3-code-desktop")
+	}
+}
+
+func TestGetAppInfoFallsBackToSlugifiedNameWhenDesktopStemInvalid(t *testing.T) {
+	dir := t.TempDir()
+	desktopPath := filepath.Join(dir, "---.desktop")
+
+	content := strings.Join([]string{
+		"[Desktop Entry]",
+		"Name=My App",
+		"X-AppImage-Version=1.0.0",
+	}, "\n") + "\n"
+
+	if err := os.WriteFile(desktopPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("failed to write desktop file: %v", err)
+	}
+
+	appInfo, err := GetAppInfo(context.Background(), desktopPath)
+	if err != nil {
+		t.Fatalf("GetAppInfo returned error: %v", err)
+	}
+	if appInfo.DesktopStem != "" {
+		t.Fatalf("appInfo.DesktopStem = %q, want empty", appInfo.DesktopStem)
+	}
+	if appInfo.ID != "my-app" {
+		t.Fatalf("appInfo.ID = %q, want %q", appInfo.ID, "my-app")
+	}
+}
+
 func TestExtractAppImageResolvesDesktopSymlinkSource(t *testing.T) {
 	tmp := t.TempDir()
 	setupExtractionConfigForTest(t, tmp)
@@ -287,6 +339,12 @@ func setupExtractionConfigForTest(t *testing.T, tmp string) {
 func writeFakeAppImageExtractor(t *testing.T, dst string) {
 	t.Helper()
 
+	writeFakeAppImageExtractorWithDesktop(t, dst, "0ad.desktop", "0 A.D.", "0.28.0", "0ad", "0ad.svg")
+}
+
+func writeFakeAppImageExtractorWithDesktop(t *testing.T, dst, desktopName, appName, version, iconName, iconFile string) {
+	t.Helper()
+
 	script := strings.Join([]string{
 		"#!/bin/sh",
 		"set -eu",
@@ -295,15 +353,15 @@ func writeFakeAppImageExtractor(t *testing.T, dst string) {
 		"  exit 1",
 		"fi",
 		"mkdir -p squashfs-root/usr/share/applications",
-		"cat > squashfs-root/usr/share/applications/0ad.desktop <<'EOF'",
+		"cat > squashfs-root/usr/share/applications/" + desktopName + " <<'EOF'",
 		"[Desktop Entry]",
-		"Name=0 A.D.",
-		"X-AppImage-Version=0.28.0",
+		"Name=" + appName,
+		"X-AppImage-Version=" + version,
 		"Exec=AppRun %U",
-		"Icon=0ad",
+		"Icon=" + iconName,
 		"EOF",
-		"ln -s usr/share/applications/0ad.desktop squashfs-root/0ad.desktop",
-		"cat > squashfs-root/0ad.svg <<'EOF'",
+		"ln -s usr/share/applications/" + desktopName + " squashfs-root/" + desktopName,
+		"cat > squashfs-root/" + iconFile + " <<'EOF'",
 		"<svg xmlns=\"http://www.w3.org/2000/svg\"/>",
 		"EOF",
 	}, "\n") + "\n"
