@@ -1,0 +1,53 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run tests
+        run: go test ./...
+
+      - name: Run vet
+        run: go vet ./...
+
+      - name: Build release artifacts
+        run: |
+          chmod +x scripts/build.sh
+          scripts/build.sh "${GITHUB_REF_NAME}"
+
+      - name: Derive release version
+        id: version
+        run: echo "release_version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ steps.version.outputs.release_version }}
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            dist/${{ github.ref_name }}/aim-${{ steps.version.outputs.release_version }}-linux-amd64.tar.gz
+            dist/${{ github.ref_name }}/aim-${{ steps.version.outputs.release_version }}-linux-arm64.tar.gz
+            dist/${{ github.ref_name }}/checksums.txt

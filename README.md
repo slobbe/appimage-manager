@@ -48,6 +48,14 @@ go run -tags docgen ./cmd/aim
 
 The committed man page is generated from the Cobra command tree with the development version string (`dev`). Release builds inject the release version via `scripts/build.sh`.
 
+Official releases are published by GitHub Actions when a tag matching `vX.Y.Z` is pushed. The Git tag keeps the `v` prefix, while the release title and assets drop it, for example `v0.12.5` -> release title `0.12.5` and assets `aim-0.12.5-linux-amd64.tar.gz` and `aim-0.12.5-linux-arm64.tar.gz`.
+
+To produce the same release artifacts locally:
+
+```sh
+scripts/build.sh v0.12.5
+```
+
 ## Usage
 
 ### Upgrade `aim`

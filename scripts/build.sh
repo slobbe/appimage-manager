@@ -1,13 +1,28 @@
 #!/bin/sh
 set -eu
 
-VERSION="${1:-}"
-if [ -z "$VERSION" ]; then
+TAG_VERSION="${1:-}"
+if [ -z "$TAG_VERSION" ]; then
   echo "usage: $0 <version>" >&2
   exit 1
 fi
 
-OUTDIR="./dist/${VERSION}"
+case "$TAG_VERSION" in
+  v[0-9]*.[0-9]*.[0-9]*)
+    ;;
+  *)
+    echo "error: version must match v<major>.<minor>.<patch>" >&2
+    exit 1
+    ;;
+esac
+
+RELEASE_VERSION="${TAG_VERSION#v}"
+if [ -z "$RELEASE_VERSION" ] || [ "$RELEASE_VERSION" = "$TAG_VERSION" ]; then
+  echo "error: failed to derive release version from tag: $TAG_VERSION" >&2
+  exit 1
+fi
+
+OUTDIR="./dist/${TAG_VERSION}"
 BINDIR="${OUTDIR}/bin"
 MANDIR="${OUTDIR}/share/man/man1"
 BASHCOMPDIR="${OUTDIR}/share/bash-completion/completions"
@@ -19,17 +34,17 @@ rm -rf "$PKGDIR_AMD64" "$PKGDIR_ARM64"
 mkdir -p "$BINDIR" "$MANDIR" "$BASHCOMPDIR" "$ZSHCOMPDIR" "$FISHCOMPDIR"
 
 # Embed version into the binary (requires: var version in package main)
-LDFLAGS="-s -w -X main.version=${VERSION}"
+LDFLAGS="-s -w -X main.version=${TAG_VERSION}"
 
 # Build versioned binaries into dist/<version>/bin/
-BIN_AMD64_VER="aim-${VERSION}-linux-amd64"
-BIN_ARM64_VER="aim-${VERSION}-linux-arm64"
+BIN_AMD64_VER="aim-${RELEASE_VERSION}-linux-amd64"
+BIN_ARM64_VER="aim-${RELEASE_VERSION}-linux-arm64"
 
 OUT_AMD64_VER="${BINDIR}/${BIN_AMD64_VER}"
 OUT_ARM64_VER="${BINDIR}/${BIN_ARM64_VER}"
 MANPAGE="${MANDIR}/aim.1"
 
-AIM_MAN_OUTPUT="$MANPAGE" AIM_COMPLETION_DIR="$OUTDIR" go run -ldflags "-X main.version=${VERSION}" -tags docgen ./cmd/aim
+AIM_MAN_OUTPUT="$MANPAGE" AIM_COMPLETION_DIR="$OUTDIR" go run -ldflags "-X main.version=${TAG_VERSION}" -tags docgen ./cmd/aim
 
 GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
   go build -trimpath -ldflags "$LDFLAGS" -o "$OUT_AMD64_VER" ./cmd/aim
@@ -38,8 +53,8 @@ GOOS=linux GOARCH=arm64 CGO_ENABLED=0 \
   go build -trimpath -ldflags "$LDFLAGS" -o "$OUT_ARM64_VER" ./cmd/aim
 
 # Create versioned tarballs in dist/<version>/
-TAR_AMD64="aim-${VERSION}-linux-amd64.tar.gz"
-TAR_ARM64="aim-${VERSION}-linux-arm64.tar.gz"
+TAR_AMD64="aim-${RELEASE_VERSION}-linux-amd64.tar.gz"
+TAR_ARM64="aim-${RELEASE_VERSION}-linux-arm64.tar.gz"
 
 mkdir -p "${PKGDIR_AMD64}/bin" "${PKGDIR_AMD64}/share/man/man1"
 mkdir -p "${PKGDIR_ARM64}/bin" "${PKGDIR_ARM64}/share/man/man1"
