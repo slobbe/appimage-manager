@@ -37,7 +37,9 @@ func RootCmd(cmd *cobra.Command, args []string) error {
 		}
 		return runUpgrade(cmd.Context(), cmd)
 	}
-	return cmd.Help()
+
+	printAimMetadata()
+	return nil
 }
 
 func maybeRunRootUpgradeFlag(ctx context.Context, cmd *cobra.Command, args []string) (bool, error) {
@@ -99,18 +101,13 @@ func runUpgrade(ctx context.Context, cmd *cobra.Command) error {
 	return nil
 }
 
-func VersionCmd(cmd *cobra.Command, args []string) error {
-	_ = cmd
-	_ = args
-
+func printAimMetadata() {
 	fmt.Printf("Version: %s\n", version)
 	fmt.Printf("Repository: %s\n", rootCommandRepositoryURL)
 	fmt.Printf("License: %s\n", rootCommandLicense)
 	fmt.Printf("Issues: %s\n", rootCommandIssuesURL)
 	fmt.Printf("Author: %s\n", rootCommandAuthor)
 	fmt.Printf("Copyright: %s\n", rootCommandCopyright)
-
-	return nil
 }
 
 func MigrateCmd(cmd *cobra.Command, args []string) error {

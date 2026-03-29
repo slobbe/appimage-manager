@@ -580,7 +580,7 @@ func TestRootVersionOutputIsCompact(t *testing.T) {
 	}
 }
 
-func TestVersionCmdOutputsProjectMetadata(t *testing.T) {
+func TestRootCommandOutputsProjectMetadata(t *testing.T) {
 	cmd := newRootTestCommand()
 	originalVersion := version
 	version = "1.2.3"
@@ -589,7 +589,7 @@ func TestVersionCmdOutputsProjectMetadata(t *testing.T) {
 	})
 
 	output := captureStdout(t, func() {
-		if err := executeTestCommand(context.Background(), cmd, "version"); err != nil {
+		if err := executeTestCommand(context.Background(), cmd); err != nil {
 			t.Fatalf("run returned error: %v", err)
 		}
 	})
@@ -606,16 +606,24 @@ func TestVersionCmdOutputsProjectMetadata(t *testing.T) {
 			t.Fatalf("version output missing %q:\n%s", expected, output)
 		}
 	}
+	for _, unwanted := range []string{
+		"help for aim",
+		"Usage:",
+	} {
+		if strings.Contains(output, unwanted) {
+			t.Fatalf("root output unexpectedly contains %q:\n%s", unwanted, output)
+		}
+	}
 }
 
-func TestVersionCmdRejectsExtraArgs(t *testing.T) {
+func TestRemovedVersionCommandReturnsUnknownCommand(t *testing.T) {
 	cmd := newRootTestCommand()
 
-	err := executeTestCommand(context.Background(), cmd, "version", "extra")
+	err := executeTestCommand(context.Background(), cmd, "version")
 	if err == nil {
 		t.Fatal("expected argument error")
 	}
-	if !strings.Contains(err.Error(), "unknown command \"extra\" for \"aim version\"") {
+	if !strings.Contains(err.Error(), "unknown command \"version\" for \"aim\"") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -735,7 +743,7 @@ func TestMigrateCmdRejectsExtraArgs(t *testing.T) {
 	}
 }
 
-func TestRootHelpDoesNotAdvertiseRemovedCommands(t *testing.T) {
+func TestRootMetadataDoesNotAdvertiseRemovedCommands(t *testing.T) {
 	cmd := newRootTestCommand()
 
 	output := captureStdout(t, func() {
@@ -746,12 +754,17 @@ func TestRootHelpDoesNotAdvertiseRemovedCommands(t *testing.T) {
 
 	for _, unwanted := range []string{"\n  upgrade", "\n  pin", "\n  unpin", "\n  completion", "\n  integrate", "\n  install", "\n  show", "\n  inspect"} {
 		if strings.Contains(output, unwanted) {
-			t.Fatalf("root help unexpectedly contains %q:\n%s", unwanted, output)
+			t.Fatalf("root metadata unexpectedly contains %q:\n%s", unwanted, output)
 		}
 	}
-	for _, required := range []string{"--upgrade", "-U", "add", "info", "list", "remove", "update", "version"} {
+	for _, required := range []string{"Version:", "Repository:", "License:", "Issues:", "Author:", "Copyright:"} {
 		if !strings.Contains(output, required) {
-			t.Fatalf("expected root help to include %q:\n%s", required, output)
+			t.Fatalf("expected root metadata to include %q:\n%s", required, output)
+		}
+	}
+	for _, unwanted := range []string{"help for aim", "Usage:", "--upgrade", "\n  add", "\n  info", "\n  list", "\n  remove", "\n  update", "\n  version"} {
+		if strings.Contains(output, unwanted) {
+			t.Fatalf("root metadata unexpectedly contains help content %q:\n%s", unwanted, output)
 		}
 	}
 }
@@ -770,10 +783,9 @@ func TestRootRegistersPackageCommands(t *testing.T) {
 	cmd := newRootTestCommand()
 
 	required := map[string]bool{
-		"add":     false,
-		"info":    false,
-		"update":  false,
-		"version": false,
+		"add":    false,
+		"info":   false,
+		"update": false,
 	}
 	for _, subcommand := range cmd.Commands() {
 		if _, ok := required[subcommand.Name()]; ok {
@@ -3455,7 +3467,6 @@ func TestRenderManPageIncludesMetadata(t *testing.T) {
 		".SS aim update",
 		".SS aim update set",
 		".SS aim update unset",
-		".SS aim version",
 		"Install an AppImage from a file, URL, or provider",
 		"Repair managed AppImage state, migrate legacy paths, and reconcile desktop integration. This command may inspect AppImages and can take longer than ordinary commands.",
 		"Check or apply updates for managed AppImages, or manage configured update sources.",
@@ -3489,6 +3500,9 @@ func TestRenderManPageIncludesMetadata(t *testing.T) {
 		".SH SEE ALSO",
 		"aim-add(1)",
 		"aim update check",
+		".SS aim version",
+		"aim version",
+		"Show version and project metadata",
 	} {
 		if strings.Contains(got, unwanted) {
 			t.Fatalf("generated man page unexpectedly contains %q:\n%s", unwanted, got)

@@ -33,7 +33,6 @@ func newRootCommand(version string) *cobra.Command {
 		newInfoCommand(),
 		newMigrateCommand(),
 		newUpdateCommand(),
-		newVersionCommand(),
 	)
 	root.Flags().BoolP("upgrade", "U", false, "upgrade aim via the official installer")
 	root.InitDefaultVersionFlag()
@@ -168,14 +167,5 @@ func addUpdateSharedFlags(cmd *cobra.Command) {
 func mustMarkHidden(cmd *cobra.Command, name string) {
 	if err := cmd.PersistentFlags().MarkHidden(name); err != nil {
 		panic(err)
-	}
-}
-
-func newVersionCommand() *cobra.Command {
-	return &cobra.Command{
-		Use:   "version",
-		Short: "Show version and project metadata",
-		Args:  cobra.NoArgs,
-		RunE:  VersionCmd,
 	}
 }
