@@ -564,7 +564,7 @@ func TestRootUpgradeShortFlagPassesNonNilContext(t *testing.T) {
 
 func TestRootVersionOutputIsCompact(t *testing.T) {
 	cmd := newRootTestCommand()
-	cmd.Version = "v0.8.0"
+	cmd.Version = "0.8.0"
 
 	output := captureStdout(t, func() {
 		if err := executeTestCommand(context.Background(), cmd, "--version"); err != nil {
@@ -572,7 +572,7 @@ func TestRootVersionOutputIsCompact(t *testing.T) {
 		}
 	})
 
-	if !strings.Contains(output, "v0.8.0") {
+	if !strings.Contains(output, "0.8.0") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
 	if strings.Contains(output, "aim ") {
@@ -583,7 +583,7 @@ func TestRootVersionOutputIsCompact(t *testing.T) {
 func TestVersionCmdOutputsProjectMetadata(t *testing.T) {
 	cmd := newRootTestCommand()
 	originalVersion := version
-	version = "v1.2.3"
+	version = "1.2.3"
 	t.Cleanup(func() {
 		version = originalVersion
 	})
@@ -595,7 +595,7 @@ func TestVersionCmdOutputsProjectMetadata(t *testing.T) {
 	})
 
 	for _, expected := range []string{
-		"Version: v1.2.3",
+		"Version: 1.2.3",
 		"Repository: https://github.com/slobbe/appimage-manager",
 		"License: MIT",
 		"Issues: https://github.com/slobbe/appimage-manager/issues",
@@ -3426,7 +3426,7 @@ func newRootTestCommand() *cobra.Command {
 }
 
 func TestNewRootCommandMetadata(t *testing.T) {
-	cmd := newRootCommand("v1.2.3")
+	cmd := newRootCommand("1.2.3")
 
 	if strings.TrimSpace(cmd.Long) == "" {
 		t.Fatal("expected root command description")
@@ -3440,7 +3440,7 @@ func TestNewRootCommandMetadata(t *testing.T) {
 }
 
 func TestRenderManPageIncludesMetadata(t *testing.T) {
-	got, err := renderManPage(newRootCommand("v1.2.3"), 1)
+	got, err := renderManPage(newRootCommand("1.2.3"), 1)
 	if err != nil {
 		t.Fatalf("failed to generate man page: %v", err)
 	}
@@ -3473,7 +3473,7 @@ func TestRenderManPageIncludesMetadata(t *testing.T) {
 		".SH LICENSE",
 		".SH REPOSITORY",
 		".SH ISSUES",
-		"v1.2.3",
+		"1.2.3",
 		"Sebastian Lobbe <slobbe@lobbe.cc>",
 		"Copyright (c) 2025 Sebastian Lobbe",
 		"MIT",
@@ -5471,7 +5471,7 @@ func captureStdoutWithInput(t *testing.T, input string, fn func()) string {
 }
 
 func newUpgradeTestCommand() *cobra.Command {
-	cmd := newRootCommand("v0.0.0-test")
+	cmd := newRootCommand("0.0.0-test")
 	cmd.SilenceUsage = true
 	cmd.SilenceErrors = true
 	cmd.SetOut(os.Stdout)

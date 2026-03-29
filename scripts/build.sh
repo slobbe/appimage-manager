@@ -33,8 +33,8 @@ PKGDIR_ARM64="${OUTDIR}/pkg-arm64"
 rm -rf "$PKGDIR_AMD64" "$PKGDIR_ARM64"
 mkdir -p "$BINDIR" "$MANDIR" "$BASHCOMPDIR" "$ZSHCOMPDIR" "$FISHCOMPDIR"
 
-# Embed version into the binary (requires: var version in package main)
-LDFLAGS="-s -w -X main.version=${TAG_VERSION}"
+# Embed the normalized release version into the binary (requires: var version in package main)
+LDFLAGS="-s -w -X main.version=${RELEASE_VERSION}"
 
 # Build versioned binaries into dist/<version>/bin/
 BIN_AMD64_VER="aim-${RELEASE_VERSION}-linux-amd64"
@@ -44,7 +44,7 @@ OUT_AMD64_VER="${BINDIR}/${BIN_AMD64_VER}"
 OUT_ARM64_VER="${BINDIR}/${BIN_ARM64_VER}"
 MANPAGE="${MANDIR}/aim.1"
 
-AIM_MAN_OUTPUT="$MANPAGE" AIM_COMPLETION_DIR="$OUTDIR" go run -ldflags "-X main.version=${TAG_VERSION}" -tags docgen ./cmd/aim
+AIM_MAN_OUTPUT="$MANPAGE" AIM_COMPLETION_DIR="$OUTDIR" go run -ldflags "-X main.version=${RELEASE_VERSION}" -tags docgen ./cmd/aim
 
 GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
   go build -trimpath -ldflags "$LDFLAGS" -o "$OUT_AMD64_VER" ./cmd/aim
