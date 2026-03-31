@@ -1,7 +1,7 @@
 # AppImage Manager (aim)
 
-![GitHub Release](https://img.shields.io/github/v/release/slobbe/appimage-manager?sort=semver&display_name=release&style=flat-square&color=royalblue)
-![GitHub License](https://img.shields.io/github/license/slobbe/appimage-manager?style=flat-square&color=teal)
+[![GitHub Release](https://img.shields.io/github/v/release/slobbe/appimage-manager?sort=semver&display_name=release&style=flat-square&color=royalblue)](https://github.com/slobbe/appimage-manager/releases/latest)
+[![GitHub License](https://img.shields.io/github/license/slobbe/appimage-manager?style=flat-square&color=teal)](/LICENSE)
 
 AppImage Manager helps you manage AppImages from the terminal without manual desktop setup or update juggling. It handles install, integration, updates, and removal in one place. The goal is to make AppImage integration seamless and as close to a common package manager as possible.
 
