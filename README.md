@@ -46,14 +46,20 @@ To regenerate the committed man page from the CLI definition:
 go run -tags docgen ./cmd/aim
 ```
 
-The committed man page is generated from the Cobra command tree with the development version string (`dev`). GitHub Actions release builds inject the release version and assemble the release tarballs. `scripts/build.sh` mirrors that packaging flow locally for reproducible debugging.
+The committed man page is generated from the Cobra command tree with the development version string (`dev`). GoReleaser is the canonical release tool, and GitHub Actions runs it for pushed `vX.Y.Z` tags. The only custom release helper left is `scripts/release-prepare.sh`, which generates the man page and shell completions that are bundled into the release archives.
 
 Official releases are published by GitHub Actions when a tag matching `vX.Y.Z` is pushed. The Git tag keeps the `v` prefix, while the release title and assets drop it, for example `v0.12.5` -> release title `0.12.5` and assets `aim-0.12.5-linux-amd64.tar.gz` and `aim-0.12.5-linux-arm64.tar.gz`.
 
-To reproduce the same release artifacts locally:
+To validate the release configuration locally without publishing:
 
 ```sh
-scripts/build.sh v0.12.5
+goreleaser release --snapshot --clean --skip=publish,validate
+```
+
+To reproduce a tagged release layout locally without publishing:
+
+```sh
+GORELEASER_CURRENT_TAG=v0.12.5 goreleaser release --clean --skip=publish,validate
 ```
 
 ## Usage
