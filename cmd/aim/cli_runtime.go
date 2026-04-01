@@ -375,10 +375,6 @@ var terminalStdoutChecker = detectTerminalStdout
 var terminalStderrChecker = detectTerminalStderr
 var terminalInputChecker = detectTerminalInput
 
-func isTerminalOutput() bool {
-	return terminalOutputChecker()
-}
-
 func isTerminalStdout() bool {
 	return terminalStdoutChecker()
 }

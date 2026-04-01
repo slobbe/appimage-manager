@@ -58,7 +58,7 @@ func buildInstallDryRunPlan(ctx context.Context, cmd *cobra.Command, refArg stri
 			"db_write":        true,
 		}, nil
 	case installTargetGitHub, installTargetGitLab:
-		metadata, err := runWithBusyIndicator(cmd, fmt.Sprintf("Resolving package metadata for %s", installTargetLabel(target)), func() (*discovery.PackageMetadata, error) {
+		metadata, err := resolvePackageMetadataWithProgress(cmd, installTargetLabel(target), func() (*discovery.PackageMetadata, error) {
 			return resolvePackageMetadataFromInput(ctx, refArg, assetPattern)
 		})
 		if err != nil {

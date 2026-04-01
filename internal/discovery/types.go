@@ -38,26 +38,6 @@ type DiscoveryBackend interface {
 	Resolve(ctx context.Context, ref PackageRef, assetOverride string) (*PackageMetadata, error)
 }
 
-func ParsePackageRef(input string) (PackageRef, error) {
-	trimmed := strings.TrimSpace(input)
-	switch {
-	case strings.HasPrefix(trimmed, "github:"):
-		providerRef := strings.TrimSpace(strings.TrimPrefix(trimmed, "github:"))
-		if providerRef == "" || strings.Count(providerRef, "/") != 1 {
-			return PackageRef{}, fmt.Errorf("github package ref must be in the form github:owner/repo")
-		}
-		return PackageRef{Kind: ProviderGitHub, ProviderRef: providerRef}, nil
-	case strings.HasPrefix(trimmed, "gitlab:"):
-		providerRef := strings.TrimSpace(strings.TrimPrefix(trimmed, "gitlab:"))
-		if providerRef == "" || strings.Count(providerRef, "/") < 1 || strings.HasPrefix(providerRef, "/") || strings.HasSuffix(providerRef, "/") {
-			return PackageRef{}, fmt.Errorf("gitlab package ref must be in the form gitlab:namespace/project")
-		}
-		return PackageRef{Kind: ProviderGitLab, ProviderRef: providerRef}, nil
-	default:
-		return PackageRef{}, fmt.Errorf("unsupported package ref %q", input)
-	}
-}
-
 func ParseGitHubRepoValue(value string) (PackageRef, error) {
 	providerRef := strings.TrimSpace(value)
 	if providerRef == "" || strings.Count(providerRef, "/") != 1 || strings.HasPrefix(providerRef, "/") || strings.HasSuffix(providerRef, "/") {

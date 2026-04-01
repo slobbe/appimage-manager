@@ -67,14 +67,10 @@ func missingInputErrorForInfo() error {
 	return usageError(fmt.Errorf("missing required input; pass <id|Path/To.AppImage> or one of --github, --gitlab"))
 }
 
+func missingInputErrorForManagedID() error {
+	return usageError(fmt.Errorf("missing required input; pass <id> as a positional argument"))
+}
+
 func missingInputErrorForRemove() error {
-	return usageError(fmt.Errorf("missing required input; pass <id> as a positional argument"))
-}
-
-func missingInputErrorForUpdateSet() error {
-	return usageError(fmt.Errorf("missing required input; pass <id> as a positional argument"))
-}
-
-func missingInputErrorForUpdateUnset() error {
-	return usageError(fmt.Errorf("missing required input; pass <id> as a positional argument"))
+	return missingInputErrorForManagedID()
 }

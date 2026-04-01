@@ -54,9 +54,7 @@ func GitLabReleaseUpdateCheck(update *models.UpdateSource, currentVersion, local
 		return nil, err
 	}
 
-	latest := normalizeVersion(release.TagName)
-	current := normalizeVersion(currentVersion)
-	available := latest != "" && latest != current
+	latest, available := releaseAvailability(currentVersion, release.TagName)
 
 	result := &GitLabReleaseUpdate{
 		Available:         available,
@@ -70,12 +68,10 @@ func GitLabReleaseUpdateCheck(update *models.UpdateSource, currentVersion, local
 		return result, nil
 	}
 
-	transport, err := probeReleaseZsyncTransport(release.DownloadURL, localSHA1)
-	if err == nil && transport != nil {
-		result.Transport = transport.Transport
-		result.ZsyncURL = transport.ZsyncURL
-		result.ExpectedSHA1 = transport.ExpectedSHA1
-	}
+	transport := resolveReleaseTransport(release.DownloadURL, localSHA1)
+	result.Transport = transport.Transport
+	result.ZsyncURL = transport.ZsyncURL
+	result.ExpectedSHA1 = transport.ExpectedSHA1
 
 	return result, nil
 }

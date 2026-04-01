@@ -377,7 +377,7 @@ func TestRootUpgradeRejectsExtraArgs(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected argument error")
 	}
-	if !strings.Contains(err.Error(), "--upgrade does not accept positional arguments") {
+	if !strings.Contains(err.Error(), "unknown command \"extra\" for \"aim\"") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -6794,9 +6794,6 @@ func executeTestCommand(ctx context.Context, cmd *cobra.Command, args ...string)
 	if handled, err := maybeRunExplicitHelp(ctx, cmd, args); handled {
 		return err
 	}
-	if handled, err := maybeRunRootUpgradeFlag(ctx, cmd, args); handled {
-		return err
-	}
 	cmd.SetArgs(args)
 	return cmd.ExecuteContext(ctx)
 }
@@ -6808,9 +6805,6 @@ func executeCommandWithIO(ctx context.Context, cmd *cobra.Command, args ...strin
 	cmd.SetOut(&stdout)
 	cmd.SetErr(&stderr)
 	if handled, err := maybeRunExplicitHelp(ctx, cmd, args); handled {
-		return stdout.String(), stderr.String(), err
-	}
-	if handled, err := maybeRunRootUpgradeFlag(ctx, cmd, args); handled {
 		return stdout.String(), stderr.String(), err
 	}
 	cmd.SetArgs(args)

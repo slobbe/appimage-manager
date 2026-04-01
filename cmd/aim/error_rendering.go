@@ -206,10 +206,6 @@ func rewriteMissingAppError(id string, err error) error {
 	)
 }
 
-func rewriteDependencyError(err error, summary, hint string) error {
-	return withUserGuidance(unavailableError(err), summary, hint)
-}
-
 func rewriteChecksumError(err error) error {
 	return withUserGuidance(
 		unavailableError(err),

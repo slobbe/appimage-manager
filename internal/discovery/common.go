@@ -33,32 +33,3 @@ func firstNonEmpty(values ...string) string {
 	}
 	return ""
 }
-
-func scoreSearchCandidate(query, name, summary string, popularity int) int {
-	query = strings.ToLower(strings.TrimSpace(query))
-	name = strings.ToLower(strings.TrimSpace(name))
-	summary = strings.ToLower(strings.TrimSpace(summary))
-
-	score := 0
-	if query != "" && name == query {
-		score += 1000
-	}
-	if query != "" && strings.Contains(name, query) {
-		score += 300
-	}
-
-	for _, token := range strings.Fields(query) {
-		if strings.Contains(name, token) {
-			score += 120
-		}
-		if strings.Contains(summary, token) {
-			score += 40
-		}
-	}
-
-	if popularity > 0 {
-		score += popularity
-	}
-
-	return score
-}

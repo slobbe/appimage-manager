@@ -36,17 +36,11 @@ func (GitLabBackend) Resolve(ctx context.Context, ref PackageRef, assetOverride 
 
 	project := strings.TrimSpace(ref.ProviderRef)
 	assetPattern := normalizeAssetPattern(assetOverride)
+	projectURL := "https://gitlab.com/" + project
 
 	release, err := resolveGitLabReleaseAssetFn(project, assetPattern)
 	if err != nil {
-		return &PackageMetadata{
-			Provider:      "GitLab",
-			Ref:           ref,
-			RepoURL:       "https://gitlab.com/" + project,
-			AssetPattern:  assetPattern,
-			Installable:   false,
-			InstallReason: err.Error(),
-		}, nil
+		return newUnavailablePackageMetadata("GitLab", ref, projectURL, assetPattern, err.Error()), nil
 	}
 
 	projectInfo, err := fetchGitLabProject(ctx, project)
@@ -54,24 +48,20 @@ func (GitLabBackend) Resolve(ctx context.Context, ref PackageRef, assetOverride 
 		return nil, err
 	}
 
-	name := strings.TrimSpace(projectInfo.Name)
-	if name == "" {
-		name = DisplayNameFromRef(project)
-	}
-
-	return &PackageMetadata{
-		Name:          name,
-		Provider:      "GitLab",
-		Ref:           ref,
-		RepoURL:       firstNonEmpty(strings.TrimSpace(projectInfo.WebURL), "https://gitlab.com/"+project),
-		LatestVersion: versionForDisplay(release.NormalizedVersion, release.TagName),
-		AssetName:     strings.TrimSpace(release.AssetName),
-		AssetPattern:  assetPattern,
-		DownloadURL:   strings.TrimSpace(release.DownloadURL),
-		Installable:   true,
-		ReleaseTag:    strings.TrimSpace(release.TagName),
-		Summary:       strings.TrimSpace(projectInfo.Description),
-	}, nil
+	return newInstallablePackageMetadata(
+		"GitLab",
+		ref,
+		firstNonEmpty(strings.TrimSpace(projectInfo.WebURL), projectURL),
+		strings.TrimSpace(projectInfo.Name),
+		strings.TrimSpace(projectInfo.Description),
+		assetPattern,
+		resolvedReleaseMetadata{
+			DownloadURL:       release.DownloadURL,
+			TagName:           release.TagName,
+			NormalizedVersion: release.NormalizedVersion,
+			AssetName:         release.AssetName,
+		},
+	), nil
 }
 
 func fetchGitLabProject(ctx context.Context, project string) (*gitLabProjectResponse, error) {

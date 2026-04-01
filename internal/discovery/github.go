@@ -48,17 +48,11 @@ func (GitHubBackend) Resolve(ctx context.Context, ref PackageRef, assetOverride 
 
 	repoSlug := strings.TrimSpace(ref.ProviderRef)
 	assetPattern := normalizeAssetPattern(assetOverride)
+	repoURL := "https://github.com/" + repoSlug
 
 	release, err := resolveGitHubReleaseAssetFn(repoSlug, assetPattern)
 	if err != nil {
-		return &PackageMetadata{
-			Provider:      "GitHub",
-			Ref:           ref,
-			RepoURL:       "https://github.com/" + repoSlug,
-			AssetPattern:  assetPattern,
-			Installable:   false,
-			InstallReason: err.Error(),
-		}, nil
+		return newUnavailablePackageMetadata("GitHub", ref, repoURL, assetPattern, err.Error()), nil
 	}
 
 	repoInfo, err := fetchGitHubRepo(ctx, repoSlug)
@@ -66,24 +60,20 @@ func (GitHubBackend) Resolve(ctx context.Context, ref PackageRef, assetOverride 
 		return nil, err
 	}
 
-	name := strings.TrimSpace(repoInfo.Name)
-	if name == "" {
-		name = DisplayNameFromRef(repoSlug)
-	}
-
-	return &PackageMetadata{
-		Name:          name,
-		Provider:      "GitHub",
-		Ref:           ref,
-		RepoURL:       firstNonEmpty(strings.TrimSpace(repoInfo.HTMLURL), "https://github.com/"+repoSlug),
-		LatestVersion: versionForDisplay(release.NormalizedVersion, release.TagName),
-		AssetName:     strings.TrimSpace(release.AssetName),
-		AssetPattern:  assetPattern,
-		DownloadURL:   strings.TrimSpace(release.DownloadURL),
-		Installable:   true,
-		ReleaseTag:    strings.TrimSpace(release.TagName),
-		Summary:       strings.TrimSpace(repoInfo.Description),
-	}, nil
+	return newInstallablePackageMetadata(
+		"GitHub",
+		ref,
+		firstNonEmpty(strings.TrimSpace(repoInfo.HTMLURL), repoURL),
+		strings.TrimSpace(repoInfo.Name),
+		strings.TrimSpace(repoInfo.Description),
+		assetPattern,
+		resolvedReleaseMetadata{
+			DownloadURL:       release.DownloadURL,
+			TagName:           release.TagName,
+			NormalizedVersion: release.NormalizedVersion,
+			AssetName:         release.AssetName,
+		},
+	), nil
 }
 
 func fetchGitHubRepo(ctx context.Context, repoSlug string) (*gitHubRepoResponse, error) {
