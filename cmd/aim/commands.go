@@ -136,6 +136,9 @@ func printAimMetadata(cmd *cobra.Command) error {
 }
 
 func MigrateCmd(cmd *cobra.Command, args []string) error {
+	if cmd != nil && strings.TrimSpace(cmd.CalledAs()) == "repair" {
+		printWarning(cmd, "repair is deprecated; use 'aim migrate'")
+	}
 	if len(args) > 1 {
 		return usageError(fmt.Errorf("too many arguments"))
 	}
@@ -1616,143 +1619,58 @@ func embeddedUpdateSourceForPath(path string) (*models.UpdateSource, error) {
 }
 
 func UpdateCmd(cmd *cobra.Command, args []string) error {
-	if hasUpdateSetFlags(cmd) {
-		return usageError(fmt.Errorf("update source flags can only be used with `aim update set`"))
+	setID, err := flagString(cmd, "set")
+	if err != nil {
+		return err
 	}
+	unsetID, err := flagString(cmd, "unset")
+	if err != nil {
+		return err
+	}
+	checkOnlyChanged := flagChanged(cmd, "check-only")
+	setSpecified := flagChanged(cmd, "set")
+	unsetSpecified := flagChanged(cmd, "unset")
+	hasSourceFlags := hasUpdateSetFlags(cmd)
 
-	targetID := ""
-	if len(args) > 0 {
-		targetID = args[0]
-	}
 	if len(args) > 1 {
 		return usageError(fmt.Errorf("too many arguments"))
 	}
+	targetID := ""
+	if len(args) == 1 {
+		targetID = strings.TrimSpace(args[0])
+	}
+	setID = strings.TrimSpace(setID)
+	unsetID = strings.TrimSpace(unsetID)
+
+	switch {
+	case setSpecified && unsetSpecified:
+		return usageError(fmt.Errorf("--set and --unset are mutually exclusive"))
+	case setSpecified && targetID != "":
+		return usageError(fmt.Errorf("--set is not supported with positional update targets; use either 'aim update <id>' or 'aim update --set <id> ...'"))
+	case unsetSpecified && targetID != "":
+		return usageError(fmt.Errorf("--unset is not supported with positional update targets; use either 'aim update <id>' or 'aim update --unset <id>'"))
+	case setSpecified && checkOnlyChanged:
+		return usageError(fmt.Errorf("--check-only is not supported with 'aim update --set'"))
+	case unsetSpecified && checkOnlyChanged:
+		return usageError(fmt.Errorf("--check-only is not supported with 'aim update --unset'"))
+	case unsetSpecified && hasSourceFlags:
+		return usageError(fmt.Errorf("update source flags can only be used with 'aim update --set <id> ...'"))
+	case setSpecified && setID == "":
+		return printConciseHelpError(cmd, "missing required input; pass --set <id> to configure an update source")
+	case unsetSpecified && unsetID == "":
+		return printConciseHelpError(cmd, "missing required input; pass --unset <id> to remove an update source")
+	case !setSpecified && !unsetSpecified && hasSourceFlags:
+		return usageError(fmt.Errorf("update source flags can only be used with 'aim update --set <id> ...'"))
+	}
+
+	if setSpecified {
+		return runUpdateSetMode(cmd, setID)
+	}
+	if unsetSpecified {
+		return runUpdateUnsetMode(cmd, unsetID)
+	}
 
 	return runManagedUpdate(cmd.Context(), cmd, targetID)
-}
-
-func UpdateSetCmd(cmd *cobra.Command, args []string) error {
-	if flagChanged(cmd, "check-only") {
-		return usageError(fmt.Errorf("flag --check-only/-c is not supported with `aim update set`"))
-	}
-	opts := runtimeOptionsFrom(cmd)
-
-	id, err := resolveSingleInputOrPrompt(cmd, args, "<id>", "Managed app id to configure: ", missingInputErrorForUpdateSet())
-	if err != nil {
-		if isMissingArgumentError(err) || err.Error() == missingInputErrorForUpdateSet().Error() {
-			return printConciseHelpError(cmd, missingInputErrorForUpdateSet().Error())
-		}
-		return err
-	}
-
-	app, err := repo.GetApp(id)
-	if err != nil {
-		return wrapManagedAppLookupError(id, err)
-	}
-
-	var incomingSource *models.UpdateSource
-	embedded, err := flagBool(cmd, "embedded")
-	if err != nil {
-		return err
-	}
-	if embedded {
-		if err := validateEmbeddedUpdateSetFlags(cmd); err != nil {
-			return err
-		}
-
-		incomingSource, err = embeddedUpdateSourceForPath(app.ExecPath)
-		if err != nil {
-			printWarning(cmd, warningNoEmbeddedSource())
-			if app.Update == nil || app.Update.Kind == models.UpdateNone {
-				if opts.JSON {
-					return printJSONSuccess(cmd, buildUpdateUnsetDryRunResult(id, app.Update))
-				}
-				return nil
-			}
-
-			printCurrentValue(cmd, updateSummary(app.Update))
-			prompt := formatPrompt("Unset source for", id)
-			_, err := unsetManagedUpdateSource(cmd, app, prompt, false)
-			return err
-		}
-	} else {
-		incomingSource, err = resolveUpdateSourceFromSetFlags(cmd)
-		if err != nil {
-			return err
-		}
-	}
-
-	if app.Update != nil && app.Update.Kind != models.UpdateNone && !updateSourcesEqual(app.Update, incomingSource) {
-		printCurrentIncoming(cmd, updateSummary(app.Update), updateSummary(incomingSource))
-		prompt := formatPrompt("Replace source for", id)
-		confirmed, err := confirmAction(cmd, prompt)
-		if err != nil {
-			return err
-		}
-		if !confirmed {
-			printWarning(cmd, "Update source unchanged")
-			return nil
-		}
-	}
-
-	if opts.DryRun {
-		result := buildUpdateSetDryRunResult(id, app.Update, incomingSource)
-		if opts.JSON {
-			return printJSONSuccess(cmd, result)
-		}
-		writeDataf(cmd, "Dry run: would set update source for %s\n", id)
-		return nil
-	}
-
-	app.Update = incomingSource
-
-	if err := repo.UpdateApp(app); err != nil {
-		return wrapWriteError(err)
-	}
-
-	if opts.JSON {
-		return printJSONSuccess(cmd, map[string]interface{}{
-			"action": "set_update_source",
-			"id":     id,
-			"source": incomingSource,
-		})
-	}
-	printSuccess(cmd, fmt.Sprintf("Update source set: %s", updateSummary(incomingSource)))
-	return nil
-}
-
-func UpdateUnsetCmd(cmd *cobra.Command, args []string) error {
-	if flagChanged(cmd, "check-only") {
-		return usageError(fmt.Errorf("flag --check-only/-c is not supported with `aim update unset`"))
-	}
-	if hasUpdateSetFlags(cmd) {
-		return usageError(fmt.Errorf("update source flags are not supported with `aim update unset`"))
-	}
-	id, err := resolveSingleInputOrPrompt(cmd, args, "<id>", "Managed app id to unset update source for: ", missingInputErrorForUpdateUnset())
-	if err != nil {
-		if isMissingArgumentError(err) || err.Error() == missingInputErrorForUpdateUnset().Error() {
-			return printConciseHelpError(cmd, missingInputErrorForUpdateUnset().Error())
-		}
-		return err
-	}
-
-	app, err := repo.GetApp(id)
-	if err != nil {
-		return wrapManagedAppLookupError(id, err)
-	}
-
-	if runtimeOptionsFrom(cmd).DryRun {
-		result := buildUpdateUnsetDryRunResult(id, app.Update)
-		if runtimeOptionsFrom(cmd).JSON {
-			return printJSONSuccess(cmd, result)
-		}
-		writeDataf(cmd, "Dry run: would unset update source for %s\n", id)
-		return nil
-	}
-
-	prompt := formatPrompt("Unset source for", id)
-	_, err = unsetManagedUpdateSource(cmd, app, prompt, true)
-	return err
 }
 
 func UpdateCheckRemovedCmd(cmd *cobra.Command, args []string) error {
@@ -1856,6 +1774,119 @@ func validateEmbeddedUpdateSetFlags(cmd *cobra.Command) error {
 	}
 
 	return nil
+}
+
+func runUpdateSetMode(cmd *cobra.Command, id string) error {
+	if strings.TrimSpace(id) == "" {
+		return printConciseHelpError(cmd, "missing required input; pass --set <id> to configure an update source")
+	}
+	opts := runtimeOptionsFrom(cmd)
+
+	app, err := repo.GetApp(id)
+	if err != nil {
+		return wrapManagedAppLookupError(id, err)
+	}
+
+	var incomingSource *models.UpdateSource
+	embedded, err := flagBool(cmd, "embedded")
+	if err != nil {
+		return err
+	}
+	if embedded {
+		if err := validateEmbeddedUpdateSetFlags(cmd); err != nil {
+			return err
+		}
+
+		incomingSource, err = embeddedUpdateSourceForPath(app.ExecPath)
+		if err != nil {
+			printWarning(cmd, warningNoEmbeddedSource())
+			if app.Update == nil || app.Update.Kind == models.UpdateNone {
+				if opts.JSON {
+					return printJSONSuccess(cmd, buildUpdateUnsetDryRunResult(id, app.Update))
+				}
+				return nil
+			}
+
+			printCurrentValue(cmd, updateSummary(app.Update))
+			prompt := formatPrompt("Unset source for", id)
+			_, err := unsetManagedUpdateSource(cmd, app, prompt, false)
+			return err
+		}
+	} else {
+		incomingSource, err = resolveUpdateSourceFromSetFlags(cmd)
+		if err != nil {
+			return err
+		}
+	}
+
+	if app.Update != nil && app.Update.Kind != models.UpdateNone && !updateSourcesEqual(app.Update, incomingSource) {
+		printCurrentIncoming(cmd, updateSummary(app.Update), updateSummary(incomingSource))
+		prompt := formatPrompt("Replace source for", id)
+		confirmed, err := confirmAction(cmd, prompt)
+		if err != nil {
+			return err
+		}
+		if !confirmed {
+			printWarning(cmd, "Update source unchanged")
+			return nil
+		}
+	}
+
+	if opts.DryRun {
+		result := buildUpdateSetDryRunResult(id, app.Update, incomingSource)
+		if opts.JSON {
+			return printJSONSuccess(cmd, result)
+		}
+		writeDataf(cmd, "Dry run: would set update source for %s\n", id)
+		return nil
+	}
+
+	app.Update = incomingSource
+	if err := repo.UpdateApp(app); err != nil {
+		return wrapWriteError(err)
+	}
+
+	if opts.JSON {
+		return printJSONSuccess(cmd, map[string]interface{}{
+			"action": "set_update_source",
+			"id":     id,
+			"source": incomingSource,
+		})
+	}
+	printSuccess(cmd, fmt.Sprintf("Update source set: %s", updateSummary(incomingSource)))
+	return nil
+}
+
+func runUpdateUnsetMode(cmd *cobra.Command, id string) error {
+	if strings.TrimSpace(id) == "" {
+		return printConciseHelpError(cmd, "missing required input; pass --unset <id> to remove an update source")
+	}
+
+	app, err := repo.GetApp(id)
+	if err != nil {
+		return wrapManagedAppLookupError(id, err)
+	}
+
+	if runtimeOptionsFrom(cmd).DryRun {
+		result := buildUpdateUnsetDryRunResult(id, app.Update)
+		if runtimeOptionsFrom(cmd).JSON {
+			return printJSONSuccess(cmd, result)
+		}
+		writeDataf(cmd, "Dry run: would unset update source for %s\n", id)
+		return nil
+	}
+
+	prompt := formatPrompt("Unset source for", id)
+	_, err = unsetManagedUpdateSource(cmd, app, prompt, true)
+	return err
+}
+
+func removedUpdateSetCommandError() error {
+	return usageError(fmt.Errorf("aim update set has been removed; use 'aim update --set <id> ...'"))
+}
+
+func removedUpdateUnsetCommandError() error {
+	return usageError(fmt.Errorf("aim update unset has been removed; use 'aim update --unset <id>'"))
 }
 
 func resolveUpdateSourceFromSetFlags(cmd *cobra.Command) (*models.UpdateSource, error) {
@@ -2642,7 +2673,7 @@ func checkAppUpdate(app *models.App) (*pendingManagedUpdate, error) {
 			FromKind:     models.UpdateGitLabRelease,
 		}, nil
 	default:
-		return nil, softwareError(fmt.Errorf("unsupported update source for %s: %q. Reconfigure with `aim update set`", app.ID, app.Update.Kind))
+		return nil, softwareError(fmt.Errorf("unsupported update source for %s: %q. Reconfigure with `aim update --set %s ...`", app.ID, app.Update.Kind, app.ID))
 	}
 }
 
@@ -2679,7 +2710,7 @@ func applyManagedUpdate(ctx context.Context, update pendingManagedUpdate, report
 		err := withUserGuidance(
 			softwareError(fmt.Errorf("missing download URL")),
 			"Can't download an update because the selected source did not provide a download URL.",
-			"Reconfigure it with 'aim update set'.",
+			fmt.Sprintf("Reconfigure %s with 'aim update --set %s ...'.", update.App.ID, update.App.ID),
 		)
 		emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageFailed, Message: err.Error()})
 		return nil, err
@@ -2756,7 +2787,7 @@ func applyZsyncUpdate(ctx context.Context, update pendingManagedUpdate, destinat
 		return withUserGuidance(
 			softwareError(fmt.Errorf("missing zsync url")),
 			"Can't apply a delta update because the configured source is missing its zsync URL.",
-			fmt.Sprintf("Reconfigure %s with 'aim update set'.", update.App.ID),
+			fmt.Sprintf("Reconfigure %s with 'aim update --set %s ...'.", update.App.ID, update.App.ID),
 		)
 	}
 

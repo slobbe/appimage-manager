@@ -178,10 +178,32 @@ func renderManDescription(cmd *cobra.Command) string {
 }
 
 func renderManAliases(cmd *cobra.Command) string {
-	if len(cmd.Aliases) == 0 {
+	aliases := visibleAliases(cmd)
+	if len(aliases) == 0 {
 		return ""
 	}
-	return strings.Join(cmd.Aliases, ", ")
+	return strings.Join(aliases, ", ")
+}
+
+func visibleAliases(cmd *cobra.Command) []string {
+	if cmd == nil || len(cmd.Aliases) == 0 {
+		return nil
+	}
+
+	hidden := map[string]bool{}
+	if commandName(cmd) == "migrate" {
+		hidden["repair"] = true
+	}
+
+	aliases := make([]string, 0, len(cmd.Aliases))
+	for _, alias := range cmd.Aliases {
+		alias = strings.TrimSpace(alias)
+		if alias == "" || hidden[alias] {
+			continue
+		}
+		aliases = append(aliases, alias)
+	}
+	return aliases
 }
 
 func renderManExamples(cmd *cobra.Command) string {

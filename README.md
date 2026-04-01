@@ -15,7 +15,7 @@
 - Integrate apps with desktop menus, icons, and launchers
 - Track managed apps and update them from configured sources
 - Inspect AppImage metadata and update-source details
-- Remove apps, unlink desktop integration, and run repair or migration when needed
+- Remove apps, unlink desktop integration, and run migration or repair workflows when needed
 
 ## Installation
 
@@ -58,8 +58,10 @@ Check for updates, apply them, or configure an update source.
 # Examples
 aim update
 aim update --check-only
-aim update set example-app --github owner/repo
+aim update --set example-app --github owner/repo
 ```
+
+`aim update` manages AppImage updates. Use `aim --upgrade` to upgrade the `aim` CLI itself.
 
 ### `remove`
 
@@ -106,7 +108,7 @@ aim list --json
 aim update --check-only --csv
 aim list --plain | grep obsidian
 aim -C /tmp/aim-state add -n ./Example.AppImage
-aim update unset example-app --yes
+aim update --unset example-app --yes
 ```
 
 Remote/provider selectors are explicit:
@@ -141,7 +143,7 @@ For unexpected internal failures, `aim` prints a short bug-report path:
 - a hint to rerun with `--debug`
 - the GitHub issues URL for reporting the problem
 
-Expected errors are rewritten to be user-facing and actionable when possible, for example by suggesting `aim list`, `aim update set`, or a writable `-C` state root.
+Expected errors are rewritten to be user-facing and actionable when possible, for example by suggesting `aim list`, `aim update --set <id> ...`, or a writable `-C` state root.
 
 Exit codes:
 
@@ -169,7 +171,7 @@ aim
 aim --help
 aim help
 aim help update
-aim help update set
+aim help update
 ```
 
 Manual pages are also generated for direct `man` use:
@@ -177,7 +179,7 @@ Manual pages are also generated for direct `man` use:
 ```sh
 man aim
 man aim-add
-man aim-update-set
+man aim-update
 ```
 
 ## Command Reference
@@ -203,23 +205,16 @@ aim migrate example-app
 aim migrate --dry-run --json
 ```
 
-### update set
+### update source configuration
 
 Set the configured update source for a managed app.
 
 ```sh
-aim update set example-app --github owner/repo
-aim update set example-app --embedded
-aim update set example-app --zsync https://example.com/Example.AppImage.zsync
-```
-
-### update unset
-
-Unset the configured update source for a managed app.
-
-```sh
-aim update unset example-app
-aim update unset example-app --dry-run --json
+aim update --set example-app --github owner/repo
+aim update --set example-app --embedded
+aim update --set example-app --zsync https://example.com/Example.AppImage.zsync
+aim update --unset example-app
+aim update --unset example-app --dry-run --json
 ```
 
 ## Where `aim` stores files

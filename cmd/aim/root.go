@@ -28,6 +28,7 @@ func newRootCommand(version string) *cobra.Command {
   aim -C /tmp/aim-state list --json
   aim add -n ./Example.AppImage
   aim update --yes
+  aim --upgrade
 `),
 		Version: version,
 		CompletionOptions: cobra.CompletionOptions{
@@ -157,17 +158,18 @@ func newUpdateCommand() *cobra.Command {
 		Example: strings.TrimSpace(`
   aim update
   aim update --check-only --csv
-  aim update --yes
-  aim update example-app -n --json
+  aim update --set example-app --github owner/repo
+  aim update --unset example-app --yes
 `),
 		RunE: UpdateCmd,
 	}
 
 	addUpdateCheckFlags(cmd)
+	addUpdateSourceFlags(cmd)
 	cmd.AddCommand(
-		newUpdateSetCommand(),
-		newUpdateUnsetCommand(),
 		newUpdateCheckCommand(),
+		newRemovedUpdateSetCommand(),
+		newRemovedUpdateUnsetCommand(),
 	)
 
 	return cmd
@@ -177,8 +179,8 @@ func newMigrateCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:     "migrate [id]",
 		Aliases: []string{"repair"},
-		Short:   "Run migration and desktop integration repair",
-		Long:    "Repair managed AppImage state, migrate legacy paths, and reconcile desktop integration. This command may inspect AppImages and can take longer than ordinary commands.",
+		Short:   "Migrate managed AppImage state and repair desktop integration",
+		Long:    "Migrate managed AppImage state, repair legacy paths, and reconcile desktop integration. This command may inspect AppImages and can take longer than ordinary commands.",
 		Example: strings.TrimSpace(`
   aim migrate
   aim migrate example-app
@@ -186,33 +188,6 @@ func newMigrateCommand() *cobra.Command {
 `),
 		Args: cobra.MaximumNArgs(1),
 		RunE: MigrateCmd,
-	}
-}
-
-func newUpdateSetCommand() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "set <id>",
-		Short: "Set the update source for a managed AppImage",
-		Example: strings.TrimSpace(`
-  aim update set example-app --github owner/repo
-  aim update set example-app --embedded
-  aim update set example-app --zsync https://example.com/Example.AppImage.zsync -n --json
-`),
-		RunE: UpdateSetCmd,
-	}
-	addUpdateSourceFlags(cmd)
-	return cmd
-}
-
-func newUpdateUnsetCommand() *cobra.Command {
-	return &cobra.Command{
-		Use:   "unset <id>",
-		Short: "Unset the update source for a managed AppImage",
-		Example: strings.TrimSpace(`
-  aim update unset example-app
-  aim update unset example-app -n --json
-`),
-		RunE: UpdateUnsetCmd,
 	}
 }
 
@@ -225,6 +200,30 @@ func newUpdateCheckCommand() *cobra.Command {
 	}
 }
 
+func newRemovedUpdateSetCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:                "set",
+		Hidden:             true,
+		DisableFlagParsing: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			_ = args
+			return removedUpdateSetCommandError()
+		},
+	}
+}
+
+func newRemovedUpdateUnsetCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:                "unset",
+		Hidden:             true,
+		DisableFlagParsing: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			_ = args
+			return removedUpdateUnsetCommandError()
+		},
+	}
+}
+
 func addUpdateCheckFlags(cmd *cobra.Command) {
 	flags := cmd.Flags()
 	flags.BoolP("check-only", "c", false, "check only; do not apply updates")
@@ -233,11 +232,13 @@ func addUpdateCheckFlags(cmd *cobra.Command) {
 
 func addUpdateSourceFlags(cmd *cobra.Command) {
 	flags := cmd.Flags()
-	stringFlagWithMetavar(flags, "github", "", "", "GitHub repo in the form owner/repo (for 'update set')", "owner/repo")
-	flags.String("asset", "", "asset filename pattern; defaults to \"*.AppImage\" for GitHub/GitLab (for 'update set')")
-	stringFlagWithMetavar(flags, "gitlab", "", "", "GitLab project path namespace/project (for 'update set')", "namespace/project")
-	stringFlagWithMetavar(flags, "zsync", "", "", "direct zsync metadata URL (https, for 'update set')", "URL")
-	flags.Bool("embedded", false, "use the update source embedded in the current AppImage (for 'update set')")
+	stringFlagWithMetavar(flags, "set", "", "", "set the update source for the given managed app id", "ID")
+	stringFlagWithMetavar(flags, "unset", "", "", "unset the update source for the given managed app id", "ID")
+	stringFlagWithMetavar(flags, "github", "", "", "GitHub repo in the form owner/repo (for 'aim update --set')", "owner/repo")
+	flags.String("asset", "", "asset filename pattern; defaults to \"*.AppImage\" for GitHub/GitLab (for 'aim update --set')")
+	stringFlagWithMetavar(flags, "gitlab", "", "", "GitLab project path namespace/project (for 'aim update --set')", "namespace/project")
+	stringFlagWithMetavar(flags, "zsync", "", "", "direct zsync metadata URL (https, for 'aim update --set')", "URL")
+	flags.Bool("embedded", false, "use the update source embedded in the current AppImage (for 'aim update --set')")
 	flags.String("manifest-url", "", "deprecated manifest update source flag")
 	flags.String("url", "", "deprecated direct update source flag")
 	flags.String("sha256", "", "deprecated update source checksum flag")

@@ -14,12 +14,40 @@ Check or apply updates for managed AppImages, or manage configured update source
 
 
 .SH OPTIONS
+\fB--asset\fP=""
+	asset filename pattern; defaults to "*.AppImage" for GitHub/GitLab (for 'aim update --set')
+
+.PP
 \fB--check-only\fP[=false]
 	check only; do not apply updates
 
 .PP
+\fB--embedded\fP[=false]
+	use the update source embedded in the current AppImage (for 'aim update --set')
+
+.PP
+\fB--github\fP=
+	GitHub repo in the form owner/repo (for 'aim update --set')
+
+.PP
+\fB--gitlab\fP=
+	GitLab project path namespace/project (for 'aim update --set')
+
+.PP
 \fB-h\fP, \fB--help\fP[=false]
 	help for update
+
+.PP
+\fB--set\fP=
+	set the update source for the given managed app id
+
+.PP
+\fB--unset\fP=
+	unset the update source for the given managed app id
+
+.PP
+\fB--zsync\fP=
+	direct zsync metadata URL (https, for 'aim update --set')
 
 
 .SH OPTIONS INHERITED FROM PARENT COMMANDS
@@ -67,8 +95,8 @@ Check or apply updates for managed AppImages, or manage configured update source
 .EX
 aim update
   aim update --check-only --csv
-  aim update --yes
-  aim update example-app -n --json
+  aim update --set example-app --github owner/repo
+  aim update --unset example-app --yes
 .EE
 
 
@@ -81,108 +109,6 @@ aim update help [command]
 \fBDescription\fP
 Help provides help for any command in the application.
 Simply type update help [path to command] for full details.
-.TP
-\fBOptions\fP
-.TP
-\-C DIR, \-\-config DIR
-use an alternate AIM state root
-.TP
-\-\-csv
-output CSV where supported
-.TP
-\-d, \-\-debug
-enable diagnostic logging
-.TP
-\-n, \-\-dry\-run
-simulate changes without applying them
-.TP
-\-\-json
-output formatted JSON
-.TP
-\-\-no\-color
-disable ANSI color output
-.TP
-\-\-no\-input
-disable interactive prompts
-.TP
-\-\-plain
-output plain tab\-separated text
-.TP
-\-q, \-\-quiet
-suppress non\-essential status output
-.TP
-\-y, \-\-yes
-skip confirmation prompts
-.SS aim update set <id>
-.TP
-\fBSynopsis\fP
-aim update set <id>
-.TP
-\fBDescription\fP
-Set the update source for a managed AppImage
-.TP
-\fBExamples\fP
-aim update set example\-app \-\-github owner/repo
-aim update set example\-app \-\-embedded
-aim update set example\-app \-\-zsync https://example.com/Example.AppImage.zsync \-n \-\-json
-.TP
-\fBOptions\fP
-.TP
-\-\-asset string
-asset filename pattern; defaults to "*.AppImage" for GitHub/GitLab (for 'update set')
-.TP
-\-\-embedded
-use the update source embedded in the current AppImage (for 'update set')
-.TP
-\-\-github owner/repo
-GitHub repo in the form owner/repo (for 'update set')
-.TP
-\-\-gitlab namespace/project
-GitLab project path namespace/project (for 'update set')
-.TP
-\-\-zsync URL
-direct zsync metadata URL (https, for 'update set')
-.TP
-\-C DIR, \-\-config DIR
-use an alternate AIM state root
-.TP
-\-\-csv
-output CSV where supported
-.TP
-\-d, \-\-debug
-enable diagnostic logging
-.TP
-\-n, \-\-dry\-run
-simulate changes without applying them
-.TP
-\-\-json
-output formatted JSON
-.TP
-\-\-no\-color
-disable ANSI color output
-.TP
-\-\-no\-input
-disable interactive prompts
-.TP
-\-\-plain
-output plain tab\-separated text
-.TP
-\-q, \-\-quiet
-suppress non\-essential status output
-.TP
-\-y, \-\-yes
-skip confirmation prompts
-.SS aim update unset <id>
-.TP
-\fBSynopsis\fP
-aim update unset <id>
-.TP
-\fBDescription\fP
-Unset the update source for a managed AppImage
-.TP
-\fBExamples\fP
-aim update unset example\-app
-aim update unset example\-app \-n \-\-json
 .TP
 \fBOptions\fP
 .TP

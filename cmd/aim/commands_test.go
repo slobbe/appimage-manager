@@ -717,6 +717,16 @@ func TestRootRegistersPackageCommands(t *testing.T) {
 	if findSubcommand(cmd, "upgrade") != nil {
 		t.Fatal("did not expect upgrade subcommand to be registered")
 	}
+	updateCmd := findSubcommand(cmd, "update")
+	if updateCmd == nil {
+		t.Fatal("expected update command")
+	}
+	if setCmd := findSubcommand(updateCmd, "set"); setCmd == nil || !setCmd.Hidden {
+		t.Fatalf("expected hidden removed-command stub for update set, got %#v", setCmd)
+	}
+	if unsetCmd := findSubcommand(updateCmd, "unset"); unsetCmd == nil || !unsetCmd.Hidden {
+		t.Fatalf("expected hidden removed-command stub for update unset, got %#v", unsetCmd)
+	}
 }
 
 func TestRootPackageCommandFlags(t *testing.T) {
@@ -724,8 +734,9 @@ func TestRootPackageCommandFlags(t *testing.T) {
 
 	addCmd := findSubcommand(cmd, "add")
 	infoCmd := findSubcommand(cmd, "info")
-	if addCmd == nil || infoCmd == nil {
-		t.Fatal("expected add and info commands")
+	updateCmd := findSubcommand(cmd, "update")
+	if addCmd == nil || infoCmd == nil || updateCmd == nil {
+		t.Fatal("expected add, info, and update commands")
 	}
 
 	if got := countFlags(addCmd.Flags()); got != 5 {
@@ -744,6 +755,11 @@ func TestRootPackageCommandFlags(t *testing.T) {
 	for _, name := range []string{"github", "gitlab"} {
 		if infoCmd.Flags().Lookup(name) == nil {
 			t.Fatalf("info flags missing %s", name)
+		}
+	}
+	for _, name := range []string{"set", "unset", "github", "gitlab", "asset", "zsync", "embedded"} {
+		if updateCmd.Flags().Lookup(name) == nil {
+			t.Fatalf("update flags missing %s", name)
 		}
 	}
 }
@@ -784,9 +800,11 @@ func TestStructuredFlagHelpUsesSemanticMetavars(t *testing.T) {
 			},
 		},
 		{
-			name: "update set help",
-			args: []string{"update", "set", "--help"},
+			name: "update help",
+			args: []string{"update", "--help"},
 			required: []string{
+				"--set ID",
+				"--unset ID",
 				"--github owner/repo",
 				"--gitlab namespace/project",
 				"--zsync URL",
@@ -796,6 +814,8 @@ func TestStructuredFlagHelpUsesSemanticMetavars(t *testing.T) {
 				"--github string",
 				"--gitlab string",
 				"--zsync string",
+				"\n  set",
+				"\n  unset",
 			},
 		},
 	}
@@ -3155,27 +3175,27 @@ func TestRemoveMissingInputNoInputShowsGuidance(t *testing.T) {
 }
 
 func TestUpdateSetMissingInputNoInputShowsGuidance(t *testing.T) {
-	err := runUpdateSetCommand(context.Background(), []string{"--no-input", "--embedded"})
+	err := runRootCommand(context.Background(), []string{"update", "--no-input", "--set", "", "--embedded"})
 	if err == nil {
 		t.Fatal("expected missing input error")
 	}
 	if code := exitCodeForError(err); code != exitUsage {
 		t.Fatalf("exitCodeForError = %d, want %d", code, exitUsage)
 	}
-	if !strings.Contains(err.Error(), "missing required input; pass <id> as a positional argument") {
+	if !strings.Contains(err.Error(), "missing required input; pass --set <id> to configure an update source") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
 func TestUpdateUnsetMissingInputNoInputShowsGuidance(t *testing.T) {
-	err := runUpdateUnsetCommand(context.Background(), []string{"--no-input"})
+	err := runRootCommand(context.Background(), []string{"update", "--no-input", "--unset", ""})
 	if err == nil {
 		t.Fatal("expected missing input error")
 	}
 	if code := exitCodeForError(err); code != exitUsage {
 		t.Fatalf("exitCodeForError = %d, want %d", code, exitUsage)
 	}
-	if !strings.Contains(err.Error(), "missing required input; pass <id> as a positional argument") {
+	if !strings.Contains(err.Error(), "missing required input; pass --unset <id> to remove an update source") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -3326,8 +3346,8 @@ func TestUpdateSetEmbeddedSetsEmbeddedSource(t *testing.T) {
 	}
 
 	output := captureStdoutWithInput(t, "y\n", func() {
-		if err := runUpdateSetCommand(context.Background(), []string{"my-app", "--embedded"}); err != nil {
-			t.Fatalf("runUpdateSetCommand returned error: %v", err)
+		if err := runRootCommand(context.Background(), []string{"update", "--set", "my-app", "--embedded"}); err != nil {
+			t.Fatalf("runRootCommand returned error: %v", err)
 		}
 	})
 
@@ -3387,8 +3407,8 @@ func TestUpdateSetEmbeddedMissingPromptsToUnsetOrKeep(t *testing.T) {
 	})
 
 	outputKeep := captureStdoutWithInput(t, "n\n", func() {
-		if err := runUpdateSetCommand(context.Background(), []string{"my-app", "--embedded"}); err != nil {
-			t.Fatalf("runUpdateSetCommand returned error: %v", err)
+		if err := runRootCommand(context.Background(), []string{"update", "--set", "my-app", "--embedded"}); err != nil {
+			t.Fatalf("runRootCommand returned error: %v", err)
 		}
 	})
 
@@ -3421,8 +3441,8 @@ func TestUpdateSetEmbeddedMissingPromptsToUnsetOrKeep(t *testing.T) {
 	})
 
 	outputUnset := captureStdoutWithInput(t, "y\n", func() {
-		if err := runUpdateSetCommand(context.Background(), []string{"my-app", "--embedded"}); err != nil {
-			t.Fatalf("runUpdateSetCommand returned error: %v", err)
+		if err := runRootCommand(context.Background(), []string{"update", "--set", "my-app", "--embedded"}); err != nil {
+			t.Fatalf("runRootCommand returned error: %v", err)
 		}
 	})
 
@@ -3471,8 +3491,8 @@ func TestUpdateSetEmbeddedMissingWithoutConfiguredSource(t *testing.T) {
 	}
 
 	output := captureStdout(t, func() {
-		if err := runUpdateSetCommand(context.Background(), []string{"my-app", "--embedded"}); err != nil {
-			t.Fatalf("runUpdateSetCommand returned error: %v", err)
+		if err := runRootCommand(context.Background(), []string{"update", "--set", "my-app", "--embedded"}); err != nil {
+			t.Fatalf("runRootCommand returned error: %v", err)
 		}
 	})
 
@@ -3519,8 +3539,8 @@ func TestUpdateUnsetCommand(t *testing.T) {
 	})
 
 	outputKeep := captureStdoutWithInput(t, "n\n", func() {
-		if err := runUpdateUnsetCommand(context.Background(), []string{"my-app"}); err != nil {
-			t.Fatalf("runUpdateUnsetCommand returned error: %v", err)
+		if err := runRootCommand(context.Background(), []string{"update", "--unset", "my-app"}); err != nil {
+			t.Fatalf("runRootCommand returned error: %v", err)
 		}
 	})
 	if !strings.Contains(outputKeep, "Current:\n  github: owner/repo, asset: *.AppImage") {
@@ -3542,8 +3562,8 @@ func TestUpdateUnsetCommand(t *testing.T) {
 	})
 
 	outputUnset := captureStdoutWithInput(t, "y\n", func() {
-		if err := runUpdateUnsetCommand(context.Background(), []string{"my-app"}); err != nil {
-			t.Fatalf("runUpdateUnsetCommand returned error: %v", err)
+		if err := runRootCommand(context.Background(), []string{"update", "--unset", "my-app"}); err != nil {
+			t.Fatalf("runRootCommand returned error: %v", err)
 		}
 	})
 	app, err := repo.GetApp("my-app")
@@ -3559,8 +3579,8 @@ func TestUpdateUnsetCommand(t *testing.T) {
 
 	writeDB(&models.UpdateSource{Kind: models.UpdateNone})
 	outputNoSource := captureStdout(t, func() {
-		if err := runUpdateUnsetCommand(context.Background(), []string{"my-app"}); err != nil {
-			t.Fatalf("runUpdateUnsetCommand returned error: %v", err)
+		if err := runRootCommand(context.Background(), []string{"update", "--unset", "my-app"}); err != nil {
+			t.Fatalf("runRootCommand returned error: %v", err)
 		}
 	})
 	if !strings.Contains(outputNoSource, "No update source configured for my-app") {
@@ -3946,7 +3966,7 @@ func TestUpdateUnsetFailsNonInteractiveWithoutYes(t *testing.T) {
 	}
 
 	cmd := newRootTestCommand()
-	err := executeTestCommand(context.Background(), cmd, "update", "unset", "my-app")
+	err := executeTestCommand(context.Background(), cmd, "update", "--unset", "my-app")
 	if err == nil {
 		t.Fatal("expected non-interactive confirmation error")
 	}
@@ -3982,7 +4002,7 @@ func TestUpdateUnsetFailsWithNoInputWithoutYes(t *testing.T) {
 	}
 
 	cmd := newRootTestCommand()
-	err := executeTestCommand(context.Background(), cmd, "update", "unset", "--no-input", "my-app")
+	err := executeTestCommand(context.Background(), cmd, "update", "--unset", "my-app", "--no-input")
 	if err == nil {
 		t.Fatal("expected no-input confirmation error")
 	}
@@ -4018,7 +4038,7 @@ func TestUpdateUnsetYesBypassesPrompt(t *testing.T) {
 	}
 
 	cmd := newRootTestCommand()
-	if err := executeTestCommand(context.Background(), cmd, "update", "unset", "--yes", "my-app"); err != nil {
+	if err := executeTestCommand(context.Background(), cmd, "update", "--unset", "my-app", "--yes"); err != nil {
 		t.Fatalf("executeTestCommand returned error: %v", err)
 	}
 
@@ -4323,7 +4343,7 @@ func TestApplyManagedUpdateMissingZsyncRewritesError(t *testing.T) {
 	if msg.Summary != "Can't apply a delta update because 'zsync' is not installed." {
 		t.Fatalf("unexpected summary: %#v", msg)
 	}
-	if !strings.Contains(msg.Hint, "aim update set") {
+	if !strings.Contains(msg.Hint, "aim update --set <id>") {
 		t.Fatalf("expected reconfiguration hint, got %#v", msg)
 	}
 }
@@ -4444,6 +4464,34 @@ func TestUpgradeMessagingUsesStderr(t *testing.T) {
 	}
 }
 
+func TestRemovedUpdateSetCommandShowsGuidance(t *testing.T) {
+	cmd := newRootTestCommand()
+	err := executeTestCommand(context.Background(), cmd, "update", "set", "my-app", "--github", "owner/repo")
+	if err == nil {
+		t.Fatal("expected removed-command error")
+	}
+	if code := exitCodeForError(err); code != exitUsage {
+		t.Fatalf("exitCodeForError = %d, want %d", code, exitUsage)
+	}
+	if !strings.Contains(err.Error(), "aim update set has been removed; use 'aim update --set <id> ...'") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRemovedUpdateUnsetCommandShowsGuidance(t *testing.T) {
+	cmd := newRootTestCommand()
+	err := executeTestCommand(context.Background(), cmd, "update", "unset", "my-app")
+	if err == nil {
+		t.Fatal("expected removed-command error")
+	}
+	if code := exitCodeForError(err); code != exitUsage {
+		t.Fatalf("exitCodeForError = %d, want %d", code, exitUsage)
+	}
+	if !strings.Contains(err.Error(), "aim update unset has been removed; use 'aim update --unset <id>'") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestUpdateSetDryRunDoesNotPersist(t *testing.T) {
 	tmp := t.TempDir()
 	dbPath := filepath.Join(tmp, "apps.json")
@@ -4469,7 +4517,7 @@ func TestUpdateSetDryRunDoesNotPersist(t *testing.T) {
 
 	cmd := newRootTestCommand()
 	_ = captureStdout(t, func() {
-		if err := executeTestCommand(context.Background(), cmd, "update", "set", "my-app", "--gitlab", "group/project", "--dry-run", "--json"); err != nil {
+		if err := executeTestCommand(context.Background(), cmd, "update", "--set", "my-app", "--gitlab", "group/project", "--dry-run", "--json"); err != nil {
 			t.Fatalf("executeTestCommand returned error: %v", err)
 		}
 	})
@@ -4497,16 +4545,16 @@ func TestRenderManPageIncludesMetadata(t *testing.T) {
 		".SS aim migrate",
 		".SS aim remove",
 		".SS aim update",
-		".SS aim update set",
-		".SS aim update unset",
 		"Install an AppImage from a file, URL, or provider",
-		"Repair managed AppImage state, migrate legacy paths, and reconcile desktop integration. This command may inspect AppImages and can take longer than ordinary commands.",
+		"Migrate managed AppImage state, repair legacy paths, and reconcile desktop integration. This command may inspect AppImages and can take longer than ordinary commands.",
 		"Check or apply updates for managed AppImages, or manage configured update sources.",
 		"Aliases",
 		"rm",
 		"ls",
 		"repair",
 		"u",
+		"\\-\\-set ID",
+		"\\-\\-unset ID",
 		"\\-\\-github owner/repo",
 		"\\-\\-gitlab namespace/project",
 		"\\-\\-zsync URL",
@@ -4533,6 +4581,8 @@ func TestRenderManPageIncludesMetadata(t *testing.T) {
 		".SH SEE ALSO",
 		"aim-add(1)",
 		"aim update check",
+		".SS aim update set",
+		".SS aim update unset",
 		".SS aim version",
 		"aim version",
 		"Show version and project metadata",
@@ -4740,7 +4790,7 @@ func TestCheckAppUpdateUnsupportedLegacySource(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected unsupported-source error")
 	}
-	if !strings.Contains(err.Error(), "Reconfigure with `aim update set`") {
+	if !strings.Contains(err.Error(), "Reconfigure with `aim update --set my-app ...`") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -6459,8 +6509,8 @@ func TestUpdateSetPromptText(t *testing.T) {
 	}
 
 	output := captureStdoutWithInput(t, "n\n", func() {
-		if err := runUpdateSetCommand(context.Background(), []string{"my-app", "--gitlab", "group/project"}); err != nil {
-			t.Fatalf("runUpdateSetCommand returned error: %v", err)
+		if err := runRootCommand(context.Background(), []string{"update", "--set", "my-app", "--gitlab", "group/project"}); err != nil {
+			t.Fatalf("runRootCommand returned error: %v", err)
 		}
 	})
 
@@ -6683,6 +6733,16 @@ func newManagedUpdateTestCommand(t *testing.T, values map[string]string) *cobra.
 	cmd := &cobra.Command{Use: "update"}
 	cmd.Flags().Bool("yes", false, "")
 	cmd.Flags().Bool("check-only", false, "")
+	cmd.Flags().String("set", "", "")
+	cmd.Flags().String("unset", "", "")
+	cmd.Flags().String("github", "", "")
+	cmd.Flags().String("gitlab", "", "")
+	cmd.Flags().String("asset", "", "")
+	cmd.Flags().String("zsync", "", "")
+	cmd.Flags().Bool("embedded", false, "")
+	cmd.Flags().String("manifest-url", "", "")
+	cmd.Flags().String("url", "", "")
+	cmd.Flags().String("sha256", "", "")
 
 	for key, value := range values {
 		if err := cmd.Flags().Set(key, value); err != nil {
@@ -6802,14 +6862,6 @@ func runListCommand(ctx context.Context, args []string) error {
 
 func runInfoCommand(ctx context.Context, args []string) error {
 	return runRootCommand(ctx, append([]string{"info"}, args...))
-}
-
-func runUpdateSetCommand(ctx context.Context, args []string) error {
-	return runRootCommand(ctx, append([]string{"update", "set"}, args...))
-}
-
-func runUpdateUnsetCommand(ctx context.Context, args []string) error {
-	return runRootCommand(ctx, append([]string{"update", "unset"}, args...))
 }
 
 func runRootCommand(ctx context.Context, args []string) error {

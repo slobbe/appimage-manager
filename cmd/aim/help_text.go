@@ -38,6 +38,7 @@ func renderConciseHelp(cmd *cobra.Command) string {
 		sections = append(sections, flags)
 	}
 	if commandName(cmd) == "aim" {
+		sections = append(sections, renderRootUpdateModesSection())
 		sections = append(sections, renderSupportSection(cmd))
 	}
 	sections = append(sections, renderConciseMoreInfoSection(cmd))
@@ -72,6 +73,7 @@ func renderFullHelp(cmd *cobra.Command) string {
 		sections = append(sections, flags)
 	}
 	if commandName(cmd) == "aim" {
+		sections = append(sections, renderRootUpdateModesSection())
 		sections = append(sections, renderSupportSection(cmd))
 	}
 	sections = append(sections, renderFullMoreInfoSection(cmd))
@@ -103,6 +105,7 @@ func renderManualText(cmd *cobra.Command) string {
 	}
 	if name == "aim" {
 		sections = append(sections, renderNamedBlock("EXIT STATUS", strings.Split(formatExitStatusSection(), "\n")))
+		sections = append(sections, renderRootUpdateModesSection())
 		sections = append(sections, renderSupportSection(cmd))
 	}
 	sections = append(sections, renderManualMoreInfoSection(cmd))
@@ -232,6 +235,8 @@ func renderFullMoreInfoSection(cmd *cobra.Command) string {
 	}
 	if commandName(cmd) == "aim" {
 		lines = append(lines, `Manual: aim help`)
+		lines = append(lines, "App updates: aim update")
+		lines = append(lines, "CLI self-update: aim --upgrade")
 		lines = append(lines, "Prompts: only on interactive stdin; pass --no-input to disable them.")
 		lines = append(lines, "Cancellation: press Ctrl-C to cancel in-flight work.")
 	} else {
@@ -244,6 +249,8 @@ func renderManualMoreInfoSection(cmd *cobra.Command) string {
 	lines := []string{"Docs: " + docsURLForCommand(cmd)}
 	if commandName(cmd) == "aim" {
 		lines = append(lines, `Inline help: aim --help`)
+		lines = append(lines, "App updates: aim update")
+		lines = append(lines, "CLI self-update: aim --upgrade")
 		lines = append(lines, "Prompts: only on interactive stdin; pass --no-input to disable them.")
 		lines = append(lines, "Cancellation: press Ctrl-C to cancel in-flight work.")
 	} else {
@@ -258,6 +265,13 @@ func renderNamedBlock(title string, lines []string) string {
 		return ""
 	}
 	return strings.TrimSpace(title) + "\n" + strings.Join(indentLines(lines), "\n")
+}
+
+func renderRootUpdateModesSection() string {
+	return renderNamedBlock("UPDATE MODES", []string{
+		"Use 'aim update' to check or apply AppImage updates.",
+		"Use 'aim --upgrade' to upgrade the aim CLI itself.",
+	})
 }
 
 func usageLinesForCommand(cmd *cobra.Command) []string {
@@ -460,11 +474,7 @@ func commonFlagNamesForCommand(cmd *cobra.Command) []string {
 	case "remove":
 		return []string{"unlink", "no-input", "dry-run", "json"}
 	case "update":
-		return []string{"check-only", "yes", "dry-run", "json", "csv", "plain"}
-	case "update set":
-		return []string{"github", "gitlab", "zsync", "embedded", "no-input"}
-	case "update unset":
-		return []string{"dry-run", "yes", "no-input", "json"}
+		return []string{"check-only", "set", "unset", "github", "gitlab", "zsync", "embedded", "yes", "dry-run", "json", "csv", "plain"}
 	default:
 		return []string{"dry-run", "json"}
 	}
@@ -486,10 +496,6 @@ func docsURLForCommand(cmd *cobra.Command) string {
 		return "https://github.com/slobbe/appimage-manager#command-reference-list"
 	case "migrate":
 		return "https://github.com/slobbe/appimage-manager#command-reference-migrate"
-	case "update set":
-		return "https://github.com/slobbe/appimage-manager#command-reference-update-set"
-	case "update unset":
-		return "https://github.com/slobbe/appimage-manager#command-reference-update-unset"
 	default:
 		return rootCommandDocsURL
 	}

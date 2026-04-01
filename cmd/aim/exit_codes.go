@@ -235,6 +235,7 @@ func renderCommandError(root *cobra.Command, args []string, err error) int {
 	if err == nil {
 		return exitSuccess
 	}
+	err = rewriteCommandError(root, args, err)
 
 	var displayed *displayedError
 	if errors.As(err, &displayed) {
@@ -274,12 +275,35 @@ func suggestionForError(root *cobra.Command, err error) string {
 	if root == nil || err == nil {
 		return ""
 	}
+	name := unknownCommandNameFromError(err)
+	if name == "" || name == "upgrade" {
+		return ""
+	}
+	return suggestedCommandName(root, name)
+}
 
+func rewriteCommandError(root *cobra.Command, args []string, err error) error {
+	if err == nil {
+		return nil
+	}
+	if unknownCommandNameFromError(err) == "upgrade" {
+		return withUserGuidance(
+			usageError(err),
+			`unknown command "upgrade" for "aim"`,
+			"Use 'aim --upgrade' to upgrade the aim CLI itself.",
+		)
+	}
+	return err
+}
+
+func unknownCommandNameFromError(err error) string {
+	if err == nil {
+		return ""
+	}
 	message := strings.TrimSpace(err.Error())
 	if !strings.HasPrefix(message, "unknown command ") {
 		return ""
 	}
-
 	trimmed := strings.TrimPrefix(message, "unknown command ")
 	idx := strings.Index(trimmed, `"`)
 	if idx != 0 {
@@ -290,8 +314,7 @@ func suggestionForError(root *cobra.Command, err error) string {
 	if end < 0 {
 		return ""
 	}
-
-	return suggestedCommandName(root, trimmed[:end])
+	return trimmed[:end]
 }
 
 func formatExitStatusSection() string {

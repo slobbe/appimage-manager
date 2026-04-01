@@ -270,12 +270,12 @@ func rewriteZsyncFailure(err error) error {
 		return withUserGuidance(
 			unavailableError(err),
 			"Can't apply a delta update because 'zsync' is not installed.",
-			"Install zsync or switch this app to a non-zsync update source with 'aim update set'.",
+			"Install zsync or switch this app to a non-zsync update source with 'aim update --set <id> ...'.",
 		)
 	}
 	return withUserGuidance(
 		unavailableError(err),
 		"Delta update failed while running 'zsync'.",
-		"Rerun with --debug for the raw zsync error, or switch this app to a non-zsync update source with 'aim update set'.",
+		"Rerun with --debug for the raw zsync error, or switch this app to a non-zsync update source with 'aim update --set <id> ...'.",
 	)
 }
