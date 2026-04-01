@@ -63,6 +63,7 @@ func renderManMetadataSections(cmd *cobra.Command) string {
 	if issuesURL := strings.TrimSpace(rootCommandIssuesURL); issuesURL != "" {
 		sections = append(sections, renderManSection("ISSUES", issuesURL))
 	}
+	sections = append(sections, renderManSection("EXIT STATUS", formatExitStatusSection()))
 
 	return strings.Join(sections, "\n")
 }
@@ -111,6 +112,9 @@ func renderManCommandEntry(cmd *cobra.Command) string {
 
 	if aliases := renderManAliases(cmd); aliases != "" {
 		sections = append(sections, renderManParagraph("Aliases", aliases))
+	}
+	if examples := renderManExamples(cmd); examples != "" {
+		sections = append(sections, renderManParagraph("Examples", examples))
 	}
 	if options := renderManFlagsSection(cmd); options != "" {
 		sections = append(sections, options)
@@ -163,6 +167,19 @@ func renderManAliases(cmd *cobra.Command) string {
 		return ""
 	}
 	return strings.Join(cmd.Aliases, ", ")
+}
+
+func renderManExamples(cmd *cobra.Command) string {
+	examples := strings.TrimSpace(cmd.Example)
+	if examples == "" {
+		return ""
+	}
+
+	lines := strings.Split(examples, "\n")
+	for idx, line := range lines {
+		lines[idx] = strings.TrimSpace(line)
+	}
+	return strings.Join(lines, "\n")
 }
 
 func renderManFlagsSection(cmd *cobra.Command) string {

@@ -6,8 +6,11 @@ import (
 	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -3451,6 +3454,549 @@ func TestNewRootCommandMetadata(t *testing.T) {
 	}
 }
 
+func TestRootPersistentFlagsAvailableOnVisibleCommands(t *testing.T) {
+	root := newRootCommand("1.2.3")
+	required := []string{"verbose", "quiet", "config", "dry-run", "yes", "output"}
+
+	var visit func(*cobra.Command)
+	visit = func(cmd *cobra.Command) {
+		if cmd == nil || cmd.Hidden {
+			return
+		}
+		for _, name := range required {
+			if lookupFlag(cmd, name) == nil {
+				t.Fatalf("%s missing flag %q", cmd.CommandPath(), name)
+			}
+		}
+		for _, child := range cmd.Commands() {
+			visit(child)
+		}
+	}
+
+	visit(root)
+}
+
+func TestRuntimeRejectsVerboseAndQuietTogether(t *testing.T) {
+	cmd := newRootTestCommand()
+	err := executeTestCommand(context.Background(), cmd, "list", "--verbose", "--quiet")
+	if err == nil {
+		t.Fatal("expected mutually exclusive flag error")
+	}
+	if !strings.Contains(err.Error(), "--verbose and --quiet are mutually exclusive") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestConfigFlagOverridesPathsBeforeCommandExecution(t *testing.T) {
+	root := newRootCommand("1.2.3")
+	tmp := t.TempDir()
+	var observed config.Paths
+
+	probe := &cobra.Command{
+		Use: "probe",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			_ = args
+			observed = config.CurrentPaths()
+			return nil
+		},
+	}
+	root.AddCommand(probe)
+
+	if err := executeTestCommand(context.Background(), root, "-C", tmp, "probe"); err != nil {
+		t.Fatalf("executeTestCommand returned error: %v", err)
+	}
+
+	expected := config.ResolvePathsFromStateRoot(tmp)
+	if observed != expected {
+		t.Fatalf("observed paths = %#v, want %#v", observed, expected)
+	}
+}
+
+func TestRootJSONOutput(t *testing.T) {
+	cmd := newRootTestCommand()
+	output, stderr, err := executeCommandWithIO(context.Background(), cmd, "--output", "json")
+	if err != nil {
+		t.Fatalf("executeCommandWithIO returned error: %v", err)
+	}
+	if strings.TrimSpace(stderr) != "" {
+		t.Fatalf("expected no stderr output, got:\n%s", stderr)
+	}
+
+	var payload commandJSONEnvelope
+	if err := json.Unmarshal([]byte(output), &payload); err != nil {
+		t.Fatalf("failed to decode json output: %v", err)
+	}
+	if payload.Command != "aim" || !payload.OK {
+		t.Fatalf("unexpected payload: %#v", payload)
+	}
+}
+
+func TestListCSVOutput(t *testing.T) {
+	tmp := t.TempDir()
+	dbPath := filepath.Join(tmp, "apps.json")
+	originalDbSrc := config.DbSrc
+	config.DbSrc = dbPath
+	t.Cleanup(func() {
+		config.DbSrc = originalDbSrc
+	})
+
+	if err := repo.SaveDB(dbPath, &repo.DB{
+		SchemaVersion: 1,
+		Apps: map[string]*models.App{
+			"z-app": {ID: "z-app", Name: "Zed", Version: "1.0.0", ExecPath: "/tmp/z.AppImage"},
+			"a-app": {ID: "a-app", Name: "Alpha", Version: "2.0.0", ExecPath: "/tmp/a.AppImage"},
+		},
+	}); err != nil {
+		t.Fatalf("failed to write test db: %v", err)
+	}
+
+	cmd := newRootTestCommand()
+	output, stderr, err := executeCommandWithIO(context.Background(), cmd, "list", "--output", "csv")
+	if err != nil {
+		t.Fatalf("executeCommandWithIO returned error: %v", err)
+	}
+	if strings.TrimSpace(stderr) != "" {
+		t.Fatalf("expected no stderr output, got:\n%s", stderr)
+	}
+
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	if len(lines) < 3 {
+		t.Fatalf("unexpected csv output:\n%s", output)
+	}
+	if lines[0] != strings.Join(listCSVHeader(), ",") {
+		t.Fatalf("unexpected header: %s", lines[0])
+	}
+	if !strings.Contains(lines[1], "a-app") || !strings.Contains(lines[2], "z-app") {
+		t.Fatalf("expected sorted rows, got:\n%s", output)
+	}
+}
+
+func TestCSVRejectedForInfo(t *testing.T) {
+	cmd := newRootTestCommand()
+	err := executeTestCommand(context.Background(), cmd, "info", "--output", "csv", "missing")
+	if err == nil {
+		t.Fatal("expected csv rejection")
+	}
+	if code := exitCodeForError(err); code != exitUsage {
+		t.Fatalf("exitCodeForError = %d, want %d", code, exitUsage)
+	}
+	if !strings.Contains(err.Error(), "--output csv is not supported") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRemoveDryRunDoesNotMutateDB(t *testing.T) {
+	tmp := t.TempDir()
+	dbPath := filepath.Join(tmp, "apps.json")
+	originalDbSrc := config.DbSrc
+	config.DbSrc = dbPath
+	t.Cleanup(func() {
+		config.DbSrc = originalDbSrc
+	})
+
+	app := &models.App{
+		ID:               "my-app",
+		Name:             "My App",
+		ExecPath:         filepath.Join(tmp, "aim", "my-app", "my-app.AppImage"),
+		DesktopEntryLink: filepath.Join(tmp, "applications", "my-app.desktop"),
+	}
+	if err := repo.SaveDB(dbPath, &repo.DB{SchemaVersion: 1, Apps: map[string]*models.App{"my-app": app}}); err != nil {
+		t.Fatalf("failed to write db: %v", err)
+	}
+
+	cmd := newRootTestCommand()
+	_ = captureStdout(t, func() {
+		if err := executeTestCommand(context.Background(), cmd, "remove", "--dry-run", "--output", "json", "my-app"); err != nil {
+			t.Fatalf("executeTestCommand returned error: %v", err)
+		}
+	})
+
+	stillThere, err := repo.GetApp("my-app")
+	if err != nil {
+		t.Fatalf("expected app to remain in db: %v", err)
+	}
+	if stillThere.ID != "my-app" {
+		t.Fatalf("unexpected app after dry-run: %#v", stillThere)
+	}
+}
+
+func TestUpdateUnsetFailsNonInteractiveWithoutYes(t *testing.T) {
+	withTerminalInput(t, false)
+
+	tmp := t.TempDir()
+	dbPath := filepath.Join(tmp, "apps.json")
+	originalDbSrc := config.DbSrc
+	config.DbSrc = dbPath
+	t.Cleanup(func() {
+		config.DbSrc = originalDbSrc
+	})
+
+	app := &models.App{
+		ID: "my-app",
+		Update: &models.UpdateSource{
+			Kind: models.UpdateGitHubRelease,
+			GitHubRelease: &models.GitHubReleaseUpdateSource{
+				Repo:  "owner/repo",
+				Asset: "*.AppImage",
+			},
+		},
+	}
+	if err := repo.SaveDB(dbPath, &repo.DB{SchemaVersion: 1, Apps: map[string]*models.App{"my-app": app}}); err != nil {
+		t.Fatalf("failed to write db: %v", err)
+	}
+
+	cmd := newRootTestCommand()
+	err := executeTestCommand(context.Background(), cmd, "update", "unset", "my-app")
+	if err == nil {
+		t.Fatal("expected non-interactive confirmation error")
+	}
+	if code := exitCodeForError(err); code != exitNoPerm {
+		t.Fatalf("exitCodeForError = %d, want %d", code, exitNoPerm)
+	}
+	if !strings.Contains(err.Error(), "confirmation required in non-interactive mode") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestUpdateUnsetYesBypassesPrompt(t *testing.T) {
+	tmp := t.TempDir()
+	dbPath := filepath.Join(tmp, "apps.json")
+	originalDbSrc := config.DbSrc
+	config.DbSrc = dbPath
+	t.Cleanup(func() {
+		config.DbSrc = originalDbSrc
+	})
+
+	app := &models.App{
+		ID: "my-app",
+		Update: &models.UpdateSource{
+			Kind: models.UpdateGitHubRelease,
+			GitHubRelease: &models.GitHubReleaseUpdateSource{
+				Repo:  "owner/repo",
+				Asset: "*.AppImage",
+			},
+		},
+	}
+	if err := repo.SaveDB(dbPath, &repo.DB{SchemaVersion: 1, Apps: map[string]*models.App{"my-app": app}}); err != nil {
+		t.Fatalf("failed to write db: %v", err)
+	}
+
+	cmd := newRootTestCommand()
+	if err := executeTestCommand(context.Background(), cmd, "update", "unset", "--yes", "my-app"); err != nil {
+		t.Fatalf("executeTestCommand returned error: %v", err)
+	}
+
+	updated, err := repo.GetApp("my-app")
+	if err != nil {
+		t.Fatalf("GetApp returned error: %v", err)
+	}
+	if updated.Update == nil || updated.Update.Kind != models.UpdateNone {
+		t.Fatalf("expected update source to be unset, got %#v", updated.Update)
+	}
+}
+
+func TestManagedUpdateJSONOutput(t *testing.T) {
+	tmp := t.TempDir()
+	dbPath := filepath.Join(tmp, "apps.json")
+	originalDbSrc := config.DbSrc
+	config.DbSrc = dbPath
+	t.Cleanup(func() {
+		config.DbSrc = originalDbSrc
+	})
+
+	if err := repo.SaveDB(dbPath, &repo.DB{
+		SchemaVersion: 1,
+		Apps: map[string]*models.App{
+			"my-app": {
+				ID:      "my-app",
+				Version: "1.0.0",
+				Update: &models.UpdateSource{
+					Kind: models.UpdateGitHubRelease,
+					GitHubRelease: &models.GitHubReleaseUpdateSource{
+						Repo:  "owner/repo",
+						Asset: "*.AppImage",
+					},
+				},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("failed to write test db: %v", err)
+	}
+
+	originalCheck := runAppUpdateCheck
+	t.Cleanup(func() {
+		runAppUpdateCheck = originalCheck
+	})
+	runAppUpdateCheck = func(app *models.App) (*pendingManagedUpdate, error) {
+		return &pendingManagedUpdate{
+			App:       app,
+			Available: true,
+			URL:       "https://example.com/MyApp.AppImage",
+			Asset:     "MyApp.AppImage",
+			Latest:    "1.1.0",
+			FromKind:  models.UpdateGitHubRelease,
+		}, nil
+	}
+
+	cmd := newRootTestCommand()
+	output := captureStdoutOnly(t, func() {
+		if err := executeTestCommand(context.Background(), cmd, "update", "my-app", "--check-only", "--output", "json"); err != nil {
+			t.Fatalf("executeTestCommand returned error: %v", err)
+		}
+	})
+
+	var payload commandJSONEnvelope
+	if err := json.Unmarshal([]byte(output), &payload); err != nil {
+		t.Fatalf("failed to decode json output: %v", err)
+	}
+	if payload.Command != "update" || !payload.OK {
+		t.Fatalf("unexpected payload: %#v", payload)
+	}
+}
+
+func TestExitCodeForError(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want int
+	}{
+		{name: "success", err: nil, want: exitSuccess},
+		{name: "usage", err: usageError(fmt.Errorf("bad flags")), want: exitUsage},
+		{name: "not found", err: notFoundError(fmt.Errorf("missing")), want: exitNoInput},
+		{name: "unavailable", err: unavailableError(fmt.Errorf("offline")), want: exitUnavailable},
+		{name: "cant create", err: cantCreateError(fmt.Errorf("write failed")), want: exitCantCreate},
+		{name: "temp fail", err: tempFailError(fmt.Errorf("timeout")), want: exitTempFail},
+		{name: "no perm", err: noPermError(fmt.Errorf("permission denied")), want: exitNoPerm},
+		{name: "software fallback", err: fmt.Errorf("boom"), want: exitSoftware},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := exitCodeForError(tt.err); got != tt.want {
+				t.Fatalf("exitCodeForError(%v) = %d, want %d", tt.err, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRenderCommandErrorJSONWritesToStderrOnly(t *testing.T) {
+	root := newRootTestCommand()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	if err := root.PersistentFlags().Set("output", "json"); err != nil {
+		t.Fatalf("failed to set output flag: %v", err)
+	}
+
+	code := renderCommandError(root, []string{"info", "missing", "--output", "json"}, notFoundError(fmt.Errorf("no app with id missing")))
+	if code != exitNoInput {
+		t.Fatalf("renderCommandError code = %d, want %d", code, exitNoInput)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("expected no stdout output, got:\n%s", stdout.String())
+	}
+
+	var payload commandJSONEnvelope
+	if err := json.Unmarshal(stderr.Bytes(), &payload); err != nil {
+		t.Fatalf("failed to decode stderr json: %v", err)
+	}
+	if payload.Command != "info" || payload.OK {
+		t.Fatalf("unexpected payload: %#v", payload)
+	}
+	if payload.Error == "" {
+		t.Fatal("expected error message in payload")
+	}
+}
+
+func TestRemoveMissingAppExitCode(t *testing.T) {
+	tmp := t.TempDir()
+	dbPath := filepath.Join(tmp, "apps.json")
+	originalDbSrc := config.DbSrc
+	config.DbSrc = dbPath
+	t.Cleanup(func() {
+		config.DbSrc = originalDbSrc
+	})
+
+	if err := repo.SaveDB(dbPath, &repo.DB{SchemaVersion: 1, Apps: map[string]*models.App{}}); err != nil {
+		t.Fatalf("failed to write db: %v", err)
+	}
+
+	cmd := newRootTestCommand()
+	err := executeTestCommand(context.Background(), cmd, "remove", "missing")
+	if err == nil {
+		t.Fatal("expected remove error")
+	}
+	if code := exitCodeForError(err); code != exitNoInput {
+		t.Fatalf("exitCodeForError = %d, want %d", code, exitNoInput)
+	}
+}
+
+func TestDownloadUpdateAssetStatusErrorExitCode(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "down", http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+
+	err := downloadUpdateAssetWithProgress(context.Background(), server.URL, filepath.Join(t.TempDir(), "app.AppImage"), false, nil)
+	if err == nil {
+		t.Fatal("expected download error")
+	}
+	if code := exitCodeForError(err); code != exitUnavailable {
+		t.Fatalf("exitCodeForError = %d, want %d", code, exitUnavailable)
+	}
+}
+
+func TestDownloadUpdateAssetWriteErrorExitCode(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "payload")
+	}))
+	defer server.Close()
+
+	destination := filepath.Join(t.TempDir(), "missing", "app.AppImage")
+	err := downloadUpdateAssetWithProgress(context.Background(), server.URL, destination, false, nil)
+	if err == nil {
+		t.Fatal("expected write error")
+	}
+	if code := exitCodeForError(err); code != exitCantCreate {
+		t.Fatalf("exitCodeForError = %d, want %d", code, exitCantCreate)
+	}
+}
+
+func TestInfoReadableOutputUsesStdoutOnly(t *testing.T) {
+	tmp := t.TempDir()
+	dbPath := filepath.Join(tmp, "apps.json")
+	originalDbSrc := config.DbSrc
+	config.DbSrc = dbPath
+	t.Cleanup(func() {
+		config.DbSrc = originalDbSrc
+	})
+
+	if err := repo.SaveDB(dbPath, &repo.DB{
+		SchemaVersion: 1,
+		Apps: map[string]*models.App{
+			"my-app": {
+				ID:       "my-app",
+				Name:     "My App",
+				Version:  "1.0.0",
+				ExecPath: filepath.Join(tmp, "my-app.AppImage"),
+			},
+		},
+	}); err != nil {
+		t.Fatalf("failed to write db: %v", err)
+	}
+
+	cmd := newRootTestCommand()
+	stdout, stderr, err := executeCommandWithIO(context.Background(), cmd, "info", "my-app")
+	if err != nil {
+		t.Fatalf("executeCommandWithIO returned error: %v", err)
+	}
+	if strings.TrimSpace(stderr) != "" {
+		t.Fatalf("expected no stderr output, got:\n%s", stderr)
+	}
+	if !strings.Contains(stdout, "Name: My App") {
+		t.Fatalf("unexpected stdout:\n%s", stdout)
+	}
+}
+
+func TestVerboseLogsWriteToStderr(t *testing.T) {
+	root := newRootCommand("test")
+	probe := &cobra.Command{
+		Use: "probe",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			_ = args
+			verbosef(cmd, "probe=%s", "ok")
+			return nil
+		},
+	}
+	root.AddCommand(probe)
+
+	stdout, stderr, err := executeCommandWithIO(context.Background(), root, "--verbose", "probe")
+	if err != nil {
+		t.Fatalf("executeCommandWithIO returned error: %v", err)
+	}
+	if strings.TrimSpace(stdout) != "" {
+		t.Fatalf("expected no stdout output, got:\n%s", stdout)
+	}
+	if !strings.Contains(stderr, "DEBUG: probe=ok") {
+		t.Fatalf("expected verbose log on stderr, got:\n%s", stderr)
+	}
+}
+
+func TestUpgradeMessagingUsesStderr(t *testing.T) {
+	originalCheck := checkAimUpgrade
+	originalUpgrade := runUpgradeViaInstaller
+	t.Cleanup(func() {
+		checkAimUpgrade = originalCheck
+		runUpgradeViaInstaller = originalUpgrade
+	})
+	checkAimUpgrade = func(context.Context, string) (*core.AimUpgradeCheckResult, error) {
+		return &core.AimUpgradeCheckResult{
+			CurrentVersion: "0.12.4",
+			LatestVersion:  "0.12.5",
+			HasUpdate:      true,
+			Comparable:     true,
+		}, nil
+	}
+	runUpgradeViaInstaller = func(context.Context, string) (*core.InstallerUpgradeResult, error) {
+		return &core.InstallerUpgradeResult{
+			PreviousVersion:  "0.12.4",
+			InstalledVersion: "0.12.5",
+		}, nil
+	}
+
+	cmd := newUpgradeTestCommand()
+	stdout, stderr, err := executeCommandWithIO(context.Background(), cmd, "--upgrade")
+	if err != nil {
+		t.Fatalf("executeCommandWithIO returned error: %v", err)
+	}
+	if strings.TrimSpace(stdout) != "" {
+		t.Fatalf("expected no stdout output, got:\n%s", stdout)
+	}
+	if !strings.Contains(stderr, "Checking for aim updates...") || !strings.Contains(stderr, "Upgraded aim v0.12.4 -> v0.12.5") {
+		t.Fatalf("unexpected stderr output:\n%s", stderr)
+	}
+}
+
+func TestUpdateSetDryRunDoesNotPersist(t *testing.T) {
+	tmp := t.TempDir()
+	dbPath := filepath.Join(tmp, "apps.json")
+	originalDbSrc := config.DbSrc
+	config.DbSrc = dbPath
+	t.Cleanup(func() {
+		config.DbSrc = originalDbSrc
+	})
+
+	original := &models.App{
+		ID: "my-app",
+		Update: &models.UpdateSource{
+			Kind: models.UpdateGitHubRelease,
+			GitHubRelease: &models.GitHubReleaseUpdateSource{
+				Repo:  "owner/repo",
+				Asset: "*.AppImage",
+			},
+		},
+	}
+	if err := repo.SaveDB(dbPath, &repo.DB{SchemaVersion: 1, Apps: map[string]*models.App{"my-app": original}}); err != nil {
+		t.Fatalf("failed to write db: %v", err)
+	}
+
+	cmd := newRootTestCommand()
+	_ = captureStdout(t, func() {
+		if err := executeTestCommand(context.Background(), cmd, "update", "set", "my-app", "--gitlab", "group/project", "--dry-run", "--output", "json"); err != nil {
+			t.Fatalf("executeTestCommand returned error: %v", err)
+		}
+	})
+
+	app, err := repo.GetApp("my-app")
+	if err != nil {
+		t.Fatalf("GetApp returned error: %v", err)
+	}
+	if app.Update == nil || app.Update.Kind != models.UpdateGitHubRelease {
+		t.Fatalf("expected dry-run to leave update source unchanged, got %#v", app.Update)
+	}
+}
+
 func TestRenderManPageIncludesMetadata(t *testing.T) {
 	got, err := renderManPage(newRootCommand("1.2.3"), 1)
 	if err != nil {
@@ -5421,7 +5967,48 @@ func withBusyIndicatorRenderInterval(t *testing.T, value time.Duration) {
 	})
 }
 
+func withTerminalInput(t *testing.T, value bool) {
+	t.Helper()
+
+	original := terminalInputChecker
+	terminalInputChecker = func() bool {
+		return value
+	}
+	t.Cleanup(func() {
+		terminalInputChecker = original
+	})
+}
+
 func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+
+	originalStdout := os.Stdout
+	originalStderr := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("failed creating stdout pipe: %v", err)
+	}
+
+	os.Stdout = w
+	os.Stderr = w
+	defer func() {
+		os.Stdout = originalStdout
+		os.Stderr = originalStderr
+	}()
+
+	done := make(chan string, 1)
+	go func() {
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, r)
+		done <- buf.String()
+	}()
+
+	fn()
+	_ = w.Close()
+	return <-done
+}
+
+func captureStdoutOnly(t *testing.T, fn func()) string {
 	t.Helper()
 
 	originalStdout := os.Stdout
@@ -5465,6 +6052,7 @@ func captureStdoutWithInput(t *testing.T, input string, fn func()) string {
 	t.Helper()
 
 	originalStdin := os.Stdin
+	original := terminalInputChecker
 	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatalf("failed creating stdin pipe: %v", err)
@@ -5476,8 +6064,12 @@ func captureStdoutWithInput(t *testing.T, input string, fn func()) string {
 	_ = w.Close()
 
 	os.Stdin = r
+	terminalInputChecker = func() bool {
+		return true
+	}
 	defer func() {
 		os.Stdin = originalStdin
+		terminalInputChecker = original
 		_ = r.Close()
 	}()
 
@@ -5488,8 +6080,6 @@ func newUpgradeTestCommand() *cobra.Command {
 	cmd := newRootCommand("0.0.0-test")
 	cmd.SilenceUsage = true
 	cmd.SilenceErrors = true
-	cmd.SetOut(os.Stdout)
-	cmd.SetErr(os.Stdout)
 	return cmd
 }
 
@@ -5509,8 +6099,6 @@ func newManagedUpdateTestCommand(t *testing.T, values map[string]string) *cobra.
 	cmd := &cobra.Command{Use: "update"}
 	cmd.Flags().Bool("yes", false, "")
 	cmd.Flags().Bool("check-only", false, "")
-	cmd.SetOut(os.Stdout)
-	cmd.SetErr(os.Stdout)
 
 	for key, value := range values {
 		if err := cmd.Flags().Set(key, value); err != nil {
@@ -5523,12 +6111,26 @@ func newManagedUpdateTestCommand(t *testing.T, values map[string]string) *cobra.
 
 func executeTestCommand(ctx context.Context, cmd *cobra.Command, args ...string) error {
 	cmd.SetOut(os.Stdout)
-	cmd.SetErr(os.Stdout)
+	cmd.SetErr(os.Stderr)
 	if handled, err := maybeRunRootUpgradeFlag(ctx, cmd, args); handled {
 		return err
 	}
 	cmd.SetArgs(args)
 	return cmd.ExecuteContext(ctx)
+}
+
+func executeCommandWithIO(ctx context.Context, cmd *cobra.Command, args ...string) (string, string, error) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	if handled, err := maybeRunRootUpgradeFlag(ctx, cmd, args); handled {
+		return stdout.String(), stderr.String(), err
+	}
+	cmd.SetArgs(args)
+	err := cmd.ExecuteContext(ctx)
+	return stdout.String(), stderr.String(), err
 }
 
 func findSubcommand(cmd *cobra.Command, name string) *cobra.Command {

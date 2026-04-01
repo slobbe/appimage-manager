@@ -1,5 +1,5 @@
 .nh
-.TH "AIM" "1" "Mar 2026" "aim dev" "Manage AppImages from the terminal without manual desktop setup or update juggling"
+.TH "AIM" "1" "Apr 2026" "aim dev" "Manage AppImages from the terminal without manual desktop setup or update juggling"
 
 .SH NAME
 aim - Manage AppImages from the terminal without manual desktop setup or update juggling
@@ -14,16 +14,51 @@ Install, integrate, update, and remove AppImages from one terminal tool.
 
 
 .SH OPTIONS
+\fB-C\fP, \fB--config\fP=
+	use an alternate AIM state root
+
+.PP
+\fB--dry-run\fP[=false]
+	simulate changes without applying them
+
+.PP
 \fB-h\fP, \fB--help\fP[=false]
 	help for aim
+
+.PP
+\fB--output\fP="text"
+	output format: text, json, or csv
+
+.PP
+\fB-q\fP, \fB--quiet\fP[=false]
+	suppress non-essential status output
 
 .PP
 \fB-U\fP, \fB--upgrade\fP[=false]
 	upgrade aim via the official installer
 
 .PP
+\fB--verbose\fP[=false]
+	enable verbose diagnostic logging
+
+.PP
 \fB-v\fP, \fB--version\fP[=false]
 	version for aim
+
+.PP
+\fB-y\fP, \fB--yes\fP[=false]
+	skip confirmation prompts
+
+
+.SH EXAMPLE
+.EX
+aim --help
+  aim --version
+  aim --output json
+  aim -C /tmp/aim-state list --output json
+  aim add --dry-run ./Example.AppImage
+  aim update --yes
+.EE
 
 
 .SH COMMANDS
@@ -34,6 +69,12 @@ aim add [<https\-url|github\-url|gitlab\-url|id|Path/To.AppImage>]
 .TP
 \fBDescription\fP
 Install an AppImage from a file, URL, or provider
+.TP
+\fBExamples\fP
+aim add ./Example.AppImage
+aim add https://example.com/Example.AppImage \-\-sha256 <sha256>
+aim add \-\-github owner/repo
+aim add \-\-dry\-run ./Example.AppImage \-\-output json
 .TP
 \fBOptions\fP
 .TP
@@ -48,6 +89,24 @@ GitLab project path namespace/project
 .TP
 \-\-sha256 SHA256
 expected SHA\-256 for direct https:// add sources
+.TP
+\-C DIR, \-\-config DIR
+use an alternate AIM state root
+.TP
+\-\-dry\-run
+simulate changes without applying them
+.TP
+\-\-output string
+output format: text, json, or csv
+.TP
+\-q, \-\-quiet
+suppress non\-essential status output
+.TP
+\-\-verbose
+enable verbose diagnostic logging
+.TP
+\-y, \-\-yes
+skip confirmation prompts
 .SS aim help [command]
 .TP
 \fBSynopsis\fP
@@ -56,6 +115,26 @@ aim help [command]
 \fBDescription\fP
 Help provides help for any command in the application.
 Simply type aim help [path to command] for full details.
+.TP
+\fBOptions\fP
+.TP
+\-C DIR, \-\-config DIR
+use an alternate AIM state root
+.TP
+\-\-dry\-run
+simulate changes without applying them
+.TP
+\-\-output string
+output format: text, json, or csv
+.TP
+\-q, \-\-quiet
+suppress non\-essential status output
+.TP
+\-\-verbose
+enable verbose diagnostic logging
+.TP
+\-y, \-\-yes
+skip confirmation prompts
 .SS aim info [<github\-url|gitlab\-url|id|Path/To.AppImage>]
 .TP
 \fBSynopsis\fP
@@ -64,6 +143,12 @@ aim info [<github\-url|gitlab\-url|id|Path/To.AppImage>]
 \fBDescription\fP
 Show AppImage or package details
 .TP
+\fBExamples\fP
+aim info example\-app
+aim info ./Example.AppImage
+aim info \-\-github owner/repo
+aim info example\-app \-\-output json
+.TP
 \fBOptions\fP
 .TP
 \-\-github owner/repo
@@ -71,6 +156,24 @@ GitHub repo in the form owner/repo
 .TP
 \-\-gitlab namespace/project
 GitLab project path namespace/project
+.TP
+\-C DIR, \-\-config DIR
+use an alternate AIM state root
+.TP
+\-\-dry\-run
+simulate changes without applying them
+.TP
+\-\-output string
+output format: text, json, or csv
+.TP
+\-q, \-\-quiet
+suppress non\-essential status output
+.TP
+\-\-verbose
+enable verbose diagnostic logging
+.TP
+\-y, \-\-yes
+skip confirmation prompts
 .SS aim list
 .TP
 \fBSynopsis\fP
@@ -82,6 +185,12 @@ List managed AppImages
 \fBAliases\fP
 ls
 .TP
+\fBExamples\fP
+aim list
+aim list \-\-integrated
+aim list \-\-output json
+aim list \-\-output csv
+.TP
 \fBOptions\fP
 .TP
 \-a, \-\-all
@@ -92,6 +201,24 @@ list integrated AppImages only
 .TP
 \-u, \-\-unlinked
 list unlinked AppImages only
+.TP
+\-C DIR, \-\-config DIR
+use an alternate AIM state root
+.TP
+\-\-dry\-run
+simulate changes without applying them
+.TP
+\-\-output string
+output format: text, json, or csv
+.TP
+\-q, \-\-quiet
+suppress non\-essential status output
+.TP
+\-\-verbose
+enable verbose diagnostic logging
+.TP
+\-y, \-\-yes
+skip confirmation prompts
 .SS aim migrate [id]
 .TP
 \fBSynopsis\fP
@@ -102,6 +229,31 @@ Repair managed AppImage state, migrate legacy paths, and reconcile desktop integ
 .TP
 \fBAliases\fP
 repair
+.TP
+\fBExamples\fP
+aim migrate
+aim migrate example\-app
+aim migrate \-\-dry\-run \-\-output json
+.TP
+\fBOptions\fP
+.TP
+\-C DIR, \-\-config DIR
+use an alternate AIM state root
+.TP
+\-\-dry\-run
+simulate changes without applying them
+.TP
+\-\-output string
+output format: text, json, or csv
+.TP
+\-q, \-\-quiet
+suppress non\-essential status output
+.TP
+\-\-verbose
+enable verbose diagnostic logging
+.TP
+\-y, \-\-yes
+skip confirmation prompts
 .SS aim remove <id>
 .TP
 \fBSynopsis\fP
@@ -113,10 +265,33 @@ Remove or unlink a managed AppImage
 \fBAliases\fP
 rm
 .TP
+\fBExamples\fP
+aim remove example\-app
+aim remove \-\-unlink example\-app
+aim remove \-\-dry\-run example\-app \-\-output json
+.TP
 \fBOptions\fP
 .TP
 \-\-unlink
 remove only desktop integration; keep managed AppImage files
+.TP
+\-C DIR, \-\-config DIR
+use an alternate AIM state root
+.TP
+\-\-dry\-run
+simulate changes without applying them
+.TP
+\-\-output string
+output format: text, json, or csv
+.TP
+\-q, \-\-quiet
+suppress non\-essential status output
+.TP
+\-\-verbose
+enable verbose diagnostic logging
+.TP
+\-y, \-\-yes
+skip confirmation prompts
 .SS aim update [id]
 .TP
 \fBSynopsis\fP
@@ -127,6 +302,12 @@ Check or apply updates for managed AppImages, or manage configured update source
 .TP
 \fBAliases\fP
 u
+.TP
+\fBExamples\fP
+aim update
+aim update \-\-check\-only \-\-output csv
+aim update \-\-yes
+aim update example\-app \-\-dry\-run \-\-output json
 .TP
 \fBOptions\fP
 .TP
@@ -145,11 +326,26 @@ GitHub repo in the form owner/repo (for 'update set')
 \-\-gitlab namespace/project
 GitLab project path namespace/project (for 'update set')
 .TP
-\-y, \-\-yes
-apply updates without prompting
-.TP
 \-\-zsync URL
 direct zsync metadata URL (https, for 'update set')
+.TP
+\-C DIR, \-\-config DIR
+use an alternate AIM state root
+.TP
+\-\-dry\-run
+simulate changes without applying them
+.TP
+\-\-output string
+output format: text, json, or csv
+.TP
+\-q, \-\-quiet
+suppress non\-essential status output
+.TP
+\-\-verbose
+enable verbose diagnostic logging
+.TP
+\-y, \-\-yes
+skip confirmation prompts
 .TP
 \fBSubcommands\fP
 aim update set <id>: Set the update source for a managed AppImage
@@ -162,6 +358,11 @@ aim update set <id>
 \fBDescription\fP
 Set the update source for a managed AppImage
 .TP
+\fBExamples\fP
+aim update set example\-app \-\-github owner/repo
+aim update set example\-app \-\-embedded
+aim update set example\-app \-\-zsync https://example.com/Example.AppImage.zsync \-\-dry\-run \-\-output json
+.TP
 \fBOptions\fP
 .TP
 \-\-asset string
@@ -169,6 +370,12 @@ asset filename pattern; defaults to "*.AppImage" for GitHub/GitLab (for 'update 
 .TP
 \-c, \-\-check\-only
 check only; do not apply updates
+.TP
+\-C DIR, \-\-config DIR
+use an alternate AIM state root
+.TP
+\-\-dry\-run
+simulate changes without applying them
 .TP
 \-\-embedded
 use the update source embedded in the current AppImage (for 'update set')
@@ -179,8 +386,17 @@ GitHub repo in the form owner/repo (for 'update set')
 \-\-gitlab namespace/project
 GitLab project path namespace/project (for 'update set')
 .TP
+\-\-output string
+output format: text, json, or csv
+.TP
+\-q, \-\-quiet
+suppress non\-essential status output
+.TP
+\-\-verbose
+enable verbose diagnostic logging
+.TP
 \-y, \-\-yes
-apply updates without prompting
+skip confirmation prompts
 .TP
 \-\-zsync URL
 direct zsync metadata URL (https, for 'update set')
@@ -192,6 +408,10 @@ aim update unset <id>
 \fBDescription\fP
 Unset the update source for a managed AppImage
 .TP
+\fBExamples\fP
+aim update unset example\-app
+aim update unset example\-app \-\-dry\-run \-\-output json
+.TP
 \fBOptions\fP
 .TP
 \-\-asset string
@@ -199,6 +419,12 @@ asset filename pattern; defaults to "*.AppImage" for GitHub/GitLab (for 'update 
 .TP
 \-c, \-\-check\-only
 check only; do not apply updates
+.TP
+\-C DIR, \-\-config DIR
+use an alternate AIM state root
+.TP
+\-\-dry\-run
+simulate changes without applying them
 .TP
 \-\-embedded
 use the update source embedded in the current AppImage (for 'update set')
@@ -209,8 +435,17 @@ GitHub repo in the form owner/repo (for 'update set')
 \-\-gitlab namespace/project
 GitLab project path namespace/project (for 'update set')
 .TP
+\-\-output string
+output format: text, json, or csv
+.TP
+\-q, \-\-quiet
+suppress non\-essential status output
+.TP
+\-\-verbose
+enable verbose diagnostic logging
+.TP
 \-y, \-\-yes
-apply updates without prompting
+skip confirmation prompts
 .TP
 \-\-zsync URL
 direct zsync metadata URL (https, for 'update set')
@@ -231,4 +466,14 @@ https://github.com/slobbe/appimage\-manager
 
 .SH ISSUES
 https://github.com/slobbe/appimage\-manager/issues
+
+.SH EXIT STATUS
+0 success
+64 invalid command usage
+66 requested local input or resource not found
+69 external service or tool unavailable
+70 internal or uncategorized software failure
+73 local write/create/update failure
+75 temporary or retryable runtime failure
+77 permission, confirmation, or precondition refusal
 

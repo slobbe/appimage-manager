@@ -1,6 +1,10 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/spf13/cobra"
+)
 
 const (
 	sectionApp      = "App"
@@ -47,14 +51,14 @@ func formatPrompt(action, target string) string {
 	return fmt.Sprintf("%s %s? [y/N]: ", action, target)
 }
 
-func printCurrentIncoming(current, incoming string) {
-	fmt.Println("Current:")
-	fmt.Println("  " + current)
-	fmt.Println("Incoming:")
-	fmt.Println("  " + incoming)
+func printCurrentIncoming(cmd *cobra.Command, current, incoming string) {
+	writeLogf(cmd, "Current:\n")
+	writeLogf(cmd, "  %s\n", current)
+	writeLogf(cmd, "Incoming:\n")
+	writeLogf(cmd, "  %s\n", incoming)
 }
 
-func printCurrentValue(current string) {
-	fmt.Println("Current:")
-	fmt.Println("  " + current)
+func printCurrentValue(cmd *cobra.Command, current string) {
+	writeLogf(cmd, "Current:\n")
+	writeLogf(cmd, "  %s\n", current)
 }

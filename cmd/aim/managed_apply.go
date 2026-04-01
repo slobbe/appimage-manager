@@ -249,7 +249,7 @@ func (r *managedApplyRenderer) Finish(results []managedApplyResult) {
 
 	if !r.tty {
 		for _, row := range rows {
-			fmt.Println(row)
+			writeLogf(r.cmd, "%s\n", row)
 		}
 	}
 
@@ -331,10 +331,10 @@ func (r *managedApplyRenderer) renderLocked() {
 	}
 
 	if r.drawn {
-		fmt.Printf("\033[%dA", len(r.rows))
+		writeLogf(r.cmd, "\033[%dA", len(r.rows))
 	}
 	for idx := range r.rows {
-		fmt.Printf("\033[2K\r%s\n", r.formatRow(idx))
+		writeLogf(r.cmd, "\033[2K\r%s\n", r.formatRow(idx))
 	}
 	r.drawn = true
 }

@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -41,7 +40,7 @@ func (b *busyIndicator) Start() {
 	}
 
 	if !b.tty {
-		fmt.Fprintln(os.Stdout, b.label+"...")
+		writeLogf(b.cmd, "%s...\n", b.label)
 		return
 	}
 
@@ -94,7 +93,7 @@ func (b *busyIndicator) render() {
 	}
 	b.width = width
 
-	fmt.Fprintf(os.Stdout, "\r%s", line)
+	writeLogf(b.cmd, "\r%s", line)
 }
 
 func (b *busyIndicator) clear() {
@@ -102,7 +101,7 @@ func (b *busyIndicator) clear() {
 		return
 	}
 
-	fmt.Fprintf(os.Stdout, "\r%s\r", strings.Repeat(" ", b.width))
+	writeLogf(b.cmd, "\r%s\r", strings.Repeat(" ", b.width))
 }
 
 func runWithBusyIndicator[T any](cmd *cobra.Command, label string, fn func() (T, error)) (T, error) {

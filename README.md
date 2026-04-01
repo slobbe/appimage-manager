@@ -80,6 +80,47 @@ aim --upgrade   # upgrade aim to the newest version
 
 Use `aim --help`, `aim <command> --help`, or the man page for full option details.
 
+## Global flags for scripting
+
+`aim` now exposes a consistent set of global flags on all visible commands:
+
+- `-h`, `--help`: built-in command help
+- `-v`, `--version`: print the CLI version
+- `--verbose`: emit diagnostic logs on stderr
+- `-q`, `--quiet`: suppress non-essential status output
+- `-C`, `--config <dir>`: use an alternate AIM state root
+- `--dry-run`: preview mutating actions without applying them
+- `-y`, `--yes`: bypass confirmation prompts
+- `--output text|json|csv`: choose human-readable or machine-readable output
+
+Examples:
+
+```sh
+aim list --output json
+aim update --check-only --output csv
+aim -C /tmp/aim-state add --dry-run ./Example.AppImage
+aim update unset example-app --yes
+```
+
+## Output and exit status
+
+`aim` keeps its process interface script-friendly:
+
+- primary command output, including `--output json` and `--output csv`, is written to stdout
+- errors, warnings, prompts, progress, and verbose diagnostics are written to stderr
+- success exits with `0`; failures exit with a stable non-zero code
+
+Exit codes:
+
+- `0`: success
+- `64`: invalid command usage
+- `66`: requested local input or resource not found
+- `69`: external service or tool unavailable
+- `70`: internal or uncategorized software failure
+- `73`: local write, create, or update failure
+- `75`: temporary or retryable runtime failure
+- `77`: permission, confirmation, or precondition refusal
+
 ## Where `aim` stores files
 
 `aim` uses XDG base directories:

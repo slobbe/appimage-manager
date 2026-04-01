@@ -16,7 +16,7 @@ var (
 	PixmapsDir   string
 )
 
-type resolvedPaths struct {
+type Paths struct {
 	AimDir       string
 	DesktopDir   string
 	ConfigDir    string
@@ -32,14 +32,7 @@ func init() {
 		panic("failed to get home directory: " + err.Error())
 	}
 
-	paths := resolvePaths(home, os.Getenv)
-	AimDir = paths.AimDir
-	DesktopDir = paths.DesktopDir
-	ConfigDir = paths.ConfigDir
-	TempDir = paths.TempDir
-	DbSrc = paths.DbSrc
-	IconThemeDir = paths.IconThemeDir
-	PixmapsDir = paths.PixmapsDir
+	ApplyPaths(resolvePaths(home, os.Getenv))
 }
 
 func EnsureDirsExist() error {
@@ -52,13 +45,48 @@ func EnsureDirsExist() error {
 	return nil
 }
 
-func resolvePaths(home string, getenv func(string) string) resolvedPaths {
+func CurrentPaths() Paths {
+	return Paths{
+		AimDir:       AimDir,
+		DesktopDir:   DesktopDir,
+		ConfigDir:    ConfigDir,
+		TempDir:      TempDir,
+		DbSrc:        DbSrc,
+		IconThemeDir: IconThemeDir,
+		PixmapsDir:   PixmapsDir,
+	}
+}
+
+func ApplyPaths(paths Paths) {
+	AimDir = paths.AimDir
+	DesktopDir = paths.DesktopDir
+	ConfigDir = paths.ConfigDir
+	TempDir = paths.TempDir
+	DbSrc = paths.DbSrc
+	IconThemeDir = paths.IconThemeDir
+	PixmapsDir = paths.PixmapsDir
+}
+
+func ResolvePathsFromStateRoot(root string) Paths {
+	base := filepath.Clean(strings.TrimSpace(root))
+	return Paths{
+		AimDir:       filepath.Join(base, "data", "aim"),
+		DesktopDir:   filepath.Join(base, "data", "applications"),
+		ConfigDir:    filepath.Join(base, "config", "aim"),
+		TempDir:      filepath.Join(base, "cache", "aim", "tmp"),
+		DbSrc:        filepath.Join(base, "state", "aim", "apps.json"),
+		IconThemeDir: filepath.Join(base, "data", "icons", "hicolor"),
+		PixmapsDir:   filepath.Join(base, "data", "pixmaps"),
+	}
+}
+
+func resolvePaths(home string, getenv func(string) string) Paths {
 	dataHome := resolveXDGBaseDir(getenv("XDG_DATA_HOME"), filepath.Join(home, ".local", "share"))
 	configHome := resolveXDGBaseDir(getenv("XDG_CONFIG_HOME"), filepath.Join(home, ".config"))
 	stateHome := resolveXDGBaseDir(getenv("XDG_STATE_HOME"), filepath.Join(home, ".local", "state"))
 	cacheHome := resolveXDGBaseDir(getenv("XDG_CACHE_HOME"), filepath.Join(home, ".cache"))
 
-	return resolvedPaths{
+	return Paths{
 		AimDir:       filepath.Join(dataHome, "aim"),
 		DesktopDir:   filepath.Join(dataHome, "applications"),
 		ConfigDir:    filepath.Join(configHome, "aim"),

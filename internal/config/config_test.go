@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -99,5 +100,66 @@ func TestResolvePathsIgnoresRelativeXDGPaths(t *testing.T) {
 	}
 	if paths.PixmapsDir != filepath.Join(home, ".local", "share", "pixmaps") {
 		t.Fatalf("PixmapsDir = %q", paths.PixmapsDir)
+	}
+}
+
+func TestResolvePathsFromStateRoot(t *testing.T) {
+	paths := ResolvePathsFromStateRoot("/tmp/aim-root")
+
+	if paths.AimDir != "/tmp/aim-root/data/aim" {
+		t.Fatalf("AimDir = %q", paths.AimDir)
+	}
+	if paths.DesktopDir != "/tmp/aim-root/data/applications" {
+		t.Fatalf("DesktopDir = %q", paths.DesktopDir)
+	}
+	if paths.ConfigDir != "/tmp/aim-root/config/aim" {
+		t.Fatalf("ConfigDir = %q", paths.ConfigDir)
+	}
+	if paths.TempDir != "/tmp/aim-root/cache/aim/tmp" {
+		t.Fatalf("TempDir = %q", paths.TempDir)
+	}
+	if paths.DbSrc != "/tmp/aim-root/state/aim/apps.json" {
+		t.Fatalf("DbSrc = %q", paths.DbSrc)
+	}
+	if paths.IconThemeDir != "/tmp/aim-root/data/icons/hicolor" {
+		t.Fatalf("IconThemeDir = %q", paths.IconThemeDir)
+	}
+	if paths.PixmapsDir != "/tmp/aim-root/data/pixmaps" {
+		t.Fatalf("PixmapsDir = %q", paths.PixmapsDir)
+	}
+}
+
+func TestApplyPathsAndCurrentPaths(t *testing.T) {
+	original := CurrentPaths()
+	t.Cleanup(func() {
+		ApplyPaths(original)
+	})
+
+	updated := Paths{
+		AimDir:       "/tmp/alt/data/aim",
+		DesktopDir:   "/tmp/alt/data/applications",
+		ConfigDir:    "/tmp/alt/config/aim",
+		TempDir:      "/tmp/alt/cache/aim/tmp",
+		DbSrc:        "/tmp/alt/state/aim/apps.json",
+		IconThemeDir: "/tmp/alt/data/icons/hicolor",
+		PixmapsDir:   "/tmp/alt/data/pixmaps",
+	}
+
+	ApplyPaths(updated)
+
+	if got := CurrentPaths(); got != updated {
+		t.Fatalf("CurrentPaths() = %#v", got)
+	}
+}
+
+func TestResolvePathsFromRelativeStateRootNormalization(t *testing.T) {
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() failed: %v", err)
+	}
+
+	paths := ResolvePathsFromStateRoot(filepath.Clean(filepath.Join(wd, "..", filepath.Base(wd))))
+	if !filepath.IsAbs(paths.AimDir) {
+		t.Fatalf("AimDir should be absolute, got %q", paths.AimDir)
 	}
 }

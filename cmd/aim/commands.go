@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"encoding/hex"
 	"fmt"
@@ -29,17 +28,19 @@ import (
 func RootCmd(cmd *cobra.Command, args []string) error {
 	upgrade, err := cmd.Flags().GetBool("upgrade")
 	if err != nil {
-		return err
+		return usageError(err)
 	}
 	if upgrade {
 		if len(args) > 0 {
-			return fmt.Errorf("--upgrade does not accept positional arguments")
+			return usageError(fmt.Errorf("--upgrade does not accept positional arguments"))
+		}
+		if err := mustEnsureRuntimeDirs(); err != nil {
+			return err
 		}
 		return runUpgrade(cmd.Context(), cmd)
 	}
 
-	printAimMetadata()
-	return nil
+	return printAimMetadata(cmd)
 }
 
 func maybeRunRootUpgradeFlag(ctx context.Context, cmd *cobra.Command, args []string) (bool, error) {
@@ -50,7 +51,13 @@ func maybeRunRootUpgradeFlag(ctx context.Context, cmd *cobra.Command, args []str
 	switch args[0] {
 	case "--upgrade", "-U":
 		if len(args) != 1 {
-			return true, fmt.Errorf("--upgrade does not accept positional arguments")
+			return true, usageError(fmt.Errorf("--upgrade does not accept positional arguments"))
+		}
+		if err := prepareRuntime(cmd); err != nil {
+			return true, err
+		}
+		if err := mustEnsureRuntimeDirs(); err != nil {
+			return true, err
 		}
 		return true, runUpgrade(ctx, cmd)
 	default:
@@ -101,26 +108,64 @@ func runUpgrade(ctx context.Context, cmd *cobra.Command) error {
 	return nil
 }
 
-func printAimMetadata() {
-	fmt.Printf("Version: %s\n", version)
-	fmt.Printf("Repository: %s\n", rootCommandRepositoryURL)
-	fmt.Printf("License: %s\n", rootCommandLicense)
-	fmt.Printf("Issues: %s\n", rootCommandIssuesURL)
-	fmt.Printf("Author: %s\n", rootCommandAuthor)
-	fmt.Printf("Copyright: %s\n", rootCommandCopyright)
+func printAimMetadata(cmd *cobra.Command) error {
+	result := map[string]string{
+		"version":    version,
+		"repository": rootCommandRepositoryURL,
+		"license":    rootCommandLicense,
+		"issues":     rootCommandIssuesURL,
+		"author":     rootCommandAuthor,
+		"copyright":  rootCommandCopyright,
+	}
+
+	if runtimeOptionsFrom(cmd).Output == outputJSON {
+		return printJSONSuccess(cmd, result)
+	}
+	if runtimeOptionsFrom(cmd).Output == outputCSV {
+		return usageError(fmt.Errorf("--output csv is not supported for `aim`"))
+	}
+
+	writeDataf(cmd, "Version: %s\n", version)
+	writeDataf(cmd, "Repository: %s\n", rootCommandRepositoryURL)
+	writeDataf(cmd, "License: %s\n", rootCommandLicense)
+	writeDataf(cmd, "Issues: %s\n", rootCommandIssuesURL)
+	writeDataf(cmd, "Author: %s\n", rootCommandAuthor)
+	writeDataf(cmd, "Copyright: %s\n", rootCommandCopyright)
+	return nil
 }
 
 func MigrateCmd(cmd *cobra.Command, args []string) error {
 	if len(args) > 1 {
-		return fmt.Errorf("too many arguments")
+		return usageError(fmt.Errorf("too many arguments"))
 	}
+	opts := runtimeOptionsFrom(cmd)
 
 	if len(args) == 0 {
+		if opts.DryRun {
+			plan, err := repo.PlanMigrationToCurrentPaths("")
+			if err != nil {
+				return err
+			}
+			if opts.Output == outputJSON {
+				return printJSONSuccess(cmd, plan)
+			}
+			writeDataf(cmd, "Dry run: migration planned=%t\n", plan.WouldChangeAnything)
+			return nil
+		}
+		if err := mustEnsureRuntimeDirs(); err != nil {
+			return err
+		}
 		changed, err := runWithBusyIndicator(cmd, progressMigrateApps(), func() (bool, error) {
 			return migrateAllApps()
 		})
 		if err != nil {
 			return err
+		}
+		if opts.Output == outputJSON {
+			return printJSONSuccess(cmd, map[string]interface{}{
+				"changed": changed,
+				"scope":   "all",
+			})
 		}
 		if !changed {
 			printSuccess(cmd, successMigrationNoop(""))
@@ -132,7 +177,21 @@ func MigrateCmd(cmd *cobra.Command, args []string) error {
 
 	id := strings.TrimSpace(args[0])
 	if id == "" {
-		return fmt.Errorf("missing required argument <id>")
+		return usageError(fmt.Errorf("missing required argument <id>"))
+	}
+	if opts.DryRun {
+		plan, err := repo.PlanMigrationToCurrentPaths(id)
+		if err != nil {
+			return err
+		}
+		if opts.Output == outputJSON {
+			return printJSONSuccess(cmd, plan)
+		}
+		writeDataf(cmd, "Dry run: migration planned for %s = %t\n", id, plan.WouldChangeAnything)
+		return nil
+	}
+	if err := mustEnsureRuntimeDirs(); err != nil {
+		return err
 	}
 
 	changed, err := runWithBusyIndicator(cmd, progressMigrateApp(id), func() (bool, error) {
@@ -140,6 +199,12 @@ func MigrateCmd(cmd *cobra.Command, args []string) error {
 	})
 	if err != nil {
 		return err
+	}
+	if opts.Output == outputJSON {
+		return printJSONSuccess(cmd, map[string]interface{}{
+			"changed": changed,
+			"scope":   id,
+		})
 	}
 	if !changed {
 		printSuccess(cmd, successMigrationNoop(id))
@@ -172,7 +237,7 @@ func AddCmd(cmd *cobra.Command, args []string) error {
 		return runIntegrateTarget(cmd.Context(), cmd, input)
 	}
 
-	return fmt.Errorf("unknown add target %q; expected https://..., GitHub/GitLab repo URL, <id>, or <Path/To.AppImage>", input)
+	return usageError(fmt.Errorf("unknown add target %q; expected https://..., GitHub/GitLab repo URL, <id>, or <Path/To.AppImage>", input))
 }
 
 func resolveAddProviderRef(cmd *cobra.Command, args []string) (discovery.PackageRef, bool, error) {
@@ -200,19 +265,19 @@ func resolveProviderFlagRef(cmd *cobra.Command, args []string, cmdName string) (
 		return discovery.PackageRef{}, false, nil
 	}
 	if hasGitHub && hasGitLab {
-		return discovery.PackageRef{}, false, fmt.Errorf("--github and --gitlab are mutually exclusive")
+		return discovery.PackageRef{}, false, usageError(fmt.Errorf("--github and --gitlab are mutually exclusive"))
 	}
 	if len(args) > 0 {
-		return discovery.PackageRef{}, false, fmt.Errorf("when using --github or --gitlab, do not pass a positional target")
+		return discovery.PackageRef{}, false, usageError(fmt.Errorf("when using --github or --gitlab, do not pass a positional target"))
 	}
 
 	if hasGitHub {
 		ref, err := discovery.ParseGitHubRepoValue(githubValue)
-		return ref, true, err
+		return ref, true, usageError(err)
 	}
 
 	ref, err := discovery.ParseGitLabProjectValue(gitlabValue)
-	return ref, true, err
+	return ref, true, usageError(err)
 }
 
 func isLegacyPackageRef(input string) bool {
@@ -224,11 +289,11 @@ func legacyProviderRefGuidance(cmdName, input string) error {
 	trimmed := strings.TrimSpace(input)
 	switch {
 	case strings.HasPrefix(trimmed, "github:"):
-		return fmt.Errorf("github:... refs are no longer accepted; use 'aim %s --github owner/repo' or a GitHub repo URL", cmdName)
+		return usageError(fmt.Errorf("github:... refs are no longer accepted; use 'aim %s --github owner/repo' or a GitHub repo URL", cmdName))
 	case strings.HasPrefix(trimmed, "gitlab:"):
-		return fmt.Errorf("gitlab:... refs are no longer accepted; use 'aim %s --gitlab namespace/project' or a GitLab project URL", cmdName)
+		return usageError(fmt.Errorf("gitlab:... refs are no longer accepted; use 'aim %s --gitlab namespace/project' or a GitLab project URL", cmdName))
 	default:
-		return fmt.Errorf("unsupported provider ref %q", input)
+		return usageError(fmt.Errorf("unsupported provider ref %q", input))
 	}
 }
 
@@ -251,19 +316,67 @@ func runIntegrateTarget(ctx context.Context, cmd *cobra.Command, input string) e
 	if err != nil {
 		return err
 	}
+	opts := runtimeOptionsFrom(cmd)
 
 	switch target.Kind {
 	case integrateTargetIntegrated:
+		if opts.Output == outputJSON {
+			return printJSONSuccess(cmd, map[string]interface{}{
+				"status": "already_integrated",
+				"app":    target.App,
+			})
+		}
 		printSuccess(cmd, fmt.Sprintf("Already integrated: %s", formatAppRef(target.App)))
 		return nil
 	case integrateTargetUnlinked:
+		if opts.DryRun {
+			result := map[string]interface{}{
+				"status": "dry_run",
+				"action": "reintegrate",
+				"app":    target.App,
+			}
+			if opts.Output == outputJSON {
+				return printJSONSuccess(cmd, result)
+			}
+			writeDataf(cmd, "Dry run: would reintegrate %s [%s]\n", target.App.Name, target.App.ID)
+			return nil
+		}
+		if err := mustEnsureRuntimeDirs(); err != nil {
+			return err
+		}
 		app, err := integrateExistingApp(ctx, target.App.ID)
 		if err != nil {
 			return err
 		}
+		if opts.Output == outputJSON {
+			return printJSONSuccess(cmd, map[string]interface{}{
+				"status": "reintegrated",
+				"app":    app,
+			})
+		}
 		printSuccess(cmd, fmt.Sprintf("Reintegrated: %s", formatAppRef(app)))
 		return nil
 	case integrateTargetLocalFile:
+		if opts.DryRun {
+			plan, err := buildLocalIntegrateDryRunPlan(ctx, target.LocalPath)
+			if err != nil {
+				return err
+			}
+			if opts.Output == outputJSON {
+				return printJSONSuccess(cmd, plan)
+			}
+			writeDataf(cmd, "Dry run: would integrate %s\n", plan["input"])
+			if appID, ok := plan["app_id"].(string); ok && appID != "" {
+				writeDataf(cmd, "  Managed ID: %s\n", appID)
+			}
+			for _, path := range plan["planned_paths"].([]string) {
+				writeDataf(cmd, "  %s\n", path)
+			}
+			return nil
+		}
+		if err := mustEnsureRuntimeDirs(); err != nil {
+			return err
+		}
 		inputLabel := strings.TrimSpace(filepath.Base(target.LocalPath))
 		if inputLabel == "" || inputLabel == "." || inputLabel == string(filepath.Separator) {
 			inputLabel = strings.TrimSpace(target.LocalPath)
@@ -271,25 +384,31 @@ func runIntegrateTarget(ctx context.Context, cmd *cobra.Command, input string) e
 
 		app, err := runWithBusyIndicator(cmd, fmt.Sprintf("Integrating %s", inputLabel), func() (*models.App, error) {
 			return integrateLocalApp(ctx, target.LocalPath, func(existing, incoming *models.UpdateSource) (bool, error) {
-				printCurrentIncoming(updateSummary(existing), updateSummary(incoming))
+				printCurrentIncoming(cmd, updateSummary(existing), updateSummary(incoming))
 				prompt := formatPrompt("Replace source from", "AppImage metadata")
-				return confirmOverwrite(prompt)
+				return confirmAction(cmd, prompt)
 			})
 		})
 		if err != nil {
 			return err
 		}
+		if opts.Output == outputJSON {
+			return printJSONSuccess(cmd, map[string]interface{}{
+				"status": "integrated",
+				"app":    app,
+			})
+		}
 		printSuccess(cmd, fmt.Sprintf("Integrated: %s", formatAppRef(app)))
 		return nil
 	default:
-		return fmt.Errorf("unknown integrate target %q", input)
+		return softwareError(fmt.Errorf("unknown integrate target %q", input))
 	}
 }
 
 func resolveIntegrateTarget(input string) (*integrateTarget, error) {
 	trimmed := strings.TrimSpace(input)
 	if trimmed == "" {
-		return nil, fmt.Errorf("missing required argument <Path/To.AppImage|id>")
+		return nil, usageError(fmt.Errorf("missing required argument <Path/To.AppImage|id>"))
 	}
 
 	if app, err := repo.GetApp(trimmed); err == nil {
@@ -301,18 +420,18 @@ func resolveIntegrateTarget(input string) (*integrateTarget, error) {
 	}
 
 	if strings.HasPrefix(trimmed, "https://") || strings.HasPrefix(trimmed, "github:") || strings.HasPrefix(trimmed, "gitlab:") {
-		return nil, fmt.Errorf("remote sources are added with 'aim add'")
+		return nil, usageError(fmt.Errorf("remote sources are added with 'aim add'"))
 	}
 
 	if strings.HasPrefix(strings.ToLower(trimmed), "http://") {
-		return nil, fmt.Errorf("direct URLs must use https; use 'aim add https://...'")
+		return nil, usageError(fmt.Errorf("direct URLs must use https; use 'aim add https://...'"))
 	}
 
 	if util.HasExtension(trimmed, ".AppImage") {
 		return &integrateTarget{Kind: integrateTargetLocalFile, LocalPath: trimmed}, nil
 	}
 
-	return nil, fmt.Errorf("unknown argument %s", input)
+	return nil, usageError(fmt.Errorf("unknown argument %s", input))
 }
 
 type installTargetKind string
@@ -333,7 +452,7 @@ type installTarget struct {
 func resolveInstallTarget(input string) (*installTarget, error) {
 	trimmed := strings.TrimSpace(input)
 	if trimmed == "" {
-		return nil, fmt.Errorf("missing required argument <ref>")
+		return nil, usageError(fmt.Errorf("missing required argument <ref>"))
 	}
 
 	if isLegacyPackageRef(trimmed) {
@@ -354,23 +473,23 @@ func resolveInstallTarget(input string) (*installTarget, error) {
 	}
 
 	if strings.HasPrefix(strings.ToLower(trimmed), "http://") {
-		return nil, fmt.Errorf("direct URLs must use https")
+		return nil, usageError(fmt.Errorf("direct URLs must use https"))
 	}
 
 	if app, err := repo.GetApp(trimmed); err == nil && app != nil {
-		return nil, fmt.Errorf("managed app IDs are added with 'aim add <id>'")
+		return nil, usageError(fmt.Errorf("managed app IDs are added with 'aim add <id>'"))
 	}
 
 	if util.HasExtension(trimmed, ".AppImage") {
-		return nil, fmt.Errorf("local AppImages are added with 'aim add <Path/To.AppImage>'")
+		return nil, usageError(fmt.Errorf("local AppImages are added with 'aim add <Path/To.AppImage>'"))
 	}
 
-	return nil, fmt.Errorf("unknown add target %s", input)
+	return nil, usageError(fmt.Errorf("unknown add target %s", input))
 }
 
 func validateInstallTargetFlags(cmd *cobra.Command, target *installTarget) error {
 	if target == nil {
-		return fmt.Errorf("missing add target")
+		return usageError(fmt.Errorf("missing add target"))
 	}
 
 	assetPattern, err := flagString(cmd, "asset")
@@ -385,17 +504,17 @@ func validateInstallTargetFlags(cmd *cobra.Command, target *installTarget) error
 	switch target.Kind {
 	case installTargetGitHub, installTargetGitLab:
 		if sha256 != "" {
-			return fmt.Errorf("--sha256 is only supported with direct https URLs")
+			return usageError(fmt.Errorf("--sha256 is only supported with direct https URLs"))
 		}
 	case installTargetDirectURL:
 		if assetPattern != "" {
-			return fmt.Errorf("--asset is only supported with GitHub or GitLab provider sources")
+			return usageError(fmt.Errorf("--asset is only supported with GitHub or GitLab provider sources"))
 		}
 		if sha256 != "" && !isSHA256Hex(sha256) {
-			return fmt.Errorf("--sha256 must be a valid 64-character hexadecimal SHA-256")
+			return usageError(fmt.Errorf("--sha256 must be a valid 64-character hexadecimal SHA-256"))
 		}
 	default:
-		return fmt.Errorf("unsupported add target")
+		return softwareError(fmt.Errorf("unsupported add target"))
 	}
 
 	return nil
@@ -526,7 +645,7 @@ type remoteInstallRequest struct {
 func integrateRemoteInstall(ctx context.Context, cmd *cobra.Command, req remoteInstallRequest) (*models.App, error) {
 	tempDir, err := os.MkdirTemp(config.TempDir, "aim-install-*")
 	if err != nil {
-		return nil, err
+		return nil, wrapWriteError(err)
 	}
 	defer func() {
 		_ = os.RemoveAll(tempDir)
@@ -559,7 +678,7 @@ func integrateRemoteInstall(ctx context.Context, cmd *cobra.Command, req remoteI
 	}
 
 	incomingUpdate := req.BuildUpdate(app)
-	finalUpdate, err := chooseRemoteUpdateSource(app.ID, incomingUpdate)
+	finalUpdate, err := chooseRemoteUpdateSource(cmd, app.ID, incomingUpdate)
 	if err != nil {
 		return nil, err
 	}
@@ -568,13 +687,13 @@ func integrateRemoteInstall(ctx context.Context, cmd *cobra.Command, req remoteI
 	app.Update = finalUpdate
 
 	if err := addSingleApp(app, true); err != nil {
-		return nil, err
+		return nil, wrapWriteError(err)
 	}
 
 	return app, nil
 }
 
-func chooseRemoteUpdateSource(id string, incoming *models.UpdateSource) (*models.UpdateSource, error) {
+func chooseRemoteUpdateSource(cmd *cobra.Command, id string, incoming *models.UpdateSource) (*models.UpdateSource, error) {
 	if incoming == nil {
 		incoming = &models.UpdateSource{Kind: models.UpdateNone}
 	}
@@ -592,9 +711,9 @@ func chooseRemoteUpdateSource(id string, incoming *models.UpdateSource) (*models
 		return incoming, nil
 	}
 
-	printCurrentIncoming(updateSummary(existing), updateSummary(incoming))
+	printCurrentIncoming(cmd, updateSummary(existing), updateSummary(incoming))
 	prompt := formatPrompt("Replace source for", id)
-	confirmed, err := confirmOverwrite(prompt)
+	confirmed, err := confirmAction(cmd, prompt)
 	if err != nil {
 		return nil, err
 	}
@@ -655,12 +774,40 @@ func RemoveCmd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	opts := runtimeOptionsFrom(cmd)
+	if opts.DryRun {
+		app, err := repo.GetApp(id)
+		if err != nil {
+			return wrapDatabaseReadError(err)
+		}
+		plan := removeDryRunPlan(app, unlink)
+		if opts.Output == outputJSON {
+			return printJSONSuccess(cmd, plan)
+		}
+		writeDataf(cmd, "Dry run: would %s %s [%s]\n", plan["action"], app.Name, app.ID)
+		for _, path := range plan["paths"].([]string) {
+			writeDataf(cmd, "  %s\n", path)
+		}
+		return nil
+	}
+	if err := mustEnsureRuntimeDirs(); err != nil {
+		return err
+	}
+
 	app, err := removeManagedApp(cmd.Context(), id, unlink)
 
 	if err == nil {
 		label := "Removed"
 		if unlink {
 			label = "Unlinked"
+		}
+		if opts.Output == outputJSON {
+			return printJSONSuccess(cmd, map[string]interface{}{
+				"action": strings.ToLower(label),
+				"app":    app,
+				"unlink": unlink,
+				"paths":  removeDryRunPlan(app, unlink)["paths"],
+			})
 		}
 		printSuccess(cmd, fmt.Sprintf("%s: %s [%s]", label, app.Name, app.ID))
 	}
@@ -684,7 +831,7 @@ func ListCmd(cmd *cobra.Command, args []string) error {
 	}
 
 	if (integrated && unlinked) || (all && (integrated || unlinked)) {
-		return fmt.Errorf("flags --all, --integrated, and --unlinked are mutually exclusive")
+		return usageError(fmt.Errorf("flags --all, --integrated, and --unlinked are mutually exclusive"))
 	}
 
 	if !all && !integrated && !unlinked {
@@ -696,14 +843,22 @@ func ListCmd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	opts := runtimeOptionsFrom(cmd)
 	if len(apps) == 0 {
+		if opts.Output == outputJSON {
+			return printJSONSuccess(cmd, []listOutputRow{})
+		}
+		if opts.Output == outputCSV {
+			return writeCSV(cmd, listCSVHeader(), nil)
+		}
 		printSuccess(cmd, "No managed apps")
 		return nil
 	}
 
+	orderedApps := sortAppsByID(apps)
 	integratedRows := make([]*models.App, 0, len(apps))
 	unlinkedRows := make([]*models.App, 0, len(apps))
-	for _, app := range apps {
+	for _, app := range orderedApps {
 		if len(app.DesktopEntryLink) > 0 {
 			integratedRows = append(integratedRows, app)
 			continue
@@ -720,6 +875,32 @@ func ListCmd(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	selected := make([]*models.App, 0, len(orderedApps))
+	switch {
+	case all:
+		selected = append(selected, integratedRows...)
+		selected = append(selected, unlinkedRows...)
+	case integrated:
+		selected = append(selected, integratedRows...)
+	case unlinked:
+		selected = append(selected, unlinkedRows...)
+	}
+
+	if opts.Output == outputJSON {
+		rows := make([]listOutputRow, 0, len(selected))
+		for _, app := range selected {
+			rows = append(rows, newListOutputRow(app))
+		}
+		return printJSONSuccess(cmd, rows)
+	}
+	if opts.Output == outputCSV {
+		rows := make([][]string, 0, len(selected))
+		for _, app := range selected {
+			rows = append(rows, newListOutputRow(app).csvRow())
+		}
+		return writeCSV(cmd, listCSVHeader(), rows)
+	}
+
 	idWidth := listIDColumnWidth(integratedRows, unlinkedRows)
 	nameWidth := listNameDisplayWidth(integratedRows, unlinkedRows)
 	header := fmt.Sprintf("%-*s %-*s %s", idWidth, "ID", nameWidth, "App Name", "Version")
@@ -727,14 +908,14 @@ func ListCmd(cmd *cobra.Command, args []string) error {
 
 	if all || integrated {
 		for _, app := range integratedRows {
-			fmt.Fprintln(os.Stdout, formatListRow(app, idWidth, nameWidth))
+			writeDataf(cmd, "%s\n", formatListRow(app, idWidth, nameWidth))
 		}
 	}
 
 	if all || unlinked {
 		for _, app := range unlinkedRows {
 			row := formatListRow(app, idWidth, nameWidth)
-			fmt.Println(colorize(useColor(cmd), "\033[2m\033[3m", row))
+			writeDataf(cmd, "%s\n", colorize(useColor(cmd), "\033[2m\033[3m", row))
 		}
 	}
 
@@ -761,7 +942,7 @@ func InfoCmd(cmd *cobra.Command, args []string) error {
 		return runInspectTarget(cmd.Context(), cmd, input)
 	}
 
-	return fmt.Errorf("unknown info target %q; expected GitHub/GitLab repo URL, <id>, or <Path/To.AppImage>", input)
+	return usageError(fmt.Errorf("unknown info target %q; expected GitHub/GitLab repo URL, <id>, or <Path/To.AppImage>", input))
 }
 
 func resolvePackageMetadataFromRef(ctx context.Context, ref discovery.PackageRef, assetOverride string) (*discovery.PackageMetadata, error) {
@@ -775,7 +956,7 @@ func resolvePackageMetadataFromRef(ctx context.Context, ref discovery.PackageRef
 		return nil, err
 	}
 	if metadata == nil {
-		return nil, fmt.Errorf("failed to resolve package metadata for %s", discovery.FormatPackageRef(ref))
+		return nil, unavailableError(fmt.Errorf("failed to resolve package metadata for %s", discovery.FormatPackageRef(ref)))
 	}
 
 	return metadata, nil
@@ -793,7 +974,7 @@ func resolvePackageMetadataFromInput(ctx context.Context, input, assetOverride s
 func resolvePackageRefInput(input string) (discovery.PackageRef, error) {
 	trimmed := strings.TrimSpace(input)
 	if trimmed == "" {
-		return discovery.PackageRef{}, fmt.Errorf("missing package ref")
+		return discovery.PackageRef{}, usageError(fmt.Errorf("missing package ref"))
 	}
 
 	if isLegacyPackageRef(trimmed) {
@@ -813,12 +994,12 @@ func backendForRef(ref discovery.PackageRef) (discovery.DiscoveryBackend, error)
 		}
 	}
 
-	return nil, fmt.Errorf("no discovery backend available for %s", discovery.FormatPackageRef(ref))
+	return nil, unavailableError(fmt.Errorf("no discovery backend available for %s", discovery.FormatPackageRef(ref)))
 }
 
 func installPackageMetadata(ctx context.Context, cmd *cobra.Command, metadata *discovery.PackageMetadata) (*models.App, error) {
 	if metadata == nil {
-		return nil, fmt.Errorf("package metadata cannot be empty")
+		return nil, softwareError(fmt.Errorf("package metadata cannot be empty"))
 	}
 
 	switch metadata.Ref.Kind {
@@ -827,7 +1008,7 @@ func installPackageMetadata(ctx context.Context, cmd *cobra.Command, metadata *d
 	case discovery.ProviderGitLab:
 		return installResolvedGitLabPackage(ctx, cmd, metadata)
 	default:
-		return nil, fmt.Errorf("unsupported add provider %q", metadata.Ref.Kind)
+		return nil, softwareError(fmt.Errorf("unsupported add provider %q", metadata.Ref.Kind))
 	}
 }
 
@@ -855,35 +1036,35 @@ func installResolvedGitLabPackage(ctx context.Context, cmd *cobra.Command, metad
 
 func printPackageMetadata(cmd *cobra.Command, metadata *discovery.PackageMetadata) {
 	printSection(cmd, metadata.Name)
-	fmt.Printf("Provider: %s\n", strings.TrimSpace(metadata.Provider))
+	writeDataf(cmd, "Provider: %s\n", strings.TrimSpace(metadata.Provider))
 	if providerRef := formatProviderRef(metadata.Ref); providerRef != "" {
-		fmt.Printf("Provider ref: %s\n", providerRef)
+		writeDataf(cmd, "Provider ref: %s\n", providerRef)
 	}
 	if strings.TrimSpace(metadata.RepoURL) != "" {
-		fmt.Printf("Source URL: %s\n", strings.TrimSpace(metadata.RepoURL))
+		writeDataf(cmd, "Source URL: %s\n", strings.TrimSpace(metadata.RepoURL))
 	}
 	if strings.TrimSpace(metadata.Summary) != "" {
-		fmt.Printf("Summary: %s\n", strings.TrimSpace(metadata.Summary))
+		writeDataf(cmd, "Summary: %s\n", strings.TrimSpace(metadata.Summary))
 	}
 
 	installable := strings.TrimSpace(metadata.InstallReason) == "" && metadata.Installable
-	fmt.Printf("Installable: %s\n", yesNo(installable))
+	writeDataf(cmd, "Installable: %s\n", yesNo(installable))
 
 	if !installable && strings.TrimSpace(metadata.InstallReason) != "" {
-		fmt.Printf("Reason: %s\n", strings.TrimSpace(metadata.InstallReason))
+		writeDataf(cmd, "Reason: %s\n", strings.TrimSpace(metadata.InstallReason))
 		return
 	}
 
 	if strings.TrimSpace(metadata.LatestVersion) != "" {
-		fmt.Printf("Latest release: %s\n", displayVersion(metadata.LatestVersion))
+		writeDataf(cmd, "Latest release: %s\n", displayVersion(metadata.LatestVersion))
 	}
 	if strings.TrimSpace(metadata.AssetName) != "" {
-		fmt.Printf("Selected asset: %s\n", strings.TrimSpace(metadata.AssetName))
+		writeDataf(cmd, "Selected asset: %s\n", strings.TrimSpace(metadata.AssetName))
 	}
-	fmt.Println("Managed updates: yes")
+	writeDataf(cmd, "Managed updates: yes\n")
 
 	printSection(cmd, "Install Command")
-	fmt.Printf("  %s\n", formatAddProviderCommand(metadata.Ref))
+	writeDataf(cmd, "  %s\n", formatAddProviderCommand(metadata.Ref))
 }
 
 func formatProviderRef(ref discovery.PackageRef) string {
@@ -973,7 +1154,7 @@ func runInspectTarget(ctx context.Context, cmd *cobra.Command, input string) err
 	case inspectTargetLocal:
 		return inspectLocalAppImage(ctx, cmd, target.Path)
 	default:
-		return fmt.Errorf("unknown inspect target %q", input)
+		return softwareError(fmt.Errorf("unknown inspect target %q", input))
 	}
 }
 
@@ -992,6 +1173,13 @@ func runShowPackageRef(ctx context.Context, cmd *cobra.Command, ref discovery.Pa
 	})
 	if err != nil {
 		return err
+	}
+
+	if runtimeOptionsFrom(cmd).Output == outputJSON {
+		return printJSONSuccess(cmd, map[string]interface{}{
+			"kind":     "package_metadata",
+			"metadata": packageMetadataOutput(metadata),
+		})
 	}
 
 	printPackageMetadata(cmd, metadata)
@@ -1015,6 +1203,22 @@ func runInstallTarget(ctx context.Context, cmd *cobra.Command, refArg string) er
 	if err != nil {
 		return err
 	}
+	opts := runtimeOptionsFrom(cmd)
+
+	if opts.DryRun {
+		plan, err := buildInstallDryRunPlan(ctx, cmd, refArg, target, assetPattern, sha256)
+		if err != nil {
+			return err
+		}
+		if opts.Output == outputJSON {
+			return printJSONSuccess(cmd, plan)
+		}
+		writeDataf(cmd, "Dry run: would install %s\n", plan["target"])
+		return nil
+	}
+	if err := mustEnsureRuntimeDirs(); err != nil {
+		return err
+	}
 
 	var app *models.App
 	switch target.Kind {
@@ -1026,18 +1230,24 @@ func runInstallTarget(ctx context.Context, cmd *cobra.Command, refArg string) er
 			return resolvePackageMetadataFromInput(ctx, refArg, assetPattern)
 		})
 		if err == nil && !metadata.Installable {
-			err = fmt.Errorf("package is not installable: %s", strings.TrimSpace(metadata.InstallReason))
+			err = usageError(fmt.Errorf("package is not installable: %s", strings.TrimSpace(metadata.InstallReason)))
 		}
 		if err == nil {
 			app, err = installPackageMetadata(ctx, cmd, metadata)
 		}
 	default:
-		err = fmt.Errorf("unsupported add target")
+		err = softwareError(fmt.Errorf("unsupported add target"))
 	}
 	if err != nil {
 		return err
 	}
 
+	if opts.Output == outputJSON {
+		return printJSONSuccess(cmd, map[string]interface{}{
+			"status": "installed",
+			"app":    app,
+		})
+	}
 	printSuccess(cmd, fmt.Sprintf("Installed: %s", formatAppRef(app)))
 	return nil
 }
@@ -1052,14 +1262,37 @@ func runInstallPackageRef(ctx context.Context, cmd *cobra.Command, ref discovery
 		return err
 	}
 	if sha256 != "" {
-		return fmt.Errorf("--sha256 is only supported with direct https URLs")
+		return usageError(fmt.Errorf("--sha256 is only supported with direct https URLs"))
+	}
+	opts := runtimeOptionsFrom(cmd)
+
+	if opts.DryRun {
+		metadata, err := runWithBusyIndicator(cmd, fmt.Sprintf("Resolving package metadata for %s", formatProviderRef(ref)), func() (*discovery.PackageMetadata, error) {
+			return resolvePackageMetadataFromRef(ctx, ref, assetPattern)
+		})
+		if err != nil {
+			return err
+		}
+		if opts.Output == outputJSON {
+			return printJSONSuccess(cmd, map[string]interface{}{
+				"action":   "install",
+				"target":   formatProviderRef(ref),
+				"provider": ref,
+				"metadata": packageMetadataOutput(metadata),
+			})
+		}
+		writeDataf(cmd, "Dry run: would install %s\n", formatProviderRef(ref))
+		return nil
+	}
+	if err := mustEnsureRuntimeDirs(); err != nil {
+		return err
 	}
 
 	metadata, err := runWithBusyIndicator(cmd, fmt.Sprintf("Resolving package metadata for %s", formatProviderRef(ref)), func() (*discovery.PackageMetadata, error) {
 		return resolvePackageMetadataFromRef(ctx, ref, assetPattern)
 	})
 	if err == nil && !metadata.Installable {
-		err = fmt.Errorf("package is not installable: %s", strings.TrimSpace(metadata.InstallReason))
+		err = usageError(fmt.Errorf("package is not installable: %s", strings.TrimSpace(metadata.InstallReason)))
 	}
 	if err != nil {
 		return err
@@ -1070,13 +1303,19 @@ func runInstallPackageRef(ctx context.Context, cmd *cobra.Command, ref discovery
 		return err
 	}
 
+	if opts.Output == outputJSON {
+		return printJSONSuccess(cmd, map[string]interface{}{
+			"status": "installed",
+			"app":    app,
+		})
+	}
 	printSuccess(cmd, fmt.Sprintf("Installed: %s", formatAppRef(app)))
 	return nil
 }
 
 func commandSingleArg(args []string, usage string) (string, error) {
 	if len(args) > 1 {
-		return "", fmt.Errorf("too many arguments")
+		return "", usageError(fmt.Errorf("too many arguments"))
 	}
 
 	value := ""
@@ -1084,7 +1323,7 @@ func commandSingleArg(args []string, usage string) (string, error) {
 		value = strings.TrimSpace(args[0])
 	}
 	if value == "" {
-		return "", fmt.Errorf("missing required argument %s", usage)
+		return "", usageError(fmt.Errorf("missing required argument %s", usage))
 	}
 
 	return value, nil
@@ -1105,14 +1344,14 @@ func validateAddIntegrateFlags(cmd *cobra.Command) error {
 		return err
 	}
 	if assetPattern != "" {
-		return fmt.Errorf("--asset is only supported with GitHub or GitLab provider sources")
+		return usageError(fmt.Errorf("--asset is only supported with GitHub or GitLab provider sources"))
 	}
 	sha256, err := flagString(cmd, "sha256")
 	if err != nil {
 		return err
 	}
 	if sha256 != "" {
-		return fmt.Errorf("--sha256 is only supported with direct https:// add sources")
+		return usageError(fmt.Errorf("--sha256 is only supported with direct https:// add sources"))
 	}
 
 	return nil
@@ -1121,7 +1360,7 @@ func validateAddIntegrateFlags(cmd *cobra.Command) error {
 func resolveInspectTarget(input string) (*inspectTarget, error) {
 	trimmed := strings.TrimSpace(input)
 	if trimmed == "" {
-		return nil, fmt.Errorf("missing required argument <id|Path/To.AppImage>")
+		return nil, usageError(fmt.Errorf("missing required argument <id|Path/To.AppImage>"))
 	}
 
 	if app, err := repo.GetApp(trimmed); err == nil {
@@ -1132,7 +1371,7 @@ func resolveInspectTarget(input string) (*inspectTarget, error) {
 		return &inspectTarget{Kind: inspectTargetLocal, Path: trimmed}, nil
 	}
 
-	return nil, fmt.Errorf("unknown inspect target %s", input)
+	return nil, usageError(fmt.Errorf("unknown inspect target %s", input))
 }
 
 func inspectManagedApp(ctx context.Context, cmd *cobra.Command, app *models.App) error {
@@ -1142,23 +1381,31 @@ func inspectManagedApp(ctx context.Context, cmd *cobra.Command, app *models.App)
 
 	embeddedSource, _ := embeddedUpdateSourceForPath(app.ExecPath)
 
+	if runtimeOptionsFrom(cmd).Output == outputJSON {
+		return printJSONSuccess(cmd, map[string]interface{}{
+			"kind":            "managed_app",
+			"app":             app,
+			"embedded_update": embeddedSource,
+		})
+	}
+
 	printSection(cmd, sectionApp)
-	fmt.Printf("Name: %s\n", strings.TrimSpace(app.Name))
-	fmt.Printf("ID: %s\n", strings.TrimSpace(app.ID))
-	fmt.Printf("Version: %s\n", displayVersion(app.Version))
-	fmt.Printf("Exec path: %s\n", strings.TrimSpace(app.ExecPath))
+	writeDataf(cmd, "Name: %s\n", strings.TrimSpace(app.Name))
+	writeDataf(cmd, "ID: %s\n", strings.TrimSpace(app.ID))
+	writeDataf(cmd, "Version: %s\n", displayVersion(app.Version))
+	writeDataf(cmd, "Exec path: %s\n", strings.TrimSpace(app.ExecPath))
 
 	printSection(cmd, sectionUpdates)
-	fmt.Printf("Configured source: %s\n", updateSummaryOrNone(app.Update))
-	fmt.Printf("Embedded source: %s\n", updateSummaryOrNone(embeddedSource))
+	writeDataf(cmd, "Configured source: %s\n", updateSummaryOrNone(app.Update))
+	writeDataf(cmd, "Embedded source: %s\n", updateSummaryOrNone(embeddedSource))
 
 	printSection(cmd, sectionState)
-	fmt.Printf("Update available: %s\n", yesNo(app.UpdateAvailable))
+	writeDataf(cmd, "Update available: %s\n", yesNo(app.UpdateAvailable))
 	if strings.TrimSpace(app.LatestVersion) != "" {
-		fmt.Printf("Latest known version: %s\n", displayVersion(app.LatestVersion))
+		writeDataf(cmd, "Latest known version: %s\n", displayVersion(app.LatestVersion))
 	}
 	if strings.TrimSpace(app.LastCheckedAt) != "" {
-		fmt.Printf("Last checked: %s\n", strings.TrimSpace(app.LastCheckedAt))
+		writeDataf(cmd, "Last checked: %s\n", strings.TrimSpace(app.LastCheckedAt))
 	}
 
 	_ = ctx
@@ -1195,14 +1442,23 @@ func inspectLocalAppImage(ctx context.Context, cmd *cobra.Command, src string) e
 	info := result.info
 	embeddedSource := result.embeddedSource
 
+	if runtimeOptionsFrom(cmd).Output == outputJSON {
+		return printJSONSuccess(cmd, map[string]interface{}{
+			"kind":            "local_appimage",
+			"path":            strings.TrimSpace(src),
+			"app":             info,
+			"embedded_update": embeddedSource,
+		})
+	}
+
 	printSection(cmd, sectionAppImage)
-	fmt.Printf("Path: %s\n", strings.TrimSpace(src))
-	fmt.Printf("Name: %s\n", strings.TrimSpace(info.Name))
-	fmt.Printf("ID: %s\n", strings.TrimSpace(info.ID))
-	fmt.Printf("Version: %s\n", displayVersion(info.Version))
+	writeDataf(cmd, "Path: %s\n", strings.TrimSpace(src))
+	writeDataf(cmd, "Name: %s\n", strings.TrimSpace(info.Name))
+	writeDataf(cmd, "ID: %s\n", strings.TrimSpace(info.ID))
+	writeDataf(cmd, "Version: %s\n", displayVersion(info.Version))
 
 	printSection(cmd, sectionUpdates)
-	fmt.Printf("Embedded source: %s\n", updateSummaryOrNone(embeddedSource))
+	writeDataf(cmd, "Embedded source: %s\n", updateSummaryOrNone(embeddedSource))
 
 	return nil
 }
@@ -1216,10 +1472,10 @@ func updateSummaryOrNone(update *models.UpdateSource) string {
 
 func updateSourceFromEmbeddedInfo(info *core.UpdateInfo) (*models.UpdateSource, error) {
 	if info == nil {
-		return nil, fmt.Errorf("missing embedded update info")
+		return nil, softwareError(fmt.Errorf("missing embedded update info"))
 	}
 	if info.Kind != models.UpdateZsync {
-		return nil, fmt.Errorf("unsupported embedded update info kind %q", info.Kind)
+		return nil, softwareError(fmt.Errorf("unsupported embedded update info kind %q", info.Kind))
 	}
 
 	return &models.UpdateSource{
@@ -1241,7 +1497,7 @@ func embeddedUpdateSourceForPath(path string) (*models.UpdateSource, error) {
 
 func UpdateCmd(cmd *cobra.Command, args []string) error {
 	if hasUpdateSetFlags(cmd) {
-		return fmt.Errorf("update source flags can only be used with `aim update set`")
+		return usageError(fmt.Errorf("update source flags can only be used with `aim update set`"))
 	}
 
 	targetID := ""
@@ -1249,16 +1505,17 @@ func UpdateCmd(cmd *cobra.Command, args []string) error {
 		targetID = args[0]
 	}
 	if len(args) > 1 {
-		return fmt.Errorf("too many arguments")
+		return usageError(fmt.Errorf("too many arguments"))
 	}
 
 	return runManagedUpdate(cmd.Context(), cmd, targetID)
 }
 
 func UpdateSetCmd(cmd *cobra.Command, args []string) error {
-	if flagChanged(cmd, "yes") || flagChanged(cmd, "check-only") {
-		return fmt.Errorf("flags --yes/-y and --check-only/-c are not supported with `aim update set`")
+	if flagChanged(cmd, "check-only") {
+		return usageError(fmt.Errorf("flag --check-only/-c is not supported with `aim update set`"))
 	}
+	opts := runtimeOptionsFrom(cmd)
 
 	id, err := commandSingleArg(args, "<id>")
 	if err != nil {
@@ -1267,7 +1524,7 @@ func UpdateSetCmd(cmd *cobra.Command, args []string) error {
 
 	app, err := repo.GetApp(id)
 	if err != nil {
-		return err
+		return wrapDatabaseReadError(err)
 	}
 
 	var incomingSource *models.UpdateSource
@@ -1284,10 +1541,13 @@ func UpdateSetCmd(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			printWarning(cmd, warningNoEmbeddedSource())
 			if app.Update == nil || app.Update.Kind == models.UpdateNone {
+				if opts.Output == outputJSON {
+					return printJSONSuccess(cmd, buildUpdateUnsetDryRunResult(id, app.Update))
+				}
 				return nil
 			}
 
-			printCurrentValue(updateSummary(app.Update))
+			printCurrentValue(cmd, updateSummary(app.Update))
 			prompt := formatPrompt("Unset source for", id)
 			_, err := unsetManagedUpdateSource(cmd, app, prompt, false)
 			return err
@@ -1300,9 +1560,9 @@ func UpdateSetCmd(cmd *cobra.Command, args []string) error {
 	}
 
 	if app.Update != nil && app.Update.Kind != models.UpdateNone && !updateSourcesEqual(app.Update, incomingSource) {
-		printCurrentIncoming(updateSummary(app.Update), updateSummary(incomingSource))
+		printCurrentIncoming(cmd, updateSummary(app.Update), updateSummary(incomingSource))
 		prompt := formatPrompt("Replace source for", id)
-		confirmed, err := confirmOverwrite(prompt)
+		confirmed, err := confirmAction(cmd, prompt)
 		if err != nil {
 			return err
 		}
@@ -1312,22 +1572,38 @@ func UpdateSetCmd(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	if opts.DryRun {
+		result := buildUpdateSetDryRunResult(id, app.Update, incomingSource)
+		if opts.Output == outputJSON {
+			return printJSONSuccess(cmd, result)
+		}
+		writeDataf(cmd, "Dry run: would set update source for %s\n", id)
+		return nil
+	}
+
 	app.Update = incomingSource
 
 	if err := repo.UpdateApp(app); err != nil {
-		return err
+		return wrapWriteError(err)
 	}
 
+	if opts.Output == outputJSON {
+		return printJSONSuccess(cmd, map[string]interface{}{
+			"action": "set_update_source",
+			"id":     id,
+			"source": incomingSource,
+		})
+	}
 	printSuccess(cmd, fmt.Sprintf("Update source set: %s", updateSummary(incomingSource)))
 	return nil
 }
 
 func UpdateUnsetCmd(cmd *cobra.Command, args []string) error {
-	if flagChanged(cmd, "yes") || flagChanged(cmd, "check-only") {
-		return fmt.Errorf("flags --yes/-y and --check-only/-c are not supported with `aim update unset`")
+	if flagChanged(cmd, "check-only") {
+		return usageError(fmt.Errorf("flag --check-only/-c is not supported with `aim update unset`"))
 	}
 	if hasUpdateSetFlags(cmd) {
-		return fmt.Errorf("update source flags are not supported with `aim update unset`")
+		return usageError(fmt.Errorf("update source flags are not supported with `aim update unset`"))
 	}
 
 	id, err := commandSingleArg(args, "<id>")
@@ -1337,7 +1613,16 @@ func UpdateUnsetCmd(cmd *cobra.Command, args []string) error {
 
 	app, err := repo.GetApp(id)
 	if err != nil {
-		return err
+		return wrapDatabaseReadError(err)
+	}
+
+	if runtimeOptionsFrom(cmd).DryRun {
+		result := buildUpdateUnsetDryRunResult(id, app.Update)
+		if runtimeOptionsFrom(cmd).Output == outputJSON {
+			return printJSONSuccess(cmd, result)
+		}
+		writeDataf(cmd, "Dry run: would unset update source for %s\n", id)
+		return nil
 	}
 
 	prompt := formatPrompt("Unset source for", id)
@@ -1353,7 +1638,7 @@ func UpdateCheckRemovedCmd(cmd *cobra.Command, args []string) error {
 
 func unsetManagedUpdateSource(cmd *cobra.Command, app *models.App, prompt string, showCurrent bool) (bool, error) {
 	if app == nil {
-		return false, fmt.Errorf("managed app cannot be empty")
+		return false, softwareError(fmt.Errorf("managed app cannot be empty"))
 	}
 	if app.Update == nil || app.Update.Kind == models.UpdateNone {
 		printSuccess(cmd, fmt.Sprintf("No update source configured for %s", app.ID))
@@ -1361,10 +1646,10 @@ func unsetManagedUpdateSource(cmd *cobra.Command, app *models.App, prompt string
 	}
 
 	if showCurrent {
-		printCurrentValue(updateSummary(app.Update))
+		printCurrentValue(cmd, updateSummary(app.Update))
 	}
 
-	confirmed, err := confirmOverwrite(prompt)
+	confirmed, err := confirmAction(cmd, prompt)
 	if err != nil {
 		return false, err
 	}
@@ -1375,7 +1660,7 @@ func unsetManagedUpdateSource(cmd *cobra.Command, app *models.App, prompt string
 
 	app.Update = &models.UpdateSource{Kind: models.UpdateNone}
 	if err := repo.UpdateApp(app); err != nil {
-		return false, err
+		return false, wrapWriteError(err)
 	}
 
 	printSuccess(cmd, "Update source unset")
@@ -1423,16 +1708,16 @@ func validateEmbeddedUpdateSetFlags(cmd *cobra.Command) error {
 	}
 
 	if manifestURL != "" {
-		return fmt.Errorf("--manifest-url is no longer supported; use --github, --gitlab, --zsync, or --embedded")
+		return usageError(fmt.Errorf("--manifest-url is no longer supported; use --github, --gitlab, --zsync, or --embedded"))
 	}
 	if directURL != "" {
-		return fmt.Errorf("--url is no longer supported; use --github, --gitlab, --zsync, or --embedded")
+		return usageError(fmt.Errorf("--url is no longer supported; use --github, --gitlab, --zsync, or --embedded"))
 	}
 	if sha256 != "" {
-		return fmt.Errorf("--sha256 is no longer supported; use --github, --gitlab, --zsync, or --embedded")
+		return usageError(fmt.Errorf("--sha256 is no longer supported; use --github, --gitlab, --zsync, or --embedded"))
 	}
 	if assetPattern != "" {
-		return fmt.Errorf("--asset is only supported with --github or --gitlab")
+		return usageError(fmt.Errorf("--asset is only supported with --github or --gitlab"))
 	}
 
 	selectorCount := 1
@@ -1442,7 +1727,7 @@ func validateEmbeddedUpdateSetFlags(cmd *cobra.Command) error {
 		}
 	}
 	if selectorCount > 1 {
-		return fmt.Errorf("update source flags are mutually exclusive")
+		return usageError(fmt.Errorf("update source flags are mutually exclusive"))
 	}
 
 	return nil
@@ -1479,13 +1764,13 @@ func resolveUpdateSourceFromSetFlags(cmd *cobra.Command) (*models.UpdateSource, 
 	}
 
 	if manifestURL != "" {
-		return nil, fmt.Errorf("--manifest-url is no longer supported; use --github, --gitlab, --zsync, or --embedded")
+		return nil, usageError(fmt.Errorf("--manifest-url is no longer supported; use --github, --gitlab, --zsync, or --embedded"))
 	}
 	if directURL != "" {
-		return nil, fmt.Errorf("--url is no longer supported; use --github, --gitlab, --zsync, or --embedded")
+		return nil, usageError(fmt.Errorf("--url is no longer supported; use --github, --gitlab, --zsync, or --embedded"))
 	}
 	if sha256 != "" {
-		return nil, fmt.Errorf("--sha256 is no longer supported; use --github, --gitlab, --zsync, or --embedded")
+		return nil, usageError(fmt.Errorf("--sha256 is no longer supported; use --github, --gitlab, --zsync, or --embedded"))
 	}
 
 	selectorCount := 0
@@ -1496,10 +1781,10 @@ func resolveUpdateSourceFromSetFlags(cmd *cobra.Command) (*models.UpdateSource, 
 	}
 
 	if selectorCount == 0 {
-		return nil, fmt.Errorf("missing update source; set one of --github, --gitlab, --zsync, or --embedded")
+		return nil, usageError(fmt.Errorf("missing update source; set one of --github, --gitlab, --zsync, or --embedded"))
 	}
 	if selectorCount > 1 {
-		return nil, fmt.Errorf("update source flags are mutually exclusive")
+		return nil, usageError(fmt.Errorf("update source flags are mutually exclusive"))
 	}
 
 	if githubRepo != "" {
@@ -1530,10 +1815,10 @@ func resolveUpdateSourceFromSetFlags(cmd *cobra.Command) (*models.UpdateSource, 
 
 	if zsyncURL != "" {
 		if assetPattern != "" {
-			return nil, fmt.Errorf("--asset is only supported with --github or --gitlab")
+			return nil, usageError(fmt.Errorf("--asset is only supported with --github or --gitlab"))
 		}
 		if !isHTTPSURL(zsyncURL) {
-			return nil, fmt.Errorf("--zsync must be a valid https URL")
+			return nil, usageError(fmt.Errorf("--zsync must be a valid https URL"))
 		}
 		return &models.UpdateSource{
 			Kind: models.UpdateZsync,
@@ -1545,9 +1830,9 @@ func resolveUpdateSourceFromSetFlags(cmd *cobra.Command) (*models.UpdateSource, 
 	}
 
 	if assetPattern != "" {
-		return nil, fmt.Errorf("--asset is only supported with --github or --gitlab")
+		return nil, usageError(fmt.Errorf("--asset is only supported with --github or --gitlab"))
 	}
-	return nil, fmt.Errorf("missing update source; set one of --github, --gitlab, --zsync, or --embedded")
+	return nil, usageError(fmt.Errorf("missing update source; set one of --github, --gitlab, --zsync, or --embedded"))
 }
 
 type pendingManagedUpdate struct {
@@ -1599,7 +1884,6 @@ var migrateSingleApp = repo.MigrateAppToCurrentPaths
 var removeManagedApp = core.Remove
 var addAppsBatch = repo.AddAppsBatch
 var addSingleApp = repo.AddApp
-var terminalOutputChecker = detectTerminalOutput
 
 const defaultReleaseAssetPattern = "*.AppImage"
 
@@ -1618,31 +1902,48 @@ func runManagedUpdate(ctx context.Context, cmd *cobra.Command, targetID string) 
 		return err
 	}
 
+	opts := runtimeOptionsFrom(cmd)
+	if !opts.DryRun {
+		if err := mustEnsureRuntimeDirs(); err != nil {
+			return err
+		}
+	}
 	var pending []pendingManagedUpdate
 	checkFailures := 0
 	singleStatusPrinted := false
 	checkResults := runManagedChecks(apps)
 	metadataUpdates := make([]repo.CheckMetadataUpdate, 0, len(checkResults))
+	rows := make([]updateOutputRow, 0, len(checkResults))
+	rowIndexByID := map[string]int{}
+	checkedAt := util.NowISO()
 
 	for _, result := range checkResults {
 		app := result.app
 		update := result.update
 		err := result.err
 		if err != nil {
-			metadataUpdates = append(metadataUpdates, repo.CheckMetadataUpdate{
-				ID:            app.ID,
-				Checked:       false,
-				Available:     app.UpdateAvailable,
-				Latest:        app.LatestVersion,
-				LastCheckedAt: util.NowISO(),
-			})
+			if !opts.DryRun {
+				metadataUpdates = append(metadataUpdates, repo.CheckMetadataUpdate{
+					ID:            app.ID,
+					Checked:       false,
+					Available:     app.UpdateAvailable,
+					Latest:        app.LatestVersion,
+					LastCheckedAt: checkedAt,
+				})
+			}
 
-			if targetID != "" {
+			if targetID != "" && !opts.DryRun {
 				if metaErr := flushManagedCheckMetadata(metadataUpdates); metaErr != nil {
-					return metaErr
+					return wrapWriteError(metaErr)
 				}
 				metadataUpdates = metadataUpdates[:0]
-				return fmt.Errorf("failed to check updates for %s: %w", app.ID, err)
+			}
+			rows = append(rows, newUpdateOutputRow(app, update, "check_failed", checkedAt))
+			if app != nil {
+				rowIndexByID[app.ID] = len(rows) - 1
+			}
+			if targetID != "" {
+				return tempFailError(fmt.Errorf("failed to check updates for %s: %w", app.ID, err))
 			}
 
 			checkFailures++
@@ -1651,8 +1952,16 @@ func runManagedUpdate(ctx context.Context, cmd *cobra.Command, targetID string) 
 		}
 
 		if update == nil {
-			if targetID != "" {
-				if app.Update == nil || app.Update.Kind == models.UpdateNone {
+			status := "no_update_information"
+			if app.Update == nil || app.Update.Kind == models.UpdateNone {
+				status = "no_update_source"
+			}
+			rows = append(rows, newUpdateOutputRow(app, nil, status, checkedAt))
+			if app != nil {
+				rowIndexByID[app.ID] = len(rows) - 1
+			}
+			if targetID != "" && opts.Output == outputText {
+				if status == "no_update_source" {
 					printSuccess(cmd, fmt.Sprintf("No update source configured for %s", app.ID))
 				} else {
 					printSuccess(cmd, fmt.Sprintf("No update information for %s", app.ID))
@@ -1662,27 +1971,38 @@ func runManagedUpdate(ctx context.Context, cmd *cobra.Command, targetID string) 
 			continue
 		}
 
-		metadataUpdates = append(metadataUpdates, repo.CheckMetadataUpdate{
-			ID:            app.ID,
-			Checked:       true,
-			Available:     update.Available,
-			Latest:        update.Latest,
-			LastCheckedAt: util.NowISO(),
-		})
+		if !opts.DryRun {
+			metadataUpdates = append(metadataUpdates, repo.CheckMetadataUpdate{
+				ID:            app.ID,
+				Checked:       true,
+				Available:     update.Available,
+				Latest:        update.Latest,
+				LastCheckedAt: checkedAt,
+			})
+		}
 
-		if targetID != "" {
+		if targetID != "" && !opts.DryRun {
 			if metaErr := flushManagedCheckMetadata(metadataUpdates); metaErr != nil {
-				return metaErr
+				return wrapWriteError(metaErr)
 			}
 			metadataUpdates = metadataUpdates[:0]
 		}
 
 		if update.URL == "" {
-			if targetID != "" {
+			rows = append(rows, newUpdateOutputRow(app, update, "up_to_date", checkedAt))
+			if app != nil {
+				rowIndexByID[app.ID] = len(rows) - 1
+			}
+			if targetID != "" && opts.Output == outputText {
 				printSuccess(cmd, fmt.Sprintf("Up to date: %s %s", app.ID, displayVersion(app.Version)))
 				singleStatusPrinted = true
 			}
 			continue
+		}
+
+		rows = append(rows, newUpdateOutputRow(app, update, "update_available", checkedAt))
+		if app != nil {
+			rowIndexByID[app.ID] = len(rows) - 1
 		}
 
 		msg := buildManagedUpdateMessage(*update, checkOnly)
@@ -1695,18 +2015,21 @@ func runManagedUpdate(ctx context.Context, cmd *cobra.Command, targetID string) 
 		}
 		printWarning(cmd, msg)
 		if checkOnly {
-			fmt.Printf("  Download: %s\n", update.URL)
+			writeLogf(cmd, "  Download: %s\n", update.URL)
 			if showManagedUpdateAsset(update.Asset) {
-				fmt.Printf("  Asset: %s\n", strings.TrimSpace(update.Asset))
+				writeLogf(cmd, "  Asset: %s\n", strings.TrimSpace(update.Asset))
 			}
 		}
 
 		pending = append(pending, *update)
 	}
 
-	if err := flushManagedCheckMetadata(metadataUpdates); err != nil {
+	if !opts.DryRun {
+		err = flushManagedCheckMetadata(metadataUpdates)
+	}
+	if err != nil {
 		if targetID != "" {
-			return err
+			return wrapWriteError(err)
 		}
 		checkFailures++
 		printError(cmd, fmt.Sprintf("Failed to persist update state: %v", err))
@@ -1715,6 +2038,16 @@ func runManagedUpdate(ctx context.Context, cmd *cobra.Command, targetID string) 
 	if len(pending) == 0 {
 		if targetID != "" && singleStatusPrinted {
 			return nil
+		}
+		if opts.Output == outputJSON {
+			return printJSONSuccess(cmd, rows)
+		}
+		if opts.Output == outputCSV {
+			csvRows := make([][]string, 0, len(rows))
+			for _, row := range rows {
+				csvRows = append(csvRows, row.csvRow())
+			}
+			return writeCSV(cmd, updateCSVHeader(), csvRows)
 		}
 		if checkFailures > 0 {
 			printWarning(cmd, "No updates applied; some checks failed")
@@ -1725,6 +2058,36 @@ func runManagedUpdate(ctx context.Context, cmd *cobra.Command, targetID string) 
 	}
 
 	if checkOnly {
+		if opts.Output == outputJSON {
+			return printJSONSuccess(cmd, rows)
+		}
+		if opts.Output == outputCSV {
+			csvRows := make([][]string, 0, len(rows))
+			for _, row := range rows {
+				csvRows = append(csvRows, row.csvRow())
+			}
+			return writeCSV(cmd, updateCSVHeader(), csvRows)
+		}
+		return nil
+	}
+
+	if opts.DryRun {
+		for idx := range rows {
+			if rows[idx].Status == "update_available" {
+				rows[idx].Status = "dry_run_pending"
+			}
+		}
+		if opts.Output == outputJSON {
+			return printJSONSuccess(cmd, rows)
+		}
+		if opts.Output == outputCSV {
+			csvRows := make([][]string, 0, len(rows))
+			for _, row := range rows {
+				csvRows = append(csvRows, row.csvRow())
+			}
+			return writeCSV(cmd, updateCSVHeader(), csvRows)
+		}
+		printInfo(cmd, "Dry run: no updates were applied")
 		return nil
 	}
 
@@ -1734,11 +2097,26 @@ func runManagedUpdate(ctx context.Context, cmd *cobra.Command, targetID string) 
 			prompt = formatPrompt("Apply updates to", targetID)
 		}
 
-		confirmed, err := confirmOverwrite(prompt)
+		confirmed, err := confirmAction(cmd, prompt)
 		if err != nil {
 			return err
 		}
 		if !confirmed {
+			for idx := range rows {
+				if rows[idx].Status == "update_available" {
+					rows[idx].Status = "apply_skipped"
+				}
+			}
+			if opts.Output == outputJSON {
+				return printJSONSuccess(cmd, rows)
+			}
+			if opts.Output == outputCSV {
+				csvRows := make([][]string, 0, len(rows))
+				for _, row := range rows {
+					csvRows = append(csvRows, row.csvRow())
+				}
+				return writeCSV(cmd, updateCSVHeader(), csvRows)
+			}
 			printWarning(cmd, "No updates applied")
 			return nil
 		}
@@ -1754,6 +2132,10 @@ func runManagedUpdate(ctx context.Context, cmd *cobra.Command, targetID string) 
 		}
 		if result.updatedApp != nil {
 			appliedApps = append(appliedApps, result.updatedApp)
+			if idx, ok := rowIndexByID[result.updatedApp.ID]; ok {
+				rows[idx].Status = "updated"
+				rows[idx].CurrentVersion = result.updatedApp.Version
+			}
 		}
 	}
 
@@ -1765,13 +2147,24 @@ func runManagedUpdate(ctx context.Context, cmd *cobra.Command, targetID string) 
 
 	if applyFailures > 0 {
 		if persistErr != nil {
-			return fmt.Errorf("%d update(s) failed; failed to persist applied updates: %w", applyFailures, persistErr)
+			return wrapWriteError(fmt.Errorf("%d update(s) failed; failed to persist applied updates: %w", applyFailures, persistErr))
 		}
-		return fmt.Errorf("%d update(s) failed", applyFailures)
+		return tempFailError(fmt.Errorf("%d update(s) failed", applyFailures))
 	}
 
 	if persistErr != nil {
-		return persistErr
+		return wrapWriteError(persistErr)
+	}
+
+	if opts.Output == outputJSON {
+		return printJSONSuccess(cmd, rows)
+	}
+	if opts.Output == outputCSV {
+		csvRows := make([][]string, 0, len(rows))
+		for _, row := range rows {
+			csvRows = append(csvRows, row.csvRow())
+		}
+		return writeCSV(cmd, updateCSVHeader(), csvRows)
 	}
 
 	return nil
@@ -1915,7 +2308,7 @@ func persistManagedAppliedApps(apps []*models.App) error {
 	}
 
 	if len(fallbackErrors) > 0 {
-		return fmt.Errorf("failed to persist applied updates: %s", strings.Join(fallbackErrors, "; "))
+		return wrapWriteError(fmt.Errorf("failed to persist applied updates: %s", strings.Join(fallbackErrors, "; ")))
 	}
 
 	return nil
@@ -1925,7 +2318,7 @@ func collectManagedUpdateTargets(targetID string) ([]*models.App, error) {
 	if strings.TrimSpace(targetID) != "" {
 		app, err := repo.GetApp(targetID)
 		if err != nil {
-			return nil, err
+			return nil, wrapDatabaseReadError(err)
 		}
 		return []*models.App{app}, nil
 	}
@@ -2074,7 +2467,7 @@ func checkAppUpdate(app *models.App) (*pendingManagedUpdate, error) {
 			FromKind:     models.UpdateGitLabRelease,
 		}, nil
 	default:
-		return nil, fmt.Errorf("unsupported update source for %s: %q. Reconfigure with `aim update set`", app.ID, app.Update.Kind)
+		return nil, softwareError(fmt.Errorf("unsupported update source for %s: %q. Reconfigure with `aim update set`", app.ID, app.Update.Kind))
 	}
 }
 
@@ -2092,7 +2485,7 @@ func updateCheckMetadata(app *models.App, checked, available bool, latest string
 		Latest:        latest,
 		LastCheckedAt: lastCheckedAt,
 	}}); err != nil {
-		return err
+		return wrapWriteError(err)
 	}
 
 	if checked {
@@ -2108,13 +2501,14 @@ func applyManagedUpdate(ctx context.Context, update pendingManagedUpdate, report
 	emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageQueued})
 
 	if strings.TrimSpace(update.URL) == "" {
-		err := fmt.Errorf("missing download URL")
+		err := softwareError(fmt.Errorf("missing download URL"))
 		emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageFailed, Message: err.Error()})
 		return nil, err
 	}
 
 	tempDir, err := os.MkdirTemp("", "aim-update-*")
 	if err != nil {
+		err = wrapWriteError(err)
 		emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageFailed, Message: err.Error()})
 		return nil, err
 	}
@@ -2170,18 +2564,18 @@ func applyManagedUpdate(ctx context.Context, update pendingManagedUpdate, report
 
 func applyZsyncUpdate(ctx context.Context, update pendingManagedUpdate, destination string) error {
 	if update.App == nil {
-		return fmt.Errorf("missing app")
+		return softwareError(fmt.Errorf("missing app"))
 	}
 	if strings.TrimSpace(update.App.ExecPath) == "" {
-		return fmt.Errorf("missing app exec path")
+		return notFoundError(fmt.Errorf("missing app exec path"))
 	}
 	if strings.TrimSpace(update.ZsyncURL) == "" {
-		return fmt.Errorf("missing zsync url")
+		return unavailableError(fmt.Errorf("missing zsync url"))
 	}
 
 	binary, err := zsyncLookPath("zsync")
 	if err != nil {
-		return err
+		return unavailableError(err)
 	}
 
 	cmd := zsyncCommandContext(ctx, binary, "-q", "-i", update.App.ExecPath, "-o", destination, update.ZsyncURL)
@@ -2190,13 +2584,13 @@ func applyZsyncUpdate(ctx context.Context, update pendingManagedUpdate, destinat
 	if err != nil {
 		msg := strings.TrimSpace(string(output))
 		if msg == "" {
-			return err
+			return unavailableError(err)
 		}
-		return fmt.Errorf("%w: %s", err, msg)
+		return unavailableError(fmt.Errorf("%w: %s", err, msg))
 	}
 
 	if _, err := os.Stat(destination); err != nil {
-		return err
+		return wrapWriteError(err)
 	}
 
 	return nil
@@ -2212,10 +2606,10 @@ func verifyDownloadedUpdate(downloadPath string, update pendingManagedUpdate) er
 			return err
 		}
 		if strings.ToLower(sha256sum) != expectedSHA256 {
-			return fmt.Errorf("downloaded file sha256 mismatch")
+			return unavailableError(fmt.Errorf("downloaded file sha256 mismatch"))
 		}
 		if strings.ToLower(sha1sum) != expectedSHA1 {
-			return fmt.Errorf("downloaded file sha1 mismatch")
+			return unavailableError(fmt.Errorf("downloaded file sha1 mismatch"))
 		}
 		return nil
 	}
@@ -2226,7 +2620,7 @@ func verifyDownloadedUpdate(downloadPath string, update pendingManagedUpdate) er
 			return err
 		}
 		if strings.ToLower(sum) != expectedSHA256 {
-			return fmt.Errorf("downloaded file sha256 mismatch")
+			return unavailableError(fmt.Errorf("downloaded file sha256 mismatch"))
 		}
 	}
 
@@ -2236,7 +2630,7 @@ func verifyDownloadedUpdate(downloadPath string, update pendingManagedUpdate) er
 			return err
 		}
 		if strings.ToLower(sum) != expectedSHA1 {
-			return fmt.Errorf("downloaded file sha1 mismatch")
+			return unavailableError(fmt.Errorf("downloaded file sha1 mismatch"))
 		}
 	}
 
@@ -2333,12 +2727,12 @@ func downloadUpdateAssetWithProgress(ctx context.Context, assetURL, destination 
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return fmt.Errorf("download failed with status %s", resp.Status)
+		return unavailableError(fmt.Errorf("download failed with status %s", resp.Status))
 	}
 
 	f, err := os.OpenFile(destination, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
-		return err
+		return wrapWriteError(err)
 	}
 	defer f.Close()
 
@@ -2354,7 +2748,7 @@ func downloadUpdateAssetWithProgress(ctx context.Context, assetURL, destination 
 		n, readErr := resp.Body.Read(buffer)
 		if n > 0 {
 			if _, err := f.Write(buffer[:n]); err != nil {
-				return err
+				return wrapWriteError(err)
 			}
 			downloaded += int64(n)
 			if onProgress != nil {
@@ -2366,7 +2760,7 @@ func downloadUpdateAssetWithProgress(ctx context.Context, assetURL, destination 
 			now := time.Now()
 			if now.Sub(lastDraw) >= 120*time.Millisecond || readErr == io.EOF {
 				line := buildDownloadProgressLine(downloaded, total, frame)
-				fmt.Printf("\r%s", line)
+				writeProcessLogf("\r%s", line)
 				lastDraw = now
 				frame++
 			}
@@ -2382,13 +2776,13 @@ func downloadUpdateAssetWithProgress(ctx context.Context, assetURL, destination 
 
 	if interactive {
 		line := buildDownloadProgressLine(downloaded, total, frame)
-		fmt.Printf("\r%s\n", line)
+		writeProcessLogf("\r%s\n", line)
 	} else {
 		if onProgress != nil {
 			onProgress(downloaded, total)
 		}
 		if onProgress == nil {
-			fmt.Printf("  Downloaded %s\n", formatByteSize(downloaded))
+			writeProcessLogf("  Downloaded %s\n", formatByteSize(downloaded))
 		}
 	}
 
@@ -2455,19 +2849,6 @@ func useColor(cmd *cobra.Command) bool {
 	return isTerminalOutput()
 }
 
-func isTerminalOutput() bool {
-	return terminalOutputChecker()
-}
-
-func detectTerminalOutput() bool {
-	stat, err := os.Stdout.Stat()
-	if err != nil {
-		return false
-	}
-
-	return (stat.Mode() & os.ModeCharDevice) != 0
-}
-
 func colorize(enabled bool, code, value string) string {
 	if !enabled {
 		return value
@@ -2477,35 +2858,35 @@ func colorize(enabled bool, code, value string) string {
 }
 
 func printSuccess(cmd *cobra.Command, text string) {
-	fmt.Println(colorize(useColor(cmd), "\033[0;32m", text))
+	if runtimeOptionsFrom(cmd).Quiet || !shouldRenderLogs(cmd) {
+		return
+	}
+	writeLogf(cmd, "%s\n", colorize(useColor(cmd), "\033[0;32m", text))
 }
 
 func printWarning(cmd *cobra.Command, text string) {
-	fmt.Println(colorize(useColor(cmd), "\033[0;33m", text))
+	if !shouldRenderLogs(cmd) {
+		return
+	}
+	writeLogf(cmd, "%s\n", colorize(useColor(cmd), "\033[0;33m", text))
 }
 
 func printError(cmd *cobra.Command, text string) {
-	fmt.Println(colorize(useColor(cmd), "\033[0;31m", text))
+	writeLogf(cmd, "%s\n", colorize(useColor(cmd), "\033[0;31m", text))
 }
 
 func printInfo(cmd *cobra.Command, text string) {
-	fmt.Println(colorize(useColor(cmd), "\033[0;36m", text))
+	if runtimeOptionsFrom(cmd).Quiet || !shouldRenderLogs(cmd) {
+		return
+	}
+	writeLogf(cmd, "%s\n", colorize(useColor(cmd), "\033[0;36m", text))
 }
 
 func printSection(cmd *cobra.Command, text string) {
-	fmt.Println(colorize(useColor(cmd), "\033[1m", text))
-}
-
-func confirmOverwrite(prompt string) (bool, error) {
-	fmt.Print(prompt)
-	reader := bufio.NewReader(os.Stdin)
-	line, err := reader.ReadString('\n')
-	if err != nil {
-		return false, err
+	if runtimeOptionsFrom(cmd).Output != outputText {
+		return
 	}
-
-	answer := strings.TrimSpace(line)
-	return strings.EqualFold(answer, "y") || strings.EqualFold(answer, "yes"), nil
+	writeDataf(cmd, "%s\n", colorize(useColor(cmd), "\033[1m", text))
 }
 
 func updateSummary(update *models.UpdateSource) string {
