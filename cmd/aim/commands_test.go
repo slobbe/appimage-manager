@@ -583,13 +583,8 @@ func TestRootVersionOutputIsCompact(t *testing.T) {
 	}
 }
 
-func TestRootCommandOutputsProjectMetadata(t *testing.T) {
+func TestRootCommandShowsConciseHelp(t *testing.T) {
 	cmd := newRootTestCommand()
-	originalVersion := version
-	version = "1.2.3"
-	t.Cleanup(func() {
-		version = originalVersion
-	})
 
 	output := captureStdout(t, func() {
 		if err := executeTestCommand(context.Background(), cmd); err != nil {
@@ -598,23 +593,24 @@ func TestRootCommandOutputsProjectMetadata(t *testing.T) {
 	})
 
 	for _, expected := range []string{
-		"Version: 1.2.3",
-		"Repository: https://github.com/slobbe/appimage-manager",
-		"License: MIT",
+		"USAGE",
+		"aim [flags] [command]",
+		"COMMON COMMANDS",
+		"COMMON FLAGS",
+		"SUPPORT",
 		"Issues: https://github.com/slobbe/appimage-manager/issues",
-		"Author: Sebastian Lobbe <slobbe@lobbe.cc>",
-		"Copyright: Copyright (c) 2025 Sebastian Lobbe",
+		`Use "aim --help" for the full reference or "aim help" for the manual.`,
 	} {
 		if !strings.Contains(output, expected) {
-			t.Fatalf("version output missing %q:\n%s", expected, output)
+			t.Fatalf("root help missing %q:\n%s", expected, output)
 		}
 	}
 	for _, unwanted := range []string{
-		"help for aim",
-		"Usage:",
+		"Version:",
+		"License:",
 	} {
 		if strings.Contains(output, unwanted) {
-			t.Fatalf("root output unexpectedly contains %q:\n%s", unwanted, output)
+			t.Fatalf("root help unexpectedly contains %q:\n%s", unwanted, output)
 		}
 	}
 }
@@ -746,7 +742,7 @@ func TestMigrateCmdRejectsExtraArgs(t *testing.T) {
 	}
 }
 
-func TestRootMetadataDoesNotAdvertiseRemovedCommands(t *testing.T) {
+func TestRootHelpDoesNotAdvertiseRemovedCommands(t *testing.T) {
 	cmd := newRootTestCommand()
 
 	output := captureStdout(t, func() {
@@ -757,17 +753,17 @@ func TestRootMetadataDoesNotAdvertiseRemovedCommands(t *testing.T) {
 
 	for _, unwanted := range []string{"\n  upgrade", "\n  pin", "\n  unpin", "\n  completion", "\n  integrate", "\n  install", "\n  show", "\n  inspect"} {
 		if strings.Contains(output, unwanted) {
-			t.Fatalf("root metadata unexpectedly contains %q:\n%s", unwanted, output)
+			t.Fatalf("root help unexpectedly contains %q:\n%s", unwanted, output)
 		}
 	}
-	for _, required := range []string{"Version:", "Repository:", "License:", "Issues:", "Author:", "Copyright:"} {
+	for _, required := range []string{"Repository:", "Issues:", "\n  add", "\n  update", "\n  info", "\n  list"} {
 		if !strings.Contains(output, required) {
-			t.Fatalf("expected root metadata to include %q:\n%s", required, output)
+			t.Fatalf("expected root help to include %q:\n%s", required, output)
 		}
 	}
-	for _, unwanted := range []string{"help for aim", "Usage:", "--upgrade", "\n  add", "\n  info", "\n  list", "\n  remove", "\n  update", "\n  version"} {
+	for _, unwanted := range []string{"Version:", "License:", "Author:", "Copyright:"} {
 		if strings.Contains(output, unwanted) {
-			t.Fatalf("root metadata unexpectedly contains help content %q:\n%s", unwanted, output)
+			t.Fatalf("root help unexpectedly contains legacy metadata %q:\n%s", unwanted, output)
 		}
 	}
 }
@@ -906,6 +902,55 @@ func TestStructuredFlagHelpUsesSemanticMetavars(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestMissingInfoArgumentShowsConciseHelpOnStderr(t *testing.T) {
+	cmd := newRootTestCommand()
+	stdout, stderr, err := executeCommandWithIO(context.Background(), cmd, "info")
+	if err == nil {
+		t.Fatal("expected missing argument error")
+	}
+	if code := exitCodeForError(err); code != exitUsage {
+		t.Fatalf("exitCodeForError = %d, want %d", code, exitUsage)
+	}
+	if strings.TrimSpace(stdout) != "" {
+		t.Fatalf("expected no stdout output, got:\n%s", stdout)
+	}
+	for _, expected := range []string{"missing required argument <target>", "USAGE", "EXAMPLES", `Use "aim info --help"`} {
+		if !strings.Contains(stderr, expected) {
+			t.Fatalf("expected stderr to contain %q:\n%s", expected, stderr)
+		}
+	}
+}
+
+func TestHelpCommandUnknownTopicSuggestsCommand(t *testing.T) {
+	cmd := newRootTestCommand()
+	stdout, stderr, err := executeCommandWithIO(context.Background(), cmd, "help", "updat")
+	if err == nil {
+		t.Fatal("expected help topic error")
+	}
+	if code := exitCodeForError(err); code != exitUsage {
+		t.Fatalf("exitCodeForError = %d, want %d", code, exitUsage)
+	}
+	if strings.TrimSpace(stdout) != "" {
+		t.Fatalf("expected no stdout output, got:\n%s", stdout)
+	}
+	if strings.TrimSpace(stderr) != "" {
+		t.Fatalf("expected command execution to defer error rendering, got stderr:\n%s", stderr)
+	}
+
+	var rendered bytes.Buffer
+	cmd.SetErr(&rendered)
+	renderCode := renderCommandError(cmd, []string{"help", "updat"}, err)
+	if renderCode != exitUsage {
+		t.Fatalf("renderCommandError = %d, want %d", renderCode, exitUsage)
+	}
+	if !strings.Contains(rendered.String(), `unknown help topic "updat"`) {
+		t.Fatalf("unexpected rendered stderr:\n%s", rendered.String())
+	}
+	if !strings.Contains(rendered.String(), `Did you mean "update"?`) {
+		t.Fatalf("expected suggestion in rendered stderr:\n%s", rendered.String())
 	}
 }
 
@@ -3512,7 +3557,7 @@ func TestConfigFlagOverridesPathsBeforeCommandExecution(t *testing.T) {
 	}
 }
 
-func TestRootJSONOutput(t *testing.T) {
+func TestRootIgnoresStructuredOutputForConciseHelp(t *testing.T) {
 	cmd := newRootTestCommand()
 	output, stderr, err := executeCommandWithIO(context.Background(), cmd, "--output", "json")
 	if err != nil {
@@ -3522,12 +3567,46 @@ func TestRootJSONOutput(t *testing.T) {
 		t.Fatalf("expected no stderr output, got:\n%s", stderr)
 	}
 
-	var payload commandJSONEnvelope
-	if err := json.Unmarshal([]byte(output), &payload); err != nil {
-		t.Fatalf("failed to decode json output: %v", err)
+	if strings.Contains(output, `"ok"`) {
+		t.Fatalf("expected text help output, got:\n%s", output)
 	}
-	if payload.Command != "aim" || !payload.OK {
-		t.Fatalf("unexpected payload: %#v", payload)
+	if !strings.Contains(output, "COMMON COMMANDS") {
+		t.Fatalf("expected concise help output, got:\n%s", output)
+	}
+}
+
+func TestRootFullHelpIgnoresTrailingFlags(t *testing.T) {
+	cmd := newRootTestCommand()
+	output, stderr, err := executeCommandWithIO(context.Background(), cmd, "--help", "--output", "json")
+	if err != nil {
+		t.Fatalf("executeCommandWithIO returned error: %v", err)
+	}
+	if strings.TrimSpace(stderr) != "" {
+		t.Fatalf("expected no stderr output, got:\n%s", stderr)
+	}
+	for _, expected := range []string{"USAGE", "ALL COMMANDS", "ALL FLAGS", "MORE INFO"} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("expected help output to contain %q:\n%s", expected, output)
+		}
+	}
+}
+
+func TestHelpCommandShowsManualText(t *testing.T) {
+	cmd := newRootTestCommand()
+	output, stderr, err := executeCommandWithIO(context.Background(), cmd, "help", "add")
+	if err != nil {
+		t.Fatalf("executeCommandWithIO returned error: %v", err)
+	}
+	if strings.TrimSpace(stderr) != "" {
+		t.Fatalf("expected no stderr output, got:\n%s", stderr)
+	}
+	for _, expected := range []string{"NAME", "SYNOPSIS", "DESCRIPTION", "EXAMPLES", "OPTIONS", "MORE INFO"} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("expected manual output to contain %q:\n%s", expected, output)
+		}
+	}
+	if !strings.Contains(output, "aim add [<https-url|github-url|gitlab-url|id|Path/To.AppImage>] - Install an AppImage from a file, URL, or provider") {
+		t.Fatalf("unexpected manual output:\n%s", output)
 	}
 }
 
@@ -4030,6 +4109,7 @@ func TestRenderManPageIncludesMetadata(t *testing.T) {
 		".SH LICENSE",
 		".SH REPOSITORY",
 		".SH ISSUES",
+		".SH MORE INFO",
 		"1.2.3",
 		"Sebastian Lobbe <slobbe@lobbe.cc>",
 		"Copyright (c) 2025 Sebastian Lobbe",
@@ -4056,19 +4136,47 @@ func TestRenderManPageIncludesMetadata(t *testing.T) {
 	}
 }
 
-func TestGeneratedManPageIsCurrent(t *testing.T) {
-	got, err := renderManPage(newRootCommand(version), 1)
-	if err != nil {
-		t.Fatalf("failed to generate man page: %v", err)
+func TestRenderSubcommandManPage(t *testing.T) {
+	root := newRootCommand("1.2.3")
+	addCmd := findSubcommand(root, "add")
+	if addCmd == nil {
+		t.Fatal("expected add command")
 	}
 
-	wantBytes, err := os.ReadFile(filepath.Join("..", "..", "docs", "aim.1"))
+	got, err := renderManPage(addCmd, 1)
 	if err != nil {
-		t.Fatalf("failed to read committed man page: %v", err)
+		t.Fatalf("failed to generate subcommand man page: %v", err)
 	}
+	for _, expected := range []string{
+		`.TH "AIM-ADD" "1"`,
+		".SH NAME",
+		"aim add",
+		".SH MORE INFO",
+		"https://github.com/slobbe/appimage\\-manager#add",
+	} {
+		if !strings.Contains(got, expected) {
+			t.Fatalf("generated subcommand man page missing %q:\n%s", expected, got)
+		}
+	}
+}
 
-	if got != string(wantBytes) {
-		t.Fatal("generated man page is stale; run `go run -tags docgen ./cmd/aim`")
+func TestGeneratedManPagesAreCurrent(t *testing.T) {
+	root := newRootCommand(version)
+	for _, cmd := range documentedCommands(root) {
+		got, err := renderManPage(cmd, 1)
+		if err != nil {
+			t.Fatalf("failed to generate man page for %s: %v", commandName(cmd), err)
+		}
+
+		path := filepath.Join("..", "..", manPagePathForCommand(root, cmd))
+		wantBytes, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("failed to read committed man page %s: %v", path, err)
+		}
+
+		if got != string(wantBytes) {
+			t.Fatalf("generated man page is stale for %s; run `go run -tags docgen ./cmd/aim`", commandName(cmd))
+		}
 	}
 }
 
@@ -6112,6 +6220,9 @@ func newManagedUpdateTestCommand(t *testing.T, values map[string]string) *cobra.
 func executeTestCommand(ctx context.Context, cmd *cobra.Command, args ...string) error {
 	cmd.SetOut(os.Stdout)
 	cmd.SetErr(os.Stderr)
+	if handled, err := maybeRunExplicitHelp(ctx, cmd, args); handled {
+		return err
+	}
 	if handled, err := maybeRunRootUpgradeFlag(ctx, cmd, args); handled {
 		return err
 	}
@@ -6125,6 +6236,9 @@ func executeCommandWithIO(ctx context.Context, cmd *cobra.Command, args ...strin
 
 	cmd.SetOut(&stdout)
 	cmd.SetErr(&stderr)
+	if handled, err := maybeRunExplicitHelp(ctx, cmd, args); handled {
+		return stdout.String(), stderr.String(), err
+	}
 	if handled, err := maybeRunRootUpgradeFlag(ctx, cmd, args); handled {
 		return stdout.String(), stderr.String(), err
 	}

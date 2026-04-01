@@ -28,6 +28,10 @@ type cliError struct {
 	Err  error
 }
 
+type displayedError struct {
+	Err error
+}
+
 func (e *cliError) Error() string {
 	if e == nil || e.Err == nil {
 		return ""
@@ -36,6 +40,20 @@ func (e *cliError) Error() string {
 }
 
 func (e *cliError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
+func (e *displayedError) Error() string {
+	if e == nil || e.Err == nil {
+		return ""
+	}
+	return e.Err.Error()
+}
+
+func (e *displayedError) Unwrap() error {
 	if e == nil {
 		return nil
 	}
@@ -132,6 +150,8 @@ func exitCodeForError(err error) int {
 	case strings.Contains(msg, "permission denied"):
 		return exitNoPerm
 	case strings.Contains(msg, "missing required argument"),
+		strings.Contains(msg, "unknown command"),
+		strings.Contains(msg, "unknown help topic"),
 		strings.Contains(msg, "too many arguments"),
 		strings.Contains(msg, "mutually exclusive"),
 		strings.Contains(msg, "unsupported output format"),
@@ -214,14 +234,57 @@ func renderCommandError(root *cobra.Command, args []string, err error) int {
 		return exitSuccess
 	}
 
+	var displayed *displayedError
+	if errors.As(err, &displayed) {
+		return exitCodeForError(err)
+	}
+
 	output, _ := root.PersistentFlags().GetString("output")
 	if strings.EqualFold(strings.TrimSpace(output), outputJSON) {
 		printJSONError(root.ErrOrStderr(), commandNameFromArgs(root, args), argsContainFlag(args, "--dry-run"), err)
 	} else {
 		_, _ = fmt.Fprintln(root.ErrOrStderr(), err)
+		if suggestion := suggestionForError(root, err); suggestion != "" {
+			_, _ = fmt.Fprintf(root.ErrOrStderr(), "Did you mean %q?\n", suggestion)
+		}
 	}
 
 	return exitCodeForError(err)
+}
+
+func markErrorDisplayed(err error) error {
+	if err == nil {
+		return nil
+	}
+	var displayed *displayedError
+	if errors.As(err, &displayed) {
+		return err
+	}
+	return &displayedError{Err: err}
+}
+
+func suggestionForError(root *cobra.Command, err error) string {
+	if root == nil || err == nil {
+		return ""
+	}
+
+	message := strings.TrimSpace(err.Error())
+	if !strings.HasPrefix(message, "unknown command ") {
+		return ""
+	}
+
+	trimmed := strings.TrimPrefix(message, "unknown command ")
+	idx := strings.Index(trimmed, `"`)
+	if idx != 0 {
+		return ""
+	}
+	trimmed = trimmed[1:]
+	end := strings.Index(trimmed, `"`)
+	if end < 0 {
+		return ""
+	}
+
+	return suggestedCommandName(root, trimmed[:end])
 }
 
 func formatExitStatusSection() string {

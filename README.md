@@ -80,6 +80,8 @@ aim --upgrade   # upgrade aim to the newest version
 
 Use `aim --help`, `aim <command> --help`, or the man page for full option details.
 
+Bare `aim` prints concise getting-started help. Use `aim --help` for the full inline reference and `aim help [command]` for the terminal manual page.
+
 ## Global flags for scripting
 
 `aim` now exposes a consistent set of global flags on all visible commands:
@@ -120,6 +122,73 @@ Exit codes:
 - `73`: local write, create, or update failure
 - `75`: temporary or retryable runtime failure
 - `77`: permission, confirmation, or precondition refusal
+
+## Help and terminal docs
+
+`aim` exposes two help surfaces:
+
+- `aim` shows concise getting-started help
+- `aim --help` and `aim <command> --help` show the full inline reference
+- `aim help` and `aim help <command>` show terminal manual pages backed by the installed command tree
+
+Examples:
+
+```sh
+aim
+aim --help
+aim help
+aim help update
+aim help update set
+```
+
+Manual pages are also generated for direct `man` use:
+
+```sh
+man aim
+man aim-add
+man aim-update-set
+```
+
+## Command Reference
+
+### list
+
+List managed AppImages in text, JSON, or CSV form.
+
+```sh
+aim list
+aim list --output json
+aim list --output csv
+```
+
+### migrate
+
+Repair managed state and migrate legacy paths.
+
+```sh
+aim migrate
+aim migrate example-app
+aim migrate --dry-run --output json
+```
+
+### update set
+
+Set the configured update source for a managed app.
+
+```sh
+aim update set example-app --github owner/repo
+aim update set example-app --embedded
+aim update set example-app --zsync https://example.com/Example.AppImage.zsync
+```
+
+### update unset
+
+Unset the configured update source for a managed app.
+
+```sh
+aim update unset example-app
+aim update unset example-app --dry-run --output json
+```
 
 ## Where `aim` stores files
 

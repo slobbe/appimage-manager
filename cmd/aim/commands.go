@@ -40,7 +40,8 @@ func RootCmd(cmd *cobra.Command, args []string) error {
 		return runUpgrade(cmd.Context(), cmd)
 	}
 
-	return printAimMetadata(cmd)
+	writeDataf(cmd, "%s", renderConciseHelp(cmd))
+	return nil
 }
 
 func maybeRunRootUpgradeFlag(ctx context.Context, cmd *cobra.Command, args []string) (bool, error) {
@@ -215,6 +216,10 @@ func MigrateCmd(cmd *cobra.Command, args []string) error {
 }
 
 func AddCmd(cmd *cobra.Command, args []string) error {
+	if addCommandNeedsInput(cmd, args) {
+		return printConciseHelpError(cmd, "missing required argument <https-url|github-url|gitlab-url|id|Path/To.AppImage>")
+	}
+
 	if ref, ok, err := resolveAddProviderRef(cmd, args); err != nil {
 		return err
 	} else if ok {
@@ -765,6 +770,10 @@ func isSHA256Hex(value string) bool {
 }
 
 func RemoveCmd(cmd *cobra.Command, args []string) error {
+	if len(nonFlagCommandTokens(args)) == 0 {
+		return printConciseHelpError(cmd, "missing required argument <id>")
+	}
+
 	id, err := commandSingleArg(args, "<id>")
 	if err != nil {
 		return err
@@ -923,6 +932,10 @@ func ListCmd(cmd *cobra.Command, args []string) error {
 }
 
 func InfoCmd(cmd *cobra.Command, args []string) error {
+	if infoCommandNeedsInput(cmd, args) {
+		return printConciseHelpError(cmd, "missing required argument <target>")
+	}
+
 	if ref, ok, err := resolveInfoProviderRef(cmd, args); err != nil {
 		return err
 	} else if ok {
@@ -1515,6 +1528,9 @@ func UpdateSetCmd(cmd *cobra.Command, args []string) error {
 	if flagChanged(cmd, "check-only") {
 		return usageError(fmt.Errorf("flag --check-only/-c is not supported with `aim update set`"))
 	}
+	if len(nonFlagCommandTokens(args)) == 0 {
+		return printConciseHelpError(cmd, "missing required argument <id>")
+	}
 	opts := runtimeOptionsFrom(cmd)
 
 	id, err := commandSingleArg(args, "<id>")
@@ -1604,6 +1620,9 @@ func UpdateUnsetCmd(cmd *cobra.Command, args []string) error {
 	}
 	if hasUpdateSetFlags(cmd) {
 		return usageError(fmt.Errorf("update source flags are not supported with `aim update unset`"))
+	}
+	if len(nonFlagCommandTokens(args)) == 0 {
+		return printConciseHelpError(cmd, "missing required argument <id>")
 	}
 
 	id, err := commandSingleArg(args, "<id>")

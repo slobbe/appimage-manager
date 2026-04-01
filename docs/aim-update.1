@@ -1,0 +1,242 @@
+.nh
+.TH "AIM-UPDATE" "1" "Apr 2026" "aim " "Manage AppImages from the terminal without manual desktop setup or update juggling"
+
+.SH NAME
+aim-update - Check, apply, or configure updates
+
+
+.SH SYNOPSIS
+\fBaim update [id] [flags]\fP
+
+
+.SH DESCRIPTION
+Check or apply updates for managed AppImages, or manage configured update sources.
+
+
+.SH OPTIONS
+\fB--asset\fP=""
+	asset filename pattern; defaults to "*.AppImage" for GitHub/GitLab (for 'update set')
+
+.PP
+\fB-c\fP, \fB--check-only\fP[=false]
+	check only; do not apply updates
+
+.PP
+\fB--embedded\fP[=false]
+	use the update source embedded in the current AppImage (for 'update set')
+
+.PP
+\fB--github\fP=
+	GitHub repo in the form owner/repo (for 'update set')
+
+.PP
+\fB--gitlab\fP=
+	GitLab project path namespace/project (for 'update set')
+
+.PP
+\fB-h\fP, \fB--help\fP[=false]
+	help for update
+
+.PP
+\fB--zsync\fP=
+	direct zsync metadata URL (https, for 'update set')
+
+
+.SH OPTIONS INHERITED FROM PARENT COMMANDS
+\fB-C\fP, \fB--config\fP=
+	use an alternate AIM state root
+
+.PP
+\fB--dry-run\fP[=false]
+	simulate changes without applying them
+
+.PP
+\fB--output\fP="text"
+	output format: text, json, or csv
+
+.PP
+\fB-q\fP, \fB--quiet\fP[=false]
+	suppress non-essential status output
+
+.PP
+\fB--verbose\fP[=false]
+	enable verbose diagnostic logging
+
+.PP
+\fB-y\fP, \fB--yes\fP[=false]
+	skip confirmation prompts
+
+
+.SH EXAMPLE
+.EX
+aim update
+  aim update --check-only --output csv
+  aim update --yes
+  aim update example-app --dry-run --output json
+.EE
+
+
+.SH COMMANDS
+.SS aim update help [command]
+.TP
+\fBSynopsis\fP
+aim update help [command]
+.TP
+\fBDescription\fP
+Help provides help for any command in the application.
+Simply type update help [path to command] for full details.
+.TP
+\fBOptions\fP
+.TP
+\-\-asset string
+asset filename pattern; defaults to "*.AppImage" for GitHub/GitLab (for 'update set')
+.TP
+\-c, \-\-check\-only
+check only; do not apply updates
+.TP
+\-C DIR, \-\-config DIR
+use an alternate AIM state root
+.TP
+\-\-dry\-run
+simulate changes without applying them
+.TP
+\-\-embedded
+use the update source embedded in the current AppImage (for 'update set')
+.TP
+\-\-github owner/repo
+GitHub repo in the form owner/repo (for 'update set')
+.TP
+\-\-gitlab namespace/project
+GitLab project path namespace/project (for 'update set')
+.TP
+\-\-output string
+output format: text, json, or csv
+.TP
+\-q, \-\-quiet
+suppress non\-essential status output
+.TP
+\-\-verbose
+enable verbose diagnostic logging
+.TP
+\-y, \-\-yes
+skip confirmation prompts
+.TP
+\-\-zsync URL
+direct zsync metadata URL (https, for 'update set')
+.SS aim update set <id>
+.TP
+\fBSynopsis\fP
+aim update set <id>
+.TP
+\fBDescription\fP
+Set the update source for a managed AppImage
+.TP
+\fBExamples\fP
+aim update set example\-app \-\-github owner/repo
+aim update set example\-app \-\-embedded
+aim update set example\-app \-\-zsync https://example.com/Example.AppImage.zsync \-\-dry\-run \-\-output json
+.TP
+\fBOptions\fP
+.TP
+\-\-asset string
+asset filename pattern; defaults to "*.AppImage" for GitHub/GitLab (for 'update set')
+.TP
+\-c, \-\-check\-only
+check only; do not apply updates
+.TP
+\-C DIR, \-\-config DIR
+use an alternate AIM state root
+.TP
+\-\-dry\-run
+simulate changes without applying them
+.TP
+\-\-embedded
+use the update source embedded in the current AppImage (for 'update set')
+.TP
+\-\-github owner/repo
+GitHub repo in the form owner/repo (for 'update set')
+.TP
+\-\-gitlab namespace/project
+GitLab project path namespace/project (for 'update set')
+.TP
+\-\-output string
+output format: text, json, or csv
+.TP
+\-q, \-\-quiet
+suppress non\-essential status output
+.TP
+\-\-verbose
+enable verbose diagnostic logging
+.TP
+\-y, \-\-yes
+skip confirmation prompts
+.TP
+\-\-zsync URL
+direct zsync metadata URL (https, for 'update set')
+.SS aim update unset <id>
+.TP
+\fBSynopsis\fP
+aim update unset <id>
+.TP
+\fBDescription\fP
+Unset the update source for a managed AppImage
+.TP
+\fBExamples\fP
+aim update unset example\-app
+aim update unset example\-app \-\-dry\-run \-\-output json
+.TP
+\fBOptions\fP
+.TP
+\-\-asset string
+asset filename pattern; defaults to "*.AppImage" for GitHub/GitLab (for 'update set')
+.TP
+\-c, \-\-check\-only
+check only; do not apply updates
+.TP
+\-C DIR, \-\-config DIR
+use an alternate AIM state root
+.TP
+\-\-dry\-run
+simulate changes without applying them
+.TP
+\-\-embedded
+use the update source embedded in the current AppImage (for 'update set')
+.TP
+\-\-github owner/repo
+GitHub repo in the form owner/repo (for 'update set')
+.TP
+\-\-gitlab namespace/project
+GitLab project path namespace/project (for 'update set')
+.TP
+\-\-output string
+output format: text, json, or csv
+.TP
+\-q, \-\-quiet
+suppress non\-essential status output
+.TP
+\-\-verbose
+enable verbose diagnostic logging
+.TP
+\-y, \-\-yes
+skip confirmation prompts
+.TP
+\-\-zsync URL
+direct zsync metadata URL (https, for 'update set')
+.SH AUTHOR
+Sebastian Lobbe <slobbe@lobbe.cc>
+
+.SH COPYRIGHT
+Copyright (c) 2025 Sebastian Lobbe
+
+.SH LICENSE
+MIT
+
+.SH REPOSITORY
+https://github.com/slobbe/appimage\-manager
+
+.SH ISSUES
+https://github.com/slobbe/appimage\-manager/issues
+
+.SH MORE INFO
+https://github.com/slobbe/appimage\-manager#update
+

@@ -16,9 +16,9 @@ func renderManPage(cmd *cobra.Command, sectionNum int) (string, error) {
 
 	var buf bytes.Buffer
 	header := &doc.GenManHeader{
-		Title:   strings.ToUpper(cmd.Name()),
+		Title:   strings.ToUpper(manPageNameForCommand(cmd)),
 		Section: strconv.Itoa(sectionNum),
-		Source:  fmt.Sprintf("%s %s", cmd.Name(), cmd.Version),
+		Source:  fmt.Sprintf("aim %s", cmd.Version),
 		Manual:  rootCommandDescription,
 	}
 	if err := doc.GenMan(cmd, header, &buf); err != nil {
@@ -63,7 +63,12 @@ func renderManMetadataSections(cmd *cobra.Command) string {
 	if issuesURL := strings.TrimSpace(rootCommandIssuesURL); issuesURL != "" {
 		sections = append(sections, renderManSection("ISSUES", issuesURL))
 	}
-	sections = append(sections, renderManSection("EXIT STATUS", formatExitStatusSection()))
+	if docsURL := strings.TrimSpace(docsURLForCommand(cmd)); docsURL != "" {
+		sections = append(sections, renderManSection("MORE INFO", docsURL))
+	}
+	if commandName(cmd) == "aim" {
+		sections = append(sections, renderManSection("EXIT STATUS", formatExitStatusSection()))
+	}
 
 	return strings.Join(sections, "\n")
 }

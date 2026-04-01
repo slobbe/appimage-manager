@@ -12,6 +12,13 @@ func main() {
 	root.SetOut(os.Stdout)
 	root.SetErr(os.Stderr)
 
+	if handled, err := maybeRunExplicitHelp(context.Background(), root, os.Args[1:]); handled {
+		if err != nil {
+			os.Exit(renderCommandError(root, os.Args[1:], err))
+		}
+		return
+	}
+
 	root.SetArgs(os.Args[1:])
 	root.SetVersionTemplate("{{.Version}}\n")
 

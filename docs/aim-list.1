@@ -1,0 +1,84 @@
+.nh
+.TH "AIM-LIST" "1" "Apr 2026" "aim " "Manage AppImages from the terminal without manual desktop setup or update juggling"
+
+.SH NAME
+aim-list - List managed AppImages
+
+
+.SH SYNOPSIS
+\fBaim list [flags]\fP
+
+
+.SH DESCRIPTION
+List managed AppImages
+
+
+.SH OPTIONS
+\fB-a\fP, \fB--all\fP[=false]
+	list all AppImages (default)
+
+.PP
+\fB-h\fP, \fB--help\fP[=false]
+	help for list
+
+.PP
+\fB-i\fP, \fB--integrated\fP[=false]
+	list integrated AppImages only
+
+.PP
+\fB-u\fP, \fB--unlinked\fP[=false]
+	list unlinked AppImages only
+
+
+.SH OPTIONS INHERITED FROM PARENT COMMANDS
+\fB-C\fP, \fB--config\fP=
+	use an alternate AIM state root
+
+.PP
+\fB--dry-run\fP[=false]
+	simulate changes without applying them
+
+.PP
+\fB--output\fP="text"
+	output format: text, json, or csv
+
+.PP
+\fB-q\fP, \fB--quiet\fP[=false]
+	suppress non-essential status output
+
+.PP
+\fB--verbose\fP[=false]
+	enable verbose diagnostic logging
+
+.PP
+\fB-y\fP, \fB--yes\fP[=false]
+	skip confirmation prompts
+
+
+.SH EXAMPLE
+.EX
+aim list
+  aim list --integrated
+  aim list --output json
+  aim list --output csv
+.EE
+
+
+.SH AUTHOR
+Sebastian Lobbe <slobbe@lobbe.cc>
+
+.SH COPYRIGHT
+Copyright (c) 2025 Sebastian Lobbe
+
+.SH LICENSE
+MIT
+
+.SH REPOSITORY
+https://github.com/slobbe/appimage\-manager
+
+.SH ISSUES
+https://github.com/slobbe/appimage\-manager/issues
+
+.SH MORE INFO
+https://github.com/slobbe/appimage\-manager#command\-reference\-list
+

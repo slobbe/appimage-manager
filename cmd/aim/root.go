@@ -50,6 +50,7 @@ func newRootCommand(version string) *cobra.Command {
 		newMigrateCommand(),
 		newUpdateCommand(),
 	)
+	root.SuggestionsMinimumDistance = 2
 	root.Flags().BoolP("upgrade", "U", false, "upgrade aim via the official installer")
 	persistentFlags := root.PersistentFlags()
 	persistentFlags.Bool("verbose", false, "enable verbose diagnostic logging")
@@ -59,6 +60,7 @@ func newRootCommand(version string) *cobra.Command {
 	persistentFlags.BoolP("yes", "y", false, "skip confirmation prompts")
 	persistentFlags.String("output", outputText, "output format: text, json, or csv")
 	root.InitDefaultVersionFlag()
+	installHelpSystem(root)
 
 	return root
 }

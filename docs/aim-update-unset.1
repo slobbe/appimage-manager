@@ -1,0 +1,94 @@
+.nh
+.TH "AIM-UPDATE-UNSET" "1" "Apr 2026" "aim " "Manage AppImages from the terminal without manual desktop setup or update juggling"
+
+.SH NAME
+aim-update-unset - Unset the update source for a managed AppImage
+
+
+.SH SYNOPSIS
+\fBaim update unset  [flags]\fP
+
+
+.SH DESCRIPTION
+Unset the update source for a managed AppImage
+
+
+.SH OPTIONS
+\fB-h\fP, \fB--help\fP[=false]
+	help for unset
+
+
+.SH OPTIONS INHERITED FROM PARENT COMMANDS
+\fB--asset\fP=""
+	asset filename pattern; defaults to "*.AppImage" for GitHub/GitLab (for 'update set')
+
+.PP
+\fB-c\fP, \fB--check-only\fP[=false]
+	check only; do not apply updates
+
+.PP
+\fB-C\fP, \fB--config\fP=
+	use an alternate AIM state root
+
+.PP
+\fB--dry-run\fP[=false]
+	simulate changes without applying them
+
+.PP
+\fB--embedded\fP[=false]
+	use the update source embedded in the current AppImage (for 'update set')
+
+.PP
+\fB--github\fP=
+	GitHub repo in the form owner/repo (for 'update set')
+
+.PP
+\fB--gitlab\fP=
+	GitLab project path namespace/project (for 'update set')
+
+.PP
+\fB--output\fP="text"
+	output format: text, json, or csv
+
+.PP
+\fB-q\fP, \fB--quiet\fP[=false]
+	suppress non-essential status output
+
+.PP
+\fB--verbose\fP[=false]
+	enable verbose diagnostic logging
+
+.PP
+\fB-y\fP, \fB--yes\fP[=false]
+	skip confirmation prompts
+
+.PP
+\fB--zsync\fP=
+	direct zsync metadata URL (https, for 'update set')
+
+
+.SH EXAMPLE
+.EX
+aim update unset example-app
+  aim update unset example-app --dry-run --output json
+.EE
+
+
+.SH AUTHOR
+Sebastian Lobbe <slobbe@lobbe.cc>
+
+.SH COPYRIGHT
+Copyright (c) 2025 Sebastian Lobbe
+
+.SH LICENSE
+MIT
+
+.SH REPOSITORY
+https://github.com/slobbe/appimage\-manager
+
+.SH ISSUES
+https://github.com/slobbe/appimage\-manager/issues
+
+.SH MORE INFO
+https://github.com/slobbe/appimage\-manager#command\-reference\-update\-unset
+

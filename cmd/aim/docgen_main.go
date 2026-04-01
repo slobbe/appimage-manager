@@ -13,21 +13,32 @@ func main() {
 	root := newRootCommand(version)
 
 	outputPath := strings.TrimSpace(os.Getenv("AIM_MAN_OUTPUT"))
-	if outputPath == "" {
-		outputPath = filepath.Join("docs", "aim.1")
-	}
+	if outputPath != "" {
+		manPage, err := renderManPage(root, 1)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
+			log.Fatal(err)
+		}
+		if err := os.WriteFile(outputPath, []byte(manPage), 0o644); err != nil {
+			log.Fatal(err)
+		}
+	} else {
+		for _, cmd := range documentedCommands(root) {
+			manPage, err := renderManPage(cmd, 1)
+			if err != nil {
+				log.Fatal(err)
+			}
 
-	manPage, err := renderManPage(root, 1)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
-		log.Fatal(err)
-	}
-
-	if err := os.WriteFile(outputPath, []byte(manPage), 0o644); err != nil {
-		log.Fatal(err)
+			path := manPagePathForCommand(root, cmd)
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				log.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(manPage), 0o644); err != nil {
+				log.Fatal(err)
+			}
+		}
 	}
 
 	completionDir := strings.TrimSpace(os.Getenv("AIM_COMPLETION_DIR"))

@@ -1,0 +1,88 @@
+.nh
+.TH "AIM-ADD" "1" "Apr 2026" "aim " "Manage AppImages from the terminal without manual desktop setup or update juggling"
+
+.SH NAME
+aim-add - Install an AppImage from a file, URL, or provider
+
+
+.SH SYNOPSIS
+\fBaim add [] [flags]\fP
+
+
+.SH DESCRIPTION
+Install an AppImage from a file, URL, or provider
+
+
+.SH OPTIONS
+\fB--asset\fP=""
+	asset filename pattern override for GitHub/GitLab provider add sources
+
+.PP
+\fB--github\fP=
+	GitHub repo in the form owner/repo
+
+.PP
+\fB--gitlab\fP=
+	GitLab project path namespace/project
+
+.PP
+\fB-h\fP, \fB--help\fP[=false]
+	help for add
+
+.PP
+\fB--sha256\fP=
+	expected SHA-256 for direct https:// add sources
+
+
+.SH OPTIONS INHERITED FROM PARENT COMMANDS
+\fB-C\fP, \fB--config\fP=
+	use an alternate AIM state root
+
+.PP
+\fB--dry-run\fP[=false]
+	simulate changes without applying them
+
+.PP
+\fB--output\fP="text"
+	output format: text, json, or csv
+
+.PP
+\fB-q\fP, \fB--quiet\fP[=false]
+	suppress non-essential status output
+
+.PP
+\fB--verbose\fP[=false]
+	enable verbose diagnostic logging
+
+.PP
+\fB-y\fP, \fB--yes\fP[=false]
+	skip confirmation prompts
+
+
+.SH EXAMPLE
+.EX
+aim add ./Example.AppImage
+  aim add https://example.com/Example.AppImage --sha256 <sha256>
+  aim add --github owner/repo
+  aim add --dry-run ./Example.AppImage --output json
+.EE
+
+
+.SH AUTHOR
+Sebastian Lobbe <slobbe@lobbe.cc>
+
+.SH COPYRIGHT
+Copyright (c) 2025 Sebastian Lobbe
+
+.SH LICENSE
+MIT
+
+.SH REPOSITORY
+https://github.com/slobbe/appimage\-manager
+
+.SH ISSUES
+https://github.com/slobbe/appimage\-manager/issues
+
+.SH MORE INFO
+https://github.com/slobbe/appimage\-manager#add
+
