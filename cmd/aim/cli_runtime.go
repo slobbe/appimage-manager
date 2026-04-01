@@ -31,11 +31,14 @@ type runtimeOptions struct {
 type runtimeContextKey struct{}
 
 type commandJSONEnvelope struct {
-	Command string      `json:"command"`
-	OK      bool        `json:"ok"`
-	DryRun  bool        `json:"dry_run"`
-	Result  interface{} `json:"result,omitempty"`
-	Error   string      `json:"error,omitempty"`
+	Command     string      `json:"command"`
+	OK          bool        `json:"ok"`
+	DryRun      bool        `json:"dry_run"`
+	Result      interface{} `json:"result,omitempty"`
+	Error       string      `json:"error,omitempty"`
+	Hint        string      `json:"hint,omitempty"`
+	ReportIssue bool        `json:"report_issue,omitempty"`
+	IssuesURL   string      `json:"issues_url,omitempty"`
 }
 
 func prepareRuntime(cmd *cobra.Command) error {
@@ -231,11 +234,17 @@ func printJSONSuccess(cmd *cobra.Command, result interface{}) error {
 }
 
 func printJSONError(writer io.Writer, command string, dryRun bool, err error) {
+	userErr := userMessageForError(err)
 	envelope := commandJSONEnvelope{
 		Command: command,
 		OK:      false,
 		DryRun:  dryRun,
-		Error:   err.Error(),
+		Error:   userErr.Summary,
+		Hint:    userErr.Hint,
+	}
+	if userErr.Reportable {
+		envelope.ReportIssue = true
+		envelope.IssuesURL = rootCommandIssuesURL
 	}
 
 	encoder := json.NewEncoder(writer)

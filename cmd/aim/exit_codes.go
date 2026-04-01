@@ -244,9 +244,13 @@ func renderCommandError(root *cobra.Command, args []string, err error) int {
 	if jsonOutput || argsContainFlag(args, "--json") {
 		printJSONError(root.ErrOrStderr(), commandNameFromArgs(root, args), argsContainFlag(args, "--dry-run"), err)
 	} else {
-		_, _ = fmt.Fprintln(root.ErrOrStderr(), err)
-		if suggestion := suggestionForError(root, err); suggestion != "" {
-			_, _ = fmt.Fprintf(root.ErrOrStderr(), "Did you mean %q?\n", suggestion)
+		verbose, _ := root.PersistentFlags().GetBool("verbose")
+		lines := renderTextErrorLines(err, suggestionForError(root, err), verbose || argsContainFlag(args, "--verbose"))
+		for _, line := range lines {
+			if strings.TrimSpace(line) == "" {
+				continue
+			}
+			_, _ = fmt.Fprintln(root.ErrOrStderr(), line)
 		}
 	}
 
@@ -306,7 +310,8 @@ func isDatabaseMissingError(err error) bool {
 	if err == nil {
 		return false
 	}
-	return strings.Contains(strings.ToLower(err.Error()), "does not exists in database")
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "does not exists in database") || strings.Contains(msg, "no app with id")
 }
 
 func wrapDatabaseReadError(err error) error {
@@ -314,7 +319,7 @@ func wrapDatabaseReadError(err error) error {
 		return nil
 	}
 	if isDatabaseMissingError(err) {
-		return notFoundError(err)
+		return withUserMessage(notFoundError(err), "The requested managed app could not be found.")
 	}
 	return err
 }
@@ -323,8 +328,15 @@ func wrapWriteError(err error) error {
 	if err == nil {
 		return nil
 	}
-	if errors.Is(err, os.ErrPermission) {
-		return noPermError(err)
+	return rewriteWriteError(err)
+}
+
+func wrapManagedAppLookupError(id string, err error) error {
+	if err == nil {
+		return nil
 	}
-	return cantCreateError(err)
+	if isDatabaseMissingError(err) {
+		return rewriteMissingAppError(id, err)
+	}
+	return wrapDatabaseReadError(err)
 }

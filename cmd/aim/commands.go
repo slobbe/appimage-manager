@@ -183,7 +183,7 @@ func MigrateCmd(cmd *cobra.Command, args []string) error {
 	if opts.DryRun {
 		plan, err := repo.PlanMigrationToCurrentPaths(id)
 		if err != nil {
-			return err
+			return wrapManagedAppLookupError(id, err)
 		}
 		if opts.JSON {
 			return printJSONSuccess(cmd, plan)
@@ -199,7 +199,7 @@ func MigrateCmd(cmd *cobra.Command, args []string) error {
 		return migrateSingleApp(id)
 	})
 	if err != nil {
-		return err
+		return wrapManagedAppLookupError(id, err)
 	}
 	if opts.JSON {
 		return printJSONSuccess(cmd, map[string]interface{}{
@@ -787,7 +787,7 @@ func RemoveCmd(cmd *cobra.Command, args []string) error {
 	if opts.DryRun {
 		app, err := repo.GetApp(id)
 		if err != nil {
-			return wrapDatabaseReadError(err)
+			return wrapManagedAppLookupError(id, err)
 		}
 		plan := removeDryRunPlan(app, unlink)
 		if opts.JSON {
@@ -804,24 +804,24 @@ func RemoveCmd(cmd *cobra.Command, args []string) error {
 	}
 
 	app, err := removeManagedApp(cmd.Context(), id, unlink)
-
-	if err == nil {
-		label := "Removed"
-		if unlink {
-			label = "Unlinked"
-		}
-		if opts.JSON {
-			return printJSONSuccess(cmd, map[string]interface{}{
-				"action": strings.ToLower(label),
-				"app":    app,
-				"unlink": unlink,
-				"paths":  removeDryRunPlan(app, unlink)["paths"],
-			})
-		}
-		printSuccess(cmd, fmt.Sprintf("%s: %s [%s]", label, app.Name, app.ID))
+	if err != nil {
+		return wrapManagedAppLookupError(id, err)
 	}
 
-	return err
+	label := "Removed"
+	if unlink {
+		label = "Unlinked"
+	}
+	if opts.JSON {
+		return printJSONSuccess(cmd, map[string]interface{}{
+			"action": strings.ToLower(label),
+			"app":    app,
+			"unlink": unlink,
+			"paths":  removeDryRunPlan(app, unlink)["paths"],
+		})
+	}
+	printSuccess(cmd, fmt.Sprintf("%s: %s [%s]", label, app.Name, app.ID))
+	return nil
 }
 
 func ListCmd(cmd *cobra.Command, args []string) error {
@@ -1392,7 +1392,7 @@ func resolveInspectTarget(input string) (*inspectTarget, error) {
 		return &inspectTarget{Kind: inspectTargetLocal, Path: trimmed}, nil
 	}
 
-	return nil, usageError(fmt.Errorf("unknown inspect target %s", input))
+	return nil, rewriteMissingAppError(trimmed, fmt.Errorf("no app with id %s", trimmed))
 }
 
 func inspectManagedApp(ctx context.Context, cmd *cobra.Command, app *models.App) error {
@@ -1548,7 +1548,7 @@ func UpdateSetCmd(cmd *cobra.Command, args []string) error {
 
 	app, err := repo.GetApp(id)
 	if err != nil {
-		return wrapDatabaseReadError(err)
+		return wrapManagedAppLookupError(id, err)
 	}
 
 	var incomingSource *models.UpdateSource
@@ -1640,7 +1640,7 @@ func UpdateUnsetCmd(cmd *cobra.Command, args []string) error {
 
 	app, err := repo.GetApp(id)
 	if err != nil {
-		return wrapDatabaseReadError(err)
+		return wrapManagedAppLookupError(id, err)
 	}
 
 	if runtimeOptionsFrom(cmd).DryRun {
@@ -1882,6 +1882,11 @@ type managedCheckResult struct {
 	err    error
 }
 
+type managedCheckFailure struct {
+	AppID  string
+	Reason string
+}
+
 var runAppUpdateCheck = checkAppUpdate
 var runZsyncUpdateCheck = core.ZsyncUpdateCheck
 var runGitHubReleaseUpdateCheck = core.GitHubReleaseUpdateCheck
@@ -1938,6 +1943,7 @@ func runManagedUpdate(ctx context.Context, cmd *cobra.Command, targetID string) 
 	var pending []pendingManagedUpdate
 	checkFailures := 0
 	singleStatusPrinted := false
+	failures := make([]managedCheckFailure, 0)
 	checkResults := runManagedChecks(apps)
 	metadataUpdates := make([]repo.CheckMetadataUpdate, 0, len(checkResults))
 	rows := make([]updateOutputRow, 0, len(checkResults))
@@ -1970,11 +1976,18 @@ func runManagedUpdate(ctx context.Context, cmd *cobra.Command, targetID string) 
 				rowIndexByID[app.ID] = len(rows) - 1
 			}
 			if targetID != "" {
-				return tempFailError(fmt.Errorf("failed to check updates for %s: %w", app.ID, err))
+				return withUserGuidance(
+					tempFailError(err),
+					fmt.Sprintf("Can't check updates for %s.", app.ID),
+					fmt.Sprintf("Rerun with 'aim update %s --verbose' to see more detail.", app.ID),
+				)
 			}
 
 			checkFailures++
-			printError(cmd, fmt.Sprintf("Failed to check updates for %s: %v", app.ID, err))
+			failures = append(failures, managedCheckFailure{
+				AppID:  app.ID,
+				Reason: rewriteBatchCheckFailure(app.ID, err),
+			})
 			continue
 		}
 
@@ -2059,7 +2072,11 @@ func runManagedUpdate(ctx context.Context, cmd *cobra.Command, targetID string) 
 			return wrapWriteError(err)
 		}
 		checkFailures++
-		printError(cmd, fmt.Sprintf("Failed to persist update state: %v", err))
+		printError(cmd, userMessageForError(wrapWriteError(err)).Summary)
+	}
+
+	if targetID == "" && len(failures) > 0 {
+		printManagedCheckFailures(cmd, failures)
 	}
 
 	if len(pending) == 0 {
@@ -2217,6 +2234,19 @@ func runManagedUpdate(ctx context.Context, cmd *cobra.Command, targetID string) 
 	return nil
 }
 
+func printManagedCheckFailures(cmd *cobra.Command, failures []managedCheckFailure) {
+	if len(failures) == 0 {
+		return
+	}
+
+	header := fmt.Sprintf("Failed to check updates for %d app(s)", len(failures))
+	writeLogf(cmd, "%s\n", colorize(shouldColorStderr(cmd), "\033[0;31m", header))
+	for _, failure := range failures {
+		writeLogf(cmd, "  %s\n", strings.TrimSpace(failure.Reason))
+	}
+	writeLogf(cmd, "  Check network access, provider availability, or rerun a single app with 'aim update <id> --verbose'.\n")
+}
+
 func runManagedChecks(apps []*models.App) []managedCheckResult {
 	results := make([]managedCheckResult, len(apps))
 	if len(apps) == 0 {
@@ -2365,7 +2395,7 @@ func collectManagedUpdateTargets(targetID string) ([]*models.App, error) {
 	if strings.TrimSpace(targetID) != "" {
 		app, err := repo.GetApp(targetID)
 		if err != nil {
-			return nil, wrapDatabaseReadError(err)
+			return nil, wrapManagedAppLookupError(targetID, err)
 		}
 		return []*models.App{app}, nil
 	}
@@ -2548,7 +2578,11 @@ func applyManagedUpdate(ctx context.Context, update pendingManagedUpdate, report
 	emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageQueued})
 
 	if strings.TrimSpace(update.URL) == "" {
-		err := softwareError(fmt.Errorf("missing download URL"))
+		err := withUserGuidance(
+			softwareError(fmt.Errorf("missing download URL")),
+			"Can't download an update because the selected source did not provide a download URL.",
+			"Reconfigure it with 'aim update set'.",
+		)
 		emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageFailed, Message: err.Error()})
 		return nil, err
 	}
@@ -2611,18 +2645,26 @@ func applyManagedUpdate(ctx context.Context, update pendingManagedUpdate, report
 
 func applyZsyncUpdate(ctx context.Context, update pendingManagedUpdate, destination string) error {
 	if update.App == nil {
-		return softwareError(fmt.Errorf("missing app"))
+		return withReportableInternalError(fmt.Errorf("missing app"), "Can't apply an update because the managed app record is incomplete.")
 	}
 	if strings.TrimSpace(update.App.ExecPath) == "" {
-		return notFoundError(fmt.Errorf("missing app exec path"))
+		return withUserGuidance(
+			notFoundError(fmt.Errorf("missing app exec path")),
+			fmt.Sprintf("Can't apply an update for %s because the managed app record is missing its executable path.", update.App.ID),
+			fmt.Sprintf("Run 'aim migrate %s' or reinstall the app.", update.App.ID),
+		)
 	}
 	if strings.TrimSpace(update.ZsyncURL) == "" {
-		return unavailableError(fmt.Errorf("missing zsync url"))
+		return withUserGuidance(
+			softwareError(fmt.Errorf("missing zsync url")),
+			"Can't apply a delta update because the configured source is missing its zsync URL.",
+			fmt.Sprintf("Reconfigure %s with 'aim update set'.", update.App.ID),
+		)
 	}
 
 	binary, err := zsyncLookPath("zsync")
 	if err != nil {
-		return unavailableError(err)
+		return rewriteZsyncFailure(err)
 	}
 
 	cmd := zsyncCommandContext(ctx, binary, "-q", "-i", update.App.ExecPath, "-o", destination, update.ZsyncURL)
@@ -2631,9 +2673,9 @@ func applyZsyncUpdate(ctx context.Context, update pendingManagedUpdate, destinat
 	if err != nil {
 		msg := strings.TrimSpace(string(output))
 		if msg == "" {
-			return unavailableError(err)
+			return rewriteZsyncFailure(err)
 		}
-		return unavailableError(fmt.Errorf("%w: %s", err, msg))
+		return rewriteZsyncFailure(fmt.Errorf("%w: %s", err, msg))
 	}
 
 	if _, err := os.Stat(destination); err != nil {
@@ -2653,10 +2695,10 @@ func verifyDownloadedUpdate(downloadPath string, update pendingManagedUpdate) er
 			return err
 		}
 		if strings.ToLower(sha256sum) != expectedSHA256 {
-			return unavailableError(fmt.Errorf("downloaded file sha256 mismatch"))
+			return rewriteChecksumError(fmt.Errorf("downloaded file sha256 mismatch"))
 		}
 		if strings.ToLower(sha1sum) != expectedSHA1 {
-			return unavailableError(fmt.Errorf("downloaded file sha1 mismatch"))
+			return rewriteChecksumError(fmt.Errorf("downloaded file sha1 mismatch"))
 		}
 		return nil
 	}
@@ -2667,7 +2709,7 @@ func verifyDownloadedUpdate(downloadPath string, update pendingManagedUpdate) er
 			return err
 		}
 		if strings.ToLower(sum) != expectedSHA256 {
-			return unavailableError(fmt.Errorf("downloaded file sha256 mismatch"))
+			return rewriteChecksumError(fmt.Errorf("downloaded file sha256 mismatch"))
 		}
 	}
 
@@ -2677,7 +2719,7 @@ func verifyDownloadedUpdate(downloadPath string, update pendingManagedUpdate) er
 			return err
 		}
 		if strings.ToLower(sum) != expectedSHA1 {
-			return unavailableError(fmt.Errorf("downloaded file sha1 mismatch"))
+			return rewriteChecksumError(fmt.Errorf("downloaded file sha1 mismatch"))
 		}
 	}
 
@@ -2769,12 +2811,16 @@ func downloadUpdateAssetWithProgress(ctx context.Context, assetURL, destination 
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return err
+		return rewriteNetworkDownloadError(err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return unavailableError(fmt.Errorf("download failed with status %s", resp.Status))
+		return withUserGuidance(
+			unavailableError(fmt.Errorf("download failed with status %s", resp.Status)),
+			fmt.Sprintf("Can't download update: server returned %s.", resp.Status),
+			"Try again later or check whether the upstream release is available.",
+		)
 	}
 
 	f, err := os.OpenFile(destination, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
@@ -2817,7 +2863,7 @@ func downloadUpdateAssetWithProgress(ctx context.Context, assetURL, destination 
 			if readErr == io.EOF {
 				break
 			}
-			return readErr
+			return rewriteNetworkDownloadError(readErr)
 		}
 	}
 

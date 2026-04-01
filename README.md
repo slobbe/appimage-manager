@@ -116,6 +116,14 @@ aim update unset example-app --yes
 - errors, warnings, prompts, progress, and verbose diagnostics are written to stderr
 - success exits with `0`; failures exit with a stable non-zero code
 
+For unexpected internal failures, `aim` prints a short bug-report path:
+
+- a concise failure summary
+- a hint to rerun with `--verbose`
+- the GitHub issues URL for reporting the problem
+
+Expected errors are rewritten to be user-facing and actionable when possible, for example by suggesting `aim list`, `aim update set`, or a writable `-C` state root.
+
 Exit codes:
 
 - `0`: success

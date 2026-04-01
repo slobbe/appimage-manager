@@ -4000,7 +4000,7 @@ func TestRenderCommandErrorJSONWritesToStderrOnly(t *testing.T) {
 		t.Fatalf("failed to set json flag: %v", err)
 	}
 
-	code := renderCommandError(root, []string{"info", "missing", "--json"}, notFoundError(fmt.Errorf("no app with id missing")))
+	code := renderCommandError(root, []string{"info", "missing", "--json"}, rewriteMissingAppError("missing", fmt.Errorf("no app with id missing")))
 	if code != exitNoInput {
 		t.Fatalf("renderCommandError code = %d, want %d", code, exitNoInput)
 	}
@@ -4017,6 +4017,83 @@ func TestRenderCommandErrorJSONWritesToStderrOnly(t *testing.T) {
 	}
 	if payload.Error == "" {
 		t.Fatal("expected error message in payload")
+	}
+	if payload.Hint != "Run 'aim list' to see installed app IDs." {
+		t.Fatalf("unexpected hint: %#v", payload)
+	}
+}
+
+func TestRenderCommandErrorUsageDoesNotIncludeBugReportGuidance(t *testing.T) {
+	root := newRootTestCommand()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+
+	code := renderCommandError(root, []string{"list", "--json", "--csv"}, usageError(fmt.Errorf("--json and --csv are mutually exclusive")))
+	if code != exitUsage {
+		t.Fatalf("renderCommandError code = %d, want %d", code, exitUsage)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("expected no stdout output, got:\n%s", stdout.String())
+	}
+	text := stderr.String()
+	if !strings.Contains(text, "--json and --csv are mutually exclusive") {
+		t.Fatalf("unexpected stderr output:\n%s", text)
+	}
+	if strings.Contains(text, "internal aim error") || strings.Contains(text, rootCommandIssuesURL) {
+		t.Fatalf("usage error should not include bug-report guidance:\n%s", text)
+	}
+}
+
+func TestRenderCommandErrorInternalIncludesBugReportGuidance(t *testing.T) {
+	root := newRootTestCommand()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+
+	code := renderCommandError(root, []string{"list"}, softwareError(fmt.Errorf("boom")))
+	if code != exitSoftware {
+		t.Fatalf("renderCommandError code = %d, want %d", code, exitSoftware)
+	}
+	text := stderr.String()
+	for _, expected := range []string{
+		"boom",
+		"This looks like an internal aim error.",
+		"Rerun with --verbose to include more diagnostic detail.",
+		rootCommandIssuesURL,
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("expected stderr to contain %q:\n%s", expected, text)
+		}
+	}
+}
+
+func TestRenderCommandErrorInternalJSONIncludesIssuesURL(t *testing.T) {
+	root := newRootTestCommand()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	if err := root.PersistentFlags().Set("json", "true"); err != nil {
+		t.Fatalf("failed to set json flag: %v", err)
+	}
+
+	code := renderCommandError(root, []string{"list", "--json"}, softwareError(fmt.Errorf("boom")))
+	if code != exitSoftware {
+		t.Fatalf("renderCommandError code = %d, want %d", code, exitSoftware)
+	}
+
+	var payload commandJSONEnvelope
+	if err := json.Unmarshal(stderr.Bytes(), &payload); err != nil {
+		t.Fatalf("failed to decode stderr json: %v", err)
+	}
+	if !payload.ReportIssue || payload.IssuesURL != rootCommandIssuesURL {
+		t.Fatalf("unexpected payload: %#v", payload)
+	}
+	if !strings.Contains(payload.Hint, "--verbose") {
+		t.Fatalf("expected verbose hint, got %#v", payload)
 	}
 }
 
@@ -4040,6 +4117,9 @@ func TestRemoveMissingAppExitCode(t *testing.T) {
 	}
 	if code := exitCodeForError(err); code != exitNoInput {
 		t.Fatalf("exitCodeForError = %d, want %d", code, exitNoInput)
+	}
+	if !strings.Contains(err.Error(), `No managed app with id "missing".`) {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -4071,6 +4151,76 @@ func TestDownloadUpdateAssetWriteErrorExitCode(t *testing.T) {
 	}
 	if code := exitCodeForError(err); code != exitCantCreate {
 		t.Fatalf("exitCodeForError = %d, want %d", code, exitCantCreate)
+	}
+}
+
+func TestWrapWriteErrorAddsActionableGuidance(t *testing.T) {
+	err := wrapWriteError(&os.PathError{Op: "open", Path: "/tmp/aim/apps.json", Err: os.ErrPermission})
+	msg := userMessageForError(err)
+	if msg.Summary != "Can't write to /tmp/aim/apps.json." {
+		t.Fatalf("unexpected summary: %#v", msg)
+	}
+	if !strings.Contains(msg.Hint, "rerun with -C") {
+		t.Fatalf("expected writable-root hint, got %#v", msg)
+	}
+}
+
+func TestApplyManagedUpdateMissingZsyncRewritesError(t *testing.T) {
+	originalLookPath := zsyncLookPath
+	originalDownload := downloadManagedRemoteAsset
+	originalIntegrate := integrateManagedUpdate
+	t.Cleanup(func() {
+		zsyncLookPath = originalLookPath
+		downloadManagedRemoteAsset = originalDownload
+		integrateManagedUpdate = originalIntegrate
+	})
+
+	zsyncLookPath = func(string) (string, error) {
+		return "", exec.ErrNotFound
+	}
+	downloadManagedRemoteAsset = func(context.Context, string, string, bool, func(int64, int64)) error {
+		t.Fatal("download should not run when testing zsync lookup failure directly")
+		return nil
+	}
+	integrateManagedUpdate = func(context.Context, string, core.UpdateOverwritePrompt) (*models.App, error) {
+		t.Fatal("integrate should not run when zsync lookup fails")
+		return nil, nil
+	}
+
+	err := applyZsyncUpdate(context.Background(), pendingManagedUpdate{
+		App:      &models.App{ID: "my-app", ExecPath: "/tmp/current.AppImage"},
+		ZsyncURL: "https://example.com/MyApp.AppImage.zsync",
+	}, filepath.Join(t.TempDir(), "out.AppImage"))
+	if err == nil {
+		t.Fatal("expected zsync error")
+	}
+	msg := userMessageForError(err)
+	if msg.Summary != "Can't apply a delta update because 'zsync' is not installed." {
+		t.Fatalf("unexpected summary: %#v", msg)
+	}
+	if !strings.Contains(msg.Hint, "aim update set") {
+		t.Fatalf("expected reconfiguration hint, got %#v", msg)
+	}
+}
+
+func TestVerifyDownloadedUpdateChecksumMismatchRewritesError(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "update.AppImage")
+	if err := os.WriteFile(path, []byte("payload"), 0o644); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
+
+	err := verifyDownloadedUpdate(path, pendingManagedUpdate{
+		ExpectedSHA256: strings.Repeat("a", 64),
+	})
+	if err == nil {
+		t.Fatal("expected checksum mismatch error")
+	}
+	msg := userMessageForError(err)
+	if msg.Summary != "Downloaded update failed integrity verification." {
+		t.Fatalf("unexpected summary: %#v", msg)
+	}
+	if !strings.Contains(msg.Hint, "verify the configured update source") {
+		t.Fatalf("unexpected hint: %#v", msg)
 	}
 }
 
@@ -4508,11 +4658,64 @@ func TestRunManagedUpdateBatchContinuesOnCheckFailure(t *testing.T) {
 		}
 	})
 
-	if !strings.Contains(output, "Failed to check updates for app-a: boom") {
-		t.Fatalf("expected batch failure message, got:\n%s", output)
+	if !strings.Contains(output, "Failed to check updates for 1 app(s)") {
+		t.Fatalf("expected grouped failure header, got:\n%s", output)
+	}
+	if !strings.Contains(output, "app-a: boom") {
+		t.Fatalf("expected grouped per-app reason, got:\n%s", output)
+	}
+	if strings.Contains(output, "Failed to check updates for app-a: boom") {
+		t.Fatalf("expected old per-app error line to be absent, got:\n%s", output)
+	}
+	if !strings.Contains(output, "aim update <id> --verbose") {
+		t.Fatalf("expected remediation hint, got:\n%s", output)
 	}
 	if !strings.Contains(output, "No updates applied; some checks failed") {
 		t.Fatalf("expected summary message, got:\n%s", output)
+	}
+}
+
+func TestRunManagedUpdateSingleCheckFailureRewritesError(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "apps.json")
+
+	originalDbSrc := config.DbSrc
+	config.DbSrc = dbPath
+	t.Cleanup(func() {
+		config.DbSrc = originalDbSrc
+	})
+
+	if err := repo.SaveDB(dbPath, &repo.DB{
+		SchemaVersion: 1,
+		Apps: map[string]*models.App{
+			"my-app": {ID: "my-app", Name: "My App"},
+		},
+	}); err != nil {
+		t.Fatalf("failed to write test DB: %v", err)
+	}
+
+	originalCheck := runAppUpdateCheck
+	t.Cleanup(func() {
+		runAppUpdateCheck = originalCheck
+	})
+	runAppUpdateCheck = func(*models.App) (*pendingManagedUpdate, error) {
+		return nil, fmt.Errorf("boom")
+	}
+
+	cmd := newManagedUpdateTestCommand(t, nil)
+	err := runManagedUpdate(context.Background(), cmd, "my-app")
+	if err == nil {
+		t.Fatal("expected update-check error")
+	}
+	if code := exitCodeForError(err); code != exitTempFail {
+		t.Fatalf("exitCodeForError = %d, want %d", code, exitTempFail)
+	}
+	msg := userMessageForError(err)
+	if msg.Summary != "Can't check updates for my-app." {
+		t.Fatalf("unexpected summary: %#v", msg)
+	}
+	if !strings.Contains(msg.Hint, "aim update my-app --verbose") {
+		t.Fatalf("unexpected hint: %#v", msg)
 	}
 }
 
