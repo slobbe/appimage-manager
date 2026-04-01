@@ -31,6 +31,10 @@ Unset the update source for a managed AppImage
 	use an alternate AIM state root
 
 .PP
+\fB--csv\fP[=false]
+	output CSV where supported
+
+.PP
 \fB--dry-run\fP[=false]
 	simulate changes without applying them
 
@@ -47,8 +51,16 @@ Unset the update source for a managed AppImage
 	GitLab project path namespace/project (for 'update set')
 
 .PP
-\fB--output\fP="text"
-	output format: text, json, or csv
+\fB--json\fP[=false]
+	output formatted JSON
+
+.PP
+\fB--no-color\fP[=false]
+	disable ANSI color output
+
+.PP
+\fB--plain\fP[=false]
+	output plain tab-separated text
 
 .PP
 \fB-q\fP, \fB--quiet\fP[=false]
@@ -70,7 +82,7 @@ Unset the update source for a managed AppImage
 .SH EXAMPLE
 .EX
 aim update unset example-app
-  aim update unset example-app --dry-run --output json
+  aim update unset example-app --dry-run --json
 .EE
 
 

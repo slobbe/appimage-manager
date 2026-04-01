@@ -47,12 +47,24 @@ Check or apply updates for managed AppImages, or manage configured update source
 	use an alternate AIM state root
 
 .PP
+\fB--csv\fP[=false]
+	output CSV where supported
+
+.PP
 \fB--dry-run\fP[=false]
 	simulate changes without applying them
 
 .PP
-\fB--output\fP="text"
-	output format: text, json, or csv
+\fB--json\fP[=false]
+	output formatted JSON
+
+.PP
+\fB--no-color\fP[=false]
+	disable ANSI color output
+
+.PP
+\fB--plain\fP[=false]
+	output plain tab-separated text
 
 .PP
 \fB-q\fP, \fB--quiet\fP[=false]
@@ -70,9 +82,9 @@ Check or apply updates for managed AppImages, or manage configured update source
 .SH EXAMPLE
 .EX
 aim update
-  aim update --check-only --output csv
+  aim update --check-only --csv
   aim update --yes
-  aim update example-app --dry-run --output json
+  aim update example-app --dry-run --json
 .EE
 
 
@@ -97,6 +109,9 @@ check only; do not apply updates
 \-C DIR, \-\-config DIR
 use an alternate AIM state root
 .TP
+\-\-csv
+output CSV where supported
+.TP
 \-\-dry\-run
 simulate changes without applying them
 .TP
@@ -109,8 +124,14 @@ GitHub repo in the form owner/repo (for 'update set')
 \-\-gitlab namespace/project
 GitLab project path namespace/project (for 'update set')
 .TP
-\-\-output string
-output format: text, json, or csv
+\-\-json
+output formatted JSON
+.TP
+\-\-no\-color
+disable ANSI color output
+.TP
+\-\-plain
+output plain tab\-separated text
 .TP
 \-q, \-\-quiet
 suppress non\-essential status output
@@ -134,7 +155,7 @@ Set the update source for a managed AppImage
 \fBExamples\fP
 aim update set example\-app \-\-github owner/repo
 aim update set example\-app \-\-embedded
-aim update set example\-app \-\-zsync https://example.com/Example.AppImage.zsync \-\-dry\-run \-\-output json
+aim update set example\-app \-\-zsync https://example.com/Example.AppImage.zsync \-\-dry\-run \-\-json
 .TP
 \fBOptions\fP
 .TP
@@ -146,6 +167,9 @@ check only; do not apply updates
 .TP
 \-C DIR, \-\-config DIR
 use an alternate AIM state root
+.TP
+\-\-csv
+output CSV where supported
 .TP
 \-\-dry\-run
 simulate changes without applying them
@@ -159,8 +183,14 @@ GitHub repo in the form owner/repo (for 'update set')
 \-\-gitlab namespace/project
 GitLab project path namespace/project (for 'update set')
 .TP
-\-\-output string
-output format: text, json, or csv
+\-\-json
+output formatted JSON
+.TP
+\-\-no\-color
+disable ANSI color output
+.TP
+\-\-plain
+output plain tab\-separated text
 .TP
 \-q, \-\-quiet
 suppress non\-essential status output
@@ -183,7 +213,7 @@ Unset the update source for a managed AppImage
 .TP
 \fBExamples\fP
 aim update unset example\-app
-aim update unset example\-app \-\-dry\-run \-\-output json
+aim update unset example\-app \-\-dry\-run \-\-json
 .TP
 \fBOptions\fP
 .TP
@@ -195,6 +225,9 @@ check only; do not apply updates
 .TP
 \-C DIR, \-\-config DIR
 use an alternate AIM state root
+.TP
+\-\-csv
+output CSV where supported
 .TP
 \-\-dry\-run
 simulate changes without applying them
@@ -208,8 +241,14 @@ GitHub repo in the form owner/repo (for 'update set')
 \-\-gitlab namespace/project
 GitLab project path namespace/project (for 'update set')
 .TP
-\-\-output string
-output format: text, json, or csv
+\-\-json
+output formatted JSON
+.TP
+\-\-no\-color
+disable ANSI color output
+.TP
+\-\-plain
+output plain tab\-separated text
 .TP
 \-q, \-\-quiet
 suppress non\-essential status output

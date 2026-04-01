@@ -24,8 +24,8 @@ func newRootCommand(version string) *cobra.Command {
 		Example: strings.TrimSpace(`
   aim --help
   aim --version
-  aim --output json
-  aim -C /tmp/aim-state list --output json
+  aim --json
+  aim -C /tmp/aim-state list --json
   aim add --dry-run ./Example.AppImage
   aim update --yes
 `),
@@ -58,7 +58,10 @@ func newRootCommand(version string) *cobra.Command {
 	stringFlagWithMetavar(persistentFlags, "config", "C", "", "use an alternate AIM state root", "DIR")
 	persistentFlags.Bool("dry-run", false, "simulate changes without applying them")
 	persistentFlags.BoolP("yes", "y", false, "skip confirmation prompts")
-	persistentFlags.String("output", outputText, "output format: text, json, or csv")
+	persistentFlags.Bool("json", false, "output formatted JSON")
+	persistentFlags.Bool("csv", false, "output CSV where supported")
+	persistentFlags.Bool("plain", false, "output plain tab-separated text")
+	persistentFlags.Bool("no-color", false, "disable ANSI color output")
 	root.InitDefaultVersionFlag()
 	installHelpSystem(root)
 
@@ -73,7 +76,7 @@ func newAddCommand() *cobra.Command {
   aim add ./Example.AppImage
   aim add https://example.com/Example.AppImage --sha256 <sha256>
   aim add --github owner/repo
-  aim add --dry-run ./Example.AppImage --output json
+  aim add --dry-run ./Example.AppImage --json
 `),
 		RunE: AddCmd,
 	}
@@ -93,7 +96,7 @@ func newRemoveCommand() *cobra.Command {
 		Example: strings.TrimSpace(`
   aim remove example-app
   aim remove --unlink example-app
-  aim remove --dry-run example-app --output json
+  aim remove --dry-run example-app --json
 `),
 		RunE: RemoveCmd,
 	}
@@ -109,8 +112,8 @@ func newListCommand() *cobra.Command {
 		Example: strings.TrimSpace(`
   aim list
   aim list --integrated
-  aim list --output json
-  aim list --output csv
+  aim list --json
+  aim list --csv
 `),
 		RunE: ListCmd,
 	}
@@ -129,7 +132,7 @@ func newInfoCommand() *cobra.Command {
   aim info example-app
   aim info ./Example.AppImage
   aim info --github owner/repo
-  aim info example-app --output json
+  aim info example-app --json
 `),
 		RunE: InfoCmd,
 	}
@@ -147,9 +150,9 @@ func newUpdateCommand() *cobra.Command {
 		Long:    "Check or apply updates for managed AppImages, or manage configured update sources.",
 		Example: strings.TrimSpace(`
   aim update
-  aim update --check-only --output csv
+  aim update --check-only --csv
   aim update --yes
-  aim update example-app --dry-run --output json
+  aim update example-app --dry-run --json
 `),
 		RunE: UpdateCmd,
 	}
@@ -173,7 +176,7 @@ func newMigrateCommand() *cobra.Command {
 		Example: strings.TrimSpace(`
   aim migrate
   aim migrate example-app
-  aim migrate --dry-run --output json
+  aim migrate --dry-run --json
 `),
 		Args: cobra.MaximumNArgs(1),
 		RunE: MigrateCmd,
@@ -187,7 +190,7 @@ func newUpdateSetCommand() *cobra.Command {
 		Example: strings.TrimSpace(`
   aim update set example-app --github owner/repo
   aim update set example-app --embedded
-  aim update set example-app --zsync https://example.com/Example.AppImage.zsync --dry-run --output json
+  aim update set example-app --zsync https://example.com/Example.AppImage.zsync --dry-run --json
 `),
 		RunE: UpdateSetCmd,
 	}
@@ -199,7 +202,7 @@ func newUpdateUnsetCommand() *cobra.Command {
 		Short: "Unset the update source for a managed AppImage",
 		Example: strings.TrimSpace(`
   aim update unset example-app
-  aim update unset example-app --dry-run --output json
+  aim update unset example-app --dry-run --json
 `),
 		RunE: UpdateUnsetCmd,
 	}

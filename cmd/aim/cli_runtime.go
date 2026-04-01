@@ -20,7 +20,10 @@ type runtimeOptions struct {
 	ConfigRoot string
 	DryRun     bool
 	Yes        bool
-	Output     string
+	JSON       bool
+	CSV        bool
+	Plain      bool
+	NoColor    bool
 	Verbose    bool
 	Quiet      bool
 }
@@ -78,14 +81,22 @@ func parseRuntimeOptions(cmd *cobra.Command) (runtimeOptions, error) {
 	if err != nil {
 		return opts, err
 	}
-	opts.Output, err = flagString(cmd, "output")
+	opts.JSON, err = flagBool(cmd, "json")
 	if err != nil {
 		return opts, err
 	}
-	if opts.Output == "" {
-		opts.Output = outputText
+	opts.CSV, err = flagBool(cmd, "csv")
+	if err != nil {
+		return opts, err
 	}
-	opts.Output = strings.ToLower(opts.Output)
+	opts.Plain, err = flagBool(cmd, "plain")
+	if err != nil {
+		return opts, err
+	}
+	opts.NoColor, err = flagBool(cmd, "no-color")
+	if err != nil {
+		return opts, err
+	}
 	opts.Verbose, err = flagBool(cmd, "verbose")
 	if err != nil {
 		return opts, err
@@ -103,14 +114,17 @@ func validateRuntimeOptions(cmd *cobra.Command, opts runtimeOptions) error {
 		return usageError(fmt.Errorf("--verbose and --quiet are mutually exclusive"))
 	}
 
-	switch opts.Output {
-	case outputText, outputJSON, outputCSV:
-	default:
-		return usageError(fmt.Errorf("unsupported output format %q; use text, json, or csv", opts.Output))
+	if opts.JSON && opts.CSV {
+		return usageError(fmt.Errorf("--json and --csv are mutually exclusive"))
 	}
-
-	if opts.Output == outputCSV && !commandSupportsCSV(cmd) {
-		return usageError(fmt.Errorf("--output csv is not supported for `%s`", strings.TrimSpace(cmd.CommandPath())))
+	if opts.Plain && opts.JSON {
+		return usageError(fmt.Errorf("--plain and --json are mutually exclusive"))
+	}
+	if opts.Plain && opts.CSV {
+		return usageError(fmt.Errorf("--plain and --csv are mutually exclusive"))
+	}
+	if opts.CSV && !commandSupportsCSV(cmd) {
+		return usageError(fmt.Errorf("--csv is not supported for `%s`", strings.TrimSpace(cmd.CommandPath())))
 	}
 
 	return nil
@@ -126,12 +140,12 @@ func applyRuntimePaths(opts runtimeOptions) {
 
 func runtimeOptionsFrom(cmd *cobra.Command) runtimeOptions {
 	if cmd == nil || cmd.Context() == nil {
-		return runtimeOptions{Output: outputText}
+		return runtimeOptions{}
 	}
 	if value, ok := cmd.Context().Value(runtimeContextKey{}).(runtimeOptions); ok {
 		return value
 	}
-	return runtimeOptions{Output: outputText}
+	return runtimeOptions{}
 }
 
 func mustEnsureRuntimeDirs() error {
@@ -156,12 +170,6 @@ func normalizeConfigRoot(value string) (string, error) {
 	}
 	return filepath.Clean(absolute), nil
 }
-
-const (
-	outputText = "text"
-	outputJSON = "json"
-	outputCSV  = "csv"
-)
 
 func commandSupportsCSV(cmd *cobra.Command) bool {
 	if cmd == nil {
@@ -250,12 +258,12 @@ func writeCSV(cmd *cobra.Command, header []string, rows [][]string) error {
 }
 
 func shouldUseStructuredOutput(cmd *cobra.Command) bool {
-	return runtimeOptionsFrom(cmd).Output != outputText
+	opts := runtimeOptionsFrom(cmd)
+	return opts.JSON || opts.CSV
 }
 
 func shouldRenderLogs(cmd *cobra.Command) bool {
-	opts := runtimeOptionsFrom(cmd)
-	return opts.Output == outputText
+	return !shouldUseStructuredOutput(cmd)
 }
 
 func verbosef(cmd *cobra.Command, format string, args ...interface{}) {
@@ -297,18 +305,62 @@ func confirmAction(cmd *cobra.Command, prompt string) (bool, error) {
 }
 
 var terminalOutputChecker = detectTerminalOutput
+var terminalStdoutChecker = detectTerminalStdout
+var terminalStderrChecker = detectTerminalStderr
 var terminalInputChecker = detectTerminalInput
 
 func isTerminalOutput() bool {
 	return terminalOutputChecker()
 }
 
+func isTerminalStdout() bool {
+	return terminalStdoutChecker()
+}
+
+func isTerminalStderr() bool {
+	return terminalStderrChecker()
+}
+
 func detectTerminalOutput() bool {
+	return detectTerminalStderr()
+}
+
+func detectTerminalStdout() bool {
+	stat, err := os.Stdout.Stat()
+	if err != nil {
+		return false
+	}
+	return (stat.Mode() & os.ModeCharDevice) != 0
+}
+
+func detectTerminalStderr() bool {
 	stat, err := os.Stderr.Stat()
 	if err != nil {
 		return false
 	}
 	return (stat.Mode() & os.ModeCharDevice) != 0
+}
+
+func colorsDisabledByEnv() bool {
+	if strings.TrimSpace(os.Getenv("NO_COLOR")) != "" {
+		return true
+	}
+	if strings.TrimSpace(os.Getenv("AIM_NO_COLOR")) != "" {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(os.Getenv("TERM")), "dumb")
+}
+
+func streamSupportsColor(isTTY bool, opts runtimeOptions) bool {
+	return isTTY && !opts.NoColor && !colorsDisabledByEnv()
+}
+
+func shouldColorStdout(cmd *cobra.Command) bool {
+	return streamSupportsColor(isTerminalStdout(), runtimeOptionsFrom(cmd))
+}
+
+func shouldColorStderr(cmd *cobra.Command) bool {
+	return streamSupportsColor(isTerminalStderr(), runtimeOptionsFrom(cmd))
 }
 
 func detectTerminalInput() bool {

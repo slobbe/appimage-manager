@@ -3,9 +3,11 @@ package main
 import (
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/slobbe/appimage-manager/internal/discovery"
 	models "github.com/slobbe/appimage-manager/internal/types"
+	"github.com/spf13/cobra"
 )
 
 type listOutputRow struct {
@@ -102,6 +104,34 @@ func updateCSVHeader() []string {
 	return []string{"id", "current_version", "latest_version", "update_available", "status", "download_url", "asset", "source_kind", "last_checked_at"}
 }
 
+func (row listOutputRow) plainRow() []string {
+	return []string{
+		row.ID,
+		row.Name,
+		row.Version,
+		boolString(row.Integrated),
+		row.ExecPath,
+	}
+}
+
+func listPlainHeader() []string {
+	return []string{"id", "name", "version", "integrated", "exec_path"}
+}
+
+func (row updateOutputRow) plainRow() []string {
+	return []string{
+		row.ID,
+		row.CurrentVersion,
+		row.LatestVersion,
+		row.Status,
+		row.SourceKind,
+	}
+}
+
+func updatePlainHeader() []string {
+	return []string{"id", "current_version", "latest_version", "status", "source_kind"}
+}
+
 func packageMetadataOutput(metadata *discovery.PackageMetadata) map[string]interface{} {
 	if metadata == nil {
 		return nil
@@ -181,4 +211,27 @@ func boolString(value bool) string {
 		return "true"
 	}
 	return "false"
+}
+
+func writePlainRows(cmd *cobra.Command, header []string, rows [][]string) {
+	writeDataf(cmd, "%s\n", strings.Join(header, "\t"))
+	for _, row := range rows {
+		writeDataf(cmd, "%s\n", strings.Join(row, "\t"))
+	}
+}
+
+func writePlainList(cmd *cobra.Command, apps []*models.App) {
+	rows := make([][]string, 0, len(apps))
+	for _, app := range apps {
+		rows = append(rows, newListOutputRow(app).plainRow())
+	}
+	writePlainRows(cmd, listPlainHeader(), rows)
+}
+
+func writePlainUpdateRows(cmd *cobra.Command, rows []updateOutputRow) {
+	plainRows := make([][]string, 0, len(rows))
+	for _, row := range rows {
+		plainRows = append(plainRows, row.plainRow())
+	}
+	writePlainRows(cmd, updatePlainHeader(), plainRows)
 }

@@ -31,6 +31,10 @@ Set the update source for a managed AppImage
 	use an alternate AIM state root
 
 .PP
+\fB--csv\fP[=false]
+	output CSV where supported
+
+.PP
 \fB--dry-run\fP[=false]
 	simulate changes without applying them
 
@@ -47,8 +51,16 @@ Set the update source for a managed AppImage
 	GitLab project path namespace/project (for 'update set')
 
 .PP
-\fB--output\fP="text"
-	output format: text, json, or csv
+\fB--json\fP[=false]
+	output formatted JSON
+
+.PP
+\fB--no-color\fP[=false]
+	disable ANSI color output
+
+.PP
+\fB--plain\fP[=false]
+	output plain tab-separated text
 
 .PP
 \fB-q\fP, \fB--quiet\fP[=false]
@@ -71,7 +83,7 @@ Set the update source for a managed AppImage
 .EX
 aim update set example-app --github owner/repo
   aim update set example-app --embedded
-  aim update set example-app --zsync https://example.com/Example.AppImage.zsync --dry-run --output json
+  aim update set example-app --zsync https://example.com/Example.AppImage.zsync --dry-run --json
 .EE
 
 

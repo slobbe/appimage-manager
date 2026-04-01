@@ -460,21 +460,25 @@ func flagsForNames(cmd *cobra.Command, names []string) []*pflag.Flag {
 func commonFlagNamesForCommand(cmd *cobra.Command) []string {
 	switch commandName(cmd) {
 	case "aim":
-		return []string{"help", "version", "config", "output"}
+		return []string{"help", "version", "config", "json", "plain"}
 	case "add":
-		return []string{"github", "gitlab", "sha256", "dry-run", "output"}
+		return []string{"github", "gitlab", "sha256", "dry-run", "json"}
 	case "info":
-		return []string{"github", "gitlab", "output"}
+		return []string{"github", "gitlab", "json"}
+	case "list":
+		return []string{"integrated", "unlinked", "json", "csv", "plain"}
+	case "migrate":
+		return []string{"dry-run", "json"}
 	case "remove":
-		return []string{"unlink", "dry-run", "output"}
+		return []string{"unlink", "dry-run", "json"}
 	case "update":
-		return []string{"check-only", "yes", "dry-run", "output"}
+		return []string{"check-only", "yes", "dry-run", "json", "csv", "plain"}
 	case "update set":
 		return []string{"github", "gitlab", "zsync", "embedded"}
 	case "update unset":
-		return []string{"dry-run", "yes", "output"}
+		return []string{"dry-run", "yes", "json"}
 	default:
-		return []string{"dry-run", "output"}
+		return []string{"dry-run", "json"}
 	}
 }
 

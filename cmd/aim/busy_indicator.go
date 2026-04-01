@@ -28,7 +28,7 @@ func newBusyIndicator(cmd *cobra.Command, label string) *busyIndicator {
 	return &busyIndicator{
 		cmd:    cmd,
 		label:  strings.TrimSpace(label),
-		tty:    isTerminalOutput(),
+		tty:    isTerminalStderr(),
 		stopCh: make(chan struct{}),
 		doneCh: make(chan struct{}),
 	}
@@ -85,7 +85,7 @@ func (b *busyIndicator) render() {
 	frame := busyIndicatorFrames[b.frameIdx%len(busyIndicatorFrames)]
 	b.frameIdx++
 
-	line := colorize(useColor(b.cmd), "\033[0;36m", fmt.Sprintf("%s %s", frame, b.label))
+	line := colorize(shouldColorStderr(b.cmd), "\033[0;36m", fmt.Sprintf("%s %s", frame, b.label))
 	width := visibleWidth(frame) + 1 + visibleWidth(b.label)
 	if width < b.width {
 		line += strings.Repeat(" ", b.width-width)

@@ -151,11 +151,12 @@ func exitCodeForError(err error) int {
 		return exitNoPerm
 	case strings.Contains(msg, "missing required argument"),
 		strings.Contains(msg, "unknown command"),
+		strings.Contains(msg, "unknown flag"),
+		strings.Contains(msg, "unknown shorthand flag"),
 		strings.Contains(msg, "unknown help topic"),
 		strings.Contains(msg, "too many arguments"),
 		strings.Contains(msg, "mutually exclusive"),
-		strings.Contains(msg, "unsupported output format"),
-		strings.Contains(msg, "--output csv is not supported"),
+		strings.Contains(msg, "--csv is not supported"),
 		strings.Contains(msg, "not supported with"),
 		strings.Contains(msg, "deprecated"),
 		strings.Contains(msg, "must be a valid"),
@@ -239,8 +240,8 @@ func renderCommandError(root *cobra.Command, args []string, err error) int {
 		return exitCodeForError(err)
 	}
 
-	output, _ := root.PersistentFlags().GetString("output")
-	if strings.EqualFold(strings.TrimSpace(output), outputJSON) {
+	jsonOutput, _ := root.PersistentFlags().GetBool("json")
+	if jsonOutput || argsContainFlag(args, "--json") {
 		printJSONError(root.ErrOrStderr(), commandNameFromArgs(root, args), argsContainFlag(args, "--dry-run"), err)
 	} else {
 		_, _ = fmt.Fprintln(root.ErrOrStderr(), err)

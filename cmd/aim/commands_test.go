@@ -3501,7 +3501,7 @@ func TestNewRootCommandMetadata(t *testing.T) {
 
 func TestRootPersistentFlagsAvailableOnVisibleCommands(t *testing.T) {
 	root := newRootCommand("1.2.3")
-	required := []string{"verbose", "quiet", "config", "dry-run", "yes", "output"}
+	required := []string{"verbose", "quiet", "config", "dry-run", "yes", "json", "csv", "plain", "no-color"}
 
 	var visit func(*cobra.Command)
 	visit = func(cmd *cobra.Command) {
@@ -3559,7 +3559,7 @@ func TestConfigFlagOverridesPathsBeforeCommandExecution(t *testing.T) {
 
 func TestRootIgnoresStructuredOutputForConciseHelp(t *testing.T) {
 	cmd := newRootTestCommand()
-	output, stderr, err := executeCommandWithIO(context.Background(), cmd, "--output", "json")
+	output, stderr, err := executeCommandWithIO(context.Background(), cmd, "--json")
 	if err != nil {
 		t.Fatalf("executeCommandWithIO returned error: %v", err)
 	}
@@ -3577,7 +3577,7 @@ func TestRootIgnoresStructuredOutputForConciseHelp(t *testing.T) {
 
 func TestRootFullHelpIgnoresTrailingFlags(t *testing.T) {
 	cmd := newRootTestCommand()
-	output, stderr, err := executeCommandWithIO(context.Background(), cmd, "--help", "--output", "json")
+	output, stderr, err := executeCommandWithIO(context.Background(), cmd, "--help", "--json")
 	if err != nil {
 		t.Fatalf("executeCommandWithIO returned error: %v", err)
 	}
@@ -3630,7 +3630,7 @@ func TestListCSVOutput(t *testing.T) {
 	}
 
 	cmd := newRootTestCommand()
-	output, stderr, err := executeCommandWithIO(context.Background(), cmd, "list", "--output", "csv")
+	output, stderr, err := executeCommandWithIO(context.Background(), cmd, "list", "--csv")
 	if err != nil {
 		t.Fatalf("executeCommandWithIO returned error: %v", err)
 	}
@@ -3650,16 +3650,148 @@ func TestListCSVOutput(t *testing.T) {
 	}
 }
 
+func TestListPlainOutput(t *testing.T) {
+	tmp := t.TempDir()
+	dbPath := filepath.Join(tmp, "apps.json")
+	originalDbSrc := config.DbSrc
+	config.DbSrc = dbPath
+	t.Cleanup(func() {
+		config.DbSrc = originalDbSrc
+	})
+
+	if err := repo.SaveDB(dbPath, &repo.DB{
+		SchemaVersion: 1,
+		Apps: map[string]*models.App{
+			"obsidian": {
+				ID:               "obsidian",
+				Name:             "Obsidian",
+				Version:          "1.8.10",
+				ExecPath:         "/tmp/Obsidian.AppImage",
+				DesktopEntryLink: "/tmp/obsidian.desktop",
+			},
+		},
+	}); err != nil {
+		t.Fatalf("failed to write test db: %v", err)
+	}
+
+	cmd := newRootTestCommand()
+	stdout, stderr, err := executeCommandWithIO(context.Background(), cmd, "list", "--plain")
+	if err != nil {
+		t.Fatalf("executeCommandWithIO returned error: %v", err)
+	}
+	if strings.TrimSpace(stderr) != "" {
+		t.Fatalf("expected no stderr output, got:\n%s", stderr)
+	}
+	if strings.Contains(stdout, "\033[") {
+		t.Fatalf("expected plain output without ANSI, got:\n%s", stdout)
+	}
+	lines := strings.Split(strings.TrimSpace(stdout), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected header + row, got:\n%s", stdout)
+	}
+	if lines[0] != strings.Join(listPlainHeader(), "\t") {
+		t.Fatalf("unexpected plain header: %q", lines[0])
+	}
+	if lines[1] != "obsidian\tObsidian\t1.8.10\ttrue\t/tmp/Obsidian.AppImage" {
+		t.Fatalf("unexpected plain row: %q", lines[1])
+	}
+}
+
+func TestRuntimeRejectsJSONAndCSVTogether(t *testing.T) {
+	cmd := newRootTestCommand()
+	err := executeTestCommand(context.Background(), cmd, "list", "--json", "--csv")
+	if err == nil {
+		t.Fatal("expected mutually exclusive output flag error")
+	}
+	if code := exitCodeForError(err); code != exitUsage {
+		t.Fatalf("exitCodeForError = %d, want %d", code, exitUsage)
+	}
+	if !strings.Contains(err.Error(), "--json and --csv are mutually exclusive") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRemovedOutputFlagRejected(t *testing.T) {
+	cmd := newRootTestCommand()
+	err := executeTestCommand(context.Background(), cmd, "list", "--output", "json")
+	if err == nil {
+		t.Fatal("expected unknown flag error")
+	}
+	if code := exitCodeForError(err); code != exitUsage {
+		t.Fatalf("exitCodeForError = %d, want %d", code, exitUsage)
+	}
+	if !strings.Contains(err.Error(), "unknown flag: --output") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestNoColorFlagDisablesANSI(t *testing.T) {
+	withTerminalOutput(t, true)
+	withColorEnabled(t)
+
+	root := newRootCommand("test")
+	probe := &cobra.Command{
+		Use: "probe",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			_ = args
+			printSection(cmd, "Header")
+			printSuccess(cmd, "done")
+			return nil
+		},
+	}
+	root.AddCommand(probe)
+
+	stdout, stderr, err := executeCommandWithIO(context.Background(), root, "--no-color", "probe")
+	if err != nil {
+		t.Fatalf("executeCommandWithIO returned error: %v", err)
+	}
+	if strings.Contains(stdout, "\033[") {
+		t.Fatalf("expected stdout without ANSI, got:\n%s", stdout)
+	}
+	if strings.Contains(stderr, "\033[") {
+		t.Fatalf("expected stderr without ANSI, got:\n%s", stderr)
+	}
+}
+
+func TestNOCOLOREnvDisablesANSI(t *testing.T) {
+	withTerminalOutput(t, true)
+	withColorEnabled(t)
+	t.Setenv("NO_COLOR", "1")
+
+	root := newRootCommand("test")
+	probe := &cobra.Command{
+		Use: "probe",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			_ = args
+			printSection(cmd, "Header")
+			printSuccess(cmd, "done")
+			return nil
+		},
+	}
+	root.AddCommand(probe)
+
+	stdout, stderr, err := executeCommandWithIO(context.Background(), root, "probe")
+	if err != nil {
+		t.Fatalf("executeCommandWithIO returned error: %v", err)
+	}
+	if strings.Contains(stdout, "\033[") {
+		t.Fatalf("expected stdout without ANSI, got:\n%s", stdout)
+	}
+	if strings.Contains(stderr, "\033[") {
+		t.Fatalf("expected stderr without ANSI, got:\n%s", stderr)
+	}
+}
+
 func TestCSVRejectedForInfo(t *testing.T) {
 	cmd := newRootTestCommand()
-	err := executeTestCommand(context.Background(), cmd, "info", "--output", "csv", "missing")
+	err := executeTestCommand(context.Background(), cmd, "info", "--csv", "missing")
 	if err == nil {
 		t.Fatal("expected csv rejection")
 	}
 	if code := exitCodeForError(err); code != exitUsage {
 		t.Fatalf("exitCodeForError = %d, want %d", code, exitUsage)
 	}
-	if !strings.Contains(err.Error(), "--output csv is not supported") {
+	if !strings.Contains(err.Error(), "--csv is not supported") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -3685,7 +3817,7 @@ func TestRemoveDryRunDoesNotMutateDB(t *testing.T) {
 
 	cmd := newRootTestCommand()
 	_ = captureStdout(t, func() {
-		if err := executeTestCommand(context.Background(), cmd, "remove", "--dry-run", "--output", "json", "my-app"); err != nil {
+		if err := executeTestCommand(context.Background(), cmd, "remove", "--dry-run", "--json", "my-app"); err != nil {
 			t.Fatalf("executeTestCommand returned error: %v", err)
 		}
 	})
@@ -3819,7 +3951,7 @@ func TestManagedUpdateJSONOutput(t *testing.T) {
 
 	cmd := newRootTestCommand()
 	output := captureStdoutOnly(t, func() {
-		if err := executeTestCommand(context.Background(), cmd, "update", "my-app", "--check-only", "--output", "json"); err != nil {
+		if err := executeTestCommand(context.Background(), cmd, "update", "my-app", "--check-only", "--json"); err != nil {
 			t.Fatalf("executeTestCommand returned error: %v", err)
 		}
 	})
@@ -3864,11 +3996,11 @@ func TestRenderCommandErrorJSONWritesToStderrOnly(t *testing.T) {
 	var stderr bytes.Buffer
 	root.SetOut(&stdout)
 	root.SetErr(&stderr)
-	if err := root.PersistentFlags().Set("output", "json"); err != nil {
-		t.Fatalf("failed to set output flag: %v", err)
+	if err := root.PersistentFlags().Set("json", "true"); err != nil {
+		t.Fatalf("failed to set json flag: %v", err)
 	}
 
-	code := renderCommandError(root, []string{"info", "missing", "--output", "json"}, notFoundError(fmt.Errorf("no app with id missing")))
+	code := renderCommandError(root, []string{"info", "missing", "--json"}, notFoundError(fmt.Errorf("no app with id missing")))
 	if code != exitNoInput {
 		t.Fatalf("renderCommandError code = %d, want %d", code, exitNoInput)
 	}
@@ -4062,7 +4194,7 @@ func TestUpdateSetDryRunDoesNotPersist(t *testing.T) {
 
 	cmd := newRootTestCommand()
 	_ = captureStdout(t, func() {
-		if err := executeTestCommand(context.Background(), cmd, "update", "set", "my-app", "--gitlab", "group/project", "--dry-run", "--output", "json"); err != nil {
+		if err := executeTestCommand(context.Background(), cmd, "update", "set", "my-app", "--gitlab", "group/project", "--dry-run", "--json"); err != nil {
 			t.Fatalf("executeTestCommand returned error: %v", err)
 		}
 	})
@@ -5266,6 +5398,7 @@ func TestManagedApplyRendererTTYCoalescesProgressRedraws(t *testing.T) {
 func TestManagedApplyRendererTTYFinishRendersDoneAndFailedRows(t *testing.T) {
 	withTerminalOutput(t, true)
 	withManagedApplyRenderInterval(t, time.Hour)
+	withColorEnabled(t)
 
 	output := captureStdout(t, func() {
 		renderer := newManagedApplyRenderer(&cobra.Command{}, []pendingManagedUpdate{
@@ -6046,13 +6179,20 @@ func assertManagedApplyStages(t *testing.T, events []managedApplyEvent, want ...
 func withTerminalOutput(t *testing.T, value bool) {
 	t.Helper()
 
-	original := terminalOutputChecker
-	terminalOutputChecker = func() bool {
+	originalOutput := terminalOutputChecker
+	originalStdout := terminalStdoutChecker
+	originalStderr := terminalStderrChecker
+	override := func() bool {
 		return value
 	}
 	t.Cleanup(func() {
-		terminalOutputChecker = original
+		terminalOutputChecker = originalOutput
+		terminalStdoutChecker = originalStdout
+		terminalStderrChecker = originalStderr
 	})
+	terminalOutputChecker = override
+	terminalStdoutChecker = override
+	terminalStderrChecker = override
 }
 
 func withManagedApplyRenderInterval(t *testing.T, value time.Duration) {
@@ -6085,6 +6225,14 @@ func withTerminalInput(t *testing.T, value bool) {
 	t.Cleanup(func() {
 		terminalInputChecker = original
 	})
+}
+
+func withColorEnabled(t *testing.T) {
+	t.Helper()
+
+	t.Setenv("NO_COLOR", "")
+	t.Setenv("AIM_NO_COLOR", "")
+	t.Setenv("TERM", "xterm-256color")
 }
 
 func captureStdout(t *testing.T, fn func()) string {

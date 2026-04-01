@@ -93,13 +93,17 @@ Bare `aim` prints concise getting-started help. Use `aim --help` for the full in
 - `-C`, `--config <dir>`: use an alternate AIM state root
 - `--dry-run`: preview mutating actions without applying them
 - `-y`, `--yes`: bypass confirmation prompts
-- `--output text|json|csv`: choose human-readable or machine-readable output
+- `--json`: emit machine-readable JSON
+- `--csv`: emit CSV where supported
+- `--plain`: emit plain tab-separated text for shell pipelines
+- `--no-color`: disable ANSI color output
 
 Examples:
 
 ```sh
-aim list --output json
-aim update --check-only --output csv
+aim list --json
+aim update --check-only --csv
+aim list --plain | grep obsidian
 aim -C /tmp/aim-state add --dry-run ./Example.AppImage
 aim update unset example-app --yes
 ```
@@ -108,7 +112,7 @@ aim update unset example-app --yes
 
 `aim` keeps its process interface script-friendly:
 
-- primary command output, including `--output json` and `--output csv`, is written to stdout
+- primary command output, including `--json`, `--csv`, and `--plain`, is written to stdout
 - errors, warnings, prompts, progress, and verbose diagnostics are written to stderr
 - success exits with `0`; failures exit with a stable non-zero code
 
@@ -153,12 +157,13 @@ man aim-update-set
 
 ### list
 
-List managed AppImages in text, JSON, or CSV form.
+List managed AppImages in human-readable text, plain text, JSON, or CSV form.
 
 ```sh
 aim list
-aim list --output json
-aim list --output csv
+aim list --json
+aim list --csv
+aim list --plain
 ```
 
 ### migrate
@@ -168,7 +173,7 @@ Repair managed state and migrate legacy paths.
 ```sh
 aim migrate
 aim migrate example-app
-aim migrate --dry-run --output json
+aim migrate --dry-run --json
 ```
 
 ### update set
@@ -187,7 +192,7 @@ Unset the configured update source for a managed app.
 
 ```sh
 aim update unset example-app
-aim update unset example-app --dry-run --output json
+aim update unset example-app --dry-run --json
 ```
 
 ## Where `aim` stores files

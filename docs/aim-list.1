@@ -35,12 +35,24 @@ List managed AppImages
 	use an alternate AIM state root
 
 .PP
+\fB--csv\fP[=false]
+	output CSV where supported
+
+.PP
 \fB--dry-run\fP[=false]
 	simulate changes without applying them
 
 .PP
-\fB--output\fP="text"
-	output format: text, json, or csv
+\fB--json\fP[=false]
+	output formatted JSON
+
+.PP
+\fB--no-color\fP[=false]
+	disable ANSI color output
+
+.PP
+\fB--plain\fP[=false]
+	output plain tab-separated text
 
 .PP
 \fB-q\fP, \fB--quiet\fP[=false]
@@ -59,8 +71,8 @@ List managed AppImages
 .EX
 aim list
   aim list --integrated
-  aim list --output json
-  aim list --output csv
+  aim list --json
+  aim list --csv
 .EE
 
 

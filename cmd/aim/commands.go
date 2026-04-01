@@ -119,11 +119,11 @@ func printAimMetadata(cmd *cobra.Command) error {
 		"copyright":  rootCommandCopyright,
 	}
 
-	if runtimeOptionsFrom(cmd).Output == outputJSON {
+	if runtimeOptionsFrom(cmd).JSON {
 		return printJSONSuccess(cmd, result)
 	}
-	if runtimeOptionsFrom(cmd).Output == outputCSV {
-		return usageError(fmt.Errorf("--output csv is not supported for `aim`"))
+	if runtimeOptionsFrom(cmd).CSV {
+		return usageError(fmt.Errorf("--csv is not supported for `aim`"))
 	}
 
 	writeDataf(cmd, "Version: %s\n", version)
@@ -147,7 +147,7 @@ func MigrateCmd(cmd *cobra.Command, args []string) error {
 			if err != nil {
 				return err
 			}
-			if opts.Output == outputJSON {
+			if opts.JSON {
 				return printJSONSuccess(cmd, plan)
 			}
 			writeDataf(cmd, "Dry run: migration planned=%t\n", plan.WouldChangeAnything)
@@ -162,7 +162,7 @@ func MigrateCmd(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
-		if opts.Output == outputJSON {
+		if opts.JSON {
 			return printJSONSuccess(cmd, map[string]interface{}{
 				"changed": changed,
 				"scope":   "all",
@@ -185,7 +185,7 @@ func MigrateCmd(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
-		if opts.Output == outputJSON {
+		if opts.JSON {
 			return printJSONSuccess(cmd, plan)
 		}
 		writeDataf(cmd, "Dry run: migration planned for %s = %t\n", id, plan.WouldChangeAnything)
@@ -201,7 +201,7 @@ func MigrateCmd(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	if opts.Output == outputJSON {
+	if opts.JSON {
 		return printJSONSuccess(cmd, map[string]interface{}{
 			"changed": changed,
 			"scope":   id,
@@ -325,7 +325,7 @@ func runIntegrateTarget(ctx context.Context, cmd *cobra.Command, input string) e
 
 	switch target.Kind {
 	case integrateTargetIntegrated:
-		if opts.Output == outputJSON {
+		if opts.JSON {
 			return printJSONSuccess(cmd, map[string]interface{}{
 				"status": "already_integrated",
 				"app":    target.App,
@@ -340,7 +340,7 @@ func runIntegrateTarget(ctx context.Context, cmd *cobra.Command, input string) e
 				"action": "reintegrate",
 				"app":    target.App,
 			}
-			if opts.Output == outputJSON {
+			if opts.JSON {
 				return printJSONSuccess(cmd, result)
 			}
 			writeDataf(cmd, "Dry run: would reintegrate %s [%s]\n", target.App.Name, target.App.ID)
@@ -353,7 +353,7 @@ func runIntegrateTarget(ctx context.Context, cmd *cobra.Command, input string) e
 		if err != nil {
 			return err
 		}
-		if opts.Output == outputJSON {
+		if opts.JSON {
 			return printJSONSuccess(cmd, map[string]interface{}{
 				"status": "reintegrated",
 				"app":    app,
@@ -367,7 +367,7 @@ func runIntegrateTarget(ctx context.Context, cmd *cobra.Command, input string) e
 			if err != nil {
 				return err
 			}
-			if opts.Output == outputJSON {
+			if opts.JSON {
 				return printJSONSuccess(cmd, plan)
 			}
 			writeDataf(cmd, "Dry run: would integrate %s\n", plan["input"])
@@ -397,7 +397,7 @@ func runIntegrateTarget(ctx context.Context, cmd *cobra.Command, input string) e
 		if err != nil {
 			return err
 		}
-		if opts.Output == outputJSON {
+		if opts.JSON {
 			return printJSONSuccess(cmd, map[string]interface{}{
 				"status": "integrated",
 				"app":    app,
@@ -660,7 +660,7 @@ func integrateRemoteInstall(ctx context.Context, cmd *cobra.Command, req remoteI
 	downloadPath := filepath.Join(tempDir, fileName)
 
 	printInfo(cmd, fmt.Sprintf("Downloading %s", strings.TrimSpace(req.DisplayLabel)))
-	if err := downloadRemoteAsset(ctx, req.DownloadURL, downloadPath, isTerminalOutput()); err != nil {
+	if err := downloadRemoteAsset(ctx, req.DownloadURL, downloadPath, isTerminalStderr()); err != nil {
 		return nil, err
 	}
 
@@ -790,7 +790,7 @@ func RemoveCmd(cmd *cobra.Command, args []string) error {
 			return wrapDatabaseReadError(err)
 		}
 		plan := removeDryRunPlan(app, unlink)
-		if opts.Output == outputJSON {
+		if opts.JSON {
 			return printJSONSuccess(cmd, plan)
 		}
 		writeDataf(cmd, "Dry run: would %s %s [%s]\n", plan["action"], app.Name, app.ID)
@@ -810,7 +810,7 @@ func RemoveCmd(cmd *cobra.Command, args []string) error {
 		if unlink {
 			label = "Unlinked"
 		}
-		if opts.Output == outputJSON {
+		if opts.JSON {
 			return printJSONSuccess(cmd, map[string]interface{}{
 				"action": strings.ToLower(label),
 				"app":    app,
@@ -854,11 +854,15 @@ func ListCmd(cmd *cobra.Command, args []string) error {
 
 	opts := runtimeOptionsFrom(cmd)
 	if len(apps) == 0 {
-		if opts.Output == outputJSON {
+		if opts.JSON {
 			return printJSONSuccess(cmd, []listOutputRow{})
 		}
-		if opts.Output == outputCSV {
+		if opts.CSV {
 			return writeCSV(cmd, listCSVHeader(), nil)
+		}
+		if opts.Plain {
+			writePlainList(cmd, nil)
+			return nil
 		}
 		printSuccess(cmd, "No managed apps")
 		return nil
@@ -895,19 +899,23 @@ func ListCmd(cmd *cobra.Command, args []string) error {
 		selected = append(selected, unlinkedRows...)
 	}
 
-	if opts.Output == outputJSON {
+	if opts.JSON {
 		rows := make([]listOutputRow, 0, len(selected))
 		for _, app := range selected {
 			rows = append(rows, newListOutputRow(app))
 		}
 		return printJSONSuccess(cmd, rows)
 	}
-	if opts.Output == outputCSV {
+	if opts.CSV {
 		rows := make([][]string, 0, len(selected))
 		for _, app := range selected {
 			rows = append(rows, newListOutputRow(app).csvRow())
 		}
 		return writeCSV(cmd, listCSVHeader(), rows)
+	}
+	if opts.Plain {
+		writePlainList(cmd, selected)
+		return nil
 	}
 
 	idWidth := listIDColumnWidth(integratedRows, unlinkedRows)
@@ -924,7 +932,7 @@ func ListCmd(cmd *cobra.Command, args []string) error {
 	if all || unlinked {
 		for _, app := range unlinkedRows {
 			row := formatListRow(app, idWidth, nameWidth)
-			writeDataf(cmd, "%s\n", colorize(useColor(cmd), "\033[2m\033[3m", row))
+			writeDataf(cmd, "%s\n", colorize(shouldColorStdout(cmd), "\033[2m\033[3m", row))
 		}
 	}
 
@@ -1188,7 +1196,7 @@ func runShowPackageRef(ctx context.Context, cmd *cobra.Command, ref discovery.Pa
 		return err
 	}
 
-	if runtimeOptionsFrom(cmd).Output == outputJSON {
+	if runtimeOptionsFrom(cmd).JSON {
 		return printJSONSuccess(cmd, map[string]interface{}{
 			"kind":     "package_metadata",
 			"metadata": packageMetadataOutput(metadata),
@@ -1223,7 +1231,7 @@ func runInstallTarget(ctx context.Context, cmd *cobra.Command, refArg string) er
 		if err != nil {
 			return err
 		}
-		if opts.Output == outputJSON {
+		if opts.JSON {
 			return printJSONSuccess(cmd, plan)
 		}
 		writeDataf(cmd, "Dry run: would install %s\n", plan["target"])
@@ -1255,7 +1263,7 @@ func runInstallTarget(ctx context.Context, cmd *cobra.Command, refArg string) er
 		return err
 	}
 
-	if opts.Output == outputJSON {
+	if opts.JSON {
 		return printJSONSuccess(cmd, map[string]interface{}{
 			"status": "installed",
 			"app":    app,
@@ -1286,7 +1294,7 @@ func runInstallPackageRef(ctx context.Context, cmd *cobra.Command, ref discovery
 		if err != nil {
 			return err
 		}
-		if opts.Output == outputJSON {
+		if opts.JSON {
 			return printJSONSuccess(cmd, map[string]interface{}{
 				"action":   "install",
 				"target":   formatProviderRef(ref),
@@ -1316,7 +1324,7 @@ func runInstallPackageRef(ctx context.Context, cmd *cobra.Command, ref discovery
 		return err
 	}
 
-	if opts.Output == outputJSON {
+	if opts.JSON {
 		return printJSONSuccess(cmd, map[string]interface{}{
 			"status": "installed",
 			"app":    app,
@@ -1394,7 +1402,7 @@ func inspectManagedApp(ctx context.Context, cmd *cobra.Command, app *models.App)
 
 	embeddedSource, _ := embeddedUpdateSourceForPath(app.ExecPath)
 
-	if runtimeOptionsFrom(cmd).Output == outputJSON {
+	if runtimeOptionsFrom(cmd).JSON {
 		return printJSONSuccess(cmd, map[string]interface{}{
 			"kind":            "managed_app",
 			"app":             app,
@@ -1455,7 +1463,7 @@ func inspectLocalAppImage(ctx context.Context, cmd *cobra.Command, src string) e
 	info := result.info
 	embeddedSource := result.embeddedSource
 
-	if runtimeOptionsFrom(cmd).Output == outputJSON {
+	if runtimeOptionsFrom(cmd).JSON {
 		return printJSONSuccess(cmd, map[string]interface{}{
 			"kind":            "local_appimage",
 			"path":            strings.TrimSpace(src),
@@ -1557,7 +1565,7 @@ func UpdateSetCmd(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			printWarning(cmd, warningNoEmbeddedSource())
 			if app.Update == nil || app.Update.Kind == models.UpdateNone {
-				if opts.Output == outputJSON {
+				if opts.JSON {
 					return printJSONSuccess(cmd, buildUpdateUnsetDryRunResult(id, app.Update))
 				}
 				return nil
@@ -1590,7 +1598,7 @@ func UpdateSetCmd(cmd *cobra.Command, args []string) error {
 
 	if opts.DryRun {
 		result := buildUpdateSetDryRunResult(id, app.Update, incomingSource)
-		if opts.Output == outputJSON {
+		if opts.JSON {
 			return printJSONSuccess(cmd, result)
 		}
 		writeDataf(cmd, "Dry run: would set update source for %s\n", id)
@@ -1603,7 +1611,7 @@ func UpdateSetCmd(cmd *cobra.Command, args []string) error {
 		return wrapWriteError(err)
 	}
 
-	if opts.Output == outputJSON {
+	if opts.JSON {
 		return printJSONSuccess(cmd, map[string]interface{}{
 			"action": "set_update_source",
 			"id":     id,
@@ -1637,7 +1645,7 @@ func UpdateUnsetCmd(cmd *cobra.Command, args []string) error {
 
 	if runtimeOptionsFrom(cmd).DryRun {
 		result := buildUpdateUnsetDryRunResult(id, app.Update)
-		if runtimeOptionsFrom(cmd).Output == outputJSON {
+		if runtimeOptionsFrom(cmd).JSON {
 			return printJSONSuccess(cmd, result)
 		}
 		writeDataf(cmd, "Dry run: would unset update source for %s\n", id)
@@ -1979,7 +1987,7 @@ func runManagedUpdate(ctx context.Context, cmd *cobra.Command, targetID string) 
 			if app != nil {
 				rowIndexByID[app.ID] = len(rows) - 1
 			}
-			if targetID != "" && opts.Output == outputText {
+			if targetID != "" && !shouldUseStructuredOutput(cmd) {
 				if status == "no_update_source" {
 					printSuccess(cmd, fmt.Sprintf("No update source configured for %s", app.ID))
 				} else {
@@ -2012,7 +2020,7 @@ func runManagedUpdate(ctx context.Context, cmd *cobra.Command, targetID string) 
 			if app != nil {
 				rowIndexByID[app.ID] = len(rows) - 1
 			}
-			if targetID != "" && opts.Output == outputText {
+			if targetID != "" && !shouldUseStructuredOutput(cmd) {
 				printSuccess(cmd, fmt.Sprintf("Up to date: %s %s", app.ID, displayVersion(app.Version)))
 				singleStatusPrinted = true
 			}
@@ -2058,15 +2066,19 @@ func runManagedUpdate(ctx context.Context, cmd *cobra.Command, targetID string) 
 		if targetID != "" && singleStatusPrinted {
 			return nil
 		}
-		if opts.Output == outputJSON {
+		if opts.JSON {
 			return printJSONSuccess(cmd, rows)
 		}
-		if opts.Output == outputCSV {
+		if opts.CSV {
 			csvRows := make([][]string, 0, len(rows))
 			for _, row := range rows {
 				csvRows = append(csvRows, row.csvRow())
 			}
 			return writeCSV(cmd, updateCSVHeader(), csvRows)
+		}
+		if opts.Plain {
+			writePlainUpdateRows(cmd, rows)
+			return nil
 		}
 		if checkFailures > 0 {
 			printWarning(cmd, "No updates applied; some checks failed")
@@ -2077,15 +2089,19 @@ func runManagedUpdate(ctx context.Context, cmd *cobra.Command, targetID string) 
 	}
 
 	if checkOnly {
-		if opts.Output == outputJSON {
+		if opts.JSON {
 			return printJSONSuccess(cmd, rows)
 		}
-		if opts.Output == outputCSV {
+		if opts.CSV {
 			csvRows := make([][]string, 0, len(rows))
 			for _, row := range rows {
 				csvRows = append(csvRows, row.csvRow())
 			}
 			return writeCSV(cmd, updateCSVHeader(), csvRows)
+		}
+		if opts.Plain {
+			writePlainUpdateRows(cmd, rows)
+			return nil
 		}
 		return nil
 	}
@@ -2096,15 +2112,19 @@ func runManagedUpdate(ctx context.Context, cmd *cobra.Command, targetID string) 
 				rows[idx].Status = "dry_run_pending"
 			}
 		}
-		if opts.Output == outputJSON {
+		if opts.JSON {
 			return printJSONSuccess(cmd, rows)
 		}
-		if opts.Output == outputCSV {
+		if opts.CSV {
 			csvRows := make([][]string, 0, len(rows))
 			for _, row := range rows {
 				csvRows = append(csvRows, row.csvRow())
 			}
 			return writeCSV(cmd, updateCSVHeader(), csvRows)
+		}
+		if opts.Plain {
+			writePlainUpdateRows(cmd, rows)
+			return nil
 		}
 		printInfo(cmd, "Dry run: no updates were applied")
 		return nil
@@ -2126,15 +2146,19 @@ func runManagedUpdate(ctx context.Context, cmd *cobra.Command, targetID string) 
 					rows[idx].Status = "apply_skipped"
 				}
 			}
-			if opts.Output == outputJSON {
+			if opts.JSON {
 				return printJSONSuccess(cmd, rows)
 			}
-			if opts.Output == outputCSV {
+			if opts.CSV {
 				csvRows := make([][]string, 0, len(rows))
 				for _, row := range rows {
 					csvRows = append(csvRows, row.csvRow())
 				}
 				return writeCSV(cmd, updateCSVHeader(), csvRows)
+			}
+			if opts.Plain {
+				writePlainUpdateRows(cmd, rows)
+				return nil
 			}
 			printWarning(cmd, "No updates applied")
 			return nil
@@ -2175,15 +2199,19 @@ func runManagedUpdate(ctx context.Context, cmd *cobra.Command, targetID string) 
 		return wrapWriteError(persistErr)
 	}
 
-	if opts.Output == outputJSON {
+	if opts.JSON {
 		return printJSONSuccess(cmd, rows)
 	}
-	if opts.Output == outputCSV {
+	if opts.CSV {
 		csvRows := make([][]string, 0, len(rows))
 		for _, row := range rows {
 			csvRows = append(csvRows, row.csvRow())
 		}
 		return writeCSV(cmd, updateCSVHeader(), csvRows)
+	}
+	if opts.Plain {
+		writePlainUpdateRows(cmd, rows)
+		return nil
 	}
 
 	return nil
@@ -2863,11 +2891,6 @@ func isHTTPSURL(value string) bool {
 	return true
 }
 
-func useColor(cmd *cobra.Command) bool {
-	_ = cmd
-	return isTerminalOutput()
-}
-
 func colorize(enabled bool, code, value string) string {
 	if !enabled {
 		return value
@@ -2880,32 +2903,32 @@ func printSuccess(cmd *cobra.Command, text string) {
 	if runtimeOptionsFrom(cmd).Quiet || !shouldRenderLogs(cmd) {
 		return
 	}
-	writeLogf(cmd, "%s\n", colorize(useColor(cmd), "\033[0;32m", text))
+	writeLogf(cmd, "%s\n", colorize(shouldColorStderr(cmd), "\033[0;32m", text))
 }
 
 func printWarning(cmd *cobra.Command, text string) {
 	if !shouldRenderLogs(cmd) {
 		return
 	}
-	writeLogf(cmd, "%s\n", colorize(useColor(cmd), "\033[0;33m", text))
+	writeLogf(cmd, "%s\n", colorize(shouldColorStderr(cmd), "\033[0;33m", text))
 }
 
 func printError(cmd *cobra.Command, text string) {
-	writeLogf(cmd, "%s\n", colorize(useColor(cmd), "\033[0;31m", text))
+	writeLogf(cmd, "%s\n", colorize(shouldColorStderr(cmd), "\033[0;31m", text))
 }
 
 func printInfo(cmd *cobra.Command, text string) {
 	if runtimeOptionsFrom(cmd).Quiet || !shouldRenderLogs(cmd) {
 		return
 	}
-	writeLogf(cmd, "%s\n", colorize(useColor(cmd), "\033[0;36m", text))
+	writeLogf(cmd, "%s\n", colorize(shouldColorStderr(cmd), "\033[0;36m", text))
 }
 
 func printSection(cmd *cobra.Command, text string) {
-	if runtimeOptionsFrom(cmd).Output != outputText {
+	if shouldUseStructuredOutput(cmd) {
 		return
 	}
-	writeDataf(cmd, "%s\n", colorize(useColor(cmd), "\033[1m", text))
+	writeDataf(cmd, "%s\n", colorize(shouldColorStdout(cmd), "\033[1m", text))
 }
 
 func updateSummary(update *models.UpdateSource) string {

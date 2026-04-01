@@ -160,7 +160,7 @@ func newManagedApplyRenderer(cmd *cobra.Command, pending []pendingManagedUpdate)
 	renderer := &managedApplyRenderer{
 		cmd:    cmd,
 		total:  len(pending),
-		tty:    isTerminalOutput(),
+		tty:    isTerminalStderr(),
 		rows:   rows,
 		header: managedApplyHeader(len(pending)),
 	}
@@ -343,7 +343,7 @@ func (r *managedApplyRenderer) formatRow(index int) string {
 	row := r.rows[index]
 	status := managedApplyStatusText(row)
 	if r.tty {
-		status = colorize(true, managedApplyColorCode(row.stage), status)
+		status = colorize(shouldColorStderr(r.cmd), managedApplyColorCode(row.stage), status)
 	}
 
 	appID := row.appID
