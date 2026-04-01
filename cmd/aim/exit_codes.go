@@ -145,7 +145,8 @@ func exitCodeForError(err error) int {
 
 	msg := strings.ToLower(strings.TrimSpace(err.Error()))
 	switch {
-	case strings.Contains(msg, "confirmation required in non-interactive mode"):
+	case strings.Contains(msg, "confirmation required in non-interactive mode"),
+		strings.Contains(msg, "confirmation required with --no-input"):
 		return exitNoPerm
 	case strings.Contains(msg, "permission denied"):
 		return exitNoPerm
@@ -244,8 +245,9 @@ func renderCommandError(root *cobra.Command, args []string, err error) int {
 	if jsonOutput || argsContainFlag(args, "--json") {
 		printJSONError(root.ErrOrStderr(), commandNameFromArgs(root, args), argsContainFlag(args, "--dry-run"), err)
 	} else {
-		verbose, _ := root.PersistentFlags().GetBool("verbose")
-		lines := renderTextErrorLines(err, suggestionForError(root, err), verbose || argsContainFlag(args, "--verbose"))
+		debug, _ := root.PersistentFlags().GetBool("debug")
+		verboseAlias, _ := root.PersistentFlags().GetBool("verbose")
+		lines := renderTextErrorLines(err, suggestionForError(root, err), debug || verboseAlias || argsContainFlag(args, "--debug") || argsContainFlag(args, "-d") || argsContainFlag(args, "--verbose"))
 		for _, line := range lines {
 			if strings.TrimSpace(line) == "" {
 				continue

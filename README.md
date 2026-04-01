@@ -30,12 +30,12 @@ If `aim` is not found, make sure `~/.local/bin` is on your `PATH`.
 
 ### `add`
 
-Add an AppImage from a local file, a direct download link, or a GitHub/GitLab release.
+Add an AppImage from a local file, a managed app id, a direct download link, or a GitHub/GitLab release.
 
 ```sh
 # Examples
 aim add ./example.AppImage
-aim add https://example.com/example.AppImage
+aim add --url https://example.com/example.AppImage
 aim add --github owner/repo
 ```
 
@@ -88,11 +88,12 @@ Bare `aim` prints concise getting-started help. Use `aim --help` for the full in
 
 - `-h`, `--help`: built-in command help
 - `-v`, `--version`: print the CLI version
-- `--verbose`: emit diagnostic logs on stderr
+- `-d`, `--debug`: emit diagnostic logs on stderr
 - `-q`, `--quiet`: suppress non-essential status output
 - `-C`, `--config <dir>`: use an alternate AIM state root
-- `--dry-run`: preview mutating actions without applying them
+- `-n`, `--dry-run`: preview mutating actions without applying them
 - `-y`, `--yes`: bypass confirmation prompts
+- `--no-input`: disable interactive prompting
 - `--json`: emit machine-readable JSON
 - `--csv`: emit CSV where supported
 - `--plain`: emit plain tab-separated text for shell pipelines
@@ -104,9 +105,16 @@ Examples:
 aim list --json
 aim update --check-only --csv
 aim list --plain | grep obsidian
-aim -C /tmp/aim-state add --dry-run ./Example.AppImage
+aim -C /tmp/aim-state add -n ./Example.AppImage
 aim update unset example-app --yes
 ```
+
+Remote/provider selectors are explicit:
+
+- use `aim add --url URL` for direct download URLs
+- use `aim add --github owner/repo` or `aim add --gitlab namespace/project` for provider installs
+- use `aim info --github owner/repo` or `aim info --gitlab namespace/project` for provider metadata lookups
+- positional inputs remain for simple local targets such as managed app IDs and local `.AppImage` paths
 
 ## Output and exit status
 
@@ -119,7 +127,7 @@ aim update unset example-app --yes
 For unexpected internal failures, `aim` prints a short bug-report path:
 
 - a concise failure summary
-- a hint to rerun with `--verbose`
+- a hint to rerun with `--debug`
 - the GitHub issues URL for reporting the problem
 
 Expected errors are rewritten to be user-facing and actionable when possible, for example by suggesting `aim list`, `aim update set`, or a writable `-C` state root.

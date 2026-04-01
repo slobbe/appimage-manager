@@ -27,7 +27,11 @@ Repair managed AppImage state, migrate legacy paths, and reconcile desktop integ
 	output CSV where supported
 
 .PP
-\fB--dry-run\fP[=false]
+\fB-d\fP, \fB--debug\fP[=false]
+	enable diagnostic logging
+
+.PP
+\fB-n\fP, \fB--dry-run\fP[=false]
 	simulate changes without applying them
 
 .PP
@@ -39,16 +43,16 @@ Repair managed AppImage state, migrate legacy paths, and reconcile desktop integ
 	disable ANSI color output
 
 .PP
+\fB--no-input\fP[=false]
+	disable interactive prompts
+
+.PP
 \fB--plain\fP[=false]
 	output plain tab-separated text
 
 .PP
 \fB-q\fP, \fB--quiet\fP[=false]
 	suppress non-essential status output
-
-.PP
-\fB--verbose\fP[=false]
-	enable verbose diagnostic logging
 
 .PP
 \fB-y\fP, \fB--yes\fP[=false]
@@ -59,7 +63,7 @@ Repair managed AppImage state, migrate legacy paths, and reconcile desktop integ
 .EX
 aim migrate
   aim migrate example-app
-  aim migrate --dry-run --json
+  aim migrate -n --json
 .EE
 
 

@@ -70,7 +70,7 @@ func TestResolveIntegrateTarget(t *testing.T) {
 		{name: "direct url rejected", input: "https://example.com/MyApp.AppImage", wantError: true, errText: "remote sources are added with 'aim add'"},
 		{name: "github repo rejected", input: "github:owner/repo", wantError: true, errText: "remote sources are added with 'aim add'"},
 		{name: "gitlab repo rejected", input: "gitlab:group/project", wantError: true, errText: "remote sources are added with 'aim add'"},
-		{name: "http rejected", input: "http://example.com/MyApp.AppImage", wantError: true, errText: "direct URLs must use https; use 'aim add https://...'"},
+		{name: "http rejected", input: "http://example.com/MyApp.AppImage", wantError: true, errText: "direct URLs must use https; use 'aim add --url https://...'"},
 		{name: "malformed github treated as remote", input: "github:owner", wantError: true, errText: "remote sources are added with 'aim add'"},
 		{name: "malformed gitlab treated as remote", input: "gitlab:group", wantError: true, errText: "remote sources are added with 'aim add'"},
 		{name: "unknown id", input: "missing", wantError: true},
@@ -131,15 +131,15 @@ func TestResolveInstallTarget(t *testing.T) {
 		errText   string
 	}{
 		{name: "direct url", input: "https://example.com/MyApp.AppImage", expect: installTargetDirectURL},
-		{name: "github repo url", input: "https://github.com/owner/repo", expect: installTargetGitHub},
-		{name: "gitlab repo url", input: "https://gitlab.com/group/project", expect: installTargetGitLab},
-		{name: "github release download url falls back", input: "https://github.com/owner/repo/releases/download/v1/App.AppImage", expect: installTargetDirectURL},
-		{name: "http rejected", input: "http://example.com/MyApp.AppImage", wantError: true, errText: "direct URLs must use https"},
+		{name: "github repo url treated as direct url", input: "https://github.com/owner/repo", expect: installTargetDirectURL},
+		{name: "gitlab repo url treated as direct url", input: "https://gitlab.com/group/project", expect: installTargetDirectURL},
+		{name: "github release download url", input: "https://github.com/owner/repo/releases/download/v1/App.AppImage", expect: installTargetDirectURL},
+		{name: "http rejected", input: "http://example.com/MyApp.AppImage", wantError: true, errText: "--url must use https"},
 		{name: "local path rejected", input: "/tmp/MyApp.AppImage", wantError: true, errText: "local AppImages are added with 'aim add <Path/To.AppImage>'"},
 		{name: "managed id rejected", input: "managed", wantError: true, errText: "managed app IDs are added with 'aim add <id>'"},
-		{name: "legacy github ref", input: "github:owner", wantError: true, errText: "github:... refs are no longer accepted"},
-		{name: "legacy gitlab ref", input: "gitlab:group", wantError: true, errText: "gitlab:... refs are no longer accepted"},
-		{name: "unknown target", input: "missing", wantError: true, errText: "unknown add target"},
+		{name: "legacy github ref", input: "github:owner", wantError: true, errText: "--url must be a valid https URL"},
+		{name: "legacy gitlab ref", input: "gitlab:group", wantError: true, errText: "--url must be a valid https URL"},
+		{name: "unknown target", input: "missing", wantError: true, errText: "--url must be a valid https URL"},
 	}
 
 	for _, tt := range tests {
@@ -250,62 +250,14 @@ func TestUpgradeCmdOutputsVersionTransitionMessage(t *testing.T) {
 	}
 }
 
-func TestUpgradeCmdShortFlagRunsInstallerUpgrade(t *testing.T) {
-	originalCheck := checkAimUpgrade
-	original := runUpgradeViaInstaller
-	t.Cleanup(func() {
-		checkAimUpgrade = originalCheck
-		runUpgradeViaInstaller = original
-	})
-	called := false
-	checkAimUpgrade = func(context.Context, string) (*core.AimUpgradeCheckResult, error) {
-		return &core.AimUpgradeCheckResult{CurrentVersion: "0.12.4", LatestVersion: "0.12.5", HasUpdate: true, Comparable: true}, nil
-	}
-	runUpgradeViaInstaller = func(context.Context, string) (*core.InstallerUpgradeResult, error) {
-		called = true
-		return &core.InstallerUpgradeResult{
-			PreviousVersion:  "0.12.4",
-			InstalledVersion: "0.12.5",
-		}, nil
-	}
-
+func TestUpgradeShortFlagIsRejected(t *testing.T) {
 	cmd := newUpgradeTestCommand()
-	_ = captureStdout(t, func() {
-		if err := executeTestCommand(context.Background(), cmd, "-U"); err != nil {
-			t.Fatalf("run returned error: %v", err)
-		}
-	})
-	if !called {
-		t.Fatal("expected installer upgrade to run")
+	err := executeTestCommand(context.Background(), cmd, "-U")
+	if err == nil {
+		t.Fatal("expected unknown shorthand flag error")
 	}
-}
-
-func TestRootUpgradeShortFlagOutputsVersionTransitionMessage(t *testing.T) {
-	originalCheck := checkAimUpgrade
-	original := runUpgradeViaInstaller
-	t.Cleanup(func() {
-		checkAimUpgrade = originalCheck
-		runUpgradeViaInstaller = original
-	})
-	checkAimUpgrade = func(context.Context, string) (*core.AimUpgradeCheckResult, error) {
-		return &core.AimUpgradeCheckResult{CurrentVersion: "0.12.4", LatestVersion: "0.12.5", HasUpdate: true, Comparable: true}, nil
-	}
-	runUpgradeViaInstaller = func(context.Context, string) (*core.InstallerUpgradeResult, error) {
-		return &core.InstallerUpgradeResult{
-			PreviousVersion:  "0.12.4",
-			InstalledVersion: "0.12.5",
-		}, nil
-	}
-
-	cmd := newUpgradeTestCommand()
-	output := captureStdout(t, func() {
-		if err := executeTestCommand(context.Background(), cmd, "-U"); err != nil {
-			t.Fatalf("run returned error: %v", err)
-		}
-	})
-
-	if !strings.Contains(output, "Upgraded aim v0.12.4 -> v0.12.5") {
-		t.Fatalf("unexpected output:\n%s", output)
+	if !strings.Contains(err.Error(), "unknown shorthand flag: 'U'") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -525,41 +477,6 @@ func TestRootUpgradeFlagPassesNonNilContext(t *testing.T) {
 	cmd := newRootTestCommand()
 	_ = captureStdout(t, func() {
 		if err := executeTestCommand(context.Background(), cmd, "--upgrade"); err != nil {
-			t.Fatalf("run returned error: %v", err)
-		}
-	})
-}
-
-func TestRootUpgradeShortFlagPassesNonNilContext(t *testing.T) {
-	originalCheck := checkAimUpgrade
-	original := runUpgradeViaInstaller
-	t.Cleanup(func() {
-		checkAimUpgrade = originalCheck
-		runUpgradeViaInstaller = original
-	})
-	checkAimUpgrade = func(context.Context, string) (*core.AimUpgradeCheckResult, error) {
-		return &core.AimUpgradeCheckResult{CurrentVersion: "dev", LatestVersion: "0.12.5", HasUpdate: true, Comparable: false}, nil
-	}
-
-	runUpgradeViaInstaller = func(ctx context.Context, currentVersion string) (*core.InstallerUpgradeResult, error) {
-		if ctx == nil {
-			t.Fatal("expected non-nil context")
-		}
-		if err := ctx.Err(); err != nil {
-			t.Fatalf("unexpected context error: %v", err)
-		}
-		if currentVersion != version {
-			t.Fatalf("currentVersion = %q, want %q", currentVersion, version)
-		}
-		return &core.InstallerUpgradeResult{
-			PreviousVersion:  currentVersion,
-			InstalledVersion: "0.12.5",
-		}, nil
-	}
-
-	cmd := newRootTestCommand()
-	_ = captureStdout(t, func() {
-		if err := executeTestCommand(context.Background(), cmd, "-U"); err != nil {
 			t.Fatalf("run returned error: %v", err)
 		}
 	})
@@ -811,11 +728,11 @@ func TestRootPackageCommandFlags(t *testing.T) {
 		t.Fatal("expected add and info commands")
 	}
 
-	if got := countFlags(addCmd.Flags()); got != 4 {
-		t.Fatalf("add flags = %d, want 4", got)
+	if got := countFlags(addCmd.Flags()); got != 5 {
+		t.Fatalf("add flags = %d, want 5", got)
 	}
 
-	for _, name := range []string{"github", "gitlab", "asset", "sha256"} {
+	for _, name := range []string{"url", "github", "gitlab", "asset", "sha256"} {
 		if addCmd.Flags().Lookup(name) == nil {
 			t.Fatalf("add flags missing %s", name)
 		}
@@ -842,6 +759,7 @@ func TestStructuredFlagHelpUsesSemanticMetavars(t *testing.T) {
 			name: "add help",
 			args: []string{"add", "--help"},
 			required: []string{
+				"--url URL",
 				"--github owner/repo",
 				"--gitlab namespace/project",
 				"--sha256 SHA256",
@@ -906,6 +824,7 @@ func TestStructuredFlagHelpUsesSemanticMetavars(t *testing.T) {
 }
 
 func TestMissingInfoArgumentShowsConciseHelpOnStderr(t *testing.T) {
+	withTerminalInput(t, false)
 	cmd := newRootTestCommand()
 	stdout, stderr, err := executeCommandWithIO(context.Background(), cmd, "info")
 	if err == nil {
@@ -917,7 +836,7 @@ func TestMissingInfoArgumentShowsConciseHelpOnStderr(t *testing.T) {
 	if strings.TrimSpace(stdout) != "" {
 		t.Fatalf("expected no stdout output, got:\n%s", stdout)
 	}
-	for _, expected := range []string{"missing required argument <target>", "USAGE", "EXAMPLES", `Use "aim info --help"`} {
+	for _, expected := range []string{"missing required argument <id|Path/To.AppImage> or selector flag --github/--gitlab", "USAGE", "EXAMPLES", `Use "aim info --help"`} {
 		if !strings.Contains(stderr, expected) {
 			t.Fatalf("expected stderr to contain %q:\n%s", expected, stderr)
 		}
@@ -1281,7 +1200,7 @@ func TestValidateInstallTargetFlags(t *testing.T) {
 		{
 			name:      "asset rejected for direct url",
 			target:    &installTarget{Kind: installTargetDirectURL},
-			args:      []string{"https://example.com/MyApp.AppImage", "--asset", "*.AppImage"},
+			args:      []string{"--url", "https://example.com/MyApp.AppImage", "--asset", "*.AppImage"},
 			wantError: true,
 		},
 		{
@@ -1299,13 +1218,13 @@ func TestValidateInstallTargetFlags(t *testing.T) {
 		{
 			name:      "invalid sha256 rejected",
 			target:    &installTarget{Kind: installTargetDirectURL},
-			args:      []string{"https://example.com/MyApp.AppImage", "--sha256", "not-a-hash"},
+			args:      []string{"--url", "https://example.com/MyApp.AppImage", "--sha256", "not-a-hash"},
 			wantError: true,
 		},
 		{
 			name:   "valid direct url sha256",
 			target: &installTarget{Kind: installTargetDirectURL},
-			args:   []string{"https://example.com/MyApp.AppImage", "--sha256", strings.Repeat("a", 64)},
+			args:   []string{"--url", "https://example.com/MyApp.AppImage", "--sha256", strings.Repeat("a", 64)},
 		},
 		{
 			name:   "valid github asset",
@@ -1383,7 +1302,7 @@ func TestAddCmdRemoteFlagValidation(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	err = runAddCommand(context.Background(), []string{"https://example.com/app.AppImage", "--asset", "*.AppImage"})
+	err = runAddCommand(context.Background(), []string{"--url", "https://example.com/app.AppImage", "--asset", "*.AppImage"})
 	if err == nil || !strings.Contains(err.Error(), "--asset is only supported with GitHub or GitLab provider sources") {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1451,7 +1370,7 @@ func TestAddCmdDirectURLWithChecksum(t *testing.T) {
 	addSingleApp = repo.AddApp
 
 	output := captureStdout(t, func() {
-		if err := runAddCommand(context.Background(), []string{"https://example.com/MyApp.AppImage", "--sha256", expectedSHA256}); err != nil {
+		if err := runAddCommand(context.Background(), []string{"--url", "https://example.com/MyApp.AppImage", "--sha256", expectedSHA256}); err != nil {
 			t.Fatalf("runAddCommand returned error: %v", err)
 		}
 	})
@@ -1508,7 +1427,7 @@ func TestAddCmdDirectURLWithoutChecksumWarns(t *testing.T) {
 	addSingleApp = repo.AddApp
 
 	output := captureStdout(t, func() {
-		if err := runAddCommand(context.Background(), []string{"https://example.com/MyApp.AppImage"}); err != nil {
+		if err := runAddCommand(context.Background(), []string{"--url", "https://example.com/MyApp.AppImage"}); err != nil {
 			t.Fatalf("runAddCommand returned error: %v", err)
 		}
 	})
@@ -1542,7 +1461,7 @@ func TestAddCmdDirectURLChecksumMismatch(t *testing.T) {
 		return &models.App{ID: "my-app"}, nil
 	}
 
-	err := runAddCommand(context.Background(), []string{"https://example.com/MyApp.AppImage", "--sha256", strings.Repeat("a", 64)})
+	err := runAddCommand(context.Background(), []string{"--url", "https://example.com/MyApp.AppImage", "--sha256", strings.Repeat("a", 64)})
 	if err == nil {
 		t.Fatal("expected checksum mismatch")
 	}
@@ -2356,7 +2275,7 @@ func TestAddCmdDirectProviderRefDelegatesToExistingAddFlow(t *testing.T) {
 	}
 }
 
-func TestAddCmdGitHubURLDelegatesToExistingAddFlow(t *testing.T) {
+func TestAddCmdRejectsPositionalGitHubURL(t *testing.T) {
 	originalBackends := discoveryBackends
 	originalResolve := resolveGitHubReleaseAsset
 	originalDownload := downloadRemoteAsset
@@ -2409,8 +2328,12 @@ func TestAddCmdGitHubURLDelegatesToExistingAddFlow(t *testing.T) {
 	}
 	addSingleApp = repo.AddApp
 
-	if err := runAddCommand(context.Background(), []string{"https://github.com/owner/repo"}); err != nil {
-		t.Fatalf("runAddCommand returned error: %v", err)
+	err := runAddCommand(context.Background(), []string{"https://github.com/owner/repo"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "use 'aim add --github owner/repo'") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -2480,7 +2403,7 @@ func TestAddCmdDirectProviderRefAssetOverride(t *testing.T) {
 	}
 }
 
-func TestInfoCmdGitHubURL(t *testing.T) {
+func TestInfoCmdRejectsPositionalGitHubURL(t *testing.T) {
 	originalBackends := discoveryBackends
 	t.Cleanup(func() {
 		discoveryBackends = originalBackends
@@ -2507,17 +2430,12 @@ func TestInfoCmdGitHubURL(t *testing.T) {
 		}
 	}
 
-	output := captureStdout(t, func() {
-		if err := runInfoCommand(context.Background(), []string{"https://github.com/owner/repo"}); err != nil {
-			t.Fatalf("runInfoCommand returned error: %v", err)
-		}
-	})
-
-	if !strings.Contains(output, "Provider ref: GitHub owner/repo") {
-		t.Fatalf("unexpected output:\n%s", output)
+	err := runInfoCommand(context.Background(), []string{"https://github.com/owner/repo"})
+	if err == nil {
+		t.Fatal("expected error")
 	}
-	if !strings.Contains(output, "aim add --github owner/repo") {
-		t.Fatalf("unexpected output:\n%s", output)
+	if !strings.Contains(err.Error(), "use 'aim info --github owner/repo'") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -2570,7 +2488,7 @@ func TestInfoCmdRejectsUnknownTarget(t *testing.T) {
 	if !strings.Contains(err.Error(), "unknown info target") {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(err.Error(), "expected GitHub/GitLab repo URL, <id>, or <Path/To.AppImage>") {
+	if !strings.Contains(err.Error(), "expected <id> or <Path/To.AppImage>") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -2880,10 +2798,10 @@ func newUpdateSetTestCommand(t *testing.T, values map[string]string) *cobra.Comm
 	t.Helper()
 
 	cmd := &cobra.Command{Use: "update"}
-	addUpdateSharedFlags(cmd)
+	addUpdateSourceFlags(cmd)
 
 	for key, value := range values {
-		if err := cmd.PersistentFlags().Set(key, value); err != nil {
+		if err := cmd.Flags().Set(key, value); err != nil {
 			t.Fatalf("failed to set %s: %v", key, err)
 		}
 	}
@@ -3177,11 +3095,12 @@ func TestInfoCmdLocalAppImage(t *testing.T) {
 }
 
 func TestInfoCmdArgumentValidation(t *testing.T) {
+	withTerminalInput(t, false)
 	err := runInfoCommand(context.Background(), nil)
 	if err == nil {
 		t.Fatal("expected missing argument error")
 	}
-	if !strings.Contains(err.Error(), "missing required argument <target>") {
+	if !strings.Contains(err.Error(), "missing required argument <id|Path/To.AppImage> or selector flag --github/--gitlab") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -3501,7 +3420,7 @@ func TestNewRootCommandMetadata(t *testing.T) {
 
 func TestRootPersistentFlagsAvailableOnVisibleCommands(t *testing.T) {
 	root := newRootCommand("1.2.3")
-	required := []string{"verbose", "quiet", "config", "dry-run", "yes", "json", "csv", "plain", "no-color"}
+	required := []string{"debug", "verbose", "quiet", "config", "dry-run", "yes", "no-input", "json", "csv", "plain", "no-color"}
 
 	var visit func(*cobra.Command)
 	visit = func(cmd *cobra.Command) {
@@ -3521,13 +3440,13 @@ func TestRootPersistentFlagsAvailableOnVisibleCommands(t *testing.T) {
 	visit(root)
 }
 
-func TestRuntimeRejectsVerboseAndQuietTogether(t *testing.T) {
+func TestRuntimeRejectsDebugAndQuietTogether(t *testing.T) {
 	cmd := newRootTestCommand()
-	err := executeTestCommand(context.Background(), cmd, "list", "--verbose", "--quiet")
+	err := executeTestCommand(context.Background(), cmd, "list", "--debug", "--quiet")
 	if err == nil {
 		t.Fatal("expected mutually exclusive flag error")
 	}
-	if !strings.Contains(err.Error(), "--verbose and --quiet are mutually exclusive") {
+	if !strings.Contains(err.Error(), "--debug and --quiet are mutually exclusive") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -3605,7 +3524,7 @@ func TestHelpCommandShowsManualText(t *testing.T) {
 			t.Fatalf("expected manual output to contain %q:\n%s", expected, output)
 		}
 	}
-	if !strings.Contains(output, "aim add [<https-url|github-url|gitlab-url|id|Path/To.AppImage>] - Install an AppImage from a file, URL, or provider") {
+	if !strings.Contains(output, "aim add [<id|Path/To.AppImage>] - Install an AppImage from a file, URL, or provider") {
 		t.Fatalf("unexpected manual output:\n%s", output)
 	}
 }
@@ -4061,7 +3980,7 @@ func TestRenderCommandErrorInternalIncludesBugReportGuidance(t *testing.T) {
 	for _, expected := range []string{
 		"boom",
 		"This looks like an internal aim error.",
-		"Rerun with --verbose to include more diagnostic detail.",
+		"Rerun with --debug to include more diagnostic detail.",
 		rootCommandIssuesURL,
 	} {
 		if !strings.Contains(text, expected) {
@@ -4092,8 +4011,8 @@ func TestRenderCommandErrorInternalJSONIncludesIssuesURL(t *testing.T) {
 	if !payload.ReportIssue || payload.IssuesURL != rootCommandIssuesURL {
 		t.Fatalf("unexpected payload: %#v", payload)
 	}
-	if !strings.Contains(payload.Hint, "--verbose") {
-		t.Fatalf("expected verbose hint, got %#v", payload)
+	if !strings.Contains(payload.Hint, "--debug") {
+		t.Fatalf("expected debug hint, got %#v", payload)
 	}
 }
 
@@ -4260,7 +4179,7 @@ func TestInfoReadableOutputUsesStdoutOnly(t *testing.T) {
 	}
 }
 
-func TestVerboseLogsWriteToStderr(t *testing.T) {
+func TestDebugLogsWriteToStderr(t *testing.T) {
 	root := newRootCommand("test")
 	probe := &cobra.Command{
 		Use: "probe",
@@ -4272,7 +4191,7 @@ func TestVerboseLogsWriteToStderr(t *testing.T) {
 	}
 	root.AddCommand(probe)
 
-	stdout, stderr, err := executeCommandWithIO(context.Background(), root, "--verbose", "probe")
+	stdout, stderr, err := executeCommandWithIO(context.Background(), root, "--debug", "probe")
 	if err != nil {
 		t.Fatalf("executeCommandWithIO returned error: %v", err)
 	}
@@ -4280,7 +4199,7 @@ func TestVerboseLogsWriteToStderr(t *testing.T) {
 		t.Fatalf("expected no stdout output, got:\n%s", stdout)
 	}
 	if !strings.Contains(stderr, "DEBUG: probe=ok") {
-		t.Fatalf("expected verbose log on stderr, got:\n%s", stderr)
+		t.Fatalf("expected debug log on stderr, got:\n%s", stderr)
 	}
 }
 
@@ -4396,7 +4315,7 @@ func TestRenderManPageIncludesMetadata(t *testing.T) {
 		"Sebastian Lobbe <slobbe@lobbe.cc>",
 		"Copyright (c) 2025 Sebastian Lobbe",
 		"MIT",
-		"\\fB-U\\fP, \\fB--upgrade\\fP",
+		"\\fB--upgrade\\fP",
 		"https://github.com/slobbe/appimage\\-manager",
 		"https://github.com/slobbe/appimage\\-manager/issues",
 	} {
@@ -4667,7 +4586,7 @@ func TestRunManagedUpdateBatchContinuesOnCheckFailure(t *testing.T) {
 	if strings.Contains(output, "Failed to check updates for app-a: boom") {
 		t.Fatalf("expected old per-app error line to be absent, got:\n%s", output)
 	}
-	if !strings.Contains(output, "aim update <id> --verbose") {
+	if !strings.Contains(output, "aim update <id> --debug") {
 		t.Fatalf("expected remediation hint, got:\n%s", output)
 	}
 	if !strings.Contains(output, "No updates applied; some checks failed") {
@@ -4714,7 +4633,7 @@ func TestRunManagedUpdateSingleCheckFailureRewritesError(t *testing.T) {
 	if msg.Summary != "Can't check updates for my-app." {
 		t.Fatalf("unexpected summary: %#v", msg)
 	}
-	if !strings.Contains(msg.Hint, "aim update my-app --verbose") {
+	if !strings.Contains(msg.Hint, "aim update my-app --debug") {
 		t.Fatalf("unexpected hint: %#v", msg)
 	}
 }

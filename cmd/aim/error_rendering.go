@@ -95,7 +95,7 @@ func userMessageForError(err error) userFacingError {
 			out.Reportable = true
 		}
 		if out.Reportable && strings.TrimSpace(out.Hint) == "" {
-			out.Hint = "Rerun with --verbose to include more diagnostic detail."
+			out.Hint = "Rerun with --debug to include more diagnostic detail."
 		}
 		return out
 	}
@@ -107,7 +107,7 @@ func userMessageForError(err error) userFacingError {
 		Reportable: exitCodeForError(err) == exitSoftware,
 	}
 	if out.Reportable {
-		out.Hint = "Rerun with --verbose to include more diagnostic detail."
+		out.Hint = "Rerun with --debug to include more diagnostic detail."
 	}
 	return out
 }
@@ -152,7 +152,7 @@ func renderTextErrorLines(err error, suggestion string, verbose bool) []string {
 	if userErr.Reportable {
 		lines = append(lines,
 			"This looks like an internal aim error.",
-			"Rerun with --verbose to include more diagnostic detail.",
+			"Rerun with --debug to include more diagnostic detail.",
 			"Report it: "+rootCommandIssuesURL,
 		)
 	}
@@ -276,6 +276,6 @@ func rewriteZsyncFailure(err error) error {
 	return withUserGuidance(
 		unavailableError(err),
 		"Delta update failed while running 'zsync'.",
-		"Rerun with --verbose for the raw zsync error, or switch this app to a non-zsync update source with 'aim update set'.",
+		"Rerun with --debug for the raw zsync error, or switch this app to a non-zsync update source with 'aim update set'.",
 	)
 }

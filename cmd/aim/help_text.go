@@ -52,22 +52,6 @@ func printConciseHelpError(cmd *cobra.Command, message string) error {
 	return markErrorDisplayed(err)
 }
 
-func addCommandNeedsInput(cmd *cobra.Command, args []string) bool {
-	ref, ok, err := resolveAddProviderRef(cmd, args)
-	if err != nil || ok || strings.TrimSpace(ref.ProviderRef) != "" {
-		return false
-	}
-	return len(nonFlagCommandTokens(args)) == 0
-}
-
-func infoCommandNeedsInput(cmd *cobra.Command, args []string) bool {
-	ref, ok, err := resolveInfoProviderRef(cmd, args)
-	if err != nil || ok || strings.TrimSpace(ref.ProviderRef) != "" {
-		return false
-	}
-	return len(nonFlagCommandTokens(args)) == 0
-}
-
 func renderFullHelp(cmd *cobra.Command) string {
 	var sections []string
 	sections = append(sections, renderDescriptionSection(cmd))
@@ -460,9 +444,9 @@ func flagsForNames(cmd *cobra.Command, names []string) []*pflag.Flag {
 func commonFlagNamesForCommand(cmd *cobra.Command) []string {
 	switch commandName(cmd) {
 	case "aim":
-		return []string{"help", "version", "config", "json", "plain"}
+		return []string{"help", "version", "config", "json", "plain", "no-input"}
 	case "add":
-		return []string{"github", "gitlab", "sha256", "dry-run", "json"}
+		return []string{"url", "github", "gitlab", "sha256", "dry-run", "json"}
 	case "info":
 		return []string{"github", "gitlab", "json"}
 	case "list":

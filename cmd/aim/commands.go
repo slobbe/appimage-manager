@@ -50,7 +50,7 @@ func maybeRunRootUpgradeFlag(ctx context.Context, cmd *cobra.Command, args []str
 	}
 
 	switch args[0] {
-	case "--upgrade", "-U":
+	case "--upgrade":
 		if len(args) != 1 {
 			return true, usageError(fmt.Errorf("--upgrade does not accept positional arguments"))
 		}
@@ -216,33 +216,24 @@ func MigrateCmd(cmd *cobra.Command, args []string) error {
 }
 
 func AddCmd(cmd *cobra.Command, args []string) error {
-	if addCommandNeedsInput(cmd, args) {
-		return printConciseHelpError(cmd, "missing required argument <https-url|github-url|gitlab-url|id|Path/To.AppImage>")
-	}
-
-	if ref, ok, err := resolveAddProviderRef(cmd, args); err != nil {
-		return err
-	} else if ok {
-		return runInstallPackageRef(cmd.Context(), cmd, ref)
-	}
-
-	input, err := commandSingleArg(args, "<https-url|github-url|gitlab-url|id|Path/To.AppImage>")
+	selection, err := resolveAddInput(cmd, args)
 	if err != nil {
 		return err
 	}
-
-	if isRemoteAddInput(input) {
-		return runInstallTarget(cmd.Context(), cmd, input)
+	if selection.HasRef {
+		return runInstallPackageRef(cmd.Context(), cmd, selection.Ref)
 	}
-
-	if _, err := resolveIntegrateTarget(input); err == nil {
+	if strings.TrimSpace(selection.DirectURL) != "" {
+		return runInstallTarget(cmd.Context(), cmd, selection.DirectURL)
+	}
+	if _, err := resolveIntegrateTarget(selection.Positional); err == nil {
 		if err := validateAddIntegrateFlags(cmd); err != nil {
 			return err
 		}
-		return runIntegrateTarget(cmd.Context(), cmd, input)
+		return runIntegrateTarget(cmd.Context(), cmd, selection.Positional)
 	}
 
-	return usageError(fmt.Errorf("unknown add target %q; expected https://..., GitHub/GitLab repo URL, <id>, or <Path/To.AppImage>", input))
+	return usageError(fmt.Errorf("unknown add target %q; expected <id> or <Path/To.AppImage>", selection.Positional))
 }
 
 func resolveAddProviderRef(cmd *cobra.Command, args []string) (discovery.PackageRef, bool, error) {
@@ -285,6 +276,61 @@ func resolveProviderFlagRef(cmd *cobra.Command, args []string, cmdName string) (
 	return ref, true, usageError(err)
 }
 
+type addInputSelection struct {
+	Positional string
+	DirectURL  string
+	Ref        discovery.PackageRef
+	HasRef     bool
+}
+
+func resolveAddInput(cmd *cobra.Command, args []string) (addInputSelection, error) {
+	ref, ok, err := resolveAddProviderRef(cmd, args)
+	if err != nil || ok {
+		return addInputSelection{Ref: ref, HasRef: ok}, err
+	}
+
+	urlValue, err := flagString(cmd, "url")
+	if err != nil {
+		return addInputSelection{}, err
+	}
+
+	targetCount := 0
+	if len(args) > 0 {
+		targetCount++
+	}
+	if strings.TrimSpace(urlValue) != "" {
+		targetCount++
+	}
+	if targetCount > 1 {
+		return addInputSelection{}, usageError(fmt.Errorf("choose exactly one add selector: positional target, --url, --github, or --gitlab"))
+	}
+
+	if strings.TrimSpace(urlValue) != "" {
+		target, err := resolveInstallTarget(urlValue)
+		if err != nil {
+			return addInputSelection{}, err
+		}
+		if err := validateInstallTargetFlags(cmd, target); err != nil {
+			return addInputSelection{}, err
+		}
+		return addInputSelection{DirectURL: target.URL}, nil
+	}
+
+	value, err := resolveSingleInputOrPrompt(cmd, args, "<id|Path/To.AppImage>", "Local AppImage path or managed app id: ")
+	if err != nil {
+		if isMissingArgumentError(err) {
+			return addInputSelection{}, printConciseHelpError(cmd, "missing required argument <id|Path/To.AppImage> or selector flag --url/--github/--gitlab")
+		}
+		return addInputSelection{}, err
+	}
+
+	if addTargetLooksRemote(value) {
+		return addInputSelection{}, positionalAddRemoteGuidance(value)
+	}
+
+	return addInputSelection{Positional: value}, nil
+}
+
 func isLegacyPackageRef(input string) bool {
 	trimmed := strings.TrimSpace(input)
 	return strings.HasPrefix(trimmed, "github:") || strings.HasPrefix(trimmed, "gitlab:")
@@ -294,12 +340,71 @@ func legacyProviderRefGuidance(cmdName, input string) error {
 	trimmed := strings.TrimSpace(input)
 	switch {
 	case strings.HasPrefix(trimmed, "github:"):
-		return usageError(fmt.Errorf("github:... refs are no longer accepted; use 'aim %s --github owner/repo' or a GitHub repo URL", cmdName))
+		return usageError(fmt.Errorf("github:... refs are no longer accepted; use 'aim %s --github owner/repo'", cmdName))
 	case strings.HasPrefix(trimmed, "gitlab:"):
-		return usageError(fmt.Errorf("gitlab:... refs are no longer accepted; use 'aim %s --gitlab namespace/project' or a GitLab project URL", cmdName))
+		return usageError(fmt.Errorf("gitlab:... refs are no longer accepted; use 'aim %s --gitlab namespace/project'", cmdName))
 	default:
 		return usageError(fmt.Errorf("unsupported provider ref %q", input))
 	}
+}
+
+func addTargetLooksRemote(input string) bool {
+	trimmed := strings.TrimSpace(input)
+	if trimmed == "" {
+		return false
+	}
+	if strings.HasPrefix(strings.ToLower(trimmed), "http://") || strings.HasPrefix(strings.ToLower(trimmed), "https://") {
+		return true
+	}
+	return isLegacyPackageRef(trimmed)
+}
+
+func positionalAddRemoteGuidance(input string) error {
+	trimmed := strings.TrimSpace(input)
+	switch {
+	case isLegacyPackageRef(trimmed):
+		return legacyProviderRefGuidance("add", trimmed)
+	case looksLikeGitHubPackageURL(trimmed):
+		if ref, err := discovery.ParsePackageRefURL(trimmed); err == nil && ref.Kind == discovery.ProviderGitHub {
+			return usageError(fmt.Errorf("GitHub sources must be passed with --github; use 'aim add --github %s'", ref.ProviderRef))
+		}
+	case looksLikeGitLabPackageURL(trimmed):
+		if ref, err := discovery.ParsePackageRefURL(trimmed); err == nil && ref.Kind == discovery.ProviderGitLab {
+			return usageError(fmt.Errorf("GitLab sources must be passed with --gitlab; use 'aim add --gitlab %s'", ref.ProviderRef))
+		}
+	case strings.HasPrefix(strings.ToLower(trimmed), "http://"):
+		return usageError(fmt.Errorf("direct URLs must use https and be passed with --url; use 'aim add --url https://...'"))
+	case isHTTPSURL(trimmed):
+		return usageError(fmt.Errorf("direct URLs must be passed with --url; use 'aim add --url %s'", trimmed))
+	}
+	return usageError(fmt.Errorf("unknown add target %q", input))
+}
+
+func positionalInfoRemoteGuidance(input string) error {
+	trimmed := strings.TrimSpace(input)
+	switch {
+	case isLegacyPackageRef(trimmed):
+		return legacyProviderRefGuidance("info", trimmed)
+	case looksLikeGitHubPackageURL(trimmed):
+		if ref, err := discovery.ParsePackageRefURL(trimmed); err == nil && ref.Kind == discovery.ProviderGitHub {
+			return usageError(fmt.Errorf("GitHub package lookups must use --github; use 'aim info --github %s'", ref.ProviderRef))
+		}
+	case looksLikeGitLabPackageURL(trimmed):
+		if ref, err := discovery.ParsePackageRefURL(trimmed); err == nil && ref.Kind == discovery.ProviderGitLab {
+			return usageError(fmt.Errorf("GitLab package lookups must use --gitlab; use 'aim info --gitlab %s'", ref.ProviderRef))
+		}
+	}
+	return nil
+}
+
+func looksLikeGitHubPackageURL(input string) bool {
+	trimmed := strings.TrimSpace(strings.ToLower(input))
+	return strings.HasPrefix(trimmed, "https://github.com/")
+}
+
+func looksLikeGitLabPackageURL(input string) bool {
+	trimmed := strings.TrimSpace(strings.ToLower(input))
+	return strings.HasPrefix(trimmed, "https://gitlab.com/")
 }
 
 type integrateTargetKind string
@@ -429,7 +534,7 @@ func resolveIntegrateTarget(input string) (*integrateTarget, error) {
 	}
 
 	if strings.HasPrefix(strings.ToLower(trimmed), "http://") {
-		return nil, usageError(fmt.Errorf("direct URLs must use https; use 'aim add https://...'"))
+		return nil, usageError(fmt.Errorf("direct URLs must use https; use 'aim add --url https://...'"))
 	}
 
 	if util.HasExtension(trimmed, ".AppImage") {
@@ -457,20 +562,7 @@ type installTarget struct {
 func resolveInstallTarget(input string) (*installTarget, error) {
 	trimmed := strings.TrimSpace(input)
 	if trimmed == "" {
-		return nil, usageError(fmt.Errorf("missing required argument <ref>"))
-	}
-
-	if isLegacyPackageRef(trimmed) {
-		return nil, legacyProviderRefGuidance("add", trimmed)
-	}
-
-	if ref, err := discovery.ParsePackageRefURL(trimmed); err == nil {
-		switch ref.Kind {
-		case discovery.ProviderGitHub:
-			return &installTarget{Kind: installTargetGitHub, Repo: ref.ProviderRef}, nil
-		case discovery.ProviderGitLab:
-			return &installTarget{Kind: installTargetGitLab, Project: ref.ProviderRef}, nil
-		}
+		return nil, usageError(fmt.Errorf("missing required argument <url>"))
 	}
 
 	if isHTTPSURL(trimmed) {
@@ -478,7 +570,7 @@ func resolveInstallTarget(input string) (*installTarget, error) {
 	}
 
 	if strings.HasPrefix(strings.ToLower(trimmed), "http://") {
-		return nil, usageError(fmt.Errorf("direct URLs must use https"))
+		return nil, usageError(fmt.Errorf("--url must use https"))
 	}
 
 	if app, err := repo.GetApp(trimmed); err == nil && app != nil {
@@ -489,7 +581,7 @@ func resolveInstallTarget(input string) (*installTarget, error) {
 		return nil, usageError(fmt.Errorf("local AppImages are added with 'aim add <Path/To.AppImage>'"))
 	}
 
-	return nil, usageError(fmt.Errorf("unknown add target %s", input))
+	return nil, usageError(fmt.Errorf("--url must be a valid https URL"))
 }
 
 func validateInstallTargetFlags(cmd *cobra.Command, target *installTarget) error {
@@ -770,12 +862,11 @@ func isSHA256Hex(value string) bool {
 }
 
 func RemoveCmd(cmd *cobra.Command, args []string) error {
-	if len(nonFlagCommandTokens(args)) == 0 {
-		return printConciseHelpError(cmd, "missing required argument <id>")
-	}
-
-	id, err := commandSingleArg(args, "<id>")
+	id, err := resolveSingleInputOrPrompt(cmd, args, "<id>", "Managed app id to remove: ")
 	if err != nil {
+		if isMissingArgumentError(err) {
+			return printConciseHelpError(cmd, "missing required argument <id>")
+		}
 		return err
 	}
 	unlink, err := flagBool(cmd, "unlink")
@@ -940,22 +1031,11 @@ func ListCmd(cmd *cobra.Command, args []string) error {
 }
 
 func InfoCmd(cmd *cobra.Command, args []string) error {
-	if infoCommandNeedsInput(cmd, args) {
-		return printConciseHelpError(cmd, "missing required argument <target>")
-	}
-
-	if ref, ok, err := resolveInfoProviderRef(cmd, args); err != nil {
-		return err
-	} else if ok {
-		return runShowPackageRef(cmd.Context(), cmd, ref)
-	}
-
-	input, err := commandSingleArg(args, "<target>")
+	input, ref, ok, err := resolveInfoInput(cmd, args)
 	if err != nil {
 		return err
 	}
-
-	if ref, err := resolvePackageRefInput(input); err == nil {
+	if ok {
 		return runShowPackageRef(cmd.Context(), cmd, ref)
 	}
 
@@ -963,7 +1043,26 @@ func InfoCmd(cmd *cobra.Command, args []string) error {
 		return runInspectTarget(cmd.Context(), cmd, input)
 	}
 
-	return usageError(fmt.Errorf("unknown info target %q; expected GitHub/GitLab repo URL, <id>, or <Path/To.AppImage>", input))
+	if refErr := positionalInfoRemoteGuidance(input); refErr != nil {
+		return refErr
+	}
+
+	return usageError(fmt.Errorf("unknown info target %q; expected <id> or <Path/To.AppImage>", input))
+}
+
+func resolveInfoInput(cmd *cobra.Command, args []string) (string, discovery.PackageRef, bool, error) {
+	ref, ok, err := resolveInfoProviderRef(cmd, args)
+	if err != nil || ok {
+		return "", ref, ok, err
+	}
+	value, err := resolveSingleInputOrPrompt(cmd, args, "<id|Path/To.AppImage>", "Managed app id or local AppImage path: ")
+	if err != nil {
+		if isMissingArgumentError(err) {
+			return "", discovery.PackageRef{}, false, printConciseHelpError(cmd, "missing required argument <id|Path/To.AppImage> or selector flag --github/--gitlab")
+		}
+		return "", discovery.PackageRef{}, false, err
+	}
+	return value, discovery.PackageRef{}, false, nil
 }
 
 func resolvePackageMetadataFromRef(ctx context.Context, ref discovery.PackageRef, assetOverride string) (*discovery.PackageMetadata, error) {
@@ -1536,13 +1635,13 @@ func UpdateSetCmd(cmd *cobra.Command, args []string) error {
 	if flagChanged(cmd, "check-only") {
 		return usageError(fmt.Errorf("flag --check-only/-c is not supported with `aim update set`"))
 	}
-	if len(nonFlagCommandTokens(args)) == 0 {
-		return printConciseHelpError(cmd, "missing required argument <id>")
-	}
 	opts := runtimeOptionsFrom(cmd)
 
-	id, err := commandSingleArg(args, "<id>")
+	id, err := resolveSingleInputOrPrompt(cmd, args, "<id>", "Managed app id to configure: ")
 	if err != nil {
+		if isMissingArgumentError(err) {
+			return printConciseHelpError(cmd, "missing required argument <id>")
+		}
 		return err
 	}
 
@@ -1629,12 +1728,11 @@ func UpdateUnsetCmd(cmd *cobra.Command, args []string) error {
 	if hasUpdateSetFlags(cmd) {
 		return usageError(fmt.Errorf("update source flags are not supported with `aim update unset`"))
 	}
-	if len(nonFlagCommandTokens(args)) == 0 {
-		return printConciseHelpError(cmd, "missing required argument <id>")
-	}
-
-	id, err := commandSingleArg(args, "<id>")
+	id, err := resolveSingleInputOrPrompt(cmd, args, "<id>", "Managed app id to unset update source for: ")
 	if err != nil {
+		if isMissingArgumentError(err) {
+			return printConciseHelpError(cmd, "missing required argument <id>")
+		}
 		return err
 	}
 
@@ -1979,7 +2077,7 @@ func runManagedUpdate(ctx context.Context, cmd *cobra.Command, targetID string) 
 				return withUserGuidance(
 					tempFailError(err),
 					fmt.Sprintf("Can't check updates for %s.", app.ID),
-					fmt.Sprintf("Rerun with 'aim update %s --verbose' to see more detail.", app.ID),
+					fmt.Sprintf("Rerun with 'aim update %s --debug' to see more detail.", app.ID),
 				)
 			}
 
@@ -2244,7 +2342,7 @@ func printManagedCheckFailures(cmd *cobra.Command, failures []managedCheckFailur
 	for _, failure := range failures {
 		writeLogf(cmd, "  %s\n", strings.TrimSpace(failure.Reason))
 	}
-	writeLogf(cmd, "  Check network access, provider availability, or rerun a single app with 'aim update <id> --verbose'.\n")
+	writeLogf(cmd, "  Check network access, provider availability, or rerun a single app with 'aim update <id> --debug'.\n")
 }
 
 func runManagedChecks(apps []*models.App) []managedCheckResult {

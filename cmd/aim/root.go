@@ -26,7 +26,7 @@ func newRootCommand(version string) *cobra.Command {
   aim --version
   aim --json
   aim -C /tmp/aim-state list --json
-  aim add --dry-run ./Example.AppImage
+  aim add -n ./Example.AppImage
   aim update --yes
 `),
 		Version: version,
@@ -51,17 +51,20 @@ func newRootCommand(version string) *cobra.Command {
 		newUpdateCommand(),
 	)
 	root.SuggestionsMinimumDistance = 2
-	root.Flags().BoolP("upgrade", "U", false, "upgrade aim via the official installer")
+	root.Flags().Bool("upgrade", false, "upgrade aim via the official installer")
 	persistentFlags := root.PersistentFlags()
-	persistentFlags.Bool("verbose", false, "enable verbose diagnostic logging")
+	persistentFlags.BoolP("debug", "d", false, "enable diagnostic logging")
+	persistentFlags.Bool("verbose", false, "enable diagnostic logging (deprecated: use --debug)")
 	persistentFlags.BoolP("quiet", "q", false, "suppress non-essential status output")
 	stringFlagWithMetavar(persistentFlags, "config", "C", "", "use an alternate AIM state root", "DIR")
-	persistentFlags.Bool("dry-run", false, "simulate changes without applying them")
+	persistentFlags.BoolP("dry-run", "n", false, "simulate changes without applying them")
 	persistentFlags.BoolP("yes", "y", false, "skip confirmation prompts")
+	persistentFlags.Bool("no-input", false, "disable interactive prompts")
 	persistentFlags.Bool("json", false, "output formatted JSON")
 	persistentFlags.Bool("csv", false, "output CSV where supported")
 	persistentFlags.Bool("plain", false, "output plain tab-separated text")
 	persistentFlags.Bool("no-color", false, "disable ANSI color output")
+	mustMarkHidden(root, "verbose")
 	root.InitDefaultVersionFlag()
 	installHelpSystem(root)
 
@@ -70,17 +73,18 @@ func newRootCommand(version string) *cobra.Command {
 
 func newAddCommand() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "add [<https-url|github-url|gitlab-url|id|Path/To.AppImage>]",
+		Use:   "add [<id|Path/To.AppImage>]",
 		Short: "Install an AppImage from a file, URL, or provider",
 		Example: strings.TrimSpace(`
   aim add ./Example.AppImage
-  aim add https://example.com/Example.AppImage --sha256 <sha256>
+  aim add --url https://example.com/Example.AppImage --sha256 <sha256>
   aim add --github owner/repo
-  aim add --dry-run ./Example.AppImage --json
+  aim add -n ./Example.AppImage --json
 `),
 		RunE: AddCmd,
 	}
 	flags := cmd.Flags()
+	stringFlagWithMetavar(flags, "url", "", "", "direct https:// AppImage URL", "URL")
 	stringFlagWithMetavar(flags, "github", "", "", "GitHub repo in the form owner/repo", "owner/repo")
 	stringFlagWithMetavar(flags, "gitlab", "", "", "GitLab project path namespace/project", "namespace/project")
 	flags.String("asset", "", "asset filename pattern override for GitHub/GitLab provider add sources")
@@ -96,7 +100,7 @@ func newRemoveCommand() *cobra.Command {
 		Example: strings.TrimSpace(`
   aim remove example-app
   aim remove --unlink example-app
-  aim remove --dry-run example-app --json
+  aim remove -n example-app --json
 `),
 		RunE: RemoveCmd,
 	}
@@ -121,12 +125,14 @@ func newListCommand() *cobra.Command {
 	flags.BoolP("all", "a", false, "list all AppImages (default)")
 	flags.BoolP("integrated", "i", false, "list integrated AppImages only")
 	flags.BoolP("unlinked", "u", false, "list unlinked AppImages only")
+	mustMarkShorthandDeprecated(cmd, "integrated", "use --integrated")
+	mustMarkShorthandDeprecated(cmd, "unlinked", "use --unlinked")
 	return cmd
 }
 
 func newInfoCommand() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "info [<github-url|gitlab-url|id|Path/To.AppImage>]",
+		Use:   "info [<id|Path/To.AppImage>]",
 		Short: "Show AppImage or package details",
 		Example: strings.TrimSpace(`
   aim info example-app
@@ -152,12 +158,12 @@ func newUpdateCommand() *cobra.Command {
   aim update
   aim update --check-only --csv
   aim update --yes
-  aim update example-app --dry-run --json
+  aim update example-app -n --json
 `),
 		RunE: UpdateCmd,
 	}
 
-	addUpdateSharedFlags(cmd)
+	addUpdateCheckFlags(cmd)
 	cmd.AddCommand(
 		newUpdateSetCommand(),
 		newUpdateUnsetCommand(),
@@ -176,7 +182,7 @@ func newMigrateCommand() *cobra.Command {
 		Example: strings.TrimSpace(`
   aim migrate
   aim migrate example-app
-  aim migrate --dry-run --json
+  aim migrate -n --json
 `),
 		Args: cobra.MaximumNArgs(1),
 		RunE: MigrateCmd,
@@ -184,16 +190,18 @@ func newMigrateCommand() *cobra.Command {
 }
 
 func newUpdateSetCommand() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "set <id>",
 		Short: "Set the update source for a managed AppImage",
 		Example: strings.TrimSpace(`
   aim update set example-app --github owner/repo
   aim update set example-app --embedded
-  aim update set example-app --zsync https://example.com/Example.AppImage.zsync --dry-run --json
+  aim update set example-app --zsync https://example.com/Example.AppImage.zsync -n --json
 `),
 		RunE: UpdateSetCmd,
 	}
+	addUpdateSourceFlags(cmd)
+	return cmd
 }
 
 func newUpdateUnsetCommand() *cobra.Command {
@@ -202,7 +210,7 @@ func newUpdateUnsetCommand() *cobra.Command {
 		Short: "Unset the update source for a managed AppImage",
 		Example: strings.TrimSpace(`
   aim update unset example-app
-  aim update unset example-app --dry-run --json
+  aim update unset example-app -n --json
 `),
 		RunE: UpdateUnsetCmd,
 	}
@@ -217,9 +225,14 @@ func newUpdateCheckCommand() *cobra.Command {
 	}
 }
 
-func addUpdateSharedFlags(cmd *cobra.Command) {
-	flags := cmd.PersistentFlags()
+func addUpdateCheckFlags(cmd *cobra.Command) {
+	flags := cmd.Flags()
 	flags.BoolP("check-only", "c", false, "check only; do not apply updates")
+	mustMarkShorthandDeprecated(cmd, "check-only", "use --check-only")
+}
+
+func addUpdateSourceFlags(cmd *cobra.Command) {
+	flags := cmd.Flags()
 	stringFlagWithMetavar(flags, "github", "", "", "GitHub repo in the form owner/repo (for 'update set')", "owner/repo")
 	flags.String("asset", "", "asset filename pattern; defaults to \"*.AppImage\" for GitHub/GitLab (for 'update set')")
 	stringFlagWithMetavar(flags, "gitlab", "", "", "GitLab project path namespace/project (for 'update set')", "namespace/project")
@@ -236,6 +249,14 @@ func addUpdateSharedFlags(cmd *cobra.Command) {
 
 func mustMarkHidden(cmd *cobra.Command, name string) {
 	if err := cmd.PersistentFlags().MarkHidden(name); err != nil {
+		if err := cmd.Flags().MarkHidden(name); err != nil {
+			panic(err)
+		}
+	}
+}
+
+func mustMarkShorthandDeprecated(cmd *cobra.Command, name, message string) {
+	if err := cmd.Flags().MarkShorthandDeprecated(name, message); err != nil {
 		panic(err)
 	}
 }

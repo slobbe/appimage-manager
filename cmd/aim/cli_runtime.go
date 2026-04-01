@@ -20,11 +20,12 @@ type runtimeOptions struct {
 	ConfigRoot string
 	DryRun     bool
 	Yes        bool
+	NoInput    bool
 	JSON       bool
 	CSV        bool
 	Plain      bool
 	NoColor    bool
-	Verbose    bool
+	Debug      bool
 	Quiet      bool
 }
 
@@ -51,7 +52,7 @@ func prepareRuntime(cmd *cobra.Command) error {
 	}
 	applyRuntimePaths(opts)
 
-	if opts.Verbose {
+	if opts.Debug {
 		writeLogf(cmd, "DEBUG: Using AIM paths: data=%s db=%s temp=%s\n", config.AimDir, config.DbSrc, config.TempDir)
 	}
 
@@ -84,6 +85,10 @@ func parseRuntimeOptions(cmd *cobra.Command) (runtimeOptions, error) {
 	if err != nil {
 		return opts, err
 	}
+	opts.NoInput, err = flagBool(cmd, "no-input")
+	if err != nil {
+		return opts, err
+	}
 	opts.JSON, err = flagBool(cmd, "json")
 	if err != nil {
 		return opts, err
@@ -100,10 +105,15 @@ func parseRuntimeOptions(cmd *cobra.Command) (runtimeOptions, error) {
 	if err != nil {
 		return opts, err
 	}
-	opts.Verbose, err = flagBool(cmd, "verbose")
+	debug, err := flagBool(cmd, "debug")
 	if err != nil {
 		return opts, err
 	}
+	verboseAlias, err := flagBool(cmd, "verbose")
+	if err != nil {
+		return opts, err
+	}
+	opts.Debug = debug || verboseAlias
 	opts.Quiet, err = flagBool(cmd, "quiet")
 	if err != nil {
 		return opts, err
@@ -113,8 +123,8 @@ func parseRuntimeOptions(cmd *cobra.Command) (runtimeOptions, error) {
 }
 
 func validateRuntimeOptions(cmd *cobra.Command, opts runtimeOptions) error {
-	if opts.Verbose && opts.Quiet {
-		return usageError(fmt.Errorf("--verbose and --quiet are mutually exclusive"))
+	if opts.Debug && opts.Quiet {
+		return usageError(fmt.Errorf("--debug and --quiet are mutually exclusive"))
 	}
 
 	if opts.JSON && opts.CSV {
@@ -277,7 +287,7 @@ func shouldRenderLogs(cmd *cobra.Command) bool {
 
 func verbosef(cmd *cobra.Command, format string, args ...interface{}) {
 	opts := runtimeOptionsFrom(cmd)
-	if !opts.Verbose {
+	if !opts.Debug {
 		return
 	}
 	writeLogf(cmd, "DEBUG: "+format+"\n", args...)
@@ -294,6 +304,9 @@ func confirmAction(cmd *cobra.Command, prompt string) (bool, error) {
 	}
 	if opts.DryRun {
 		return true, nil
+	}
+	if opts.NoInput {
+		return false, noPermError(fmt.Errorf("confirmation required with --no-input; rerun with --yes to continue non-interactively"))
 	}
 	if !terminalInputChecker() {
 		return false, noPermError(fmt.Errorf("confirmation required in non-interactive mode; rerun with --yes"))

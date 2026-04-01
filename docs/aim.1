@@ -22,7 +22,11 @@ Install, integrate, update, and remove AppImages from one terminal tool.
 	output CSV where supported
 
 .PP
-\fB--dry-run\fP[=false]
+\fB-d\fP, \fB--debug\fP[=false]
+	enable diagnostic logging
+
+.PP
+\fB-n\fP, \fB--dry-run\fP[=false]
 	simulate changes without applying them
 
 .PP
@@ -38,6 +42,10 @@ Install, integrate, update, and remove AppImages from one terminal tool.
 	disable ANSI color output
 
 .PP
+\fB--no-input\fP[=false]
+	disable interactive prompts
+
+.PP
 \fB--plain\fP[=false]
 	output plain tab-separated text
 
@@ -46,12 +54,8 @@ Install, integrate, update, and remove AppImages from one terminal tool.
 	suppress non-essential status output
 
 .PP
-\fB-U\fP, \fB--upgrade\fP[=false]
+\fB--upgrade\fP[=false]
 	upgrade aim via the official installer
-
-.PP
-\fB--verbose\fP[=false]
-	enable verbose diagnostic logging
 
 .PP
 \fB-v\fP, \fB--version\fP[=false]
@@ -68,25 +72,25 @@ aim --help
   aim --version
   aim --json
   aim -C /tmp/aim-state list --json
-  aim add --dry-run ./Example.AppImage
+  aim add -n ./Example.AppImage
   aim update --yes
 .EE
 
 
 .SH COMMANDS
-.SS aim add [<https\-url|github\-url|gitlab\-url|id|Path/To.AppImage>]
+.SS aim add [<id|Path/To.AppImage>]
 .TP
 \fBSynopsis\fP
-aim add [<https\-url|github\-url|gitlab\-url|id|Path/To.AppImage>]
+aim add [<id|Path/To.AppImage>]
 .TP
 \fBDescription\fP
 Install an AppImage from a file, URL, or provider
 .TP
 \fBExamples\fP
 aim add ./Example.AppImage
-aim add https://example.com/Example.AppImage \-\-sha256 <sha256>
+aim add \-\-url https://example.com/Example.AppImage \-\-sha256 <sha256>
 aim add \-\-github owner/repo
-aim add \-\-dry\-run ./Example.AppImage \-\-json
+aim add \-n ./Example.AppImage \-\-json
 .TP
 \fBOptions\fP
 .TP
@@ -102,13 +106,19 @@ GitLab project path namespace/project
 \-\-sha256 SHA256
 expected SHA\-256 for direct https:// add sources
 .TP
+\-\-url URL
+direct https:// AppImage URL
+.TP
 \-C DIR, \-\-config DIR
 use an alternate AIM state root
 .TP
 \-\-csv
 output CSV where supported
 .TP
-\-\-dry\-run
+\-d, \-\-debug
+enable diagnostic logging
+.TP
+\-n, \-\-dry\-run
 simulate changes without applying them
 .TP
 \-\-json
@@ -117,14 +127,14 @@ output formatted JSON
 \-\-no\-color
 disable ANSI color output
 .TP
+\-\-no\-input
+disable interactive prompts
+.TP
 \-\-plain
 output plain tab\-separated text
 .TP
 \-q, \-\-quiet
 suppress non\-essential status output
-.TP
-\-\-verbose
-enable verbose diagnostic logging
 .TP
 \-y, \-\-yes
 skip confirmation prompts
@@ -144,7 +154,10 @@ use an alternate AIM state root
 \-\-csv
 output CSV where supported
 .TP
-\-\-dry\-run
+\-d, \-\-debug
+enable diagnostic logging
+.TP
+\-n, \-\-dry\-run
 simulate changes without applying them
 .TP
 \-\-json
@@ -153,21 +166,21 @@ output formatted JSON
 \-\-no\-color
 disable ANSI color output
 .TP
+\-\-no\-input
+disable interactive prompts
+.TP
 \-\-plain
 output plain tab\-separated text
 .TP
 \-q, \-\-quiet
 suppress non\-essential status output
 .TP
-\-\-verbose
-enable verbose diagnostic logging
-.TP
 \-y, \-\-yes
 skip confirmation prompts
-.SS aim info [<github\-url|gitlab\-url|id|Path/To.AppImage>]
+.SS aim info [<id|Path/To.AppImage>]
 .TP
 \fBSynopsis\fP
-aim info [<github\-url|gitlab\-url|id|Path/To.AppImage>]
+aim info [<id|Path/To.AppImage>]
 .TP
 \fBDescription\fP
 Show AppImage or package details
@@ -192,7 +205,10 @@ use an alternate AIM state root
 \-\-csv
 output CSV where supported
 .TP
-\-\-dry\-run
+\-d, \-\-debug
+enable diagnostic logging
+.TP
+\-n, \-\-dry\-run
 simulate changes without applying them
 .TP
 \-\-json
@@ -201,14 +217,14 @@ output formatted JSON
 \-\-no\-color
 disable ANSI color output
 .TP
+\-\-no\-input
+disable interactive prompts
+.TP
 \-\-plain
 output plain tab\-separated text
 .TP
 \-q, \-\-quiet
 suppress non\-essential status output
-.TP
-\-\-verbose
-enable verbose diagnostic logging
 .TP
 \-y, \-\-yes
 skip confirmation prompts
@@ -234,10 +250,10 @@ aim list \-\-csv
 \-a, \-\-all
 list all AppImages (default)
 .TP
-\-i, \-\-integrated
+\-\-integrated
 list integrated AppImages only
 .TP
-\-u, \-\-unlinked
+\-\-unlinked
 list unlinked AppImages only
 .TP
 \-C DIR, \-\-config DIR
@@ -246,7 +262,10 @@ use an alternate AIM state root
 \-\-csv
 output CSV where supported
 .TP
-\-\-dry\-run
+\-d, \-\-debug
+enable diagnostic logging
+.TP
+\-n, \-\-dry\-run
 simulate changes without applying them
 .TP
 \-\-json
@@ -255,14 +274,14 @@ output formatted JSON
 \-\-no\-color
 disable ANSI color output
 .TP
+\-\-no\-input
+disable interactive prompts
+.TP
 \-\-plain
 output plain tab\-separated text
 .TP
 \-q, \-\-quiet
 suppress non\-essential status output
-.TP
-\-\-verbose
-enable verbose diagnostic logging
 .TP
 \-y, \-\-yes
 skip confirmation prompts
@@ -280,7 +299,7 @@ repair
 \fBExamples\fP
 aim migrate
 aim migrate example\-app
-aim migrate \-\-dry\-run \-\-json
+aim migrate \-n \-\-json
 .TP
 \fBOptions\fP
 .TP
@@ -290,7 +309,10 @@ use an alternate AIM state root
 \-\-csv
 output CSV where supported
 .TP
-\-\-dry\-run
+\-d, \-\-debug
+enable diagnostic logging
+.TP
+\-n, \-\-dry\-run
 simulate changes without applying them
 .TP
 \-\-json
@@ -299,14 +321,14 @@ output formatted JSON
 \-\-no\-color
 disable ANSI color output
 .TP
+\-\-no\-input
+disable interactive prompts
+.TP
 \-\-plain
 output plain tab\-separated text
 .TP
 \-q, \-\-quiet
 suppress non\-essential status output
-.TP
-\-\-verbose
-enable verbose diagnostic logging
 .TP
 \-y, \-\-yes
 skip confirmation prompts
@@ -324,7 +346,7 @@ rm
 \fBExamples\fP
 aim remove example\-app
 aim remove \-\-unlink example\-app
-aim remove \-\-dry\-run example\-app \-\-json
+aim remove \-n example\-app \-\-json
 .TP
 \fBOptions\fP
 .TP
@@ -337,7 +359,10 @@ use an alternate AIM state root
 \-\-csv
 output CSV where supported
 .TP
-\-\-dry\-run
+\-d, \-\-debug
+enable diagnostic logging
+.TP
+\-n, \-\-dry\-run
 simulate changes without applying them
 .TP
 \-\-json
@@ -346,14 +371,14 @@ output formatted JSON
 \-\-no\-color
 disable ANSI color output
 .TP
+\-\-no\-input
+disable interactive prompts
+.TP
 \-\-plain
 output plain tab\-separated text
 .TP
 \-q, \-\-quiet
 suppress non\-essential status output
-.TP
-\-\-verbose
-enable verbose diagnostic logging
 .TP
 \-y, \-\-yes
 skip confirmation prompts
@@ -372,27 +397,12 @@ u
 aim update
 aim update \-\-check\-only \-\-csv
 aim update \-\-yes
-aim update example\-app \-\-dry\-run \-\-json
+aim update example\-app \-n \-\-json
 .TP
 \fBOptions\fP
 .TP
-\-\-asset string
-asset filename pattern; defaults to "*.AppImage" for GitHub/GitLab (for 'update set')
-.TP
-\-c, \-\-check\-only
+\-\-check\-only
 check only; do not apply updates
-.TP
-\-\-embedded
-use the update source embedded in the current AppImage (for 'update set')
-.TP
-\-\-github owner/repo
-GitHub repo in the form owner/repo (for 'update set')
-.TP
-\-\-gitlab namespace/project
-GitLab project path namespace/project (for 'update set')
-.TP
-\-\-zsync URL
-direct zsync metadata URL (https, for 'update set')
 .TP
 \-C DIR, \-\-config DIR
 use an alternate AIM state root
@@ -400,7 +410,10 @@ use an alternate AIM state root
 \-\-csv
 output CSV where supported
 .TP
-\-\-dry\-run
+\-d, \-\-debug
+enable diagnostic logging
+.TP
+\-n, \-\-dry\-run
 simulate changes without applying them
 .TP
 \-\-json
@@ -409,14 +422,14 @@ output formatted JSON
 \-\-no\-color
 disable ANSI color output
 .TP
+\-\-no\-input
+disable interactive prompts
+.TP
 \-\-plain
 output plain tab\-separated text
 .TP
 \-q, \-\-quiet
 suppress non\-essential status output
-.TP
-\-\-verbose
-enable verbose diagnostic logging
 .TP
 \-y, \-\-yes
 skip confirmation prompts
@@ -435,24 +448,12 @@ Set the update source for a managed AppImage
 \fBExamples\fP
 aim update set example\-app \-\-github owner/repo
 aim update set example\-app \-\-embedded
-aim update set example\-app \-\-zsync https://example.com/Example.AppImage.zsync \-\-dry\-run \-\-json
+aim update set example\-app \-\-zsync https://example.com/Example.AppImage.zsync \-n \-\-json
 .TP
 \fBOptions\fP
 .TP
 \-\-asset string
 asset filename pattern; defaults to "*.AppImage" for GitHub/GitLab (for 'update set')
-.TP
-\-c, \-\-check\-only
-check only; do not apply updates
-.TP
-\-C DIR, \-\-config DIR
-use an alternate AIM state root
-.TP
-\-\-csv
-output CSV where supported
-.TP
-\-\-dry\-run
-simulate changes without applying them
 .TP
 \-\-embedded
 use the update source embedded in the current AppImage (for 'update set')
@@ -463,11 +464,29 @@ GitHub repo in the form owner/repo (for 'update set')
 \-\-gitlab namespace/project
 GitLab project path namespace/project (for 'update set')
 .TP
+\-\-zsync URL
+direct zsync metadata URL (https, for 'update set')
+.TP
+\-C DIR, \-\-config DIR
+use an alternate AIM state root
+.TP
+\-\-csv
+output CSV where supported
+.TP
+\-d, \-\-debug
+enable diagnostic logging
+.TP
+\-n, \-\-dry\-run
+simulate changes without applying them
+.TP
 \-\-json
 output formatted JSON
 .TP
 \-\-no\-color
 disable ANSI color output
+.TP
+\-\-no\-input
+disable interactive prompts
 .TP
 \-\-plain
 output plain tab\-separated text
@@ -475,14 +494,8 @@ output plain tab\-separated text
 \-q, \-\-quiet
 suppress non\-essential status output
 .TP
-\-\-verbose
-enable verbose diagnostic logging
-.TP
 \-y, \-\-yes
 skip confirmation prompts
-.TP
-\-\-zsync URL
-direct zsync metadata URL (https, for 'update set')
 .SS aim update unset <id>
 .TP
 \fBSynopsis\fP
@@ -493,15 +506,9 @@ Unset the update source for a managed AppImage
 .TP
 \fBExamples\fP
 aim update unset example\-app
-aim update unset example\-app \-\-dry\-run \-\-json
+aim update unset example\-app \-n \-\-json
 .TP
 \fBOptions\fP
-.TP
-\-\-asset string
-asset filename pattern; defaults to "*.AppImage" for GitHub/GitLab (for 'update set')
-.TP
-\-c, \-\-check\-only
-check only; do not apply updates
 .TP
 \-C DIR, \-\-config DIR
 use an alternate AIM state root
@@ -509,17 +516,11 @@ use an alternate AIM state root
 \-\-csv
 output CSV where supported
 .TP
-\-\-dry\-run
+\-d, \-\-debug
+enable diagnostic logging
+.TP
+\-n, \-\-dry\-run
 simulate changes without applying them
-.TP
-\-\-embedded
-use the update source embedded in the current AppImage (for 'update set')
-.TP
-\-\-github owner/repo
-GitHub repo in the form owner/repo (for 'update set')
-.TP
-\-\-gitlab namespace/project
-GitLab project path namespace/project (for 'update set')
 .TP
 \-\-json
 output formatted JSON
@@ -527,20 +528,17 @@ output formatted JSON
 \-\-no\-color
 disable ANSI color output
 .TP
+\-\-no\-input
+disable interactive prompts
+.TP
 \-\-plain
 output plain tab\-separated text
 .TP
 \-q, \-\-quiet
 suppress non\-essential status output
 .TP
-\-\-verbose
-enable verbose diagnostic logging
-.TP
 \-y, \-\-yes
 skip confirmation prompts
-.TP
-\-\-zsync URL
-direct zsync metadata URL (https, for 'update set')
 .SH VERSION
 dev
 
@@ -574,5 +572,5 @@ https://github.com/slobbe/appimage\-manager#readme
 
 .SH ERROR REPORTING
 Expected errors are rewritten to be actionable when possible.
-Unexpected internal failures suggest rerunning with \-\-verbose and reporting the issue at https://github.com/slobbe/appimage\-manager/issues.
+Unexpected internal failures suggest rerunning with \-\-debug and reporting the issue at https://github.com/slobbe/appimage\-manager/issues.
 

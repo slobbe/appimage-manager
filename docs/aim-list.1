@@ -22,11 +22,11 @@ List managed AppImages
 	help for list
 
 .PP
-\fB-i\fP, \fB--integrated\fP[=false]
+\fB--integrated\fP[=false]
 	list integrated AppImages only
 
 .PP
-\fB-u\fP, \fB--unlinked\fP[=false]
+\fB--unlinked\fP[=false]
 	list unlinked AppImages only
 
 
@@ -39,7 +39,11 @@ List managed AppImages
 	output CSV where supported
 
 .PP
-\fB--dry-run\fP[=false]
+\fB-d\fP, \fB--debug\fP[=false]
+	enable diagnostic logging
+
+.PP
+\fB-n\fP, \fB--dry-run\fP[=false]
 	simulate changes without applying them
 
 .PP
@@ -51,16 +55,16 @@ List managed AppImages
 	disable ANSI color output
 
 .PP
+\fB--no-input\fP[=false]
+	disable interactive prompts
+
+.PP
 \fB--plain\fP[=false]
 	output plain tab-separated text
 
 .PP
 \fB-q\fP, \fB--quiet\fP[=false]
 	suppress non-essential status output
-
-.PP
-\fB--verbose\fP[=false]
-	enable verbose diagnostic logging
 
 .PP
 \fB-y\fP, \fB--yes\fP[=false]

@@ -70,7 +70,7 @@ func renderManMetadataSections(cmd *cobra.Command) string {
 		sections = append(sections, renderManSection("EXIT STATUS", formatExitStatusSection()))
 		sections = append(sections, renderManSection("ERROR REPORTING", strings.Join([]string{
 			"Expected errors are rewritten to be actionable when possible.",
-			"Unexpected internal failures suggest rerunning with --verbose and reporting the issue at " + rootCommandIssuesURL + ".",
+			"Unexpected internal failures suggest rerunning with --debug and reporting the issue at " + rootCommandIssuesURL + ".",
 		}, "\n")))
 	}
 

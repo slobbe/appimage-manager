@@ -14,29 +14,8 @@ Set the update source for a managed AppImage
 
 
 .SH OPTIONS
-\fB-h\fP, \fB--help\fP[=false]
-	help for set
-
-
-.SH OPTIONS INHERITED FROM PARENT COMMANDS
 \fB--asset\fP=""
 	asset filename pattern; defaults to "*.AppImage" for GitHub/GitLab (for 'update set')
-
-.PP
-\fB-c\fP, \fB--check-only\fP[=false]
-	check only; do not apply updates
-
-.PP
-\fB-C\fP, \fB--config\fP=
-	use an alternate AIM state root
-
-.PP
-\fB--csv\fP[=false]
-	output CSV where supported
-
-.PP
-\fB--dry-run\fP[=false]
-	simulate changes without applying them
 
 .PP
 \fB--embedded\fP[=false]
@@ -51,12 +30,41 @@ Set the update source for a managed AppImage
 	GitLab project path namespace/project (for 'update set')
 
 .PP
+\fB-h\fP, \fB--help\fP[=false]
+	help for set
+
+.PP
+\fB--zsync\fP=
+	direct zsync metadata URL (https, for 'update set')
+
+
+.SH OPTIONS INHERITED FROM PARENT COMMANDS
+\fB-C\fP, \fB--config\fP=
+	use an alternate AIM state root
+
+.PP
+\fB--csv\fP[=false]
+	output CSV where supported
+
+.PP
+\fB-d\fP, \fB--debug\fP[=false]
+	enable diagnostic logging
+
+.PP
+\fB-n\fP, \fB--dry-run\fP[=false]
+	simulate changes without applying them
+
+.PP
 \fB--json\fP[=false]
 	output formatted JSON
 
 .PP
 \fB--no-color\fP[=false]
 	disable ANSI color output
+
+.PP
+\fB--no-input\fP[=false]
+	disable interactive prompts
 
 .PP
 \fB--plain\fP[=false]
@@ -67,23 +75,15 @@ Set the update source for a managed AppImage
 	suppress non-essential status output
 
 .PP
-\fB--verbose\fP[=false]
-	enable verbose diagnostic logging
-
-.PP
 \fB-y\fP, \fB--yes\fP[=false]
 	skip confirmation prompts
-
-.PP
-\fB--zsync\fP=
-	direct zsync metadata URL (https, for 'update set')
 
 
 .SH EXAMPLE
 .EX
 aim update set example-app --github owner/repo
   aim update set example-app --embedded
-  aim update set example-app --zsync https://example.com/Example.AppImage.zsync --dry-run --json
+  aim update set example-app --zsync https://example.com/Example.AppImage.zsync -n --json
 .EE
 
 
