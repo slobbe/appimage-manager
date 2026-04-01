@@ -74,6 +74,14 @@ func renderManMetadataSections(cmd *cobra.Command) string {
 			"Press Ctrl-C to cancel in-flight work.",
 			"If aim ever accepts secret input in the future, it will not read it from plain flags.",
 		}, "\n")))
+		sections = append(sections, renderManSection("ROBUSTNESS", strings.Join([]string{
+			"Network timeout is read from ${XDG_CONFIG_HOME:-~/.config}/aim/settings.toml or <root>/config/aim/settings.toml when -C is used.",
+			"Example settings file: network_timeout = \"30s\"",
+			"Failed long-running operations print a compact operation log after the main error.",
+			"Interrupted downloads are staged under the AIM temp root and can be resumed on rerun when the server supports range requests.",
+			"Recent successful update checks can be reused for up to 5 minutes on rerun.",
+			"Mutating commands take a per-root state lock and fail fast if another aim process is already writing to the same root.",
+		}, "\n")))
 		sections = append(sections, renderManSection("ERROR REPORTING", strings.Join([]string{
 			"Expected errors are rewritten to be actionable when possible.",
 			"Unexpected internal failures suggest rerunning with --debug and reporting the issue at " + rootCommandIssuesURL + ".",

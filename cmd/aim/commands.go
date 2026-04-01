@@ -15,7 +15,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/slobbe/appimage-manager/internal/config"
 	"github.com/slobbe/appimage-manager/internal/core"
 	"github.com/slobbe/appimage-manager/internal/discovery"
 	util "github.com/slobbe/appimage-manager/internal/helpers"
@@ -75,6 +74,7 @@ func runUpgrade(ctx context.Context, cmd *cobra.Command) error {
 		ctx = context.Background()
 	}
 
+	logOperationf(cmd, "Checking for aim updates")
 	checkResult, err := runWithBusyIndicator(cmd, progressCheckAimUpdates(), func() (*core.AimUpgradeCheckResult, error) {
 		return checkAimUpgrade(ctx, version)
 	})
@@ -90,6 +90,7 @@ func runUpgrade(ctx context.Context, cmd *cobra.Command) error {
 		return nil
 	}
 
+	logOperationf(cmd, "Downloading and running the aim installer")
 	result, err := runWithBusyIndicator(cmd, progressUpgradeAim(), func() (*core.InstallerUpgradeResult, error) {
 		return runUpgradeViaInstaller(ctx, version)
 	})
@@ -158,9 +159,18 @@ func MigrateCmd(cmd *cobra.Command, args []string) error {
 		if err := mustEnsureRuntimeDirs(); err != nil {
 			return err
 		}
-		changed, err := runWithBusyIndicator(cmd, progressMigrateApps(), func() (bool, error) {
-			return migrateAllApps()
-		})
+		changed, err := func() (bool, error) {
+			var changed bool
+			err := withStateWriteLock(cmd, func() error {
+				logOperationf(cmd, "Migrating managed apps")
+				var migrateErr error
+				changed, migrateErr = runWithBusyIndicator(cmd, progressMigrateApps(), func() (bool, error) {
+					return migrateAllApps()
+				})
+				return migrateErr
+			})
+			return changed, err
+		}()
 		if err != nil {
 			return err
 		}
@@ -197,9 +207,18 @@ func MigrateCmd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	changed, err := runWithBusyIndicator(cmd, progressMigrateApp(id), func() (bool, error) {
-		return migrateSingleApp(id)
-	})
+	changed, err := func() (bool, error) {
+		var changed bool
+		err := withStateWriteLock(cmd, func() error {
+			logOperationf(cmd, "Migrating %s", id)
+			var migrateErr error
+			changed, migrateErr = runWithBusyIndicator(cmd, progressMigrateApp(id), func() (bool, error) {
+				return migrateSingleApp(id)
+			})
+			return migrateErr
+		})
+		return changed, err
+	}()
 	if err != nil {
 		return wrapManagedAppLookupError(id, err)
 	}
@@ -222,20 +241,28 @@ func AddCmd(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	if selection.HasRef {
-		return runInstallPackageRef(cmd.Context(), cmd, selection.Ref)
-	}
-	if strings.TrimSpace(selection.DirectURL) != "" {
-		return runInstallTarget(cmd.Context(), cmd, selection.DirectURL)
-	}
-	if _, err := resolveIntegrateTarget(selection.Positional); err == nil {
-		if err := validateAddIntegrateFlags(cmd); err != nil {
-			return err
+
+	run := func() error {
+		if selection.HasRef {
+			return runInstallPackageRef(cmd.Context(), cmd, selection.Ref)
 		}
-		return runIntegrateTarget(cmd.Context(), cmd, selection.Positional)
+		if strings.TrimSpace(selection.DirectURL) != "" {
+			return runInstallTarget(cmd.Context(), cmd, selection.DirectURL)
+		}
+		if _, err := resolveIntegrateTarget(selection.Positional); err == nil {
+			if err := validateAddIntegrateFlags(cmd); err != nil {
+				return err
+			}
+			return runIntegrateTarget(cmd.Context(), cmd, selection.Positional)
+		}
+
+		return usageError(fmt.Errorf("unknown add target %q; expected <id> or <Path/To.AppImage>", selection.Positional))
 	}
 
-	return usageError(fmt.Errorf("unknown add target %q; expected <id> or <Path/To.AppImage>", selection.Positional))
+	if runtimeOptionsFrom(cmd).DryRun {
+		return run()
+	}
+	return withStateWriteLock(cmd, run)
 }
 
 func resolveAddProviderRef(cmd *cobra.Command, args []string) (discovery.PackageRef, bool, error) {
@@ -758,28 +785,26 @@ type remoteInstallRequest struct {
 }
 
 func integrateRemoteInstall(ctx context.Context, cmd *cobra.Command, req remoteInstallRequest) (*models.App, error) {
-	tempDir, err := os.MkdirTemp(config.TempDir, "aim-install-*")
-	if err != nil {
-		return nil, wrapWriteError(err)
-	}
-	defer func() {
-		_ = os.RemoveAll(tempDir)
-	}()
-
 	fileName := updateDownloadFilename(req.AssetName, req.DownloadURL)
-	downloadPath := filepath.Join(tempDir, fileName)
+	downloadPath, err := stableDownloadDestination(req.DownloadURL, fileName)
+	if err != nil {
+		return nil, err
+	}
 
+	logOperationf(cmd, "Downloading install asset from %s", req.DownloadURL)
 	if err := downloadRemoteAsset(ctx, req.DownloadURL, downloadPath, isTerminalStderr()); err != nil {
 		return nil, err
 	}
 
 	if strings.TrimSpace(req.ExpectedSHA256) != "" {
+		logOperationf(cmd, "Verifying %s", fileName)
 		printInfo(cmd, fmt.Sprintf("Verifying %s", fileName))
 		if err := verifyDownloadedUpdate(downloadPath, pendingManagedUpdate{ExpectedSHA256: req.ExpectedSHA256}); err != nil {
 			return nil, err
 		}
 	}
 
+	logOperationf(cmd, "Integrating %s", fileName)
 	app, err := runWithBusyIndicator(cmd, fmt.Sprintf("Integrating %s", fileName), func() (*models.App, error) {
 		return integrateLocalApp(ctx, downloadPath, func(existing, incoming *models.UpdateSource) (bool, error) {
 			_ = existing
@@ -800,9 +825,12 @@ func integrateRemoteInstall(ctx context.Context, cmd *cobra.Command, req remoteI
 	app.Source = req.BuildSource(app)
 	app.Update = finalUpdate
 
+	logOperationf(cmd, "Persisting %s", app.ID)
 	if err := addSingleApp(app, true); err != nil {
 		return nil, wrapWriteError(err)
 	}
+
+	removeStagedDownload(downloadPath)
 
 	return app, nil
 }
@@ -911,7 +939,13 @@ func RemoveCmd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	app, err := removeManagedApp(cmd.Context(), id, unlink)
+	var app *models.App
+	err = withStateWriteLock(cmd, func() error {
+		logOperationf(cmd, "Removing %s", id)
+		var removeErr error
+		app, removeErr = removeManagedApp(cmd.Context(), id, unlink)
+		return removeErr
+	})
 	if err != nil {
 		return wrapManagedAppLookupError(id, err)
 	}
@@ -1860,9 +1894,15 @@ func runUpdateSetMode(cmd *cobra.Command, id string) error {
 		return nil
 	}
 
-	app.Update = incomingSource
-	if err := repo.UpdateApp(app); err != nil {
-		return wrapWriteError(err)
+	if err := withStateWriteLock(cmd, func() error {
+		logOperationf(cmd, "Setting update source for %s", id)
+		app.Update = incomingSource
+		if err := repo.UpdateApp(app); err != nil {
+			return wrapWriteError(err)
+		}
+		return nil
+	}); err != nil {
+		return err
 	}
 
 	if opts.JSON {
@@ -1896,7 +1936,16 @@ func runUpdateUnsetMode(cmd *cobra.Command, id string) error {
 	}
 
 	prompt := formatPrompt("Unset source for", id)
-	_, err = unsetManagedUpdateSource(cmd, app, prompt, true)
+	_, err = func() (bool, error) {
+		var changed bool
+		err := withStateWriteLock(cmd, func() error {
+			logOperationf(cmd, "Unsetting update source for %s", id)
+			var unsetErr error
+			changed, unsetErr = unsetManagedUpdateSource(cmd, app, prompt, true)
+			return unsetErr
+		})
+		return changed, err
+	}()
 	return err
 }
 
@@ -2096,17 +2145,27 @@ func runManagedUpdate(ctx context.Context, cmd *cobra.Command, targetID string) 
 			return err
 		}
 	}
+	var checkCache *updateCheckCacheFile
+	if !opts.DryRun && runtimePrepared(cmd) {
+		checkCache, err = loadUpdateCheckCache()
+		if err != nil {
+			return wrapWriteError(err)
+		}
+	}
 	var pending []pendingManagedUpdate
 	checkFailures := 0
 	singleStatusPrinted := false
 	failures := make([]managedCheckFailure, 0)
-	checkResults := runManagedChecks(apps)
+	checkResults, err := runManagedChecksWithCache(cmd, apps, checkCache)
+	if err != nil {
+		return wrapWriteError(err)
+	}
 	metadataUpdates := make([]repo.CheckMetadataUpdate, 0, len(checkResults))
 	rows := make([]updateOutputRow, 0, len(checkResults))
 	rowIndexByID := map[string]int{}
 	checkedAt := util.NowISO()
 
-	for _, result := range checkResults {
+	for idx, result := range checkResults {
 		app := result.app
 		update := result.update
 		err := result.err
@@ -2145,6 +2204,10 @@ func runManagedUpdate(ctx context.Context, cmd *cobra.Command, targetID string) 
 				Reason: rewriteBatchCheckFailure(app.ID, err),
 			})
 			continue
+		}
+
+		if !opts.DryRun && app != nil {
+			setCachedManagedUpdate(checkCache, app, managedCheckCacheKey(app, idx), update)
 		}
 
 		if update == nil {
@@ -2229,6 +2292,11 @@ func runManagedUpdate(ctx context.Context, cmd *cobra.Command, targetID string) 
 		}
 		checkFailures++
 		printError(cmd, userMessageForError(wrapWriteError(err)).Summary)
+	}
+	if !opts.DryRun && checkCache != nil {
+		if cacheErr := saveUpdateCheckCache(checkCache); cacheErr != nil {
+			return wrapWriteError(cacheErr)
+		}
 	}
 
 	if targetID == "" && len(failures) > 0 {
@@ -2338,28 +2406,48 @@ func runManagedUpdate(ctx context.Context, cmd *cobra.Command, targetID string) 
 		}
 	}
 
-	applyResults := runManagedApplies(ctx, cmd, pending)
-	applyFailures := 0
-	appliedApps := make([]*models.App, 0, len(applyResults))
-	for _, result := range applyResults {
-		if result.err != nil {
-			applyFailures++
-			continue
-		}
-		if result.updatedApp != nil {
-			appliedApps = append(appliedApps, result.updatedApp)
-			if idx, ok := rowIndexByID[result.updatedApp.ID]; ok {
-				rows[idx].Status = "updated"
-				rows[idx].CurrentVersion = result.updatedApp.Version
+	var (
+		applyResults  []managedApplyResult
+		applyFailures int
+		appliedApps   []*models.App
+		persistErr    error
+	)
+	err = withStateWriteLock(cmd, func() error {
+		logOperationf(cmd, "Applying %d managed update(s)", len(pending))
+		applyResults = runManagedApplies(ctx, cmd, pending)
+		applyFailures = 0
+		appliedApps = make([]*models.App, 0, len(applyResults))
+		for _, result := range applyResults {
+			if result.err != nil {
+				applyFailures++
+				continue
+			}
+			if result.updatedApp != nil {
+				appliedApps = append(appliedApps, result.updatedApp)
+				if idx, ok := rowIndexByID[result.updatedApp.ID]; ok {
+					rows[idx].Status = "updated"
+					rows[idx].CurrentVersion = result.updatedApp.Version
+				}
 			}
 		}
-	}
 
-	if len(appliedApps) > 0 {
-		core.RefreshDesktopIntegrationCaches(ctx)
-	}
+		if len(appliedApps) > 0 {
+			core.RefreshDesktopIntegrationCaches(ctx)
+		}
 
-	persistErr := persistManagedAppliedApps(appliedApps)
+		logOperationf(cmd, "Persisting applied updates")
+		persistErr = persistManagedAppliedApps(appliedApps)
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	if len(appliedApps) > 0 && checkCache != nil {
+		invalidateCachedManagedUpdates(checkCache, appliedAppIDs(appliedApps)...)
+		if cacheErr := saveUpdateCheckCache(checkCache); cacheErr != nil {
+			return wrapWriteError(cacheErr)
+		}
+	}
 
 	if applyFailures > 0 {
 		if persistErr != nil {
@@ -2454,6 +2542,38 @@ func runManagedChecks(apps []*models.App) []managedCheckResult {
 
 	wg.Wait()
 	return results
+}
+
+func runManagedChecksWithCache(cmd *cobra.Command, apps []*models.App, cache *updateCheckCacheFile) ([]managedCheckResult, error) {
+	results := make([]managedCheckResult, len(apps))
+	if len(apps) == 0 {
+		return results, nil
+	}
+	if cache == nil {
+		return runManagedChecks(apps), nil
+	}
+
+	toCheck := make([]*models.App, 0, len(apps))
+	toCheckIndices := make([]int, 0, len(apps))
+	for idx, app := range apps {
+		key := managedCheckCacheKey(app, idx)
+		if cached, ok := cachedManagedUpdateForApp(cache, app, key); ok {
+			results[idx] = managedCheckResult{app: app, update: cached}
+			if app != nil {
+				logOperationf(cmd, "Reused cached update check for %s", app.ID)
+			}
+			continue
+		}
+		toCheck = append(toCheck, app)
+		toCheckIndices = append(toCheckIndices, idx)
+	}
+
+	fresh := runManagedChecks(toCheck)
+	for idx, result := range fresh {
+		results[toCheckIndices[idx]] = result
+	}
+
+	return results, nil
 }
 
 func managedCheckCacheKey(app *models.App, fallbackIdx int) string {
@@ -2743,21 +2863,17 @@ func applyManagedUpdate(ctx context.Context, update pendingManagedUpdate, report
 		return nil, err
 	}
 
-	tempDir, err := os.MkdirTemp("", "aim-update-*")
+	fileName := updateDownloadFilename(update.Asset, update.URL)
+	downloadPath, err := stableDownloadDestination(update.URL, update.App.ID+"-"+fileName)
 	if err != nil {
 		err = wrapWriteError(err)
 		emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageFailed, Message: err.Error()})
 		return nil, err
 	}
-	defer func() {
-		_ = os.RemoveAll(tempDir)
-	}()
-
-	fileName := updateDownloadFilename(update.Asset, update.URL)
-	downloadPath := filepath.Join(tempDir, fileName)
 	usedZsync := false
 	if strings.TrimSpace(update.ZsyncURL) != "" {
 		emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageZsync})
+		logOperationContextf(ctx, "Running zsync for %s", update.App.ID)
 		if err := applyZsyncUpdate(ctx, update, downloadPath); err == nil {
 			usedZsync = true
 		}
@@ -2765,6 +2881,7 @@ func applyManagedUpdate(ctx context.Context, update pendingManagedUpdate, report
 
 	if !usedZsync {
 		emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageDownload})
+		logOperationContextf(ctx, "Downloading update for %s", update.App.ID)
 		if err := downloadManagedRemoteAsset(ctx, update.URL, downloadPath, false, func(downloaded, total int64) {
 			emitManagedApplyEvent(reporter, managedApplyEvent{
 				Stage:         managedApplyStageDownload,
@@ -2778,12 +2895,14 @@ func applyManagedUpdate(ctx context.Context, update pendingManagedUpdate, report
 	}
 
 	emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageVerify})
+	logOperationContextf(ctx, "Verifying update for %s", update.App.ID)
 	if err := verifyDownloadedUpdate(downloadPath, update); err != nil {
 		emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageFailed, Message: err.Error()})
 		return nil, err
 	}
 
 	emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageIntegrate})
+	logOperationContextf(ctx, "Integrating update for %s", update.App.ID)
 	app, err := integrateManagedUpdate(ctx, downloadPath, func(existing, incoming *models.UpdateSource) (bool, error) {
 		return false, nil
 	})
@@ -2796,6 +2915,7 @@ func applyManagedUpdate(ctx context.Context, update pendingManagedUpdate, report
 		Stage:   managedApplyStageDone,
 		Version: app.Version,
 	})
+	removeStagedDownload(downloadPath)
 	return app, nil
 }
 
@@ -2967,14 +3087,48 @@ func downloadUpdateAssetWithProgress(ctx context.Context, assetURL, destination 
 		}
 	}()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, assetURL, nil)
+	meta, err := loadStagedDownloadMetadata(destination)
 	if err != nil {
-		return err
+		return wrapWriteError(err)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	var existingSize int64
+	if info, statErr := os.Stat(destination); statErr == nil {
+		existingSize = info.Size()
+	} else if !os.IsNotExist(statErr) {
+		return wrapWriteError(statErr)
+	}
+	if meta != nil && strings.TrimSpace(meta.URL) != "" && strings.TrimSpace(meta.URL) != strings.TrimSpace(assetURL) {
+		removeStagedDownload(destination)
+		meta = nil
+		existingSize = 0
+	}
+
+	doRequest := func(rangeStart int64) (*http.Response, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, assetURL, nil)
+		if err != nil {
+			return nil, err
+		}
+		if rangeStart > 0 {
+			req.Header.Set("Range", fmt.Sprintf("bytes=%d-", rangeStart))
+		}
+		logOperationContextf(ctx, "HTTP GET %s", assetURL)
+		return core.SharedHTTPClient().Do(req)
+	}
+
+	resp, err := doRequest(existingSize)
 	if err != nil {
 		return rewriteNetworkDownloadError(err)
+	}
+	if existingSize > 0 && resp.StatusCode != http.StatusPartialContent {
+		resp.Body.Close()
+		removeStagedDownload(destination)
+		existingSize = 0
+		meta = nil
+		resp, err = doRequest(0)
+		if err != nil {
+			return rewriteNetworkDownloadError(err)
+		}
 	}
 	defer resp.Body.Close()
 
@@ -2986,15 +3140,37 @@ func downloadUpdateAssetWithProgress(ctx context.Context, assetURL, destination 
 		)
 	}
 
-	f, err := os.OpenFile(destination, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	openFlags := os.O_CREATE | os.O_WRONLY
+	if existingSize > 0 && resp.StatusCode == http.StatusPartialContent {
+		openFlags |= os.O_APPEND
+	} else {
+		openFlags |= os.O_TRUNC
+		existingSize = 0
+	}
+
+	f, err := os.OpenFile(destination, openFlags, 0o644)
 	if err != nil {
 		return wrapWriteError(err)
 	}
 	defer f.Close()
 
+	total := resp.ContentLength
+	if existingSize > 0 && resp.ContentLength > 0 {
+		total = existingSize + resp.ContentLength
+	}
+	if meta == nil {
+		meta = &stagedDownloadMetadata{URL: assetURL}
+	}
+	meta.URL = assetURL
+	meta.ETag = strings.TrimSpace(resp.Header.Get("ETag"))
+	meta.LastModified = strings.TrimSpace(resp.Header.Get("Last-Modified"))
+	meta.TotalBytes = total
+	if err := saveStagedDownloadMetadata(destination, *meta); err != nil {
+		return wrapWriteError(err)
+	}
+
 	var (
-		total        = resp.ContentLength
-		downloaded   int64
+		downloaded   = existingSize
 		buffer       = make([]byte, 32*1024)
 		progressMode = progressModeSpinner
 	)
@@ -3003,6 +3179,9 @@ func downloadUpdateAssetWithProgress(ctx context.Context, assetURL, destination 
 		progress = newProcessByteProgress("Downloading update", total, true)
 		if total > 0 {
 			progressMode = progressModeBytes
+		}
+		if existingSize > 0 {
+			progress.Add(existingSize)
 		}
 	}
 
@@ -3018,6 +3197,10 @@ func downloadUpdateAssetWithProgress(ctx context.Context, assetURL, destination 
 			}
 			if interactive && progress != nil {
 				progress.Add(int64(n))
+			}
+			meta.TotalBytes = total
+			if err := saveStagedDownloadMetadata(destination, *meta); err != nil {
+				return wrapWriteError(err)
 			}
 		}
 

@@ -249,6 +249,15 @@ func renderCommandError(root *cobra.Command, args []string, err error) int {
 		debug, _ := root.PersistentFlags().GetBool("debug")
 		verboseAlias, _ := root.PersistentFlags().GetBool("verbose")
 		lines := renderTextErrorLines(err, suggestionForError(root, err), debug || verboseAlias || argsContainFlag(args, "--debug") || argsContainFlag(args, "-d") || argsContainFlag(args, "--verbose"))
+		if opLog := operationLogForCommand(root); opLog != nil {
+			entries := opLog.Lines()
+			if len(entries) > 0 {
+				lines = append(lines, "", "Operation log:")
+				for _, entry := range entries {
+					lines = append(lines, "  "+strings.TrimSpace(entry))
+				}
+			}
+		}
 		for _, line := range lines {
 			if strings.TrimSpace(line) == "" {
 				continue

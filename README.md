@@ -137,6 +137,7 @@ The current CLI does not accept secret input. If it ever gains secret prompts in
 - errors, warnings, prompts, progress, and verbose diagnostics are written to stderr
 - interactive terminals get immediate progress bars for long-running work; multi-app updates use one aggregate progress bar instead of per-app live rows
 - non-interactive stderr stays plain and non-animated
+- failed long-running operations print a compact `Operation log:` block after the main error
 - success exits with `0`; failures exit with a stable non-zero code
 
 For unexpected internal failures, `aim` prints a short bug-report path:
@@ -146,6 +147,20 @@ For unexpected internal failures, `aim` prints a short bug-report path:
 - the GitHub issues URL for reporting the problem
 
 Expected errors are rewritten to be user-facing and actionable when possible, for example by suggesting `aim list`, `aim update --set <id> ...`, or a writable `-C` state root.
+
+## Robustness and recovery
+
+`aim` keeps a small amount of retry-friendly state under the active AIM root:
+
+- network timeout is configured from `settings.toml`
+- example:
+  `network_timeout = "30s"`
+- default settings path:
+  `${XDG_CONFIG_HOME:-~/.config}/aim/settings.toml`
+- when `-C` is used, the settings file lives under `<root>/config/aim/settings.toml`
+- interrupted direct downloads and managed update downloads are staged under the AIM temp root and reused on rerun when resume is safe
+- recent successful managed update checks can be reused for up to 5 minutes on rerun
+- mutating commands take a per-root state lock; if another `aim` process is already writing, the second command fails fast instead of racing shared state
 
 Exit codes:
 

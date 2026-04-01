@@ -33,6 +33,7 @@ func (b *busyIndicator) Stop() {
 }
 
 func runWithBusyIndicator[T any](cmd *cobra.Command, label string, fn func() (T, error)) (T, error) {
+	logOperationf(cmd, "%s", label)
 	indicator := newBusyIndicator(cmd, label)
 	indicator.Start()
 	defer indicator.Stop()

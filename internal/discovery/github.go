@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/slobbe/appimage-manager/internal/core"
 )
@@ -20,8 +21,21 @@ type gitHubRepoResponse struct {
 	StargazersCount int    `json:"stargazers_count"`
 }
 
-var githubDiscoveryHTTPClient = &http.Client{Timeout: coreHTTPTimeout}
+var githubDiscoveryHTTPClient = core.NewHTTPClient(coreHTTPTimeout)
 var resolveGitHubReleaseAssetFn = core.ResolveGitHubReleaseAsset
+
+func SetHTTPClientTimeout(timeout time.Duration) {
+	if githubDiscoveryHTTPClient == nil {
+		githubDiscoveryHTTPClient = core.NewHTTPClient(timeout)
+	} else {
+		githubDiscoveryHTTPClient.Timeout = timeout
+	}
+	if gitLabDiscoveryHTTPClient == nil {
+		gitLabDiscoveryHTTPClient = core.NewHTTPClient(timeout)
+	} else {
+		gitLabDiscoveryHTTPClient.Timeout = timeout
+	}
+}
 
 func (GitHubBackend) Name() string {
 	return "GitHub"

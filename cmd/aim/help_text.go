@@ -239,6 +239,9 @@ func renderFullMoreInfoSection(cmd *cobra.Command) string {
 		lines = append(lines, "CLI self-update: aim --upgrade")
 		lines = append(lines, "Prompts: only on interactive stdin; pass --no-input to disable them.")
 		lines = append(lines, "Cancellation: press Ctrl-C to cancel in-flight work.")
+		lines = append(lines, "Settings: ${XDG_CONFIG_HOME:-~/.config}/aim/settings.toml (for example: network_timeout = \"30s\")")
+		lines = append(lines, "Retries: failed downloads and recent update checks can be reused on rerun.")
+		lines = append(lines, "Writes: mutating commands take a state lock per AIM root.")
 	} else {
 		lines = append(lines, fmt.Sprintf("Manual: aim help %s", commandName(cmd)))
 	}
@@ -253,6 +256,9 @@ func renderManualMoreInfoSection(cmd *cobra.Command) string {
 		lines = append(lines, "CLI self-update: aim --upgrade")
 		lines = append(lines, "Prompts: only on interactive stdin; pass --no-input to disable them.")
 		lines = append(lines, "Cancellation: press Ctrl-C to cancel in-flight work.")
+		lines = append(lines, "Settings: ${XDG_CONFIG_HOME:-~/.config}/aim/settings.toml (for example: network_timeout = \"30s\")")
+		lines = append(lines, "Retries: failed downloads and recent update checks can be reused on rerun.")
+		lines = append(lines, "Writes: mutating commands take a state lock per AIM root.")
 	} else {
 		lines = append(lines, fmt.Sprintf("Inline help: %s --help", strings.TrimSpace(cmd.CommandPath())))
 	}

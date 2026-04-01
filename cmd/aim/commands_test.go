@@ -27,6 +27,7 @@ import (
 	models "github.com/slobbe/appimage-manager/internal/types"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	"golang.org/x/sys/unix"
 )
 
 func TestResolveIntegrateTarget(t *testing.T) {
@@ -4268,6 +4269,99 @@ func TestRenderCommandErrorInternalJSONIncludesIssuesURL(t *testing.T) {
 	}
 	if !strings.Contains(payload.Hint, "--debug") {
 		t.Fatalf("expected debug hint, got %#v", payload)
+	}
+}
+
+func TestRenderCommandErrorIncludesOperationLog(t *testing.T) {
+	root := newRootTestCommand()
+	var stderr bytes.Buffer
+	root.SetErr(&stderr)
+	root.SetContext(withOperationLog(context.Background()))
+	logOperationf(root, "Resolving package metadata for owner/repo")
+	logOperationf(root, "HTTP GET https://example.com/app.AppImage")
+
+	code := renderCommandError(root, []string{"add"}, tempFailError(fmt.Errorf("network timeout")))
+	if code != exitTempFail {
+		t.Fatalf("renderCommandError code = %d, want %d", code, exitTempFail)
+	}
+
+	text := stderr.String()
+	for _, expected := range []string{
+		"Operation log:",
+		"Resolving package metadata for owner/repo",
+		"HTTP GET https://example.com/app.AppImage",
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("expected stderr to contain %q:\n%s", expected, text)
+		}
+	}
+}
+
+func TestPrepareRuntimeLoadsSettingsTimeout(t *testing.T) {
+	rootDir := t.TempDir()
+	originalPaths := config.CurrentPaths()
+	originalTimeout := core.SharedHTTPClient().Timeout
+	t.Cleanup(func() {
+		config.ApplyPaths(originalPaths)
+		core.SetHTTPClientTimeout(originalTimeout)
+		discovery.SetHTTPClientTimeout(originalTimeout)
+	})
+
+	config.ApplyPaths(config.ResolvePathsFromStateRoot(rootDir))
+	if err := os.MkdirAll(config.ConfigDir, 0o755); err != nil {
+		t.Fatalf("mkdir config dir: %v", err)
+	}
+	if err := os.WriteFile(config.SettingsPath(), []byte("network_timeout = \"45s\"\n"), 0o644); err != nil {
+		t.Fatalf("write settings: %v", err)
+	}
+
+	cmd := newRootTestCommand()
+	if err := prepareRuntime(cmd); err != nil {
+		t.Fatalf("prepareRuntime returned error: %v", err)
+	}
+
+	if got := runtimeSettingsFrom(cmd).NetworkTimeout; got != 45*time.Second {
+		t.Fatalf("runtime timeout = %s, want 45s", got)
+	}
+	if got := core.SharedHTTPClient().Timeout; got != 45*time.Second {
+		t.Fatalf("shared HTTP timeout = %s, want 45s", got)
+	}
+}
+
+func TestWithStateWriteLockFailsWhenHeld(t *testing.T) {
+	rootDir := t.TempDir()
+	originalPaths := config.CurrentPaths()
+	t.Cleanup(func() {
+		config.ApplyPaths(originalPaths)
+	})
+
+	config.ApplyPaths(config.ResolvePathsFromStateRoot(rootDir))
+	if err := os.MkdirAll(config.ConfigDir, 0o755); err != nil {
+		t.Fatalf("mkdir config dir: %v", err)
+	}
+
+	lockPath := filepath.Join(config.ConfigDir, "state.lock")
+	file, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		t.Fatalf("open lock file: %v", err)
+	}
+	defer file.Close()
+	if err := unix.Flock(int(file.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
+		t.Fatalf("lock file: %v", err)
+	}
+	defer func() {
+		_ = unix.Flock(int(file.Fd()), unix.LOCK_UN)
+	}()
+
+	err = withStateWriteLock(&cobra.Command{}, func() error { return nil })
+	if err == nil {
+		t.Fatal("expected lock contention error")
+	}
+	if got := exitCodeForError(err); got != exitNoPerm {
+		t.Fatalf("exitCodeForError = %d, want %d", got, exitNoPerm)
+	}
+	if !strings.Contains(err.Error(), "another aim process is already modifying this AIM state root") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

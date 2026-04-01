@@ -21,7 +21,7 @@ type gitLabProjectResponse struct {
 	StarCount         int    `json:"star_count"`
 }
 
-var gitLabDiscoveryHTTPClient = &http.Client{Timeout: coreHTTPTimeout}
+var gitLabDiscoveryHTTPClient = core.NewHTTPClient(coreHTTPTimeout)
 var gitLabDiscoveryAPIBaseURL = "https://gitlab.com/api/v4"
 var resolveGitLabReleaseAssetFn = core.ResolveGitLabReleaseAsset
 

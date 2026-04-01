@@ -11,8 +11,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/slobbe/appimage-manager/internal/config"
+	"github.com/slobbe/appimage-manager/internal/core"
+	"github.com/slobbe/appimage-manager/internal/discovery"
 	"github.com/spf13/cobra"
 )
 
@@ -30,6 +33,11 @@ type runtimeOptions struct {
 }
 
 type runtimeContextKey struct{}
+type runtimeSettingsContextKey struct{}
+
+type runtimeSettings struct {
+	NetworkTimeout time.Duration
+}
 
 type commandJSONEnvelope struct {
 	Command     string      `json:"command"`
@@ -51,18 +59,36 @@ func prepareRuntime(cmd *cobra.Command) error {
 		return err
 	}
 	applyRuntimePaths(opts)
+	settings, err := loadRuntimeSettings()
+	if err != nil {
+		return err
+	}
+	core.SetHTTPClientTimeout(settings.NetworkTimeout)
+	discovery.SetHTTPClientTimeout(settings.NetworkTimeout)
 
 	if opts.Debug {
-		writeLogf(cmd, "DEBUG: Using AIM paths: data=%s db=%s temp=%s\n", config.AimDir, config.DbSrc, config.TempDir)
+		writeLogf(cmd, "DEBUG: Using AIM paths: data=%s db=%s temp=%s config=%s timeout=%s\n", config.AimDir, config.DbSrc, config.TempDir, config.ConfigDir, settings.NetworkTimeout)
 	}
 
 	ctx := cmd.Context()
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	ctx = withOperationLog(ctx)
 	ctx = context.WithValue(ctx, runtimeContextKey{}, opts)
+	ctx = context.WithValue(ctx, runtimeSettingsContextKey{}, settings)
 	cmd.SetContext(ctx)
 	return nil
+}
+
+func loadRuntimeSettings() (runtimeSettings, error) {
+	settings, err := config.LoadSettings()
+	if err != nil {
+		return runtimeSettings{}, usageError(fmt.Errorf("invalid settings file %s: %w", config.SettingsPath(), err))
+	}
+	return runtimeSettings{
+		NetworkTimeout: settings.NetworkTimeout,
+	}, nil
 }
 
 func parseRuntimeOptions(cmd *cobra.Command) (runtimeOptions, error) {
@@ -159,6 +185,24 @@ func runtimeOptionsFrom(cmd *cobra.Command) runtimeOptions {
 		return value
 	}
 	return runtimeOptions{}
+}
+
+func runtimePrepared(cmd *cobra.Command) bool {
+	if cmd == nil || cmd.Context() == nil {
+		return false
+	}
+	_, ok := cmd.Context().Value(runtimeContextKey{}).(runtimeOptions)
+	return ok
+}
+
+func runtimeSettingsFrom(cmd *cobra.Command) runtimeSettings {
+	if cmd == nil || cmd.Context() == nil {
+		return runtimeSettings{NetworkTimeout: config.DefaultSettings().NetworkTimeout}
+	}
+	if value, ok := cmd.Context().Value(runtimeSettingsContextKey{}).(runtimeSettings); ok {
+		return value
+	}
+	return runtimeSettings{NetworkTimeout: config.DefaultSettings().NetworkTimeout}
 }
 
 func mustEnsureRuntimeDirs() error {
