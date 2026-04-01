@@ -232,6 +232,8 @@ func renderFullMoreInfoSection(cmd *cobra.Command) string {
 	}
 	if commandName(cmd) == "aim" {
 		lines = append(lines, `Manual: aim help`)
+		lines = append(lines, "Prompts: only on interactive stdin; pass --no-input to disable them.")
+		lines = append(lines, "Cancellation: press Ctrl-C to cancel in-flight work.")
 	} else {
 		lines = append(lines, fmt.Sprintf("Manual: aim help %s", commandName(cmd)))
 	}
@@ -242,6 +244,8 @@ func renderManualMoreInfoSection(cmd *cobra.Command) string {
 	lines := []string{"Docs: " + docsURLForCommand(cmd)}
 	if commandName(cmd) == "aim" {
 		lines = append(lines, `Inline help: aim --help`)
+		lines = append(lines, "Prompts: only on interactive stdin; pass --no-input to disable them.")
+		lines = append(lines, "Cancellation: press Ctrl-C to cancel in-flight work.")
 	} else {
 		lines = append(lines, fmt.Sprintf("Inline help: %s --help", strings.TrimSpace(cmd.CommandPath())))
 	}
@@ -446,21 +450,21 @@ func commonFlagNamesForCommand(cmd *cobra.Command) []string {
 	case "aim":
 		return []string{"help", "version", "config", "json", "plain", "no-input"}
 	case "add":
-		return []string{"url", "github", "gitlab", "sha256", "dry-run", "json"}
+		return []string{"url", "github", "gitlab", "sha256", "no-input", "dry-run", "json"}
 	case "info":
-		return []string{"github", "gitlab", "json"}
+		return []string{"github", "gitlab", "no-input", "json"}
 	case "list":
 		return []string{"integrated", "unlinked", "json", "csv", "plain"}
 	case "migrate":
 		return []string{"dry-run", "json"}
 	case "remove":
-		return []string{"unlink", "dry-run", "json"}
+		return []string{"unlink", "no-input", "dry-run", "json"}
 	case "update":
 		return []string{"check-only", "yes", "dry-run", "json", "csv", "plain"}
 	case "update set":
-		return []string{"github", "gitlab", "zsync", "embedded"}
+		return []string{"github", "gitlab", "zsync", "embedded", "no-input"}
 	case "update unset":
-		return []string{"dry-run", "yes", "json"}
+		return []string{"dry-run", "yes", "no-input", "json"}
 	default:
 		return []string{"dry-run", "json"}
 	}

@@ -68,6 +68,12 @@ func renderManMetadataSections(cmd *cobra.Command) string {
 	}
 	if commandName(cmd) == "aim" {
 		sections = append(sections, renderManSection("EXIT STATUS", formatExitStatusSection()))
+		sections = append(sections, renderManSection("INTERACTIVITY", strings.Join([]string{
+			"aim prompts only when stdin is an interactive terminal.",
+			"Pass --no-input to disable all prompts and confirmations that require terminal input.",
+			"Press Ctrl-C to cancel in-flight work.",
+			"If aim ever accepts secret input in the future, it will not read it from plain flags.",
+		}, "\n")))
 		sections = append(sections, renderManSection("ERROR REPORTING", strings.Join([]string{
 			"Expected errors are rewritten to be actionable when possible.",
 			"Unexpected internal failures suggest rerunning with --debug and reporting the issue at " + rootCommandIssuesURL + ".",

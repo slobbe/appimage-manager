@@ -316,10 +316,10 @@ func resolveAddInput(cmd *cobra.Command, args []string) (addInputSelection, erro
 		return addInputSelection{DirectURL: target.URL}, nil
 	}
 
-	value, err := resolveSingleInputOrPrompt(cmd, args, "<id|Path/To.AppImage>", "Local AppImage path or managed app id: ")
+	value, err := resolveSingleInputOrPrompt(cmd, args, "<id|Path/To.AppImage>", "Local AppImage path or managed app id: ", missingInputErrorForAdd())
 	if err != nil {
-		if isMissingArgumentError(err) {
-			return addInputSelection{}, printConciseHelpError(cmd, "missing required argument <id|Path/To.AppImage> or selector flag --url/--github/--gitlab")
+		if isMissingArgumentError(err) || err.Error() == missingInputErrorForAdd().Error() {
+			return addInputSelection{}, printConciseHelpError(cmd, missingInputErrorForAdd().Error())
 		}
 		return addInputSelection{}, err
 	}
@@ -862,10 +862,10 @@ func isSHA256Hex(value string) bool {
 }
 
 func RemoveCmd(cmd *cobra.Command, args []string) error {
-	id, err := resolveSingleInputOrPrompt(cmd, args, "<id>", "Managed app id to remove: ")
+	id, err := resolveSingleInputOrPrompt(cmd, args, "<id>", "Managed app id to remove: ", missingInputErrorForRemove())
 	if err != nil {
-		if isMissingArgumentError(err) {
-			return printConciseHelpError(cmd, "missing required argument <id>")
+		if isMissingArgumentError(err) || err.Error() == missingInputErrorForRemove().Error() {
+			return printConciseHelpError(cmd, missingInputErrorForRemove().Error())
 		}
 		return err
 	}
@@ -1055,10 +1055,10 @@ func resolveInfoInput(cmd *cobra.Command, args []string) (string, discovery.Pack
 	if err != nil || ok {
 		return "", ref, ok, err
 	}
-	value, err := resolveSingleInputOrPrompt(cmd, args, "<id|Path/To.AppImage>", "Managed app id or local AppImage path: ")
+	value, err := resolveSingleInputOrPrompt(cmd, args, "<id|Path/To.AppImage>", "Managed app id or local AppImage path: ", missingInputErrorForInfo())
 	if err != nil {
-		if isMissingArgumentError(err) {
-			return "", discovery.PackageRef{}, false, printConciseHelpError(cmd, "missing required argument <id|Path/To.AppImage> or selector flag --github/--gitlab")
+		if isMissingArgumentError(err) || err.Error() == missingInputErrorForInfo().Error() {
+			return "", discovery.PackageRef{}, false, printConciseHelpError(cmd, missingInputErrorForInfo().Error())
 		}
 		return "", discovery.PackageRef{}, false, err
 	}
@@ -1637,10 +1637,10 @@ func UpdateSetCmd(cmd *cobra.Command, args []string) error {
 	}
 	opts := runtimeOptionsFrom(cmd)
 
-	id, err := resolveSingleInputOrPrompt(cmd, args, "<id>", "Managed app id to configure: ")
+	id, err := resolveSingleInputOrPrompt(cmd, args, "<id>", "Managed app id to configure: ", missingInputErrorForUpdateSet())
 	if err != nil {
-		if isMissingArgumentError(err) {
-			return printConciseHelpError(cmd, "missing required argument <id>")
+		if isMissingArgumentError(err) || err.Error() == missingInputErrorForUpdateSet().Error() {
+			return printConciseHelpError(cmd, missingInputErrorForUpdateSet().Error())
 		}
 		return err
 	}
@@ -1728,10 +1728,10 @@ func UpdateUnsetCmd(cmd *cobra.Command, args []string) error {
 	if hasUpdateSetFlags(cmd) {
 		return usageError(fmt.Errorf("update source flags are not supported with `aim update unset`"))
 	}
-	id, err := resolveSingleInputOrPrompt(cmd, args, "<id>", "Managed app id to unset update source for: ")
+	id, err := resolveSingleInputOrPrompt(cmd, args, "<id>", "Managed app id to unset update source for: ", missingInputErrorForUpdateUnset())
 	if err != nil {
-		if isMissingArgumentError(err) {
-			return printConciseHelpError(cmd, "missing required argument <id>")
+		if isMissingArgumentError(err) || err.Error() == missingInputErrorForUpdateUnset().Error() {
+			return printConciseHelpError(cmd, missingInputErrorForUpdateUnset().Error())
 		}
 		return err
 	}

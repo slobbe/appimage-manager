@@ -24,7 +24,7 @@ func readPromptedValue(cmd *cobra.Command, prompt string) (string, error) {
 	return strings.TrimSpace(line), nil
 }
 
-func resolveSingleInputOrPrompt(cmd *cobra.Command, args []string, usage, prompt string) (string, error) {
+func resolveSingleInputOrPrompt(cmd *cobra.Command, args []string, usage, prompt string, missingErr error) (string, error) {
 	value, err := commandSingleArg(args, usage)
 	if err == nil {
 		return value, nil
@@ -33,6 +33,9 @@ func resolveSingleInputOrPrompt(cmd *cobra.Command, args []string, usage, prompt
 		return "", err
 	}
 	if !canPromptForInput(cmd) {
+		if missingErr != nil && isMissingArgumentError(err) {
+			return "", missingErr
+		}
 		return "", err
 	}
 
@@ -41,6 +44,9 @@ func resolveSingleInputOrPrompt(cmd *cobra.Command, args []string, usage, prompt
 		return "", promptErr
 	}
 	if strings.TrimSpace(value) == "" {
+		if missingErr != nil {
+			return "", missingErr
+		}
 		return "", usageError(fmt.Errorf("missing required argument %s", usage))
 	}
 	return value, nil
@@ -51,4 +57,24 @@ func isMissingArgumentError(err error) bool {
 		return false
 	}
 	return strings.Contains(strings.ToLower(strings.TrimSpace(err.Error())), "missing required argument")
+}
+
+func missingInputErrorForAdd() error {
+	return usageError(fmt.Errorf("missing required input; pass <id|Path/To.AppImage> or one of --url, --github, --gitlab"))
+}
+
+func missingInputErrorForInfo() error {
+	return usageError(fmt.Errorf("missing required input; pass <id|Path/To.AppImage> or one of --github, --gitlab"))
+}
+
+func missingInputErrorForRemove() error {
+	return usageError(fmt.Errorf("missing required input; pass <id> as a positional argument"))
+}
+
+func missingInputErrorForUpdateSet() error {
+	return usageError(fmt.Errorf("missing required input; pass <id> as a positional argument"))
+}
+
+func missingInputErrorForUpdateUnset() error {
+	return usageError(fmt.Errorf("missing required input; pass <id> as a positional argument"))
 }

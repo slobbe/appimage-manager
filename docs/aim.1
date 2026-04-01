@@ -570,6 +570,12 @@ https://github.com/slobbe/appimage\-manager#readme
 75 temporary or retryable runtime failure
 77 permission, confirmation, or precondition refusal
 
+.SH INTERACTIVITY
+aim prompts only when stdin is an interactive terminal.
+Pass \-\-no\-input to disable all prompts and confirmations that require terminal input.
+Press Ctrl\-C to cancel in\-flight work.
+If aim ever accepts secret input in the future, it will not read it from plain flags.
+
 .SH ERROR REPORTING
 Expected errors are rewritten to be actionable when possible.
 Unexpected internal failures suggest rerunning with \-\-debug and reporting the issue at https://github.com/slobbe/appimage\-manager/issues.

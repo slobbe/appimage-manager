@@ -836,7 +836,7 @@ func TestMissingInfoArgumentShowsConciseHelpOnStderr(t *testing.T) {
 	if strings.TrimSpace(stdout) != "" {
 		t.Fatalf("expected no stdout output, got:\n%s", stdout)
 	}
-	for _, expected := range []string{"missing required argument <id|Path/To.AppImage> or selector flag --github/--gitlab", "USAGE", "EXAMPLES", `Use "aim info --help"`} {
+	for _, expected := range []string{"missing required input; pass <id|Path/To.AppImage> or one of --github, --gitlab", "USAGE", "EXAMPLES", `Use "aim info --help"`} {
 		if !strings.Contains(stderr, expected) {
 			t.Fatalf("expected stderr to contain %q:\n%s", expected, stderr)
 		}
@@ -3100,7 +3100,7 @@ func TestInfoCmdArgumentValidation(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected missing argument error")
 	}
-	if !strings.Contains(err.Error(), "missing required argument <id|Path/To.AppImage> or selector flag --github/--gitlab") {
+	if !strings.Contains(err.Error(), "missing required input; pass <id|Path/To.AppImage> or one of --github, --gitlab") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -3110,6 +3110,176 @@ func TestInfoCmdArgumentValidation(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "too many arguments") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestAddMissingInputNoTTYShowsGuidance(t *testing.T) {
+	withTerminalInput(t, false)
+
+	err := runAddCommand(context.Background(), nil)
+	if err == nil {
+		t.Fatal("expected missing input error")
+	}
+	if code := exitCodeForError(err); code != exitUsage {
+		t.Fatalf("exitCodeForError = %d, want %d", code, exitUsage)
+	}
+	if !strings.Contains(err.Error(), "missing required input; pass <id|Path/To.AppImage> or one of --url, --github, --gitlab") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestAddMissingInputNoInputShowsGuidance(t *testing.T) {
+	err := runAddCommand(context.Background(), []string{"--no-input"})
+	if err == nil {
+		t.Fatal("expected missing input error")
+	}
+	if code := exitCodeForError(err); code != exitUsage {
+		t.Fatalf("exitCodeForError = %d, want %d", code, exitUsage)
+	}
+	if !strings.Contains(err.Error(), "missing required input; pass <id|Path/To.AppImage> or one of --url, --github, --gitlab") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRemoveMissingInputNoInputShowsGuidance(t *testing.T) {
+	err := runRootCommand(context.Background(), []string{"remove", "--no-input"})
+	if err == nil {
+		t.Fatal("expected missing input error")
+	}
+	if code := exitCodeForError(err); code != exitUsage {
+		t.Fatalf("exitCodeForError = %d, want %d", code, exitUsage)
+	}
+	if !strings.Contains(err.Error(), "missing required input; pass <id> as a positional argument") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestUpdateSetMissingInputNoInputShowsGuidance(t *testing.T) {
+	err := runUpdateSetCommand(context.Background(), []string{"--no-input", "--embedded"})
+	if err == nil {
+		t.Fatal("expected missing input error")
+	}
+	if code := exitCodeForError(err); code != exitUsage {
+		t.Fatalf("exitCodeForError = %d, want %d", code, exitUsage)
+	}
+	if !strings.Contains(err.Error(), "missing required input; pass <id> as a positional argument") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestUpdateUnsetMissingInputNoInputShowsGuidance(t *testing.T) {
+	err := runUpdateUnsetCommand(context.Background(), []string{"--no-input"})
+	if err == nil {
+		t.Fatal("expected missing input error")
+	}
+	if code := exitCodeForError(err); code != exitUsage {
+		t.Fatalf("exitCodeForError = %d, want %d", code, exitUsage)
+	}
+	if !strings.Contains(err.Error(), "missing required input; pass <id> as a positional argument") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestAddPromptsForMissingInputOnTTY(t *testing.T) {
+	tmp := t.TempDir()
+	dbPath := filepath.Join(tmp, "apps.json")
+	originalDbSrc := config.DbSrc
+	config.DbSrc = dbPath
+	t.Cleanup(func() {
+		config.DbSrc = originalDbSrc
+	})
+
+	app := &models.App{
+		ID:               "my-app",
+		Name:             "My App",
+		ExecPath:         filepath.Join(tmp, "MyApp.AppImage"),
+		DesktopEntryLink: filepath.Join(tmp, "applications", "my-app.desktop"),
+	}
+	if err := repo.SaveDB(dbPath, &repo.DB{SchemaVersion: 1, Apps: map[string]*models.App{"my-app": app}}); err != nil {
+		t.Fatalf("failed to write db: %v", err)
+	}
+
+	cmd := newRootTestCommand()
+	output := captureStdoutWithInput(t, "my-app\n", func() {
+		if err := executeTestCommand(context.Background(), cmd, "add"); err != nil {
+			t.Fatalf("executeTestCommand returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "Local AppImage path or managed app id: ") {
+		t.Fatalf("expected prompt output:\n%s", output)
+	}
+	if !strings.Contains(output, "Already integrated: My App") {
+		t.Fatalf("expected add result output:\n%s", output)
+	}
+}
+
+func TestInfoPromptsForMissingInputOnTTY(t *testing.T) {
+	tmp := t.TempDir()
+	dbPath := filepath.Join(tmp, "apps.json")
+	originalDbSrc := config.DbSrc
+	config.DbSrc = dbPath
+	t.Cleanup(func() {
+		config.DbSrc = originalDbSrc
+	})
+
+	app := &models.App{
+		ID:               "my-app",
+		Name:             "My App",
+		Version:          "1.2.3",
+		ExecPath:         filepath.Join(tmp, "MyApp.AppImage"),
+		DesktopEntryLink: filepath.Join(tmp, "applications", "my-app.desktop"),
+	}
+	if err := repo.SaveDB(dbPath, &repo.DB{SchemaVersion: 1, Apps: map[string]*models.App{"my-app": app}}); err != nil {
+		t.Fatalf("failed to write db: %v", err)
+	}
+
+	cmd := newRootTestCommand()
+	output := captureStdoutWithInput(t, "my-app\n", func() {
+		if err := executeTestCommand(context.Background(), cmd, "info"); err != nil {
+			t.Fatalf("executeTestCommand returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "Managed app id or local AppImage path: ") {
+		t.Fatalf("expected prompt output:\n%s", output)
+	}
+	if !strings.Contains(output, "ID: my-app") {
+		t.Fatalf("expected info output:\n%s", output)
+	}
+}
+
+func TestRemovePromptsForMissingInputOnTTY(t *testing.T) {
+	tmp := t.TempDir()
+	dbPath := filepath.Join(tmp, "apps.json")
+	originalDbSrc := config.DbSrc
+	config.DbSrc = dbPath
+	t.Cleanup(func() {
+		config.DbSrc = originalDbSrc
+	})
+
+	app := &models.App{
+		ID:               "my-app",
+		Name:             "My App",
+		ExecPath:         filepath.Join(tmp, "aim", "my-app", "my-app.AppImage"),
+		DesktopEntryLink: filepath.Join(tmp, "applications", "my-app.desktop"),
+	}
+	if err := repo.SaveDB(dbPath, &repo.DB{SchemaVersion: 1, Apps: map[string]*models.App{"my-app": app}}); err != nil {
+		t.Fatalf("failed to write db: %v", err)
+	}
+
+	cmd := newRootTestCommand()
+	output := captureStdoutWithInput(t, "my-app\n", func() {
+		if err := executeTestCommand(context.Background(), cmd, "remove", "--dry-run"); err != nil {
+			t.Fatalf("executeTestCommand returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "Managed app id to remove: ") {
+		t.Fatalf("expected prompt output:\n%s", output)
+	}
+	if !strings.Contains(output, "Dry run: would remove My App [my-app]") {
+		t.Fatalf("expected dry-run output:\n%s", output)
 	}
 }
 
@@ -3784,6 +3954,42 @@ func TestUpdateUnsetFailsNonInteractiveWithoutYes(t *testing.T) {
 		t.Fatalf("exitCodeForError = %d, want %d", code, exitNoPerm)
 	}
 	if !strings.Contains(err.Error(), "confirmation required in non-interactive mode") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestUpdateUnsetFailsWithNoInputWithoutYes(t *testing.T) {
+	tmp := t.TempDir()
+	dbPath := filepath.Join(tmp, "apps.json")
+	originalDbSrc := config.DbSrc
+	config.DbSrc = dbPath
+	t.Cleanup(func() {
+		config.DbSrc = originalDbSrc
+	})
+
+	app := &models.App{
+		ID: "my-app",
+		Update: &models.UpdateSource{
+			Kind: models.UpdateGitHubRelease,
+			GitHubRelease: &models.GitHubReleaseUpdateSource{
+				Repo:  "owner/repo",
+				Asset: "*.AppImage",
+			},
+		},
+	}
+	if err := repo.SaveDB(dbPath, &repo.DB{SchemaVersion: 1, Apps: map[string]*models.App{"my-app": app}}); err != nil {
+		t.Fatalf("failed to write db: %v", err)
+	}
+
+	cmd := newRootTestCommand()
+	err := executeTestCommand(context.Background(), cmd, "update", "unset", "--no-input", "my-app")
+	if err == nil {
+		t.Fatal("expected no-input confirmation error")
+	}
+	if code := exitCodeForError(err); code != exitNoPerm {
+		t.Fatalf("exitCodeForError = %d, want %d", code, exitNoPerm)
+	}
+	if !strings.Contains(err.Error(), "confirmation required with --no-input; rerun with --yes to continue non-interactively") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -6515,6 +6721,38 @@ func executeCommandWithIO(ctx context.Context, cmd *cobra.Command, args ...strin
 	cmd.SetArgs(args)
 	err := cmd.ExecuteContext(ctx)
 	return stdout.String(), stderr.String(), err
+}
+
+func TestRootExecutionReturnsPromptlyWhenContextCanceled(t *testing.T) {
+	root := &cobra.Command{
+		Use:           "aim",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			<-cmd.Context().Done()
+			return cmd.Context().Err()
+		},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- executeTestCommand(ctx, root)
+	}()
+
+	cancel()
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("expected cancellation error")
+		}
+		if err != context.Canceled {
+			t.Fatalf("error = %v, want %v", err, context.Canceled)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("command did not return after context cancellation")
+	}
 }
 
 func findSubcommand(cmd *cobra.Command, name string) *cobra.Command {

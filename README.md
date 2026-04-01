@@ -116,6 +116,17 @@ Remote/provider selectors are explicit:
 - use `aim info --github owner/repo` or `aim info --gitlab namespace/project` for provider metadata lookups
 - positional inputs remain for simple local targets such as managed app IDs and local `.AppImage` paths
 
+## Interactivity
+
+`aim` only prompts when stdin is an interactive terminal.
+
+- pass `--no-input` to disable all prompts explicitly
+- when prompts are disabled, required values must be passed as positional arguments or selector flags
+- destructive confirmation still requires `--yes` in non-interactive flows
+- press `Ctrl-C` to cancel in-flight downloads, updates, upgrade checks, and other long-running work
+
+The current CLI does not accept secret input. If it ever gains secret prompts in the future, they should avoid plain flags and disable terminal echo.
+
 ## Output and exit status
 
 `aim` keeps its process interface script-friendly:
