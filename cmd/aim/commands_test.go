@@ -1347,6 +1347,18 @@ func TestAddCmdRejectsLegacyProviderRef(t *testing.T) {
 	}
 }
 
+func TestAddCmdRejectsInvalidProviderFlagForms(t *testing.T) {
+	err := runAddCommand(context.Background(), []string{"--github", "owner"})
+	if err == nil || !strings.Contains(err.Error(), "--github must be in owner/repo form") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	err = runAddCommand(context.Background(), []string{"--gitlab", "group"})
+	if err == nil || !strings.Contains(err.Error(), "--gitlab must be in namespace/project form") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestAddRejectsRemovedPostCheckFlag(t *testing.T) {
 	err := runAddCommand(context.Background(), []string{"./MyApp.AppImage", "--post-check"})
 	if err == nil || !strings.Contains(err.Error(), "unknown flag: --post-check") {
@@ -1753,9 +1765,6 @@ func TestAddCmdGitHubShowsProgressStages(t *testing.T) {
 	})
 
 	if !strings.Contains(output, "Resolving package metadata for GitHub owner/repo...") {
-		t.Fatalf("unexpected output:\n%s", output)
-	}
-	if !strings.Contains(output, "Downloading owner/repo") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
 	if !strings.Contains(output, "Integrating MyApp-x86_64.AppImage...") {
@@ -2777,6 +2786,16 @@ func TestResolveUpdateSourceFromSetFlags(t *testing.T) {
 			flags:     map[string]string{"github": "owner/repo", "gitlab": "group/project", "asset": "*.AppImage"},
 			wantError: true,
 		},
+		{
+			name:      "invalid github selector",
+			flags:     map[string]string{"github": "owner"},
+			wantError: true,
+		},
+		{
+			name:      "invalid gitlab selector",
+			flags:     map[string]string{"gitlab": "group"},
+			wantError: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -2787,6 +2806,16 @@ func TestResolveUpdateSourceFromSetFlags(t *testing.T) {
 			if tt.wantError {
 				if err == nil {
 					t.Fatal("expected error")
+				}
+				switch tt.name {
+				case "invalid github selector":
+					if !strings.Contains(err.Error(), "--github must be in owner/repo form") {
+						t.Fatalf("unexpected error: %v", err)
+					}
+				case "invalid gitlab selector":
+					if !strings.Contains(err.Error(), "--gitlab must be in namespace/project form") {
+						t.Fatalf("unexpected error: %v", err)
+					}
 				}
 				return
 			}
@@ -5658,24 +5687,6 @@ func TestUpdateVersionTransitionUnknownLatest(t *testing.T) {
 	}
 }
 
-func TestBuildDownloadProgressLine(t *testing.T) {
-	known := buildDownloadProgressLine(512, 1024, 0)
-	if !strings.Contains(known, "50.00%") {
-		t.Fatalf("expected known-length progress to include percent, got: %s", known)
-	}
-	if !strings.Contains(known, "1.0KB") {
-		t.Fatalf("expected known-length progress to include total bytes, got: %s", known)
-	}
-
-	unknown := buildDownloadProgressLine(1536, -1, 1)
-	if !strings.Contains(unknown, "Downloading") {
-		t.Fatalf("expected unknown-length progress to include label, got: %s", unknown)
-	}
-	if !strings.Contains(unknown, "1.5KB") {
-		t.Fatalf("expected unknown-length progress to include byte count, got: %s", unknown)
-	}
-}
-
 func TestFormatByteSize(t *testing.T) {
 	tests := []struct {
 		input  int64
@@ -5695,107 +5706,46 @@ func TestFormatByteSize(t *testing.T) {
 	}
 }
 
-func TestManagedApplyStatusText(t *testing.T) {
-	tests := []struct {
-		name   string
-		row    managedApplyRowState
-		expect string
-	}{
-		{name: "queued", row: managedApplyRowState{stage: managedApplyStageQueued}, expect: "queued"},
-		{name: "zsync", row: managedApplyRowState{stage: managedApplyStageZsync}, expect: "delta update"},
-		{name: "download known", row: managedApplyRowState{stage: managedApplyStageDownload, downloaded: 512, downloadTotal: 1024}, expect: "downloading 50.0% (512B/1.0KB)"},
-		{name: "download unknown", row: managedApplyRowState{stage: managedApplyStageDownload, downloaded: 2048}, expect: "downloading 2.0KB"},
-		{name: "verify", row: managedApplyRowState{stage: managedApplyStageVerify}, expect: "verifying"},
-		{name: "integrate", row: managedApplyRowState{stage: managedApplyStageIntegrate}, expect: "integrating"},
-		{name: "done", row: managedApplyRowState{stage: managedApplyStageDone, version: "2.0.0"}, expect: "updated -> v2.0.0"},
-		{name: "failed", row: managedApplyRowState{stage: managedApplyStageFailed}, expect: "failed"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := managedApplyStatusText(tt.row)
-			if got != tt.expect {
-				t.Fatalf("managedApplyStatusText(%s) = %q, want %q", tt.name, got, tt.expect)
-			}
-		})
-	}
-}
-
-func TestManagedApplyRendererTTYRendersStableRows(t *testing.T) {
-	withTerminalOutput(t, true)
-	withManagedApplyRenderInterval(t, time.Hour)
-
+func TestProcessSpinnerProgressNonTTYPrintsImmediateLine(t *testing.T) {
 	output := captureStdout(t, func() {
-		renderer := newManagedApplyRenderer(&cobra.Command{}, []pendingManagedUpdate{
-			{App: &models.App{ID: "app-a"}},
-			{App: &models.App{ID: "app-b"}},
-		})
-		renderer.Event(managedApplyEvent{Index: 0, AppID: "app-a", Stage: managedApplyStageDownload, Downloaded: 1024, DownloadTotal: 2048})
-		renderer.Event(managedApplyEvent{Index: 1, AppID: "app-b", Stage: managedApplyStageDone, Version: "2.0.0"})
-		renderer.Finish([]managedApplyResult{
-			{index: 0, app: &models.App{ID: "app-a"}, updatedApp: &models.App{ID: "app-a", Version: "1.1.0"}},
-			{index: 1, app: &models.App{ID: "app-b"}, updatedApp: &models.App{ID: "app-b", Version: "2.0.0"}},
-		})
+		handle := newProcessSpinnerProgress("Downloading update", false)
+		if handle != nil {
+			handle.Clear()
+		}
 	})
 
-	if !strings.Contains(output, "\033[2K\r[1/2] app-a") {
-		t.Fatalf("expected tty redraw output, got:\n%s", output)
-	}
-	if !strings.Contains(output, "[2/2] app-b") {
-		t.Fatalf("expected second row, got:\n%s", output)
+	if !strings.Contains(output, "Downloading update...") {
+		t.Fatalf("expected plain non-tty progress line, got:\n%s", output)
 	}
 }
 
-func TestManagedApplyRendererTTYCoalescesProgressRedraws(t *testing.T) {
-	withTerminalOutput(t, true)
-	withManagedApplyRenderInterval(t, time.Hour)
-
-	output := captureStdout(t, func() {
-		renderer := newManagedApplyRenderer(&cobra.Command{}, []pendingManagedUpdate{
-			{App: &models.App{ID: "app-a"}},
-		})
-		renderer.Event(managedApplyEvent{Index: 0, AppID: "app-a", Stage: managedApplyStageDownload, Downloaded: 256, DownloadTotal: 1024})
-		renderer.Event(managedApplyEvent{Index: 0, AppID: "app-a", Stage: managedApplyStageDownload, Downloaded: 512, DownloadTotal: 1024})
-		renderer.Event(managedApplyEvent{Index: 0, AppID: "app-a", Stage: managedApplyStageDownload, Downloaded: 768, DownloadTotal: 1024})
-		renderer.Finish([]managedApplyResult{
-			{index: 0, app: &models.App{ID: "app-a"}, updatedApp: &models.App{ID: "app-a", Version: "1.1.0"}},
-		})
-	})
-
-	if count := strings.Count(output, "\033[2K\r[1/1] app-a"); count != 2 {
-		t.Fatalf("render count = %d, want 2 (initial + final), output:\n%s", count, output)
-	}
-	if strings.Contains(output, "downloading 75.0%") {
-		t.Fatalf("expected progress events to avoid synchronous redraws, got:\n%s", output)
-	}
-	if !strings.Contains(output, "updated -> v1.1.0") {
-		t.Fatalf("expected final row, got:\n%s", output)
+func TestManagedApplyAggregateDescription(t *testing.T) {
+	got := managedApplyAggregateDescription(5, 2, 1)
+	want := "Updating apps (2/5 complete, 1 failed, 3 active)"
+	if got != want {
+		t.Fatalf("managedApplyAggregateDescription = %q, want %q", got, want)
 	}
 }
 
-func TestManagedApplyRendererTTYFinishRendersDoneAndFailedRows(t *testing.T) {
-	withTerminalOutput(t, true)
-	withManagedApplyRenderInterval(t, time.Hour)
-	withColorEnabled(t)
-
+func TestBatchManagedApplyControllerFinishPrintsFailuresAndSummary(t *testing.T) {
 	output := captureStdout(t, func() {
-		renderer := newManagedApplyRenderer(&cobra.Command{}, []pendingManagedUpdate{
-			{App: &models.App{ID: "app-a"}},
-			{App: &models.App{ID: "app-b"}},
-		})
-		renderer.Event(managedApplyEvent{Index: 0, AppID: "app-a", Stage: managedApplyStageDownload, Downloaded: 512, DownloadTotal: 1024})
-		renderer.Event(managedApplyEvent{Index: 1, AppID: "app-b", Stage: managedApplyStageDownload, Downloaded: 256, DownloadTotal: 1024})
-		renderer.Finish([]managedApplyResult{
+		controller := newBatchManagedApplyController(&cobra.Command{}, 2)
+		controller.Event(managedApplyEvent{Index: 0, AppID: "app-a", Stage: managedApplyStageDone})
+		controller.Event(managedApplyEvent{Index: 1, AppID: "app-b", Stage: managedApplyStageFailed})
+		controller.Finish([]managedApplyResult{
 			{index: 0, app: &models.App{ID: "app-a"}, updatedApp: &models.App{ID: "app-a", Version: "1.1.0"}},
 			{index: 1, app: &models.App{ID: "app-b"}, err: fmt.Errorf("boom")},
 		})
 	})
 
-	if !strings.Contains(output, "app-a \033[0;32mupdated -> v1.1.0\033[0m") {
-		t.Fatalf("expected success row, got:\n%s", output)
+	if !strings.Contains(output, "Updating apps (0/2 complete, 0 failed, 2 active)...") {
+		t.Fatalf("expected initial aggregate progress line, got:\n%s", output)
 	}
-	if !strings.Contains(output, "app-b \033[0;31mfailed\033[0m") {
-		t.Fatalf("expected failed row, got:\n%s", output)
+	if !strings.Contains(output, "Failed: app-b: boom") {
+		t.Fatalf("expected failed app line, got:\n%s", output)
+	}
+	if !strings.Contains(output, "Updated 1 app(s); 1 failed") {
+		t.Fatalf("expected batch summary, got:\n%s", output)
 	}
 }
 
@@ -5846,14 +5796,8 @@ func TestRunManagedUpdateUsesUnifiedApplyUIForSingleApp(t *testing.T) {
 		}
 	})
 
-	if !strings.Contains(output, "Updating 1 app") {
+	if !strings.Contains(output, "Updating my-app...") {
 		t.Fatalf("unexpected output:\n%s", output)
-	}
-	if !strings.Contains(output, "[1/1] my-app updated -> v1.1.0") {
-		t.Fatalf("expected final row, got:\n%s", output)
-	}
-	if strings.Contains(output, "Updating my-app") {
-		t.Fatalf("expected old serial apply output to be absent:\n%s", output)
 	}
 	if strings.Contains(output, "\033[") {
 		t.Fatalf("expected non-tty output without ansi codes:\n%s", output)
@@ -6146,14 +6090,11 @@ func TestRunManagedUpdateContinuesAfterApplyFailure(t *testing.T) {
 	if strings.Join(persisted, ",") != "app-b" {
 		t.Fatalf("persisted ids = %q, want %q", strings.Join(persisted, ","), "app-b")
 	}
-	if !strings.Contains(output, "[1/2] app-a failed") {
-		t.Fatalf("expected failed row, got:\n%s", output)
-	}
 	if !strings.Contains(output, "Failed: app-a: boom") {
 		t.Fatalf("expected failure detail, got:\n%s", output)
 	}
-	if !strings.Contains(output, "[2/2] app-b updated -> v2.0.0") {
-		t.Fatalf("expected success row, got:\n%s", output)
+	if !strings.Contains(output, "Updating apps (0/2 complete, 0 failed, 2 active)...") {
+		t.Fatalf("expected aggregate progress line, got:\n%s", output)
 	}
 	if !strings.Contains(output, "Updated 1 app(s); 1 failed") {
 		t.Fatalf("unexpected summary:\n%s", output)

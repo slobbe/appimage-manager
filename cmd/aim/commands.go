@@ -14,7 +14,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/slobbe/appimage-manager/internal/config"
 	"github.com/slobbe/appimage-manager/internal/core"
@@ -247,6 +246,22 @@ func resolveInfoProviderRef(cmd *cobra.Command, args []string) (discovery.Packag
 	return resolveProviderFlagRef(cmd, args, "info")
 }
 
+func validateGitHubRepoFlag(value string) (discovery.PackageRef, error) {
+	ref, err := discovery.ParseGitHubRepoValue(value)
+	if err != nil {
+		return discovery.PackageRef{}, usageError(fmt.Errorf("--github must be in owner/repo form"))
+	}
+	return ref, nil
+}
+
+func validateGitLabProjectFlag(value string) (discovery.PackageRef, error) {
+	ref, err := discovery.ParseGitLabProjectValue(value)
+	if err != nil {
+		return discovery.PackageRef{}, usageError(fmt.Errorf("--gitlab must be in namespace/project form"))
+	}
+	return ref, nil
+}
+
 func resolveProviderFlagRef(cmd *cobra.Command, args []string, cmdName string) (discovery.PackageRef, bool, error) {
 	githubValue, err := flagString(cmd, "github")
 	if err != nil {
@@ -271,12 +286,12 @@ func resolveProviderFlagRef(cmd *cobra.Command, args []string, cmdName string) (
 	}
 
 	if hasGitHub {
-		ref, err := discovery.ParseGitHubRepoValue(githubValue)
-		return ref, true, usageError(err)
+		ref, err := validateGitHubRepoFlag(githubValue)
+		return ref, true, err
 	}
 
-	ref, err := discovery.ParseGitLabProjectValue(gitlabValue)
-	return ref, true, usageError(err)
+	ref, err := validateGitLabProjectFlag(gitlabValue)
+	return ref, true, err
 }
 
 type addInputSelection struct {
@@ -754,7 +769,6 @@ func integrateRemoteInstall(ctx context.Context, cmd *cobra.Command, req remoteI
 	fileName := updateDownloadFilename(req.AssetName, req.DownloadURL)
 	downloadPath := filepath.Join(tempDir, fileName)
 
-	printInfo(cmd, fmt.Sprintf("Downloading %s", strings.TrimSpace(req.DisplayLabel)))
 	if err := downloadRemoteAsset(ctx, req.DownloadURL, downloadPath, isTerminalStderr()); err != nil {
 		return nil, err
 	}
@@ -1638,6 +1652,9 @@ func UpdateCmd(cmd *cobra.Command, args []string) error {
 	targetID := ""
 	if len(args) == 1 {
 		targetID = strings.TrimSpace(args[0])
+		if targetID == "" {
+			return usageError(fmt.Errorf("missing required argument <id>"))
+		}
 	}
 	setID = strings.TrimSpace(setID)
 	unsetID = strings.TrimSpace(unsetID)
@@ -1781,17 +1798,24 @@ func runUpdateSetMode(cmd *cobra.Command, id string) error {
 		return printConciseHelpError(cmd, "missing required input; pass --set <id> to configure an update source")
 	}
 	opts := runtimeOptionsFrom(cmd)
+	embedded, err := flagBool(cmd, "embedded")
+	if err != nil {
+		return err
+	}
+
+	var incomingSource *models.UpdateSource
+	if !embedded {
+		incomingSource, err = resolveUpdateSourceFromSetFlags(cmd)
+		if err != nil {
+			return err
+		}
+	}
 
 	app, err := repo.GetApp(id)
 	if err != nil {
 		return wrapManagedAppLookupError(id, err)
 	}
 
-	var incomingSource *models.UpdateSource
-	embedded, err := flagBool(cmd, "embedded")
-	if err != nil {
-		return err
-	}
 	if embedded {
 		if err := validateEmbeddedUpdateSetFlags(cmd); err != nil {
 			return err
@@ -1810,11 +1834,6 @@ func runUpdateSetMode(cmd *cobra.Command, id string) error {
 			printCurrentValue(cmd, updateSummary(app.Update))
 			prompt := formatPrompt("Unset source for", id)
 			_, err := unsetManagedUpdateSource(cmd, app, prompt, false)
-			return err
-		}
-	} else {
-		incomingSource, err = resolveUpdateSourceFromSetFlags(cmd)
-		if err != nil {
 			return err
 		}
 	}
@@ -1944,26 +1963,34 @@ func resolveUpdateSourceFromSetFlags(cmd *cobra.Command) (*models.UpdateSource, 
 	}
 
 	if githubRepo != "" {
+		ref, err := validateGitHubRepoFlag(githubRepo)
+		if err != nil {
+			return nil, err
+		}
 		if assetPattern == "" {
 			assetPattern = defaultReleaseAssetPattern
 		}
 		return &models.UpdateSource{
 			Kind: models.UpdateGitHubRelease,
 			GitHubRelease: &models.GitHubReleaseUpdateSource{
-				Repo:  githubRepo,
+				Repo:  ref.ProviderRef,
 				Asset: assetPattern,
 			},
 		}, nil
 	}
 
 	if gitlabProject != "" {
+		ref, err := validateGitLabProjectFlag(gitlabProject)
+		if err != nil {
+			return nil, err
+		}
 		if assetPattern == "" {
 			assetPattern = defaultReleaseAssetPattern
 		}
 		return &models.UpdateSource{
 			Kind: models.UpdateGitLabRelease,
 			GitLabRelease: &models.GitLabReleaseUpdateSource{
-				Project: gitlabProject,
+				Project: ref.ProviderRef,
 				Asset:   assetPattern,
 			},
 		}, nil
@@ -2933,6 +2960,13 @@ func downloadUpdateAsset(ctx context.Context, assetURL, destination string, inte
 }
 
 func downloadUpdateAssetWithProgress(ctx context.Context, assetURL, destination string, interactive bool, onProgress func(downloaded, total int64)) error {
+	progress := newProcessSpinnerProgress("Downloading update", interactive)
+	defer func() {
+		if progress != nil && interactive {
+			progress.Clear()
+		}
+	}()
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, assetURL, nil)
 	if err != nil {
 		return err
@@ -2959,12 +2993,18 @@ func downloadUpdateAssetWithProgress(ctx context.Context, assetURL, destination 
 	defer f.Close()
 
 	var (
-		total      = resp.ContentLength
-		downloaded int64
-		buffer     = make([]byte, 32*1024)
-		frame      int
-		lastDraw   time.Time
+		total        = resp.ContentLength
+		downloaded   int64
+		buffer       = make([]byte, 32*1024)
+		progressMode = progressModeSpinner
 	)
+	if interactive && progress != nil {
+		progress.Clear()
+		progress = newProcessByteProgress("Downloading update", total, true)
+		if total > 0 {
+			progressMode = progressModeBytes
+		}
+	}
 
 	for {
 		n, readErr := resp.Body.Read(buffer)
@@ -2976,15 +3016,8 @@ func downloadUpdateAssetWithProgress(ctx context.Context, assetURL, destination 
 			if onProgress != nil {
 				onProgress(downloaded, total)
 			}
-		}
-
-		if interactive {
-			now := time.Now()
-			if now.Sub(lastDraw) >= 120*time.Millisecond || readErr == io.EOF {
-				line := buildDownloadProgressLine(downloaded, total, frame)
-				writeProcessLogf("\r%s", line)
-				lastDraw = now
-				frame++
+			if interactive && progress != nil {
+				progress.Add(int64(n))
 			}
 		}
 
@@ -2997,8 +3030,15 @@ func downloadUpdateAssetWithProgress(ctx context.Context, assetURL, destination 
 	}
 
 	if interactive {
-		line := buildDownloadProgressLine(downloaded, total, frame)
-		writeProcessLogf("\r%s\n", line)
+		if progress != nil {
+			if progressMode == progressModeBytes {
+				progress.Finish()
+			} else {
+				progress.Clear()
+				writeProcessLogf("Downloaded %s\n", formatByteSize(downloaded))
+			}
+			progress = nil
+		}
 	} else {
 		if onProgress != nil {
 			onProgress(downloaded, total)
@@ -3009,30 +3049,6 @@ func downloadUpdateAssetWithProgress(ctx context.Context, assetURL, destination 
 	}
 
 	return nil
-}
-
-func buildDownloadProgressLine(downloaded, total int64, frame int) string {
-	if total > 0 {
-		percent := float64(downloaded) / float64(total)
-		if percent < 0 {
-			percent = 0
-		}
-		if percent > 1 {
-			percent = 1
-		}
-
-		barWidth := 24
-		filled := int(percent * float64(barWidth))
-		if filled > barWidth {
-			filled = barWidth
-		}
-		bar := strings.Repeat("#", filled) + strings.Repeat("-", barWidth-filled)
-		return fmt.Sprintf("  Downloading [%s] %6.2f%% (%s/%s)", bar, percent*100, formatByteSize(downloaded), formatByteSize(total))
-	}
-
-	spinnerFrames := []string{"|", "/", "-", "\\"}
-	frameLabel := spinnerFrames[frame%len(spinnerFrames)]
-	return fmt.Sprintf("  Downloading %s %s", frameLabel, formatByteSize(downloaded))
 }
 
 func formatByteSize(value int64) string {

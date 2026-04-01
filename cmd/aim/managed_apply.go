@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 	"sync"
-	"time"
 
 	models "github.com/slobbe/appimage-manager/internal/types"
 	"github.com/spf13/cobra"
@@ -13,7 +12,7 @@ import (
 
 const maxManagedApplyWorkers = 5
 
-var managedApplyRenderInterval = 120 * time.Millisecond
+var managedApplyRenderInterval = progressThrottleInterval
 
 type managedApplyStage string
 
@@ -57,27 +56,27 @@ type managedApplyResult struct {
 	err        error
 }
 
-type managedApplyRowState struct {
-	appID         string
-	stage         managedApplyStage
-	downloaded    int64
-	downloadTotal int64
-	version       string
-	message       string
+type managedApplyController interface {
+	Event(managedApplyEvent)
+	Finish([]managedApplyResult)
 }
 
-type managedApplyRenderer struct {
-	cmd      *cobra.Command
-	total    int
-	tty      bool
-	rows     []managedApplyRowState
-	mu       sync.Mutex
-	drawn    bool
-	dirty    bool
-	header   string
-	stopCh   chan struct{}
-	stopOnce sync.Once
-	doneCh   chan struct{}
+type batchManagedApplyController struct {
+	cmd       *cobra.Command
+	total     int
+	progress  progressHandle
+	mu        sync.Mutex
+	completed []bool
+	failures  int
+}
+
+type singleManagedApplyController struct {
+	cmd           *cobra.Command
+	appID         string
+	handle        progressHandle
+	handleMode    progressMode
+	downloaded    int64
+	downloadTotal int64
 }
 
 func runManagedApplies(ctx context.Context, cmd *cobra.Command, pending []pendingManagedUpdate) []managedApplyResult {
@@ -85,7 +84,7 @@ func runManagedApplies(ctx context.Context, cmd *cobra.Command, pending []pendin
 		return nil
 	}
 
-	renderer := newManagedApplyRenderer(cmd, pending)
+	controller := newManagedApplyController(cmd, pending)
 	results := make([]managedApplyResult, len(pending))
 	jobs := make(chan int, len(pending))
 	workerCount := managedApplyWorkerCount(len(pending))
@@ -104,7 +103,7 @@ func runManagedApplies(ctx context.Context, cmd *cobra.Command, pending []pendin
 					}
 					event.Index = idx
 					event.Total = len(pending)
-					renderer.Event(event)
+					controller.Event(event)
 				})
 
 				updatedApp, err := runManagedApply(ctx, item, reporter)
@@ -124,7 +123,7 @@ func runManagedApplies(ctx context.Context, cmd *cobra.Command, pending []pendin
 	close(jobs)
 	wg.Wait()
 
-	renderer.Finish(results)
+	controller.Finish(results)
 	return results
 }
 
@@ -144,113 +143,61 @@ func emitManagedApplyEvent(reporter managedApplyReporter, event managedApplyEven
 	}
 }
 
-func newManagedApplyRenderer(cmd *cobra.Command, pending []pendingManagedUpdate) *managedApplyRenderer {
-	rows := make([]managedApplyRowState, len(pending))
-	for idx, item := range pending {
+func newManagedApplyController(cmd *cobra.Command, pending []pendingManagedUpdate) managedApplyController {
+	if len(pending) == 1 {
 		appID := ""
-		if item.App != nil {
-			appID = item.App.ID
+		if pending[0].App != nil {
+			appID = strings.TrimSpace(pending[0].App.ID)
 		}
-		rows[idx] = managedApplyRowState{
-			appID: appID,
-			stage: managedApplyStageQueued,
-		}
+		return newSingleManagedApplyController(cmd, appID)
 	}
-
-	renderer := &managedApplyRenderer{
-		cmd:    cmd,
-		total:  len(pending),
-		tty:    isTerminalStderr(),
-		rows:   rows,
-		header: managedApplyHeader(len(pending)),
-	}
-
-	if strings.TrimSpace(renderer.header) != "" {
-		printInfo(cmd, renderer.header)
-	}
-	if renderer.tty {
-		renderer.dirty = false
-		renderer.renderLocked()
-		renderer.startRenderLoop()
-	}
-
-	return renderer
+	return newBatchManagedApplyController(cmd, len(pending))
 }
 
-func managedApplyHeader(total int) string {
-	if total == 1 {
-		return "Updating 1 app"
+func newBatchManagedApplyController(cmd *cobra.Command, total int) *batchManagedApplyController {
+	return &batchManagedApplyController{
+		cmd:       cmd,
+		total:     total,
+		progress:  newCountProgress(cmd, managedApplyAggregateDescription(total, 0, 0), int64(total)),
+		completed: make([]bool, total),
 	}
-	return ""
 }
 
-func (r *managedApplyRenderer) Event(event managedApplyEvent) {
-	if event.Index < 0 || event.Index >= len(r.rows) {
+func (c *batchManagedApplyController) Event(event managedApplyEvent) {
+	if c == nil {
 		return
 	}
 
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-	row := &r.rows[event.Index]
-	if strings.TrimSpace(event.AppID) != "" {
-		row.appID = strings.TrimSpace(event.AppID)
+	if event.Index < 0 || event.Index >= len(c.completed) {
+		return
 	}
-	if event.Stage != "" {
-		row.stage = event.Stage
+
+	if event.Stage != managedApplyStageDone && event.Stage != managedApplyStageFailed {
+		return
 	}
-	row.downloaded = event.Downloaded
-	row.downloadTotal = event.DownloadTotal
-	if strings.TrimSpace(event.Version) != "" {
-		row.version = strings.TrimSpace(event.Version)
+	if c.completed[event.Index] {
+		return
 	}
-	if strings.TrimSpace(event.Message) != "" {
-		row.message = strings.TrimSpace(event.Message)
+
+	c.completed[event.Index] = true
+	if event.Stage == managedApplyStageFailed {
+		c.failures++
 	}
-	r.dirty = true
+	if c.progress != nil {
+		c.progress.Add(1)
+		c.progress.Describe(managedApplyAggregateDescription(c.total, completedCount(c.completed), c.failures))
+	}
 }
 
-func (r *managedApplyRenderer) Finish(results []managedApplyResult) {
-	r.stopRenderLoop()
-
-	r.mu.Lock()
-	for idx, result := range results {
-		if idx < 0 || idx >= len(r.rows) {
-			continue
-		}
-
-		row := &r.rows[idx]
-		if result.app != nil && strings.TrimSpace(row.appID) == "" {
-			row.appID = result.app.ID
-		}
-		if result.err != nil {
-			row.stage = managedApplyStageFailed
-			row.message = result.err.Error()
-			continue
-		}
-		if result.updatedApp != nil {
-			row.stage = managedApplyStageDone
-			row.version = result.updatedApp.Version
-		}
+func (c *batchManagedApplyController) Finish(results []managedApplyResult) {
+	if c == nil {
+		return
 	}
-	r.dirty = true
-
-	if r.tty {
-		r.renderLocked()
-	}
-
-	rows := make([]string, len(r.rows))
-	if !r.tty {
-		for idx := range r.rows {
-			rows[idx] = r.formatRow(idx)
-		}
-	}
-	r.mu.Unlock()
-
-	if !r.tty {
-		for _, row := range rows {
-			writeLogf(r.cmd, "%s\n", row)
-		}
+	if c.progress != nil {
+		c.progress.Finish()
 	}
 
 	failures := 0
@@ -262,7 +209,7 @@ func (r *managedApplyRenderer) Finish(results []managedApplyResult) {
 			if result.app != nil && strings.TrimSpace(result.app.ID) != "" {
 				appID = result.app.ID
 			}
-			printError(r.cmd, fmt.Sprintf("Failed: %s: %v", appID, result.err))
+			printError(c.cmd, fmt.Sprintf("Failed: %s: %v", appID, result.err))
 			continue
 		}
 		if result.updatedApp != nil {
@@ -272,131 +219,139 @@ func (r *managedApplyRenderer) Finish(results []managedApplyResult) {
 
 	summary := fmt.Sprintf("Updated %d app(s); %d failed", successes, failures)
 	if failures > 0 {
-		printWarning(r.cmd, summary)
+		printWarning(c.cmd, summary)
 		return
 	}
-	printSuccess(r.cmd, summary)
+	printSuccess(c.cmd, summary)
 }
 
-func (r *managedApplyRenderer) startRenderLoop() {
-	if !r.tty {
-		return
-	}
-
-	r.stopCh = make(chan struct{})
-	r.doneCh = make(chan struct{})
-
-	go func() {
-		ticker := time.NewTicker(managedApplyRenderInterval)
-		defer ticker.Stop()
-		defer close(r.doneCh)
-
-		for {
-			select {
-			case <-ticker.C:
-				r.renderIfDirty()
-			case <-r.stopCh:
-				return
-			}
-		}
-	}()
-}
-
-func (r *managedApplyRenderer) stopRenderLoop() {
-	if !r.tty || r.stopCh == nil {
-		return
-	}
-
-	r.stopOnce.Do(func() {
-		close(r.stopCh)
-		<-r.doneCh
-	})
-}
-
-func (r *managedApplyRenderer) renderIfDirty() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if !r.dirty {
-		return
-	}
-
-	r.renderLocked()
-	r.dirty = false
-}
-
-func (r *managedApplyRenderer) renderLocked() {
-	if !r.tty {
-		return
-	}
-
-	if r.drawn {
-		writeLogf(r.cmd, "\033[%dA", len(r.rows))
-	}
-	for idx := range r.rows {
-		writeLogf(r.cmd, "\033[2K\r%s\n", r.formatRow(idx))
-	}
-	r.drawn = true
-}
-
-func (r *managedApplyRenderer) formatRow(index int) string {
-	row := r.rows[index]
-	status := managedApplyStatusText(row)
-	if r.tty {
-		status = colorize(shouldColorStderr(r.cmd), managedApplyColorCode(row.stage), status)
-	}
-
-	appID := row.appID
+func newSingleManagedApplyController(cmd *cobra.Command, appID string) *singleManagedApplyController {
 	if strings.TrimSpace(appID) == "" {
-		appID = "<unknown>"
+		appID = "app"
 	}
-	return fmt.Sprintf("[%d/%d] %s %s", index+1, r.total, appID, status)
+	return &singleManagedApplyController{
+		cmd:        cmd,
+		appID:      appID,
+		handle:     newSpinnerProgress(cmd, fmt.Sprintf("Updating %s", appID)),
+		handleMode: progressModeSpinner,
+	}
 }
 
-func managedApplyStatusText(row managedApplyRowState) string {
-	switch row.stage {
-	case managedApplyStageQueued:
-		return "queued"
-	case managedApplyStageZsync:
-		return "delta update"
+func (c *singleManagedApplyController) Event(event managedApplyEvent) {
+	if c == nil {
+		return
+	}
+	if strings.TrimSpace(event.AppID) != "" {
+		c.appID = strings.TrimSpace(event.AppID)
+	}
+
+	switch event.Stage {
 	case managedApplyStageDownload:
-		return formatManagedDownloadStatus(row.downloaded, row.downloadTotal)
+		c.updateDownloadProgress(event.Downloaded, event.DownloadTotal)
+	case managedApplyStageZsync:
+		c.setSpinnerDescription(fmt.Sprintf("Applying delta update to %s", c.appID))
 	case managedApplyStageVerify:
-		return "verifying"
+		c.setSpinnerDescription(fmt.Sprintf("Verifying %s", c.appID))
 	case managedApplyStageIntegrate:
-		return "integrating"
-	case managedApplyStageDone:
-		return "updated -> " + displayVersion(row.version)
-	case managedApplyStageFailed:
-		return "failed"
-	default:
-		return "queued"
-	}
-}
-
-func formatManagedDownloadStatus(downloaded, total int64) string {
-	if total > 0 {
-		percent := float64(downloaded) / float64(total)
-		if percent < 0 {
-			percent = 0
-		}
-		if percent > 1 {
-			percent = 1
-		}
-		return fmt.Sprintf("downloading %.1f%% (%s/%s)", percent*100, formatByteSize(downloaded), formatByteSize(total))
-	}
-	return fmt.Sprintf("downloading %s", formatByteSize(downloaded))
-}
-
-func managedApplyColorCode(stage managedApplyStage) string {
-	switch stage {
-	case managedApplyStageDone:
-		return "\033[0;32m"
-	case managedApplyStageFailed:
-		return "\033[0;31m"
+		c.setSpinnerDescription(fmt.Sprintf("Integrating %s", c.appID))
 	case managedApplyStageQueued:
-		return "\033[0;33m"
-	default:
-		return "\033[0;36m"
+		c.setSpinnerDescription(fmt.Sprintf("Preparing %s", c.appID))
+	case managedApplyStageDone, managedApplyStageFailed:
+		// Final state is rendered after the worker result is collected.
 	}
+}
+
+func (c *singleManagedApplyController) Finish(results []managedApplyResult) {
+	if c == nil {
+		return
+	}
+	if c.handle != nil {
+		c.handle.Clear()
+		c.handle = nil
+	}
+
+	failures := 0
+	successes := 0
+	for _, result := range results {
+		if result.err != nil {
+			failures++
+			appID := c.appID
+			if result.app != nil && strings.TrimSpace(result.app.ID) != "" {
+				appID = result.app.ID
+			}
+			printError(c.cmd, fmt.Sprintf("Failed: %s: %v", appID, result.err))
+			continue
+		}
+		if result.updatedApp != nil {
+			successes++
+		}
+	}
+
+	summary := fmt.Sprintf("Updated %d app(s); %d failed", successes, failures)
+	if failures > 0 {
+		printWarning(c.cmd, summary)
+		return
+	}
+	printSuccess(c.cmd, summary)
+}
+
+func (c *singleManagedApplyController) setSpinnerDescription(description string) {
+	description = strings.TrimSpace(description)
+	if description == "" {
+		return
+	}
+	if c.handle == nil || c.handleMode != progressModeSpinner {
+		if c.handle != nil {
+			c.handle.Clear()
+		}
+		c.handle = newSpinnerProgress(c.cmd, description)
+		c.handleMode = progressModeSpinner
+		c.downloaded = 0
+		c.downloadTotal = 0
+		return
+	}
+	c.handle.Describe(description)
+}
+
+func (c *singleManagedApplyController) updateDownloadProgress(downloaded, total int64) {
+	description := fmt.Sprintf("Downloading %s", c.appID)
+	if c.handle == nil || c.handleMode != progressModeBytes || c.downloadTotal != total {
+		if c.handle != nil {
+			c.handle.Clear()
+		}
+		c.handle = newByteProgress(c.cmd, description, total)
+		c.handleMode = progressModeBytes
+		c.downloaded = 0
+		c.downloadTotal = total
+	}
+
+	c.handle.Describe(description)
+	delta := downloaded - c.downloaded
+	if delta > 0 {
+		c.handle.Add(delta)
+		c.downloaded = downloaded
+	}
+}
+
+func completedCount(completed []bool) int {
+	total := 0
+	for _, value := range completed {
+		if value {
+			total++
+		}
+	}
+	return total
+}
+
+func activeCount(total, completed int) int {
+	active := total - completed
+	if active < 0 {
+		return 0
+	}
+	return active
+}
+
+func managedApplyAggregateDescription(total, completed, failures int) string {
+	active := activeCount(total, completed)
+	return fmt.Sprintf("Updating apps (%d/%d complete, %d failed, %d active)", completed, total, failures, active)
 }

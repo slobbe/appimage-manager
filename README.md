@@ -135,6 +135,8 @@ The current CLI does not accept secret input. If it ever gains secret prompts in
 
 - primary command output, including `--json`, `--csv`, and `--plain`, is written to stdout
 - errors, warnings, prompts, progress, and verbose diagnostics are written to stderr
+- interactive terminals get immediate progress bars for long-running work; multi-app updates use one aggregate progress bar instead of per-app live rows
+- non-interactive stderr stays plain and non-animated
 - success exits with `0`; failures exit with a stable non-zero code
 
 For unexpected internal failures, `aim` prints a short bug-report path:

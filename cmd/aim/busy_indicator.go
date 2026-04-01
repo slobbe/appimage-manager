@@ -1,107 +1,35 @@
 package main
 
-import (
-	"fmt"
-	"strings"
-	"sync"
-	"time"
+import "github.com/spf13/cobra"
 
-	"github.com/spf13/cobra"
-)
-
-var busyIndicatorRenderInterval = 120 * time.Millisecond
-
-var busyIndicatorFrames = []string{"|", "/", "-", "\\"}
+var busyIndicatorRenderInterval = progressThrottleInterval
 
 type busyIndicator struct {
-	cmd      *cobra.Command
-	label    string
-	tty      bool
-	frameIdx int
-	width    int
-	stopCh   chan struct{}
-	doneCh   chan struct{}
-	stopOnce sync.Once
+	cmd    *cobra.Command
+	label  string
+	handle progressHandle
 }
 
 func newBusyIndicator(cmd *cobra.Command, label string) *busyIndicator {
 	return &busyIndicator{
-		cmd:    cmd,
-		label:  strings.TrimSpace(label),
-		tty:    isTerminalStderr(),
-		stopCh: make(chan struct{}),
-		doneCh: make(chan struct{}),
+		cmd:   cmd,
+		label: label,
 	}
 }
 
 func (b *busyIndicator) Start() {
-	if b == nil || b.label == "" {
+	if b == nil || b.handle != nil {
 		return
 	}
-
-	if !b.tty {
-		writeLogf(b.cmd, "%s...\n", b.label)
-		return
-	}
-
-	b.render()
-	go b.renderLoop()
+	b.handle = newSpinnerProgress(b.cmd, b.label)
 }
 
 func (b *busyIndicator) Stop() {
-	if b == nil || b.label == "" {
+	if b == nil || b.handle == nil {
 		return
 	}
-
-	if !b.tty {
-		return
-	}
-
-	b.stopOnce.Do(func() {
-		close(b.stopCh)
-		<-b.doneCh
-		b.clear()
-	})
-}
-
-func (b *busyIndicator) renderLoop() {
-	ticker := time.NewTicker(busyIndicatorRenderInterval)
-	defer func() {
-		ticker.Stop()
-		close(b.doneCh)
-	}()
-
-	for {
-		select {
-		case <-ticker.C:
-			b.render()
-		case <-b.stopCh:
-			return
-		}
-	}
-}
-
-func (b *busyIndicator) render() {
-	frame := busyIndicatorFrames[b.frameIdx%len(busyIndicatorFrames)]
-	b.frameIdx++
-
-	line := colorize(shouldColorStderr(b.cmd), "\033[0;36m", fmt.Sprintf("%s %s", frame, b.label))
-	width := visibleWidth(frame) + 1 + visibleWidth(b.label)
-	if width < b.width {
-		line += strings.Repeat(" ", b.width-width)
-		width = b.width
-	}
-	b.width = width
-
-	writeLogf(b.cmd, "\r%s", line)
-}
-
-func (b *busyIndicator) clear() {
-	if b.width <= 0 {
-		return
-	}
-
-	writeLogf(b.cmd, "\r%s\r", strings.Repeat(" ", b.width))
+	b.handle.Clear()
+	b.handle = nil
 }
 
 func runWithBusyIndicator[T any](cmd *cobra.Command, label string, fn func() (T, error)) (T, error) {
@@ -109,8 +37,4 @@ func runWithBusyIndicator[T any](cmd *cobra.Command, label string, fn func() (T,
 	indicator.Start()
 	defer indicator.Stop()
 	return fn()
-}
-
-func visibleWidth(value string) int {
-	return len([]rune(value))
 }
