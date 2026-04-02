@@ -2,10 +2,12 @@ package core
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/slobbe/appimage-manager/internal/config"
 )
@@ -293,6 +295,33 @@ func TestExtractAppImageReportsDesktopLookupFailure(t *testing.T) {
 	}
 }
 
+func TestExtractAppImageReturnsPromptlyWhenContextCanceled(t *testing.T) {
+	tmp := t.TempDir()
+	setupExtractionConfigForTest(t, tmp)
+
+	appImagePath := filepath.Join(tmp, "slow.AppImage")
+	writeSlowFakeAppImageExtractor(t, appImagePath)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := ExtractAppImage(ctx, appImagePath)
+		done <- err
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("error = %v, want %v", err, context.Canceled)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("ExtractAppImage did not return after cancellation")
+	}
+}
+
 func TestLocateDesktopFileFallsBackToRecursiveSearch(t *testing.T) {
 	root := t.TempDir()
 
@@ -389,5 +418,23 @@ func writeFakeAppImageExtractorWithoutDesktop(t *testing.T, dst string) {
 
 	if err := os.WriteFile(dst, []byte(script), 0o755); err != nil {
 		t.Fatalf("failed to write fake AppImage script: %v", err)
+	}
+}
+
+func writeSlowFakeAppImageExtractor(t *testing.T, dst string) {
+	t.Helper()
+
+	script := strings.Join([]string{
+		"#!/bin/sh",
+		"set -eu",
+		"if [ \"${1:-}\" != \"--appimage-extract\" ]; then",
+		"  echo \"unexpected args: $*\" >&2",
+		"  exit 1",
+		"fi",
+		"sleep 5",
+	}, "\n") + "\n"
+
+	if err := os.WriteFile(dst, []byte(script), 0o755); err != nil {
+		t.Fatalf("failed to write slow fake AppImage script: %v", err)
 	}
 }

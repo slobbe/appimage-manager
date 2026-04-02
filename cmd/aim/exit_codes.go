@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -111,6 +112,9 @@ func exitCodeForError(err error) int {
 	var classified *cliError
 	if errors.As(err, &classified) && classified != nil && classified.Code != 0 {
 		return classified.Code
+	}
+	if errors.Is(err, context.Canceled) {
+		return exitTempFail
 	}
 
 	if errors.Is(err, os.ErrPermission) {
@@ -294,6 +298,9 @@ func suggestionForError(root *cobra.Command, err error) string {
 func rewriteCommandError(root *cobra.Command, args []string, err error) error {
 	if err == nil {
 		return nil
+	}
+	if errors.Is(err, context.Canceled) {
+		return withUserMessage(tempFailError(err), "Interrupted.")
 	}
 	if unknownCommandNameFromError(err) == "upgrade" {
 		return withUserGuidance(

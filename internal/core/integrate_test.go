@@ -2,11 +2,13 @@ package core
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/slobbe/appimage-manager/internal/config"
 	repo "github.com/slobbe/appimage-manager/internal/repository"
@@ -116,6 +118,35 @@ func TestIntegrateFromLocalFileWithoutCacheRefreshOrPersistSkipsDatabaseSave(t *
 
 	if _, err := repo.GetApp(app.ID); err == nil {
 		t.Fatalf("expected app %q not to be persisted", app.ID)
+	}
+}
+
+func TestIntegrateFromLocalFileReturnsPromptlyWhenContextCanceled(t *testing.T) {
+	tmp := t.TempDir()
+	setupIntegrationConfigForTest(t, tmp)
+	stubDesktopValidationForTest(t)
+	stubIntegrationCacheRefreshForTest(t)
+
+	appImagePath := filepath.Join(tmp, "slow.AppImage")
+	writeSlowFakeAppImageExtractor(t, appImagePath)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := IntegrateFromLocalFile(ctx, appImagePath, nil)
+		done <- err
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("error = %v, want %v", err, context.Canceled)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("IntegrateFromLocalFile did not return after cancellation")
 	}
 }
 

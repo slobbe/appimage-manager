@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 
 	"github.com/slobbe/appimage-manager/internal/config"
 	util "github.com/slobbe/appimage-manager/internal/helpers"
@@ -121,11 +123,29 @@ func ExtractAppImage(ctx context.Context, src string) (*ExtractionData, error) {
 		_ = os.RemoveAll(tmpDir)
 	}()
 
-	extractCmd := exec.Command(src, "--appimage-extract")
+	extractCmd := exec.CommandContext(ctx, src, "--appimage-extract")
 	extractCmd.Dir = tmpDir
+	extractCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+
+	done := make(chan struct{})
+	if ctx != nil {
+		go func() {
+			select {
+			case <-ctx.Done():
+				if extractCmd.Process != nil {
+					_ = syscall.Kill(-extractCmd.Process.Pid, syscall.SIGKILL)
+				}
+			case <-done:
+			}
+		}()
+	}
 
 	out, err := extractCmd.CombinedOutput()
+	close(done)
 	if err != nil {
+		if errors.Is(ctx.Err(), context.Canceled) {
+			return nil, context.Canceled
+		}
 		return nil, fmt.Errorf("extraction failed: %w\nOutput: %s", err, string(out))
 	}
 

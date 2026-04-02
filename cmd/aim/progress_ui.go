@@ -5,9 +5,9 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
-	"github.com/schollz/progressbar/v3"
 	"github.com/spf13/cobra"
 )
 
@@ -28,37 +28,179 @@ const (
 	progressModeCount
 )
 
-type progressbarHandle struct {
-	bar  *progressbar.ProgressBar
-	mode progressMode
+var spinnerFrames = []string{"|", "/", "-", `\`}
+
+type ttyProgressHandle struct {
+	writer         io.Writer
+	mode           progressMode
+	description    string
+	current        int64
+	total          int64
+	lastRenderedAt time.Time
+	lastLineWidth  int
+	lastText       string
+	spinnerIndex   int
+	stopped        bool
+	stopCh         chan struct{}
+	doneCh         chan struct{}
+	mu             sync.Mutex
 }
 
-func (h *progressbarHandle) Describe(text string) {
-	if h == nil || h.bar == nil {
+func (h *ttyProgressHandle) Describe(text string) {
+	if h == nil {
 		return
 	}
-	h.bar.Describe(strings.TrimSpace(text))
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.stopped || text == h.description {
+		return
+	}
+	h.description = text
+	h.renderLocked(true)
 }
 
-func (h *progressbarHandle) Add(delta int64) {
-	if h == nil || h.bar == nil || delta == 0 {
+func (h *ttyProgressHandle) Add(delta int64) {
+	if h == nil || delta == 0 {
 		return
 	}
-	_ = h.bar.Add64(delta)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.stopped {
+		return
+	}
+	h.current += delta
+	if h.current < 0 {
+		h.current = 0
+	}
+	h.renderLocked(false)
 }
 
-func (h *progressbarHandle) Finish() {
-	if h == nil || h.bar == nil {
+func (h *ttyProgressHandle) Finish() { h.stopAndClear() }
+
+func (h *ttyProgressHandle) Clear() { h.stopAndClear() }
+
+func (h *ttyProgressHandle) stopAndClear() {
+	if h == nil {
 		return
 	}
-	_ = h.bar.Finish()
+
+	done := func() chan struct{} {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		if h.stopped {
+			return nil
+		}
+		h.stopped = true
+		if h.stopCh == nil {
+			return nil
+		}
+		close(h.stopCh)
+		h.stopCh = nil
+		return h.doneCh
+	}()
+
+	if done != nil {
+		<-done
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.clearLocked()
 }
 
-func (h *progressbarHandle) Clear() {
-	if h == nil || h.bar == nil {
+func (h *ttyProgressHandle) renderLocked(force bool) {
+	if h.stopped {
 		return
 	}
-	_ = h.bar.Clear()
+
+	text := h.renderTextLocked()
+	if text == "" {
+		return
+	}
+
+	now := time.Now()
+	if !force && !h.lastRenderedAt.IsZero() && now.Sub(h.lastRenderedAt) < progressThrottleInterval {
+		return
+	}
+	if !force && text == h.lastText {
+		return
+	}
+
+	width := visibleWidth(text)
+	if width < h.lastLineWidth {
+		text += strings.Repeat(" ", h.lastLineWidth-width)
+		width = h.lastLineWidth
+	}
+
+	_, _ = fmt.Fprintf(h.writer, "\r%s", text)
+	h.lastRenderedAt = now
+	h.lastLineWidth = width
+	h.lastText = text
+}
+
+func (h *ttyProgressHandle) renderTextLocked() string {
+	description := strings.TrimSpace(h.description)
+	switch h.mode {
+	case progressModeSpinner:
+		frame := spinnerFrames[h.spinnerIndex%len(spinnerFrames)]
+		return fmt.Sprintf("%s %s", frame, description)
+	case progressModeBytes:
+		switch {
+		case h.total > 0:
+			return fmt.Sprintf("%s %s/%s", description, formatByteSize(h.current), formatByteSize(h.total))
+		case h.current > 0:
+			return fmt.Sprintf("%s %s", description, formatByteSize(h.current))
+		default:
+			return description
+		}
+	case progressModeCount:
+		if description != "" {
+			return description
+		}
+		if h.total > 0 {
+			return fmt.Sprintf("%d/%d", h.current, h.total)
+		}
+		return fmt.Sprintf("%d", h.current)
+	default:
+		return description
+	}
+}
+
+func (h *ttyProgressHandle) clearLocked() {
+	if h.lastLineWidth <= 0 {
+		return
+	}
+	_, _ = fmt.Fprintf(h.writer, "\r%s\r", strings.Repeat(" ", h.lastLineWidth))
+	h.lastLineWidth = 0
+	h.lastText = ""
+}
+
+func (h *ttyProgressHandle) spin() {
+	ticker := time.NewTicker(progressThrottleInterval)
+	defer func() {
+		ticker.Stop()
+		close(h.doneCh)
+	}()
+
+	for {
+		select {
+		case <-ticker.C:
+			h.mu.Lock()
+			if h.stopped {
+				h.mu.Unlock()
+				return
+			}
+			h.spinnerIndex = (h.spinnerIndex + 1) % len(spinnerFrames)
+			h.renderLocked(true)
+			h.mu.Unlock()
+		case <-h.stopCh:
+			return
+		}
+	}
 }
 
 type plainProgressHandle struct {
@@ -124,41 +266,28 @@ func newRawProgressHandle(writer io.Writer, interactive bool, enabled bool, mode
 		return handle
 	}
 
-	options := []progressbar.Option{
-		progressbar.OptionSetWriter(writer),
-		progressbar.OptionSetDescription(description),
-		progressbar.OptionSetRenderBlankState(true),
-		progressbar.OptionFullWidth(),
-		progressbar.OptionThrottle(progressThrottleInterval),
-		progressbar.OptionUseANSICodes(true),
-		progressbar.OptionSpinnerType(14),
-		progressbar.OptionSetWidth(10),
+	handle := &ttyProgressHandle{
+		writer:      writer,
+		mode:        mode,
+		description: description,
+		total:       total,
+	}
+	if mode == progressModeSpinner {
+		handle.stopCh = make(chan struct{})
+		handle.doneCh = make(chan struct{})
 	}
 
-	switch mode {
-	case progressModeBytes:
-		options = append(options,
-			progressbar.OptionShowBytes(true),
-			progressbar.OptionShowCount(),
-			progressbar.OptionShowTotalBytes(true),
-		)
-	case progressModeCount:
-		options = append(options,
-			progressbar.OptionShowCount(),
-			progressbar.OptionShowIts(),
-		)
-	default:
-		options = append(options,
-			progressbar.OptionShowCount(),
-			progressbar.OptionShowIts(),
-		)
+	handle.mu.Lock()
+	handle.renderLocked(true)
+	handle.mu.Unlock()
+
+	if mode == progressModeSpinner {
+		go handle.spin()
 	}
 
-	max := total
-	if mode == progressModeSpinner || max <= 0 {
-		max = -1
-	}
+	return handle
+}
 
-	bar := progressbar.NewOptions64(max, options...)
-	return &progressbarHandle{bar: bar, mode: mode}
+func visibleWidth(value string) int {
+	return len([]rune(value))
 }

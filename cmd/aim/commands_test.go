@@ -645,6 +645,12 @@ func TestBusyIndicatorTTYRendersAndClearsBeforeFinalOutput(t *testing.T) {
 	if !strings.Contains(output, "Working") {
 		t.Fatalf("expected spinner label in output, got:\n%q", output)
 	}
+	if strings.Contains(output, "it/s") {
+		t.Fatalf("expected spinner output without rate suffix, got:\n%q", output)
+	}
+	if strings.Contains(output, "[0s]") {
+		t.Fatalf("expected spinner output without elapsed-time suffix, got:\n%q", output)
+	}
 	if !strings.Contains(output, "done") {
 		t.Fatalf("expected final output after spinner, got:\n%q", output)
 	}
@@ -4152,6 +4158,7 @@ func TestExitCodeForError(t *testing.T) {
 		{name: "unavailable", err: unavailableError(fmt.Errorf("offline")), want: exitUnavailable},
 		{name: "cant create", err: cantCreateError(fmt.Errorf("write failed")), want: exitCantCreate},
 		{name: "temp fail", err: tempFailError(fmt.Errorf("timeout")), want: exitTempFail},
+		{name: "context canceled", err: context.Canceled, want: exitTempFail},
 		{name: "no perm", err: noPermError(fmt.Errorf("permission denied")), want: exitNoPerm},
 		{name: "software fallback", err: fmt.Errorf("boom"), want: exitSoftware},
 	}
@@ -5887,6 +5894,94 @@ func TestProcessSpinnerProgressNonTTYPrintsImmediateLine(t *testing.T) {
 
 	if !strings.Contains(output, "Downloading update...") {
 		t.Fatalf("expected plain non-tty progress line, got:\n%s", output)
+	}
+}
+
+func TestTTYProgressHandleDescribeSkipsNoOpRedraws(t *testing.T) {
+	withTerminalOutput(t, true)
+
+	handle, ok := newRawProgressHandle(os.Stderr, true, true, progressModeSpinner, "Working", -1).(*ttyProgressHandle)
+	if !ok || handle == nil {
+		t.Fatal("expected ttyProgressHandle")
+	}
+
+	if handle.description != "Working" {
+		t.Fatalf("initial description = %q, want %q", handle.description, "Working")
+	}
+
+	handle.Describe("Working")
+	handle.Describe("Still working")
+	if handle.description != "Still working" {
+		t.Fatalf("cached description = %q, want %q", handle.description, "Still working")
+	}
+	handle.Clear()
+}
+
+func TestSpinnerProgressTTYDoesNotShowRateMarkers(t *testing.T) {
+	withTerminalOutput(t, true)
+
+	output := captureStdout(t, func() {
+		handle := newProcessSpinnerProgress("Integrating MyApp.AppImage", true)
+		if handle != nil {
+			time.Sleep(80 * time.Millisecond)
+			handle.Clear()
+		}
+	})
+
+	if !strings.Contains(output, "Integrating MyApp.AppImage") {
+		t.Fatalf("expected spinner label in output, got:\n%q", output)
+	}
+	if strings.Contains(output, "it/s") {
+		t.Fatalf("expected spinner output without it/s marker, got:\n%q", output)
+	}
+	if strings.Contains(output, "[0s]") {
+		t.Fatalf("expected spinner output without elapsed-time suffix, got:\n%q", output)
+	}
+	if strings.Contains(output, "█") || strings.Contains(output, "▓") || strings.Contains(output, "░") {
+		t.Fatalf("expected spinner output without bar glyphs, got:\n%q", output)
+	}
+}
+
+func TestByteProgressTTYShowsCompactByteText(t *testing.T) {
+	withTerminalOutput(t, true)
+
+	output := captureStdout(t, func() {
+		handle := newProcessByteProgress("Downloading helium", 2048, true)
+		if handle != nil {
+			time.Sleep(80 * time.Millisecond)
+			handle.Add(1024)
+			handle.Clear()
+		}
+	})
+
+	if !strings.Contains(output, "Downloading helium") {
+		t.Fatalf("expected byte progress label in output, got:\n%q", output)
+	}
+	if !strings.Contains(output, "1.0KB/2.0KB") {
+		t.Fatalf("expected compact byte progress in output, got:\n%q", output)
+	}
+	if strings.Contains(output, "it/s") || strings.Contains(output, "[0s]") {
+		t.Fatalf("expected compact byte progress without rate/elapsed output, got:\n%q", output)
+	}
+}
+
+func TestCountProgressTTYShowsCompactCountText(t *testing.T) {
+	withTerminalOutput(t, true)
+
+	output := captureStdout(t, func() {
+		handle := newRawProgressHandle(os.Stderr, true, true, progressModeCount, "Updating apps (0/2 complete, 0 failed, 2 active)", 2)
+		if handle != nil {
+			handle.Add(1)
+			handle.Describe("Updating apps (1/2 complete, 0 failed, 1 active)")
+			handle.Clear()
+		}
+	})
+
+	if !strings.Contains(output, "Updating apps (1/2 complete, 0 failed, 1 active)") {
+		t.Fatalf("expected compact count progress in output, got:\n%q", output)
+	}
+	if strings.Contains(output, "it/s") || strings.Contains(output, "[0s]") {
+		t.Fatalf("expected compact count progress without rate/elapsed output, got:\n%q", output)
 	}
 }
 
