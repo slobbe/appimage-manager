@@ -315,6 +315,10 @@ func (c *singleManagedApplyController) setSpinnerDescription(description string)
 
 func (c *singleManagedApplyController) updateDownloadProgress(downloaded, total int64) {
 	description := fmt.Sprintf("Downloading %s", c.appID)
+	if downloaded <= 0 && total == 0 {
+		c.setSpinnerDescription(description)
+		return
+	}
 	if c.handle == nil || c.handleMode != progressModeBytes || c.downloadTotal != total {
 		if c.handle != nil {
 			c.handle.Clear()

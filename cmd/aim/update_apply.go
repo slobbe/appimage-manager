@@ -198,7 +198,11 @@ func downloadUpdateAsset(ctx context.Context, assetURL, destination string, inte
 }
 
 func downloadUpdateAssetWithProgress(ctx context.Context, assetURL, destination string, interactive bool, onProgress func(downloaded, total int64)) error {
-	progress := newProcessSpinnerProgress("Downloading update", interactive)
+	ownsProgress := onProgress == nil
+	var progress progressHandle
+	if ownsProgress {
+		progress = newProcessSpinnerProgress("Downloading update", interactive)
+	}
 	defer func() {
 		if progress != nil && interactive {
 			progress.Clear()
@@ -292,7 +296,7 @@ func downloadUpdateAssetWithProgress(ctx context.Context, assetURL, destination 
 		buffer       = make([]byte, 32*1024)
 		progressMode = progressModeSpinner
 	)
-	if interactive && progress != nil {
+	if ownsProgress && interactive && progress != nil {
 		progress.Clear()
 		progress = newProcessByteProgress("Downloading update", total, true)
 		if total > 0 {
@@ -313,7 +317,7 @@ func downloadUpdateAssetWithProgress(ctx context.Context, assetURL, destination 
 			if onProgress != nil {
 				onProgress(downloaded, total)
 			}
-			if interactive && progress != nil {
+			if ownsProgress && interactive && progress != nil {
 				progress.Add(int64(n))
 			}
 			meta.TotalBytes = total
@@ -330,7 +334,7 @@ func downloadUpdateAssetWithProgress(ctx context.Context, assetURL, destination 
 		}
 	}
 
-	if interactive {
+	if ownsProgress && interactive {
 		if progress != nil {
 			if progressMode == progressModeBytes {
 				progress.Finish()
@@ -344,7 +348,7 @@ func downloadUpdateAssetWithProgress(ctx context.Context, assetURL, destination 
 		if onProgress != nil {
 			onProgress(downloaded, total)
 		}
-		if onProgress == nil {
+		if ownsProgress {
 			writeProcessLogf("  Downloaded %s\n", formatByteSize(downloaded))
 		}
 	}

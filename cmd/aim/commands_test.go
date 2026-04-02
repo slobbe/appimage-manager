@@ -5970,11 +5970,57 @@ func TestRunManagedUpdateUsesUnifiedApplyUIForSingleApp(t *testing.T) {
 	if !strings.Contains(output, "Updating my-app...") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
+	if strings.Contains(output, "Downloading update...") {
+		t.Fatalf("unexpected nested download progress output:\n%s", output)
+	}
 	if strings.Contains(output, "\033[") {
 		t.Fatalf("expected non-tty output without ansi codes:\n%s", output)
 	}
 	if !strings.Contains(output, "Updated 1 app(s); 0 failed") {
 		t.Fatalf("unexpected summary:\n%s", output)
+	}
+}
+
+func TestDownloadUpdateAssetWithProgressSkipsFallbackProgressWhenExternallyOwned(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "payload")
+	}))
+	defer server.Close()
+
+	destination := filepath.Join(t.TempDir(), "app.AppImage")
+	var progressCalls int
+	output := captureStdout(t, func() {
+		err := downloadUpdateAssetWithProgress(context.Background(), server.URL, destination, false, func(downloaded, total int64) {
+			progressCalls++
+		})
+		if err != nil {
+			t.Fatalf("downloadUpdateAssetWithProgress returned error: %v", err)
+		}
+	})
+
+	if progressCalls == 0 {
+		t.Fatal("expected external progress callback to be invoked")
+	}
+	if strings.Contains(output, "Downloading update...") {
+		t.Fatalf("unexpected fallback progress output:\n%s", output)
+	}
+	if strings.Contains(output, "Downloaded ") {
+		t.Fatalf("unexpected fallback download summary output:\n%s", output)
+	}
+}
+
+func TestSingleManagedApplyControllerKeepsSpinnerUntilByteProgressArrives(t *testing.T) {
+	controller := newSingleManagedApplyController(&cobra.Command{}, "my-app")
+
+	controller.Event(managedApplyEvent{Stage: managedApplyStageQueued})
+	controller.Event(managedApplyEvent{Stage: managedApplyStageDownload, Downloaded: 0, DownloadTotal: 0})
+	if controller.handleMode != progressModeSpinner {
+		t.Fatalf("handleMode after initial download event = %v, want %v", controller.handleMode, progressModeSpinner)
+	}
+
+	controller.Event(managedApplyEvent{Stage: managedApplyStageDownload, Downloaded: 1024, DownloadTotal: 2048})
+	if controller.handleMode != progressModeBytes {
+		t.Fatalf("handleMode after byte progress = %v, want %v", controller.handleMode, progressModeBytes)
 	}
 }
 
