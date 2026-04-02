@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/slobbe/appimage-manager/internal/config"
@@ -194,100 +193,11 @@ func UpdateDesktopEntry(ctx context.Context, src string, execSrc string, iconSrc
 		return fmt.Errorf("icon source file cannot be empty")
 	}
 
-	content, err := util.ReadFileContents(src)
-	if err != nil {
-		return err
-	}
-
-	inDesktopEntryGroup := false
-	inDesktopActionGroup := false
-	lines := strings.Split(content, "\n")
-	for i, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
-			inDesktopEntryGroup = trimmed == "[Desktop Entry]"
-			inDesktopActionGroup = strings.HasPrefix(trimmed, "[Desktop Action ") && strings.HasSuffix(trimmed, "]")
-			continue
-		}
-
-		if !inDesktopEntryGroup && !inDesktopActionGroup {
-			continue
-		}
-
-		// handle Exec= lines - preserve arguments after command
-		if strings.HasPrefix(trimmed, "Exec=") {
-			lines[i] = rewriteExecLine(trimmed, execSrc)
-		}
-
-		// handle Icon= lines
-		if inDesktopEntryGroup && strings.HasPrefix(trimmed, "Icon=") {
-			lines[i] = "Icon=" + iconSrc
-		}
-	}
-
-	if len(lines) > 0 && lines[len(lines)-1] != "" {
-		lines = append(lines, "")
-	}
-
-	info, statErr := os.Stat(src)
-	var perm os.FileMode = 0o644
-	if statErr == nil {
-		perm = info.Mode().Perm() & 0o666
-	}
-
-	if err := os.WriteFile(src, []byte(strings.Join(lines, "\n")), perm); err != nil {
+	if err := util.RewriteDesktopEntryFile(src, execSrc, iconSrc); err != nil {
 		return fmt.Errorf("failed to write desktop file: %w", err)
 	}
 
 	return nil
-}
-
-func rewriteExecLine(execLine, execSrc string) string {
-	value := strings.TrimPrefix(execLine, "Exec=")
-	value = strings.TrimSpace(value)
-
-	_, args := splitDesktopExec(value)
-	return "Exec=" + quoteDesktopExecArg(execSrc) + args
-}
-
-func splitDesktopExec(value string) (string, string) {
-	if value == "" {
-		return "", ""
-	}
-
-	if value[0] == '"' {
-		escaped := false
-		for i := 1; i < len(value); i++ {
-			if escaped {
-				escaped = false
-				continue
-			}
-			if value[i] == '\\' {
-				escaped = true
-				continue
-			}
-			if value[i] == '"' {
-				return value[:i+1], value[i+1:]
-			}
-		}
-		return value, ""
-	}
-
-	if idx := strings.IndexAny(value, " \t"); idx >= 0 {
-		return value[:idx], value[idx:]
-	}
-
-	return value, ""
-}
-
-func quoteDesktopExecArg(value string) string {
-	if value == "" {
-		return ""
-	}
-	if strings.ContainsAny(value, " \t\n\r\"") {
-		return strconv.Quote(value)
-	}
-	return value
 }
 
 func GetAppInfo(ctx context.Context, desktopSrc string) (*AppInfo, error) {
