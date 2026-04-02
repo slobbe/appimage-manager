@@ -231,7 +231,7 @@ func downloadUpdateAssetWithProgress(ctx context.Context, assetURL, destination 
 			req.Header.Set("Range", fmt.Sprintf("bytes=%d-", rangeStart))
 		}
 		logOperationContextf(ctx, "HTTP GET %s", assetURL)
-		return core.SharedHTTPClient().Do(req)
+		return core.SharedDownloadHTTPClient().Do(req)
 	}
 
 	resp, err := doRequest(existingSize)

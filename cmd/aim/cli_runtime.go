@@ -64,6 +64,7 @@ func prepareRuntime(cmd *cobra.Command) error {
 		return err
 	}
 	core.SetHTTPClientTimeout(settings.NetworkTimeout)
+	core.SetDownloadHTTPClientTimeout(settings.NetworkTimeout)
 	discovery.SetHTTPClientTimeout(settings.NetworkTimeout)
 
 	if opts.Debug {

@@ -77,6 +77,7 @@ func renderManMetadataSections(cmd *cobra.Command) string {
 		sections = append(sections, renderManSection("ROBUSTNESS", strings.Join([]string{
 			"Network timeout is read from ${XDG_CONFIG_HOME:-~/.config}/aim/settings.toml or <root>/config/aim/settings.toml when -C is used.",
 			"Example settings file: network_timeout = \"30s\"",
+			"Metadata and update-check requests use network_timeout as a whole-request timeout; AppImage downloads use it for connection, TLS handshake, and response-header waits only.",
 			"Failed long-running operations print a compact operation log after the main error.",
 			"Interrupted downloads are staged under the AIM temp root and can be resumed on rerun when the server supports range requests.",
 			"Recent successful update checks can be reused for up to 5 minutes on rerun.",

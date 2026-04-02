@@ -4301,9 +4301,11 @@ func TestPrepareRuntimeLoadsSettingsTimeout(t *testing.T) {
 	rootDir := t.TempDir()
 	originalPaths := config.CurrentPaths()
 	originalTimeout := core.SharedHTTPClient().Timeout
+	originalDownloadHeaderTimeout := sharedDownloadHTTPTransport(t).ResponseHeaderTimeout
 	t.Cleanup(func() {
 		config.ApplyPaths(originalPaths)
 		core.SetHTTPClientTimeout(originalTimeout)
+		core.SetDownloadHTTPClientTimeout(originalDownloadHeaderTimeout)
 		discovery.SetHTTPClientTimeout(originalTimeout)
 	})
 
@@ -4326,6 +4328,81 @@ func TestPrepareRuntimeLoadsSettingsTimeout(t *testing.T) {
 	if got := core.SharedHTTPClient().Timeout; got != 45*time.Second {
 		t.Fatalf("shared HTTP timeout = %s, want 45s", got)
 	}
+	if got := core.SharedDownloadHTTPClient().Timeout; got != 0 {
+		t.Fatalf("shared download HTTP timeout = %s, want 0", got)
+	}
+	if got := sharedDownloadHTTPTransport(t).ResponseHeaderTimeout; got != 45*time.Second {
+		t.Fatalf("download response header timeout = %s, want 45s", got)
+	}
+}
+
+func TestDownloadUpdateAssetAllowsSlowStreamingBody(t *testing.T) {
+	originalTimeout := sharedDownloadHTTPTransport(t).ResponseHeaderTimeout
+	t.Cleanup(func() {
+		core.SetDownloadHTTPClientTimeout(originalTimeout)
+	})
+	core.SetDownloadHTTPClientTimeout(50 * time.Millisecond)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		flusher, _ := w.(http.Flusher)
+		_, _ = io.WriteString(w, "chunk-one")
+		if flusher != nil {
+			flusher.Flush()
+		}
+		time.Sleep(80 * time.Millisecond)
+		_, _ = io.WriteString(w, "-chunk-two")
+		if flusher != nil {
+			flusher.Flush()
+		}
+		time.Sleep(80 * time.Millisecond)
+		_, _ = io.WriteString(w, "-chunk-three")
+	}))
+	defer server.Close()
+
+	destination := filepath.Join(t.TempDir(), "app.AppImage")
+	if err := downloadUpdateAssetWithProgress(context.Background(), server.URL, destination, false, nil); err != nil {
+		t.Fatalf("downloadUpdateAssetWithProgress returned error: %v", err)
+	}
+
+	content, err := os.ReadFile(destination)
+	if err != nil {
+		t.Fatalf("ReadFile returned error: %v", err)
+	}
+	if got, want := string(content), "chunk-one-chunk-two-chunk-three"; got != want {
+		t.Fatalf("downloaded content = %q, want %q", got, want)
+	}
+}
+
+func TestDownloadUpdateAssetTimesOutWaitingForHeaders(t *testing.T) {
+	originalTimeout := sharedDownloadHTTPTransport(t).ResponseHeaderTimeout
+	t.Cleanup(func() {
+		core.SetDownloadHTTPClientTimeout(originalTimeout)
+	})
+	core.SetDownloadHTTPClientTimeout(50 * time.Millisecond)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(100 * time.Millisecond)
+		_, _ = io.WriteString(w, "late")
+	}))
+	defer server.Close()
+
+	err := downloadUpdateAssetWithProgress(context.Background(), server.URL, filepath.Join(t.TempDir(), "app.AppImage"), false, nil)
+	if err == nil {
+		t.Fatal("expected download error")
+	}
+	if code := exitCodeForError(err); code != exitTempFail {
+		t.Fatalf("exitCodeForError = %d, want %d", code, exitTempFail)
+	}
+}
+
+func sharedDownloadHTTPTransport(t *testing.T) *http.Transport {
+	t.Helper()
+
+	transport, ok := core.SharedDownloadHTTPClient().Transport.(*http.Transport)
+	if !ok || transport == nil {
+		t.Fatal("shared download HTTP transport is not an *http.Transport")
+	}
+	return transport
 }
 
 func TestWithStateWriteLockFailsWhenHeld(t *testing.T) {

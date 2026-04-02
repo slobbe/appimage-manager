@@ -158,6 +158,7 @@ Expected errors are rewritten to be user-facing and actionable when possible, fo
 - default settings path:
   `${XDG_CONFIG_HOME:-~/.config}/aim/settings.toml`
 - when `-C` is used, the settings file lives under `<root>/config/aim/settings.toml`
+- `network_timeout` caps metadata and update-check requests as a whole; AppImage downloads use it for connection, TLS handshake, and response-header waits only
 - interrupted direct downloads and managed update downloads are staged under the AIM temp root and reused on rerun when resume is safe
 - recent successful managed update checks can be reused for up to 5 minutes on rerun
 - mutating commands take a per-root state lock; if another `aim` process is already writing, the second command fails fast instead of racing shared state
