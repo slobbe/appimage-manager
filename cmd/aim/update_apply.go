@@ -118,7 +118,7 @@ func applyZsyncUpdate(ctx context.Context, update pendingManagedUpdate, destinat
 		return withUserGuidance(
 			notFoundError(fmt.Errorf("missing app exec path")),
 			fmt.Sprintf("Can't apply an update for %s because the managed app record is missing its executable path.", update.App.ID),
-			fmt.Sprintf("Run 'aim migrate %s' or reinstall the app.", update.App.ID),
+			fmt.Sprintf("Reinstall %s.", update.App.ID),
 		)
 	}
 	if strings.TrimSpace(update.ZsyncURL) == "" {

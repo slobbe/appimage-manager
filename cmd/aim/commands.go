@@ -76,107 +76,6 @@ func runUpgrade(ctx context.Context, cmd *cobra.Command) error {
 	return nil
 }
 
-func MigrateCmd(cmd *cobra.Command, args []string) error {
-	if cmd != nil && strings.TrimSpace(cmd.CalledAs()) == "repair" {
-		printWarning(cmd, "repair is deprecated; use 'aim migrate'")
-	}
-	if len(args) > 1 {
-		return usageError(fmt.Errorf("too many arguments"))
-	}
-	opts := runtimeOptionsFrom(cmd)
-
-	if len(args) == 0 {
-		if opts.DryRun {
-			plan, err := repo.PlanMigrationToCurrentPaths("")
-			if err != nil {
-				return err
-			}
-			if opts.JSON {
-				return printJSONSuccess(cmd, plan)
-			}
-			writeDataf(cmd, "Dry run: migration planned=%t\n", plan.WouldChangeAnything)
-			return nil
-		}
-		if err := mustEnsureRuntimeDirs(); err != nil {
-			return err
-		}
-		changed, err := func() (bool, error) {
-			var changed bool
-			err := withStateWriteLock(cmd, func() error {
-				logOperationf(cmd, "Migrating managed apps")
-				var migrateErr error
-				changed, migrateErr = runWithBusyIndicator(cmd, progressMigrateApps(), func() (bool, error) {
-					return migrateAllApps()
-				})
-				return migrateErr
-			})
-			return changed, err
-		}()
-		if err != nil {
-			return err
-		}
-		if opts.JSON {
-			return printJSONSuccess(cmd, map[string]interface{}{
-				"changed": changed,
-				"scope":   "all",
-			})
-		}
-		if !changed {
-			printSuccess(cmd, successMigrationNoop(""))
-			return nil
-		}
-		printSuccess(cmd, successMigrationComplete(""))
-		return nil
-	}
-
-	id := strings.TrimSpace(args[0])
-	if id == "" {
-		return usageError(fmt.Errorf("missing required argument <id>"))
-	}
-	if opts.DryRun {
-		plan, err := repo.PlanMigrationToCurrentPaths(id)
-		if err != nil {
-			return wrapManagedAppLookupError(id, err)
-		}
-		if opts.JSON {
-			return printJSONSuccess(cmd, plan)
-		}
-		writeDataf(cmd, "Dry run: migration planned for %s = %t\n", id, plan.WouldChangeAnything)
-		return nil
-	}
-	if err := mustEnsureRuntimeDirs(); err != nil {
-		return err
-	}
-
-	changed, err := func() (bool, error) {
-		var changed bool
-		err := withStateWriteLock(cmd, func() error {
-			logOperationf(cmd, "Migrating %s", id)
-			var migrateErr error
-			changed, migrateErr = runWithBusyIndicator(cmd, progressMigrateApp(id), func() (bool, error) {
-				return migrateSingleApp(id)
-			})
-			return migrateErr
-		})
-		return changed, err
-	}()
-	if err != nil {
-		return wrapManagedAppLookupError(id, err)
-	}
-	if opts.JSON {
-		return printJSONSuccess(cmd, map[string]interface{}{
-			"changed": changed,
-			"scope":   id,
-		})
-	}
-	if !changed {
-		printSuccess(cmd, successMigrationNoop(id))
-		return nil
-	}
-	printSuccess(cmd, successMigrationComplete(id))
-	return nil
-}
-
 func AddCmd(cmd *cobra.Command, args []string) error {
 	selection, err := resolveAddInput(cmd, args)
 	if err != nil {
@@ -1226,6 +1125,10 @@ func embeddedUpdateSourceForPath(path string) (*models.UpdateSource, error) {
 }
 
 func UpdateCmd(cmd *cobra.Command, args []string) error {
+	if removed := removedUpdateSubcommand(args); removed != "" {
+		return usageError(fmt.Errorf("unknown command %q for %q", removed, cmd.CommandPath()))
+	}
+
 	setID, err := flagString(cmd, "set")
 	if err != nil {
 		return err
@@ -1283,10 +1186,17 @@ func UpdateCmd(cmd *cobra.Command, args []string) error {
 	return runManagedUpdate(cmd.Context(), cmd, targetID)
 }
 
-func UpdateCheckRemovedCmd(cmd *cobra.Command, args []string) error {
-	_ = cmd
-	_ = args
-	return fmt.Errorf("`aim update check` has been removed; use `aim update [<id>]` for managed apps")
+func removedUpdateSubcommand(args []string) string {
+	if len(args) == 0 {
+		return ""
+	}
+
+	switch trimmed := strings.TrimSpace(args[0]); trimmed {
+	case "check", "set", "unset":
+		return trimmed
+	default:
+		return ""
+	}
 }
 
 func unsetManagedUpdateSource(cmd *cobra.Command, app *models.App, prompt string, showCurrent bool) (bool, error) {
@@ -1321,7 +1231,7 @@ func unsetManagedUpdateSource(cmd *cobra.Command, app *models.App, prompt string
 }
 
 func hasUpdateSetFlags(cmd *cobra.Command) bool {
-	keys := []string{"github", "gitlab", "asset", "zsync", "embedded", "manifest-url", "url", "sha256"}
+	keys := []string{"github", "gitlab", "asset", "zsync", "embedded"}
 	for _, key := range keys {
 		if flagChanged(cmd, key) {
 			return true
@@ -1347,28 +1257,7 @@ func validateEmbeddedUpdateSetFlags(cmd *cobra.Command) error {
 	if err != nil {
 		return err
 	}
-	manifestURL, err := flagString(cmd, "manifest-url")
-	if err != nil {
-		return err
-	}
-	directURL, err := flagString(cmd, "url")
-	if err != nil {
-		return err
-	}
-	sha256, err := flagString(cmd, "sha256")
-	if err != nil {
-		return err
-	}
 
-	if manifestURL != "" {
-		return usageError(fmt.Errorf("--manifest-url is no longer supported; use --github, --gitlab, --zsync, or --embedded"))
-	}
-	if directURL != "" {
-		return usageError(fmt.Errorf("--url is no longer supported; use --github, --gitlab, --zsync, or --embedded"))
-	}
-	if sha256 != "" {
-		return usageError(fmt.Errorf("--sha256 is no longer supported; use --github, --gitlab, --zsync, or --embedded"))
-	}
 	if assetPattern != "" {
 		return usageError(fmt.Errorf("--asset is only supported with --github or --gitlab"))
 	}
@@ -1508,14 +1397,6 @@ func runUpdateUnsetMode(cmd *cobra.Command, id string) error {
 	return err
 }
 
-func removedUpdateSetCommandError() error {
-	return usageError(fmt.Errorf("aim update set has been removed; use 'aim update --set <id> ...'"))
-}
-
-func removedUpdateUnsetCommandError() error {
-	return usageError(fmt.Errorf("aim update unset has been removed; use 'aim update --unset <id>'"))
-}
-
 func resolveUpdateSourceFromSetFlags(cmd *cobra.Command) (*models.UpdateSource, error) {
 	githubRepo, err := flagString(cmd, "github")
 	if err != nil {
@@ -1532,28 +1413,6 @@ func resolveUpdateSourceFromSetFlags(cmd *cobra.Command) (*models.UpdateSource, 
 	zsyncURL, err := flagString(cmd, "zsync")
 	if err != nil {
 		return nil, err
-	}
-	manifestURL, err := flagString(cmd, "manifest-url")
-	if err != nil {
-		return nil, err
-	}
-	directURL, err := flagString(cmd, "url")
-	if err != nil {
-		return nil, err
-	}
-	sha256, err := flagString(cmd, "sha256")
-	if err != nil {
-		return nil, err
-	}
-
-	if manifestURL != "" {
-		return nil, usageError(fmt.Errorf("--manifest-url is no longer supported; use --github, --gitlab, --zsync, or --embedded"))
-	}
-	if directURL != "" {
-		return nil, usageError(fmt.Errorf("--url is no longer supported; use --github, --gitlab, --zsync, or --embedded"))
-	}
-	if sha256 != "" {
-		return nil, usageError(fmt.Errorf("--sha256 is no longer supported; use --github, --gitlab, --zsync, or --embedded"))
 	}
 
 	selectorCount := 0
@@ -1675,8 +1534,6 @@ var integrateExistingApp = core.IntegrateExisting
 var integrateLocalApp = core.IntegrateFromLocalFile
 var readAppImageInfo = core.ReadAppImageInfo
 var getAppImageUpdateInfo = core.GetUpdateInfo
-var migrateAllApps = repo.MigrateToCurrentPathsChanged
-var migrateSingleApp = repo.MigrateAppToCurrentPaths
 var removeManagedApp = core.Remove
 var addAppsBatch = repo.AddAppsBatch
 var addSingleApp = repo.AddApp

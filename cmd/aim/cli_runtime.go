@@ -125,11 +125,7 @@ func parseRuntimeOptions(cmd *cobra.Command) (runtimeOptions, error) {
 	if err != nil {
 		return opts, err
 	}
-	verboseAlias, err := flagBool(cmd, "verbose")
-	if err != nil {
-		return opts, err
-	}
-	opts.Debug = debug || verboseAlias
+	opts.Debug = debug
 	opts.Quiet, err = flagBool(cmd, "quiet")
 	if err != nil {
 		return opts, err

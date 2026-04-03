@@ -545,85 +545,6 @@ func TestRemovedVersionCommandReturnsUnknownCommand(t *testing.T) {
 	}
 }
 
-func TestMigrateCmdRunsFullMigration(t *testing.T) {
-	originalMigrateAllApps := migrateAllApps
-	t.Cleanup(func() {
-		migrateAllApps = originalMigrateAllApps
-	})
-
-	called := false
-	migrateAllApps = func() (bool, error) {
-		called = true
-		return true, nil
-	}
-
-	output := captureStdout(t, func() {
-		if err := runRootCommand(context.Background(), []string{"migrate"}); err != nil {
-			t.Fatalf("runRootCommand returned error: %v", err)
-		}
-	})
-
-	if !called {
-		t.Fatal("expected full migration to be called")
-	}
-	if !strings.Contains(output, "Migrating managed apps...") {
-		t.Fatalf("unexpected output:\n%s", output)
-	}
-	if !strings.Contains(output, "Migration complete") {
-		t.Fatalf("unexpected output:\n%s", output)
-	}
-}
-
-func TestMigrateCmdRunsTargetedMigration(t *testing.T) {
-	originalMigrateSingleApp := migrateSingleApp
-	t.Cleanup(func() {
-		migrateSingleApp = originalMigrateSingleApp
-	})
-
-	var gotID string
-	migrateSingleApp = func(id string) (bool, error) {
-		gotID = id
-		return true, nil
-	}
-
-	output := captureStdout(t, func() {
-		if err := runRootCommand(context.Background(), []string{"migrate", "my-app"}); err != nil {
-			t.Fatalf("runRootCommand returned error: %v", err)
-		}
-	})
-
-	if gotID != "my-app" {
-		t.Fatalf("targeted migrate id = %q, want %q", gotID, "my-app")
-	}
-	if !strings.Contains(output, "Migrating my-app...") {
-		t.Fatalf("unexpected output:\n%s", output)
-	}
-	if !strings.Contains(output, "Migration complete for my-app") {
-		t.Fatalf("unexpected output:\n%s", output)
-	}
-}
-
-func TestMigrateCmdNoopOutput(t *testing.T) {
-	originalMigrateAllApps := migrateAllApps
-	t.Cleanup(func() {
-		migrateAllApps = originalMigrateAllApps
-	})
-
-	migrateAllApps = func() (bool, error) {
-		return false, nil
-	}
-
-	output := captureStdout(t, func() {
-		if err := runRootCommand(context.Background(), []string{"migrate"}); err != nil {
-			t.Fatalf("runRootCommand returned error: %v", err)
-		}
-	})
-
-	if !strings.Contains(output, "No migration changes needed") {
-		t.Fatalf("unexpected output:\n%s", output)
-	}
-}
-
 func TestBusyIndicatorTTYRendersAndClearsBeforeFinalOutput(t *testing.T) {
 	withTerminalOutput(t, true)
 	withBusyIndicatorRenderInterval(t, 5*time.Millisecond)
@@ -656,16 +577,6 @@ func TestBusyIndicatorTTYRendersAndClearsBeforeFinalOutput(t *testing.T) {
 	}
 }
 
-func TestMigrateCmdRejectsExtraArgs(t *testing.T) {
-	err := runRootCommand(context.Background(), []string{"migrate", "one", "two"})
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "accepts at most 1 arg") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
 func TestRootHelpDoesNotAdvertiseRemovedCommands(t *testing.T) {
 	cmd := newRootTestCommand()
 
@@ -675,7 +586,7 @@ func TestRootHelpDoesNotAdvertiseRemovedCommands(t *testing.T) {
 		}
 	})
 
-	for _, unwanted := range []string{"\n  upgrade", "\n  pin", "\n  unpin", "\n  completion", "\n  integrate", "\n  install", "\n  show", "\n  inspect"} {
+	for _, unwanted := range []string{"\n  upgrade", "\n  migrate", "\n  pin", "\n  unpin", "\n  completion", "\n  integrate", "\n  install", "\n  show", "\n  inspect"} {
 		if strings.Contains(output, unwanted) {
 			t.Fatalf("root help unexpectedly contains %q:\n%s", unwanted, output)
 		}
@@ -695,7 +606,7 @@ func TestRootHelpDoesNotAdvertiseRemovedCommands(t *testing.T) {
 func TestRemovedCommandsAreUnavailable(t *testing.T) {
 	cmd := newRootTestCommand()
 
-	for _, unwanted := range []string{"pin", "unpin", "completion", "integrate", "install", "show", "inspect"} {
+	for _, unwanted := range []string{"migrate", "repair", "pin", "unpin", "completion", "integrate", "install", "show", "inspect"} {
 		if findSubcommand(cmd, unwanted) != nil {
 			t.Fatalf("unexpected command registration for %q", unwanted)
 		}
@@ -723,16 +634,6 @@ func TestRootRegistersPackageCommands(t *testing.T) {
 	}
 	if findSubcommand(cmd, "upgrade") != nil {
 		t.Fatal("did not expect upgrade subcommand to be registered")
-	}
-	updateCmd := findSubcommand(cmd, "update")
-	if updateCmd == nil {
-		t.Fatal("expected update command")
-	}
-	if setCmd := findSubcommand(updateCmd, "set"); setCmd == nil || !setCmd.Hidden {
-		t.Fatalf("expected hidden removed-command stub for update set, got %#v", setCmd)
-	}
-	if unsetCmd := findSubcommand(updateCmd, "unset"); unsetCmd == nil || !unsetCmd.Hidden {
-		t.Fatalf("expected hidden removed-command stub for update unset, got %#v", unsetCmd)
 	}
 }
 
@@ -905,9 +806,8 @@ func TestRootPackageCommandAliases(t *testing.T) {
 
 	listCmd := findSubcommand(cmd, "list")
 	updateCmd := findSubcommand(cmd, "update")
-	migrateCmd := findSubcommand(cmd, "migrate")
-	if listCmd == nil || updateCmd == nil || migrateCmd == nil {
-		t.Fatal("expected list, update, and migrate commands")
+	if listCmd == nil || updateCmd == nil {
+		t.Fatal("expected list and update commands")
 	}
 
 	if aliases := listCmd.Aliases; len(aliases) != 1 || aliases[0] != "ls" {
@@ -915,9 +815,6 @@ func TestRootPackageCommandAliases(t *testing.T) {
 	}
 	if aliases := updateCmd.Aliases; len(aliases) != 1 || aliases[0] != "u" {
 		t.Fatalf("update aliases = %v, want [u]", aliases)
-	}
-	if aliases := migrateCmd.Aliases; len(aliases) != 1 || aliases[0] != "repair" {
-		t.Fatalf("migrate aliases = %v, want [repair]", aliases)
 	}
 }
 
@@ -984,12 +881,12 @@ func TestRemoveCmdOutputsUnlinkedMessage(t *testing.T) {
 	}
 }
 
-func TestUpdateCheckSubcommandRemoved(t *testing.T) {
+func TestUpdateCheckSubcommandReturnsUnknownCommand(t *testing.T) {
 	err := runRootCommand(context.Background(), []string{"update", "check", "./MyApp.AppImage"})
 	if err == nil {
-		t.Fatal("expected removed-subcommand error")
+		t.Fatal("expected unknown-command error")
 	}
-	if !strings.Contains(err.Error(), "`aim update check` has been removed") {
+	if !strings.Contains(err.Error(), `unknown command "check" for "aim update"`) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -1349,7 +1246,7 @@ func TestAddCmdRejectsMixedProviderSelectors(t *testing.T) {
 
 func TestAddCmdRejectsLegacyProviderRef(t *testing.T) {
 	err := runAddCommand(context.Background(), []string{"github:owner/repo"})
-	if err == nil || !strings.Contains(err.Error(), "github:... refs are no longer accepted") {
+	if err == nil || !strings.Contains(err.Error(), `unknown add target "github:owner/repo"`) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -2511,7 +2408,7 @@ func TestResolvePackageRefInputRejectsMalformedRef(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(err.Error(), "github:... refs are no longer accepted") {
+	if !strings.Contains(err.Error(), `unsupported package ref URL "github:owner"`) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -2544,7 +2441,7 @@ func TestAddCmdRejectsMalformedGitHubRef(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(err.Error(), "github:... refs are no longer accepted") {
+	if !strings.Contains(err.Error(), `unknown add target "github:owner"`) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -2772,21 +2669,6 @@ func TestResolveUpdateSourceFromSetFlags(t *testing.T) {
 			name:   "zsync source",
 			flags:  map[string]string{"zsync": "https://example.com/MyApp.AppImage.zsync"},
 			expect: models.UpdateZsync,
-		},
-		{
-			name:      "manifest no longer supported",
-			flags:     map[string]string{"manifest-url": "https://example.com/latest.json"},
-			wantError: true,
-		},
-		{
-			name:      "direct url no longer supported",
-			flags:     map[string]string{"url": "https://example.com/MyApp.AppImage"},
-			wantError: true,
-		},
-		{
-			name:      "sha256 no longer supported",
-			flags:     map[string]string{"sha256": strings.Repeat("a", 64)},
-			wantError: true,
 		},
 		{
 			name:      "mutually exclusive selectors",
@@ -3646,7 +3528,7 @@ func TestNewRootCommandMetadata(t *testing.T) {
 
 func TestRootPersistentFlagsAvailableOnVisibleCommands(t *testing.T) {
 	root := newRootCommand("1.2.3")
-	required := []string{"debug", "verbose", "quiet", "dry-run", "yes", "no-input", "json", "csv", "plain", "no-color"}
+	required := []string{"debug", "quiet", "dry-run", "yes", "no-input", "json", "csv", "plain", "no-color"}
 
 	var visit func(*cobra.Command)
 	visit = func(cmd *cobra.Command) {
@@ -4676,30 +4558,30 @@ func TestUpgradeMessagingUsesStderr(t *testing.T) {
 	}
 }
 
-func TestRemovedUpdateSetCommandShowsGuidance(t *testing.T) {
+func TestUpdateSetSubcommandReturnsUnknownCommand(t *testing.T) {
 	cmd := newRootTestCommand()
 	err := executeTestCommand(context.Background(), cmd, "update", "set", "my-app", "--github", "owner/repo")
 	if err == nil {
-		t.Fatal("expected removed-command error")
+		t.Fatal("expected unknown-command error")
 	}
 	if code := exitCodeForError(err); code != exitUsage {
 		t.Fatalf("exitCodeForError = %d, want %d", code, exitUsage)
 	}
-	if !strings.Contains(err.Error(), "aim update set has been removed; use 'aim update --set <id> ...'") {
+	if !strings.Contains(err.Error(), `unknown command "set" for "aim update"`) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
-func TestRemovedUpdateUnsetCommandShowsGuidance(t *testing.T) {
+func TestUpdateUnsetSubcommandReturnsUnknownCommand(t *testing.T) {
 	cmd := newRootTestCommand()
 	err := executeTestCommand(context.Background(), cmd, "update", "unset", "my-app")
 	if err == nil {
-		t.Fatal("expected removed-command error")
+		t.Fatal("expected unknown-command error")
 	}
 	if code := exitCodeForError(err); code != exitUsage {
 		t.Fatalf("exitCodeForError = %d, want %d", code, exitUsage)
 	}
-	if !strings.Contains(err.Error(), "aim update unset has been removed; use 'aim update --unset <id>'") {
+	if !strings.Contains(err.Error(), `unknown command "unset" for "aim update"`) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -4754,16 +4636,13 @@ func TestRenderManPageIncludesMetadata(t *testing.T) {
 		".SS aim add",
 		".SS aim info",
 		".SS aim list",
-		".SS aim migrate",
 		".SS aim remove",
 		".SS aim update",
 		"Install an AppImage from a file, URL, or provider",
-		"Migrate managed AppImage state, repair legacy paths, and reconcile desktop integration. This command may inspect AppImages and can take longer than ordinary commands.",
 		"Check or apply updates for managed AppImages, or manage configured update sources.",
 		"Aliases",
 		"rm",
 		"ls",
-		"repair",
 		"u",
 		"\\-\\-set ID",
 		"\\-\\-unset ID",
@@ -5002,7 +4881,7 @@ func TestCheckAppUpdateUnsupportedLegacySource(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected unsupported-source error")
 	}
-	if !strings.Contains(err.Error(), "Reconfigure with `aim update --set my-app ...`") {
+	if !strings.Contains(err.Error(), `unsupported update source for my-app: "manifest"`) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -6998,9 +6877,6 @@ func newManagedUpdateTestCommand(t *testing.T, values map[string]string) *cobra.
 	cmd.Flags().String("asset", "", "")
 	cmd.Flags().String("zsync", "", "")
 	cmd.Flags().Bool("embedded", false, "")
-	cmd.Flags().String("manifest-url", "", "")
-	cmd.Flags().String("url", "", "")
-	cmd.Flags().String("sha256", "", "")
 
 	for key, value := range values {
 		if err := cmd.Flags().Set(key, value); err != nil {

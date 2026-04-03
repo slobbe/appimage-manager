@@ -199,15 +199,10 @@ func visibleAliases(cmd *cobra.Command) []string {
 		return nil
 	}
 
-	hidden := map[string]bool{}
-	if commandName(cmd) == "migrate" {
-		hidden["repair"] = true
-	}
-
 	aliases := make([]string, 0, len(cmd.Aliases))
 	for _, alias := range cmd.Aliases {
 		alias = strings.TrimSpace(alias)
-		if alias == "" || hidden[alias] {
+		if alias == "" {
 			continue
 		}
 		aliases = append(aliases, alias)

@@ -325,6 +325,6 @@ func checkAppUpdate(app *models.App) (*pendingManagedUpdate, error) {
 			FromKind:     models.UpdateGitLabRelease,
 		}, nil
 	default:
-		return nil, softwareError(fmt.Errorf("unsupported update source for %s: %q. Reconfigure with `aim update --set %s ...`", app.ID, app.Update.Kind, app.ID))
+		return nil, softwareError(fmt.Errorf("unsupported update source for %s: %q", app.ID, app.Update.Kind))
 	}
 }

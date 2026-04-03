@@ -47,14 +47,12 @@ func newRootCommand(version string) *cobra.Command {
 		newRemoveCommand(),
 		newListCommand(),
 		newInfoCommand(),
-		newMigrateCommand(),
 		newUpdateCommand(),
 	)
 	root.SuggestionsMinimumDistance = 2
 	root.Flags().Bool("upgrade", false, "upgrade aim via the official installer")
 	persistentFlags := root.PersistentFlags()
 	persistentFlags.BoolP("debug", "d", false, "enable diagnostic logging")
-	persistentFlags.Bool("verbose", false, "enable diagnostic logging (deprecated: use --debug)")
 	persistentFlags.BoolP("quiet", "q", false, "suppress non-essential status output")
 	persistentFlags.BoolP("dry-run", "n", false, "simulate changes without applying them")
 	persistentFlags.BoolP("yes", "y", false, "skip confirmation prompts")
@@ -63,7 +61,6 @@ func newRootCommand(version string) *cobra.Command {
 	persistentFlags.Bool("csv", false, "output CSV where supported")
 	persistentFlags.Bool("plain", false, "output plain tab-separated text")
 	persistentFlags.Bool("no-color", false, "disable ANSI color output")
-	mustMarkHidden(root, "verbose")
 	root.InitDefaultVersionFlag()
 	installHelpSystem(root)
 
@@ -122,10 +119,8 @@ func newListCommand() *cobra.Command {
 	}
 	flags := cmd.Flags()
 	flags.BoolP("all", "a", false, "list all AppImages (default)")
-	flags.BoolP("integrated", "i", false, "list integrated AppImages only")
-	flags.BoolP("unlinked", "u", false, "list unlinked AppImages only")
-	mustMarkShorthandDeprecated(cmd, "integrated", "use --integrated")
-	mustMarkShorthandDeprecated(cmd, "unlinked", "use --unlinked")
+	flags.Bool("integrated", false, "list integrated AppImages only")
+	flags.Bool("unlinked", false, "list unlinked AppImages only")
 	return cmd
 }
 
@@ -164,68 +159,13 @@ func newUpdateCommand() *cobra.Command {
 
 	addUpdateCheckFlags(cmd)
 	addUpdateSourceFlags(cmd)
-	cmd.AddCommand(
-		newUpdateCheckCommand(),
-		newRemovedUpdateSetCommand(),
-		newRemovedUpdateUnsetCommand(),
-	)
 
 	return cmd
 }
 
-func newMigrateCommand() *cobra.Command {
-	return &cobra.Command{
-		Use:     "migrate [id]",
-		Aliases: []string{"repair"},
-		Short:   "Migrate managed AppImage state and repair desktop integration",
-		Long:    "Migrate managed AppImage state, repair legacy paths, and reconcile desktop integration. This command may inspect AppImages and can take longer than ordinary commands.",
-		Example: strings.TrimSpace(`
-  aim migrate
-  aim migrate example-app
-  aim migrate -n --json
-`),
-		Args: cobra.MaximumNArgs(1),
-		RunE: MigrateCmd,
-	}
-}
-
-func newUpdateCheckCommand() *cobra.Command {
-	return &cobra.Command{
-		Use:    "check",
-		Short:  "Removed update check command stub",
-		Hidden: true,
-		RunE:   UpdateCheckRemovedCmd,
-	}
-}
-
-func newRemovedUpdateSetCommand() *cobra.Command {
-	return &cobra.Command{
-		Use:                "set",
-		Hidden:             true,
-		DisableFlagParsing: true,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			_ = args
-			return removedUpdateSetCommandError()
-		},
-	}
-}
-
-func newRemovedUpdateUnsetCommand() *cobra.Command {
-	return &cobra.Command{
-		Use:                "unset",
-		Hidden:             true,
-		DisableFlagParsing: true,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			_ = args
-			return removedUpdateUnsetCommandError()
-		},
-	}
-}
-
 func addUpdateCheckFlags(cmd *cobra.Command) {
 	flags := cmd.Flags()
-	flags.BoolP("check-only", "c", false, "check only; do not apply updates")
-	mustMarkShorthandDeprecated(cmd, "check-only", "use --check-only")
+	flags.Bool("check-only", false, "check only; do not apply updates")
 }
 
 func addUpdateSourceFlags(cmd *cobra.Command) {
@@ -237,13 +177,6 @@ func addUpdateSourceFlags(cmd *cobra.Command) {
 	stringFlagWithMetavar(flags, "gitlab", "", "", "GitLab project path namespace/project (for 'aim update --set')", "namespace/project")
 	stringFlagWithMetavar(flags, "zsync", "", "", "direct zsync metadata URL (https, for 'aim update --set')", "URL")
 	flags.Bool("embedded", false, "use the update source embedded in the current AppImage (for 'aim update --set')")
-	flags.String("manifest-url", "", "deprecated manifest update source flag")
-	flags.String("url", "", "deprecated direct update source flag")
-	flags.String("sha256", "", "deprecated update source checksum flag")
-
-	mustMarkHidden(cmd, "manifest-url")
-	mustMarkHidden(cmd, "url")
-	mustMarkHidden(cmd, "sha256")
 }
 
 func mustMarkHidden(cmd *cobra.Command, name string) {
@@ -251,11 +184,5 @@ func mustMarkHidden(cmd *cobra.Command, name string) {
 		if err := cmd.Flags().MarkHidden(name); err != nil {
 			panic(err)
 		}
-	}
-}
-
-func mustMarkShorthandDeprecated(cmd *cobra.Command, name, message string) {
-	if err := cmd.Flags().MarkShorthandDeprecated(name, message); err != nil {
-		panic(err)
 	}
 }

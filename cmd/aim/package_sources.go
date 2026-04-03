@@ -59,23 +59,6 @@ func resolveProviderFlagRef(cmd *cobra.Command, args []string) (discovery.Packag
 	return ref, true, err
 }
 
-func isLegacyPackageRef(input string) bool {
-	trimmed := strings.TrimSpace(input)
-	return strings.HasPrefix(trimmed, "github:") || strings.HasPrefix(trimmed, "gitlab:")
-}
-
-func legacyProviderRefGuidance(cmdName, input string) error {
-	trimmed := strings.TrimSpace(input)
-	switch {
-	case strings.HasPrefix(trimmed, "github:"):
-		return usageError(fmt.Errorf("github:... refs are no longer accepted; use 'aim %s --github owner/repo'", cmdName))
-	case strings.HasPrefix(trimmed, "gitlab:"):
-		return usageError(fmt.Errorf("gitlab:... refs are no longer accepted; use 'aim %s --gitlab namespace/project'", cmdName))
-	default:
-		return usageError(fmt.Errorf("unsupported provider ref %q", input))
-	}
-}
-
 func looksLikeGitHubPackageURL(input string) bool {
 	trimmed := strings.TrimSpace(strings.ToLower(input))
 	return strings.HasPrefix(trimmed, "https://github.com/")
@@ -102,14 +85,12 @@ func addTargetLooksRemote(input string) bool {
 	if strings.HasPrefix(strings.ToLower(trimmed), "http://") || strings.HasPrefix(strings.ToLower(trimmed), "https://") {
 		return true
 	}
-	return isLegacyPackageRef(trimmed)
+	return false
 }
 
 func positionalAddRemoteGuidance(input string) error {
 	trimmed := strings.TrimSpace(input)
 	switch {
-	case isLegacyPackageRef(trimmed):
-		return legacyProviderRefGuidance("add", trimmed)
 	case looksLikeGitHubPackageURL(trimmed):
 		if err := providerURLGuidance("add", "--github", "GitHub sources", trimmed); err != nil {
 			return err
@@ -129,8 +110,6 @@ func positionalAddRemoteGuidance(input string) error {
 func positionalInfoRemoteGuidance(input string) error {
 	trimmed := strings.TrimSpace(input)
 	switch {
-	case isLegacyPackageRef(trimmed):
-		return legacyProviderRefGuidance("info", trimmed)
 	case looksLikeGitHubPackageURL(trimmed):
 		return providerURLGuidance("info", "--github", "GitHub package lookups", trimmed)
 	case looksLikeGitLabPackageURL(trimmed):
@@ -159,10 +138,6 @@ func resolvePackageRefInput(input string) (discovery.PackageRef, error) {
 	trimmed := strings.TrimSpace(input)
 	if trimmed == "" {
 		return discovery.PackageRef{}, usageError(fmt.Errorf("missing package ref"))
-	}
-
-	if isLegacyPackageRef(trimmed) {
-		return discovery.PackageRef{}, legacyProviderRefGuidance("info", trimmed)
 	}
 
 	return discovery.ParsePackageRefURL(trimmed)

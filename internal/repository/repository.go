@@ -41,7 +41,55 @@ func LoadDB(path string) (*DB, error) {
 	if db.SchemaVersion == 0 {
 		db.SchemaVersion = 1
 	}
+	if err := validateDB(&db); err != nil {
+		return nil, err
+	}
 	return &db, nil
+}
+
+func validateDB(db *DB) error {
+	if db == nil {
+		return fmt.Errorf("database cannot be empty")
+	}
+
+	for key, app := range db.Apps {
+		if app == nil {
+			return fmt.Errorf("app %q cannot be empty", strings.TrimSpace(key))
+		}
+
+		appID := strings.TrimSpace(app.ID)
+		if appID == "" {
+			appID = strings.TrimSpace(key)
+		}
+
+		if kind := strings.TrimSpace(string(app.Source.Kind)); kind != "" && !isSupportedSourceKind(app.Source.Kind) {
+			return fmt.Errorf("unsupported source kind for %s: %q", appID, app.Source.Kind)
+		}
+
+		if app.Update != nil && !isSupportedUpdateKind(app.Update.Kind) {
+			return fmt.Errorf("unsupported update kind for %s: %q", appID, app.Update.Kind)
+		}
+	}
+
+	return nil
+}
+
+func isSupportedSourceKind(kind models.SourceKind) bool {
+	switch kind {
+	case models.SourceLocalFile, models.SourceDirectURL, models.SourceGitHubRelease, models.SourceGitLabRelease:
+		return true
+	default:
+		return false
+	}
+}
+
+func isSupportedUpdateKind(kind models.UpdateKind) bool {
+	switch kind {
+	case models.UpdateNone, models.UpdateZsync, models.UpdateGitHubRelease, models.UpdateGitLabRelease:
+		return true
+	default:
+		return false
+	}
 }
 
 func SaveDB(path string, db *DB) error {

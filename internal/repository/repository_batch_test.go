@@ -188,15 +188,9 @@ func TestAddAppsBatchOverwriteBehavior(t *testing.T) {
 	}
 }
 
-func TestLegacyFieldsLoadAndDropOnRewrite(t *testing.T) {
+func TestLoadDBRejectsUnsupportedUpdateKind(t *testing.T) {
 	tmp := t.TempDir()
 	dbPath := filepath.Join(tmp, "apps.json")
-
-	originalDbSrc := config.DbSrc
-	config.DbSrc = dbPath
-	t.Cleanup(func() {
-		config.DbSrc = originalDbSrc
-	})
 
 	raw := `{
   "schemaVersion": 1,
@@ -204,24 +198,8 @@ func TestLegacyFieldsLoadAndDropOnRewrite(t *testing.T) {
     "manifest-app": {
       "id": "manifest-app",
       "name": "Manifest App",
-      "pinned": true,
       "update": {
-        "kind": "manifest",
-        "manifest": {
-          "url": "https://example.com/latest.json"
-        }
-      }
-    },
-    "direct-app": {
-      "id": "direct-app",
-      "name": "Direct App",
-      "pinned": false,
-      "update": {
-        "kind": "direct_url",
-        "direct_url": {
-          "url": "https://example.com/AppImage",
-          "sha256": "` + strings.Repeat("a", 64) + `"
-        }
+        "kind": "manifest"
       }
     }
   }
@@ -230,38 +208,69 @@ func TestLegacyFieldsLoadAndDropOnRewrite(t *testing.T) {
 		t.Fatalf("failed to write legacy DB: %v", err)
 	}
 
-	db, err := LoadDB(dbPath)
-	if err != nil {
-		t.Fatalf("LoadDB returned error: %v", err)
+	_, err := LoadDB(dbPath)
+	if err == nil {
+		t.Fatal("expected unsupported update kind error")
 	}
-	if got := db.Apps["manifest-app"].Update.Kind; got != models.UpdateKind("manifest") {
-		t.Fatalf("manifest-app update kind = %q", got)
+	if !strings.Contains(err.Error(), `unsupported update kind for manifest-app: "manifest"`) {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	if got := db.Apps["direct-app"].Update.Kind; got != models.UpdateKind("direct_url") {
-		t.Fatalf("direct-app update kind = %q", got)
+}
+
+func TestLoadDBRejectsUnsupportedDirectURLUpdateKind(t *testing.T) {
+	tmp := t.TempDir()
+	dbPath := filepath.Join(tmp, "apps.json")
+
+	raw := `{
+  "schemaVersion": 1,
+  "apps": {
+    "direct-app": {
+      "id": "direct-app",
+      "name": "Direct App",
+      "update": {
+        "kind": "direct_url"
+      }
+    }
+  }
+}`
+	if err := os.WriteFile(dbPath, []byte(raw), 0o644); err != nil {
+		t.Fatalf("failed to write legacy DB: %v", err)
 	}
 
-	if err := UpdateApp(db.Apps["manifest-app"]); err != nil {
-		t.Fatalf("UpdateApp manifest-app returned error: %v", err)
+	_, err := LoadDB(dbPath)
+	if err == nil {
+		t.Fatal("expected unsupported update kind error")
 	}
-	if err := UpdateApp(db.Apps["direct-app"]); err != nil {
-		t.Fatalf("UpdateApp direct-app returned error: %v", err)
+	if !strings.Contains(err.Error(), `unsupported update kind for direct-app: "direct_url"`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestLoadDBRejectsUnsupportedSourceKind(t *testing.T) {
+	tmp := t.TempDir()
+	dbPath := filepath.Join(tmp, "apps.json")
+
+	raw := `{
+  "schemaVersion": 1,
+  "apps": {
+    "legacy-app": {
+      "id": "legacy-app",
+      "name": "Legacy App",
+      "source": {
+        "kind": "manifest"
+      }
+    }
+  }
+}`
+	if err := os.WriteFile(dbPath, []byte(raw), 0o644); err != nil {
+		t.Fatalf("failed to write legacy DB: %v", err)
 	}
 
-	rewritten, err := os.ReadFile(dbPath)
-	if err != nil {
-		t.Fatalf("failed to read rewritten DB: %v", err)
+	_, err := LoadDB(dbPath)
+	if err == nil {
+		t.Fatal("expected unsupported source kind error")
 	}
-	text := string(rewritten)
-	for _, unwanted := range []string{`"pinned"`, `"manifest": {`, `"direct_url": {`} {
-		if strings.Contains(text, unwanted) {
-			t.Fatalf("rewritten DB unexpectedly contains %s:\n%s", unwanted, text)
-		}
-	}
-	if !strings.Contains(text, `"kind": "manifest"`) {
-		t.Fatalf("expected unsupported kind to remain until reconfigured:\n%s", text)
-	}
-	if !strings.Contains(text, `"kind": "direct_url"`) {
-		t.Fatalf("expected unsupported kind to remain until reconfigured:\n%s", text)
+	if !strings.Contains(err.Error(), `unsupported source kind for legacy-app: "manifest"`) {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

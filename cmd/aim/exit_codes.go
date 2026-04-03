@@ -163,7 +163,6 @@ func exitCodeForError(err error) int {
 		strings.Contains(msg, "mutually exclusive"),
 		strings.Contains(msg, "--csv is not supported"),
 		strings.Contains(msg, "not supported with"),
-		strings.Contains(msg, "deprecated"),
 		strings.Contains(msg, "must be a valid"),
 		strings.Contains(msg, "unknown add target"),
 		strings.Contains(msg, "unknown info target"),
@@ -207,7 +206,6 @@ func exitCodeForError(err error) int {
 		strings.Contains(msg, "failed to create"),
 		strings.Contains(msg, "failed to remove"),
 		strings.Contains(msg, "failed to rename"),
-		strings.Contains(msg, "failed to migrate config directory"),
 		strings.Contains(msg, "failed to update"),
 		strings.Contains(msg, "failed to verify"),
 		strings.Contains(msg, "failed to load current database"):
@@ -251,8 +249,7 @@ func renderCommandError(root *cobra.Command, args []string, err error) int {
 		printJSONError(root.ErrOrStderr(), commandNameFromArgs(root, args), argsContainFlag(args, "--dry-run"), err)
 	} else {
 		debug, _ := root.PersistentFlags().GetBool("debug")
-		verboseAlias, _ := root.PersistentFlags().GetBool("verbose")
-		lines := renderTextErrorLines(err, suggestionForError(root, err), debug || verboseAlias || argsContainFlag(args, "--debug") || argsContainFlag(args, "-d") || argsContainFlag(args, "--verbose"))
+		lines := renderTextErrorLines(err, suggestionForError(root, err), debug || argsContainFlag(args, "--debug") || argsContainFlag(args, "-d"))
 		if opLog := operationLogForCommand(root); opLog != nil {
 			entries := opLog.Lines()
 			if len(entries) > 0 {

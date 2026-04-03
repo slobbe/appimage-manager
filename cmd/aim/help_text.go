@@ -380,8 +380,7 @@ func commandSortKey(cmd *cobra.Command) string {
 		"info":    3,
 		"list":    4,
 		"remove":  5,
-		"migrate": 6,
-		"help":    7,
+		"help":    6,
 		"set":     1,
 		"unset":   2,
 	}
@@ -477,8 +476,6 @@ func commonFlagNamesForCommand(cmd *cobra.Command) []string {
 		return []string{"github", "gitlab", "no-input", "json"}
 	case "list":
 		return []string{"integrated", "unlinked", "json", "csv", "plain"}
-	case "migrate":
-		return []string{"dry-run", "json"}
 	case "remove":
 		return []string{"link", "no-input", "dry-run", "json"}
 	case "update":
@@ -502,8 +499,6 @@ func docsURLForCommand(cmd *cobra.Command) string {
 		return "https://github.com/slobbe/appimage-manager#remove"
 	case "list":
 		return "https://github.com/slobbe/appimage-manager#command-reference-list"
-	case "migrate":
-		return "https://github.com/slobbe/appimage-manager#command-reference-migrate"
 	default:
 		return rootCommandDocsURL
 	}

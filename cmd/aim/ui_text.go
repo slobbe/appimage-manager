@@ -21,28 +21,6 @@ func progressUpgradeAim() string {
 	return "Upgrading aim"
 }
 
-func progressMigrateApps() string {
-	return "Migrating managed apps"
-}
-
-func progressMigrateApp(id string) string {
-	return fmt.Sprintf("Migrating %s", id)
-}
-
-func successMigrationComplete(id string) string {
-	if id == "" {
-		return "Migration complete"
-	}
-	return fmt.Sprintf("Migration complete for %s", id)
-}
-
-func successMigrationNoop(id string) string {
-	if id == "" {
-		return "No migration changes needed"
-	}
-	return fmt.Sprintf("No migration changes needed for %s", id)
-}
-
 func warningNoEmbeddedSource() string {
 	return "No embedded update source found in the current AppImage"
 }
