@@ -1,102 +1,77 @@
 # AppImage Manager - `aim`
 
-> Manage AppImages from the command line.
+> Manage AppImages from the terminal.
 
 [![GitHub Release](https://img.shields.io/github/v/release/slobbe/appimage-manager?sort=semver&display_name=release&style=flat-square&color=royalblue)](https://github.com/slobbe/appimage-manager/releases/latest)
 [![GitHub License](https://img.shields.io/github/license/slobbe/appimage-manager?style=flat-square&color=teal)](/LICENSE)
 
 > [!WARNING]
-> This project is still a work in progress.
-> Breaking changes may occur while it remains in **v0.x.x**.
+> This project is still a work in progress and remains on `v0.x.x`, so breaking changes may still happen.
 
-## Features
-
-- Install AppImages from local files, direct URLs, GitHub, and GitLab
-- Integrate apps with desktop menus, icons, and launchers
-- Track managed apps and update them from configured sources
-- Inspect AppImage metadata and update-source details
-- Remove apps, unlink desktop integration, and run migration or repair workflows when needed
-
-## Installation
+## Install
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/slobbe/appimage-manager/main/scripts/install.sh | sh
 aim --version
 ```
 
-If `aim` is not found, make sure `~/.local/bin` is on your `PATH`.
+If `aim` is not on your `PATH`, add `~/.local/bin`.
 
-## Quickstart
+## How to Use
 
-### `add`
-
-Add an AppImage from a local file, a managed app id, a direct download link, or a GitHub/GitLab release.
+### Add an AppImage
 
 ```sh
-# Examples
-aim add ./example.AppImage
-aim add --url https://example.com/example.AppImage
+aim add ./Example.AppImage
+aim add --url https://example.com/Example.AppImage
 aim add --github owner/repo
+aim add --gitlab namespace/project
 ```
 
-### `info`
-
-Get information about a managed app, local AppImage file, or remote.
+### Check and apply updates
 
 ```sh
-# Examples
-aim info example-app
-aim info ./example.AppImage
-aim info --github owner/repo
-```
-
-### `update`
-
-Check for updates, apply them, or configure an update source.
-
-```sh
-# Examples
 aim update
 aim update --check-only
-aim update --set example-app --github owner/repo
 ```
 
-`aim update` manages AppImage updates. Use `aim --upgrade` to upgrade the `aim` CLI itself.
-
-### `remove`
-
-Remove a managed app or unlink its desktop integration.
+### Set or clear an update source
 
 ```sh
-# Examples
+aim update --set example-app --github owner/repo
+aim update --set example-app --gitlab namespace/project
+aim update --set example-app --zsync https://example.com/Example.AppImage.zsync
+aim update --set example-app --embedded
+aim update --unset example-app
+```
+
+### Remove an AppImage
+
+```sh
 aim remove example-app
 aim remove --unlink example-app
 ```
 
-### Other useful commands
+## Useful Commands
 
 ```sh
-aim list        # list all managed AppImages
-aim --upgrade   # upgrade aim to the newest version
+aim list                 # list managed AppImages
+aim info example-app     # inspect a managed app
+aim info ./Example.AppImage
+aim info --github owner/repo
+aim --upgrade            # upgrade aim itself
 ```
 
-## Global flags
+## Key Flags
 
-`aim` now exposes a consistent set of global flags on all visible commands:
-
-- `-h`, `--help`: built-in command help
-- `-v`, `--version`: print the CLI version
-- `-d`, `--debug`: emit diagnostic logs on stderr
-- `-q`, `--quiet`: suppress non-essential status output
-- `-n`, `--dry-run`: preview mutating actions without applying them
-- `-y`, `--yes`: bypass confirmation prompts
+- `-n`, `--dry-run`: preview changes without applying them
+- `-y`, `--yes`: skip confirmation prompts
 - `--no-input`: disable interactive prompting
-- `--json`: emit machine-readable JSON
-- `--csv`: emit CSV where supported
-- `--plain`: emit plain tab-separated text for shell pipelines
-- `--no-color`: disable ANSI color output
+- `--json`: emit machine-readable JSON where supported
+- `-q`, `--quiet`: reduce non-essential status output
+- `-d`, `--debug`: enable diagnostic logs
 
-## Where `aim` stores files
+## Storage
 
 `aim` uses XDG base directories:
 
@@ -107,27 +82,11 @@ aim --upgrade   # upgrade aim to the newest version
 - Database: `${XDG_STATE_HOME:-~/.local/state}/aim/apps.json`
 - Temporary files: `${XDG_CACHE_HOME:-~/.cache}/aim/tmp`
 
-## Development Notes
+## More Help
 
-Build from source:
-
-```sh
-git clone https://github.com/slobbe/appimage-manager.git
-cd appimage-manager
-go build ./cmd/aim
-```
-
-Regenerate the committed man page:
-
-```sh
-go run -tags docgen ./cmd/aim
-```
-
-GoReleaser is the canonical release tool. To validate the release configuration locally without publishing:
-
-```sh
-goreleaser release --snapshot --clean --skip=publish,validate
-```
+- `aim --help` for the CLI overview
+- `aim help <command>` for command-specific manual pages
+- `aim <command> --help` for flags and usage on a specific command
 
 ## License
 
