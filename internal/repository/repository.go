@@ -35,12 +35,6 @@ func LoadDB(path string) (*DB, error) {
 	if err := json.Unmarshal(b, &db); err != nil {
 		return nil, err
 	}
-	if db.Apps == nil {
-		db.Apps = map[string]*models.App{}
-	}
-	if db.SchemaVersion == 0 {
-		db.SchemaVersion = 1
-	}
 	if err := validateDB(&db); err != nil {
 		return nil, err
 	}
@@ -50,6 +44,12 @@ func LoadDB(path string) (*DB, error) {
 func validateDB(db *DB) error {
 	if db == nil {
 		return fmt.Errorf("database cannot be empty")
+	}
+	if db.SchemaVersion != 1 {
+		return fmt.Errorf("unsupported schema version: %d", db.SchemaVersion)
+	}
+	if db.Apps == nil {
+		return fmt.Errorf("apps collection cannot be empty")
 	}
 
 	for key, app := range db.Apps {

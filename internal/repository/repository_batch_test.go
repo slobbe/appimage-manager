@@ -217,6 +217,109 @@ func TestLoadDBRejectsUnsupportedUpdateKind(t *testing.T) {
 	}
 }
 
+func TestLoadDBRejectsMissingSchemaVersion(t *testing.T) {
+	tmp := t.TempDir()
+	dbPath := filepath.Join(tmp, "apps.json")
+
+	raw := `{
+  "apps": {}
+}`
+	if err := os.WriteFile(dbPath, []byte(raw), 0o644); err != nil {
+		t.Fatalf("failed to write db: %v", err)
+	}
+
+	_, err := LoadDB(dbPath)
+	if err == nil {
+		t.Fatal("expected schema version error")
+	}
+	if !strings.Contains(err.Error(), `unsupported schema version: 0`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestLoadDBRejectsZeroSchemaVersion(t *testing.T) {
+	tmp := t.TempDir()
+	dbPath := filepath.Join(tmp, "apps.json")
+
+	raw := `{
+  "schemaVersion": 0,
+  "apps": {}
+}`
+	if err := os.WriteFile(dbPath, []byte(raw), 0o644); err != nil {
+		t.Fatalf("failed to write db: %v", err)
+	}
+
+	_, err := LoadDB(dbPath)
+	if err == nil {
+		t.Fatal("expected schema version error")
+	}
+	if !strings.Contains(err.Error(), `unsupported schema version: 0`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestLoadDBRejectsUnsupportedSchemaVersion(t *testing.T) {
+	tmp := t.TempDir()
+	dbPath := filepath.Join(tmp, "apps.json")
+
+	raw := `{
+  "schemaVersion": 2,
+  "apps": {}
+}`
+	if err := os.WriteFile(dbPath, []byte(raw), 0o644); err != nil {
+		t.Fatalf("failed to write db: %v", err)
+	}
+
+	_, err := LoadDB(dbPath)
+	if err == nil {
+		t.Fatal("expected schema version error")
+	}
+	if !strings.Contains(err.Error(), `unsupported schema version: 2`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestLoadDBRejectsMissingAppsCollection(t *testing.T) {
+	tmp := t.TempDir()
+	dbPath := filepath.Join(tmp, "apps.json")
+
+	raw := `{
+  "schemaVersion": 1
+}`
+	if err := os.WriteFile(dbPath, []byte(raw), 0o644); err != nil {
+		t.Fatalf("failed to write db: %v", err)
+	}
+
+	_, err := LoadDB(dbPath)
+	if err == nil {
+		t.Fatal("expected apps collection error")
+	}
+	if !strings.Contains(err.Error(), `apps collection cannot be empty`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestLoadDBRejectsNullAppsCollection(t *testing.T) {
+	tmp := t.TempDir()
+	dbPath := filepath.Join(tmp, "apps.json")
+
+	raw := `{
+  "schemaVersion": 1,
+  "apps": null
+}`
+	if err := os.WriteFile(dbPath, []byte(raw), 0o644); err != nil {
+		t.Fatalf("failed to write db: %v", err)
+	}
+
+	_, err := LoadDB(dbPath)
+	if err == nil {
+		t.Fatal("expected apps collection error")
+	}
+	if !strings.Contains(err.Error(), `apps collection cannot be empty`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestLoadDBRejectsUnsupportedDirectURLUpdateKind(t *testing.T) {
 	tmp := t.TempDir()
 	dbPath := filepath.Join(tmp, "apps.json")
