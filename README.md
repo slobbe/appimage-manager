@@ -49,7 +49,7 @@ aim update --unset example-app
 
 ```sh
 aim remove example-app
-aim remove --unlink example-app
+aim remove --link example-app
 ```
 
 ## Useful Commands

@@ -480,7 +480,7 @@ func commonFlagNamesForCommand(cmd *cobra.Command) []string {
 	case "migrate":
 		return []string{"dry-run", "json"}
 	case "remove":
-		return []string{"unlink", "no-input", "dry-run", "json"}
+		return []string{"link", "no-input", "dry-run", "json"}
 	case "update":
 		return []string{"check-only", "set", "unset", "github", "gitlab", "zsync", "embedded", "yes", "dry-run", "json", "csv", "plain"}
 	default:

@@ -21,7 +21,7 @@ func newRootCommand(version string) *cobra.Command {
 		Use:   "aim",
 		Short: rootCommandDescription,
 		Long:  rootCommandLong,
-	Example: strings.TrimSpace(`
+		Example: strings.TrimSpace(`
   aim --help
   aim --version
   aim --json
@@ -95,15 +95,15 @@ func newRemoveCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "remove <id>",
 		Aliases: []string{"rm"},
-		Short:   "Remove or unlink a managed AppImage",
+		Short:   "Remove a managed AppImage or only its desktop integration",
 		Example: strings.TrimSpace(`
   aim remove example-app
-  aim remove --unlink example-app
+  aim remove --link example-app
   aim remove -n example-app --json
 `),
 		RunE: RemoveCmd,
 	}
-	cmd.Flags().Bool("unlink", false, "remove only desktop integration; keep managed AppImage files")
+	cmd.Flags().Bool("link", false, "remove only desktop integration; keep managed AppImage files")
 	return cmd
 }
 

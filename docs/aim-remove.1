@@ -2,7 +2,7 @@
 .TH "AIM-REMOVE" "1" "Apr 2026" "aim " "Manage AppImages from the terminal without manual desktop setup or update juggling"
 
 .SH NAME
-aim-remove - Remove or unlink a managed AppImage
+aim-remove - Remove a managed AppImage or only its desktop integration
 
 
 .SH SYNOPSIS
@@ -10,7 +10,7 @@ aim-remove - Remove or unlink a managed AppImage
 
 
 .SH DESCRIPTION
-Remove or unlink a managed AppImage
+Remove a managed AppImage or only its desktop integration
 
 
 .SH OPTIONS
@@ -18,7 +18,7 @@ Remove or unlink a managed AppImage
 	help for remove
 
 .PP
-\fB--unlink\fP[=false]
+\fB--link\fP[=false]
 	remove only desktop integration; keep managed AppImage files
 
 
@@ -62,7 +62,7 @@ Remove or unlink a managed AppImage
 .SH EXAMPLE
 .EX
 aim remove example-app
-  aim remove --unlink example-app
+  aim remove --link example-app
   aim remove -n example-app --json
 .EE
 

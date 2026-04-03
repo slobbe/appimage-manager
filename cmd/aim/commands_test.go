@@ -921,7 +921,7 @@ func TestRootPackageCommandAliases(t *testing.T) {
 	}
 }
 
-func TestRemoveCommandUsesUnlinkFlag(t *testing.T) {
+func TestRemoveCommandUsesLinkFlag(t *testing.T) {
 	cmd := newRootTestCommand()
 
 	removeCmd := findSubcommand(cmd, "remove")
@@ -929,18 +929,18 @@ func TestRemoveCommandUsesUnlinkFlag(t *testing.T) {
 		t.Fatal("expected remove command")
 	}
 
-	unlinkFlag := removeCmd.Flags().Lookup("unlink")
-	if unlinkFlag == nil {
-		t.Fatal("expected --unlink flag on remove command")
+	linkFlag := removeCmd.Flags().Lookup("link")
+	if linkFlag == nil {
+		t.Fatal("expected --link flag on remove command")
 	}
-	if removeCmd.Flags().Lookup("keep") != nil {
-		t.Fatal("did not expect --keep flag on remove command")
+	if removeCmd.Flags().Lookup("unlink") != nil {
+		t.Fatal("did not expect --unlink flag on remove command")
 	}
-	if unlinkFlag.Shorthand != "" {
-		t.Fatalf("expected no shorthand for --unlink, got %q", unlinkFlag.Shorthand)
+	if linkFlag.Shorthand != "" {
+		t.Fatalf("expected no shorthand for --link, got %q", linkFlag.Shorthand)
 	}
-	if unlinkFlag.Usage != "remove only desktop integration; keep managed AppImage files" {
-		t.Fatalf("unexpected --unlink usage: %q", unlinkFlag.Usage)
+	if linkFlag.Usage != "remove only desktop integration; keep managed AppImage files" {
+		t.Fatalf("unexpected --link usage: %q", linkFlag.Usage)
 	}
 }
 
@@ -974,7 +974,7 @@ func TestRemoveCmdOutputsUnlinkedMessage(t *testing.T) {
 	}
 
 	output := captureStdout(t, func() {
-		if err := runRootCommand(context.Background(), []string{"remove", "--unlink", "my-app"}); err != nil {
+		if err := runRootCommand(context.Background(), []string{"remove", "--link", "my-app"}); err != nil {
 			t.Fatalf("run returned error: %v", err)
 		}
 	})

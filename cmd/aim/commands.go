@@ -693,7 +693,7 @@ func RemoveCmd(cmd *cobra.Command, args []string) error {
 		}
 		return err
 	}
-	unlink, err := flagBool(cmd, "unlink")
+	unlink, err := flagBool(cmd, "link")
 	if err != nil {
 		return err
 	}
