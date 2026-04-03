@@ -861,15 +861,9 @@ func renameManagedFileWithIDChange(path, oldID, newID string) (string, error) {
 
 func isManagedIconDir(dir string) bool {
 	cleanDir := filepath.Clean(dir)
-	roots := []string{
-		filepath.Clean(config.IconThemeDir),
-		filepath.Clean(config.PixmapsDir),
-	}
-
-	for _, root := range roots {
-		if cleanDir == root || strings.HasPrefix(cleanDir, root+string(filepath.Separator)) {
-			return true
-		}
+	root := filepath.Clean(config.IconThemeDir)
+	if cleanDir == root || strings.HasPrefix(cleanDir, root+string(filepath.Separator)) {
+		return true
 	}
 
 	return false
@@ -1184,19 +1178,7 @@ func iconInstallDir(ext string) string {
 	if ext == ".svg" {
 		return filepath.Join(config.IconThemeDir, "scalable", "apps")
 	}
-	if isThemeLookupExtension(ext) {
-		return filepath.Join(config.IconThemeDir, "256x256", "apps")
-	}
-	return config.PixmapsDir
-}
-
-func isThemeLookupExtension(ext string) bool {
-	switch strings.ToLower(ext) {
-	case ".png", ".svg", ".xpm":
-		return true
-	default:
-		return false
-	}
+	return filepath.Join(config.IconThemeDir, "256x256", "apps")
 }
 
 func rewritePrefix(value, oldBase, newBase string) string {

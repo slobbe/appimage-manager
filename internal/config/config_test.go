@@ -29,9 +29,6 @@ func TestResolvePathsDefaults(t *testing.T) {
 	if paths.IconThemeDir != filepath.Join(home, ".local", "share", "icons", "hicolor") {
 		t.Fatalf("IconThemeDir = %q", paths.IconThemeDir)
 	}
-	if paths.PixmapsDir != filepath.Join(home, ".local", "share", "pixmaps") {
-		t.Fatalf("PixmapsDir = %q", paths.PixmapsDir)
-	}
 }
 
 func TestResolvePathsXDGOverrides(t *testing.T) {
@@ -65,9 +62,6 @@ func TestResolvePathsXDGOverrides(t *testing.T) {
 	if paths.IconThemeDir != "/xdg/data/icons/hicolor" {
 		t.Fatalf("IconThemeDir = %q", paths.IconThemeDir)
 	}
-	if paths.PixmapsDir != "/xdg/data/pixmaps" {
-		t.Fatalf("PixmapsDir = %q", paths.PixmapsDir)
-	}
 }
 
 func TestResolvePathsIgnoresRelativeXDGPaths(t *testing.T) {
@@ -98,9 +92,6 @@ func TestResolvePathsIgnoresRelativeXDGPaths(t *testing.T) {
 	if paths.IconThemeDir != filepath.Join(home, ".local", "share", "icons", "hicolor") {
 		t.Fatalf("IconThemeDir = %q", paths.IconThemeDir)
 	}
-	if paths.PixmapsDir != filepath.Join(home, ".local", "share", "pixmaps") {
-		t.Fatalf("PixmapsDir = %q", paths.PixmapsDir)
-	}
 }
 
 func TestResolvePathsFromStateRoot(t *testing.T) {
@@ -124,9 +115,6 @@ func TestResolvePathsFromStateRoot(t *testing.T) {
 	if paths.IconThemeDir != "/tmp/aim-root/data/icons/hicolor" {
 		t.Fatalf("IconThemeDir = %q", paths.IconThemeDir)
 	}
-	if paths.PixmapsDir != "/tmp/aim-root/data/pixmaps" {
-		t.Fatalf("PixmapsDir = %q", paths.PixmapsDir)
-	}
 }
 
 func TestApplyPathsAndCurrentPaths(t *testing.T) {
@@ -142,7 +130,6 @@ func TestApplyPathsAndCurrentPaths(t *testing.T) {
 		TempDir:      "/tmp/alt/cache/aim/tmp",
 		DbSrc:        "/tmp/alt/state/aim/apps.json",
 		IconThemeDir: "/tmp/alt/data/icons/hicolor",
-		PixmapsDir:   "/tmp/alt/data/pixmaps",
 	}
 
 	ApplyPaths(updated)

@@ -1028,7 +1028,6 @@ func configureMigrationTestPaths(t *testing.T, homeDir string) migrationTestPath
 	originalTempDir := config.TempDir
 	originalDbSrc := config.DbSrc
 	originalIconThemeDir := config.IconThemeDir
-	originalPixmapsDir := config.PixmapsDir
 	t.Cleanup(func() {
 		config.AimDir = originalAimDir
 		config.DesktopDir = originalDesktopDir
@@ -1036,7 +1035,6 @@ func configureMigrationTestPaths(t *testing.T, homeDir string) migrationTestPath
 		config.TempDir = originalTempDir
 		config.DbSrc = originalDbSrc
 		config.IconThemeDir = originalIconThemeDir
-		config.PixmapsDir = originalPixmapsDir
 	})
 
 	paths := migrationTestPaths{
@@ -1063,7 +1061,6 @@ func configureMigrationTestPaths(t *testing.T, homeDir string) migrationTestPath
 	config.TempDir = paths.currentTempDir
 	config.DbSrc = paths.currentDBPath
 	config.IconThemeDir = filepath.Join(paths.currentDataHome, "icons", "hicolor")
-	config.PixmapsDir = filepath.Join(paths.currentDataHome, "pixmaps")
 
 	return paths
 }

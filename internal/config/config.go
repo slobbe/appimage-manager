@@ -13,7 +13,6 @@ var (
 	TempDir      string
 	DbSrc        string
 	IconThemeDir string
-	PixmapsDir   string
 )
 
 type Paths struct {
@@ -23,7 +22,6 @@ type Paths struct {
 	TempDir      string
 	DbSrc        string
 	IconThemeDir string
-	PixmapsDir   string
 }
 
 func init() {
@@ -36,7 +34,7 @@ func init() {
 }
 
 func EnsureDirsExist() error {
-	dirs := []string{AimDir, DesktopDir, ConfigDir, TempDir, filepath.Dir(DbSrc), IconThemeDir, PixmapsDir}
+	dirs := []string{AimDir, DesktopDir, ConfigDir, TempDir, filepath.Dir(DbSrc), IconThemeDir}
 	for _, dir := range dirs {
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return err
@@ -53,7 +51,6 @@ func CurrentPaths() Paths {
 		TempDir:      TempDir,
 		DbSrc:        DbSrc,
 		IconThemeDir: IconThemeDir,
-		PixmapsDir:   PixmapsDir,
 	}
 }
 
@@ -64,7 +61,6 @@ func ApplyPaths(paths Paths) {
 	TempDir = paths.TempDir
 	DbSrc = paths.DbSrc
 	IconThemeDir = paths.IconThemeDir
-	PixmapsDir = paths.PixmapsDir
 }
 
 func ResolvePathsFromStateRoot(root string) Paths {
@@ -76,7 +72,6 @@ func ResolvePathsFromStateRoot(root string) Paths {
 		TempDir:      filepath.Join(base, "cache", "aim", "tmp"),
 		DbSrc:        filepath.Join(base, "state", "aim", "apps.json"),
 		IconThemeDir: filepath.Join(base, "data", "icons", "hicolor"),
-		PixmapsDir:   filepath.Join(base, "data", "pixmaps"),
 	}
 }
 
@@ -93,7 +88,6 @@ func resolvePaths(home string, getenv func(string) string) Paths {
 		TempDir:      filepath.Join(cacheHome, "aim", "tmp"),
 		DbSrc:        filepath.Join(stateHome, "aim", "apps.json"),
 		IconThemeDir: filepath.Join(dataHome, "icons", "hicolor"),
-		PixmapsDir:   filepath.Join(dataHome, "pixmaps"),
 	}
 }
 

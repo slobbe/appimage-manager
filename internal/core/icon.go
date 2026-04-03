@@ -52,20 +52,7 @@ func iconInstallDir(ext string) string {
 		return filepath.Join(config.IconThemeDir, "scalable", "apps")
 	}
 
-	if isThemeLookupExtension(ext) {
-		return filepath.Join(config.IconThemeDir, "256x256", "apps")
-	}
-
-	return config.PixmapsDir
-}
-
-func isThemeLookupExtension(ext string) bool {
-	switch strings.ToLower(ext) {
-	case ".png", ".svg", ".xpm":
-		return true
-	default:
-		return false
-	}
+	return filepath.Join(config.IconThemeDir, "256x256", "apps")
 }
 
 func ensureDir(dir string) error {

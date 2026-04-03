@@ -71,7 +71,7 @@ func TestInstallDesktopIconUnsupportedExtUsesAbsolutePath(t *testing.T) {
 		t.Fatalf("InstallDesktopIcon returned error: %v", err)
 	}
 
-	expected := filepath.Join(config.PixmapsDir, "my-app.ico")
+	expected := filepath.Join(config.IconThemeDir, "256x256", "apps", "my-app.ico")
 	if installedPath != expected {
 		t.Fatalf("installedPath = %q, want %q", installedPath, expected)
 	}
@@ -96,12 +96,9 @@ func setupIconDirsForTest(t *testing.T, tmp string) {
 	t.Helper()
 
 	originalThemeDir := config.IconThemeDir
-	originalPixmapsDir := config.PixmapsDir
 	t.Cleanup(func() {
 		config.IconThemeDir = originalThemeDir
-		config.PixmapsDir = originalPixmapsDir
 	})
 
 	config.IconThemeDir = filepath.Join(tmp, "icons", "hicolor")
-	config.PixmapsDir = filepath.Join(tmp, "pixmaps")
 }

@@ -239,14 +239,12 @@ func setupIntegrationConfigForTest(t *testing.T, tmp string) {
 	originalTempDir := config.TempDir
 	originalDesktopDir := config.DesktopDir
 	originalIconThemeDir := config.IconThemeDir
-	originalPixmapsDir := config.PixmapsDir
 	originalDbSrc := config.DbSrc
 	t.Cleanup(func() {
 		config.AimDir = originalAimDir
 		config.TempDir = originalTempDir
 		config.DesktopDir = originalDesktopDir
 		config.IconThemeDir = originalIconThemeDir
-		config.PixmapsDir = originalPixmapsDir
 		config.DbSrc = originalDbSrc
 	})
 
@@ -254,14 +252,12 @@ func setupIntegrationConfigForTest(t *testing.T, tmp string) {
 	config.TempDir = filepath.Join(tmp, "cache", "tmp")
 	config.DesktopDir = filepath.Join(tmp, "applications")
 	config.IconThemeDir = filepath.Join(tmp, "icons", "hicolor")
-	config.PixmapsDir = filepath.Join(tmp, "pixmaps")
 	config.DbSrc = filepath.Join(tmp, "state", "aim", "apps.json")
 
 	dirs := []string{
 		config.AimDir,
 		config.DesktopDir,
 		config.IconThemeDir,
-		config.PixmapsDir,
 		filepath.Dir(config.DbSrc),
 	}
 	for _, dir := range dirs {

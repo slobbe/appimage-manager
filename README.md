@@ -239,7 +239,7 @@ aim update --unset example-app --dry-run --json
 
 - App files: `${XDG_DATA_HOME:-~/.local/share}/aim`
 - Desktop links: `${XDG_DATA_HOME:-~/.local/share}/applications`
-- Desktop icons: `${XDG_DATA_HOME:-~/.local/share}/icons/hicolor` and `${XDG_DATA_HOME:-~/.local/share}/pixmaps`
+- Desktop icons: `${XDG_DATA_HOME:-~/.local/share}/icons/hicolor`
 - Config files: `${XDG_CONFIG_HOME:-~/.config}/aim`
 - Database: `${XDG_STATE_HOME:-~/.local/state}/aim/apps.json`
 - Temporary files: `${XDG_CACHE_HOME:-~/.cache}/aim/tmp`
