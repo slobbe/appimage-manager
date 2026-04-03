@@ -6,7 +6,7 @@
 [![GitHub License](https://img.shields.io/github/license/slobbe/appimage-manager?style=flat-square&color=teal)](/LICENSE)
 
 > [!NOTE]
-> This project is still a work in progress and remains on `v0.x.x`, so breaking changes may still happen.
+> This project is still a **work in progress** and breaking changes may happen at any time while in `v0.x.x`.
 
 ## Install
 
