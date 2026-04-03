@@ -282,7 +282,7 @@ func resolveIntegrateTarget(input string) (*integrateTarget, error) {
 		return &integrateTarget{Kind: kind, App: app}, nil
 	}
 
-	if strings.HasPrefix(trimmed, "https://") || strings.HasPrefix(trimmed, "github:") || strings.HasPrefix(trimmed, "gitlab:") {
+	if strings.HasPrefix(trimmed, "https://") {
 		return nil, usageError(fmt.Errorf("remote sources are added with 'aim add'"))
 	}
 
@@ -1125,10 +1125,6 @@ func embeddedUpdateSourceForPath(path string) (*models.UpdateSource, error) {
 }
 
 func UpdateCmd(cmd *cobra.Command, args []string) error {
-	if removed := removedUpdateSubcommand(args); removed != "" {
-		return usageError(fmt.Errorf("unknown command %q for %q", removed, cmd.CommandPath()))
-	}
-
 	setID, err := flagString(cmd, "set")
 	if err != nil {
 		return err
@@ -1184,19 +1180,6 @@ func UpdateCmd(cmd *cobra.Command, args []string) error {
 	}
 
 	return runManagedUpdate(cmd.Context(), cmd, targetID)
-}
-
-func removedUpdateSubcommand(args []string) string {
-	if len(args) == 0 {
-		return ""
-	}
-
-	switch trimmed := strings.TrimSpace(args[0]); trimmed {
-	case "check", "set", "unset":
-		return trimmed
-	default:
-		return ""
-	}
 }
 
 func unsetManagedUpdateSource(cmd *cobra.Command, app *models.App, prompt string, showCurrent bool) (bool, error) {

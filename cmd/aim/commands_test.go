@@ -69,11 +69,11 @@ func TestResolveIntegrateTarget(t *testing.T) {
 		{name: "integrated id", input: "integrated", expect: integrateTargetIntegrated},
 		{name: "unlinked id", input: "unlinked", expect: integrateTargetUnlinked},
 		{name: "direct url rejected", input: "https://example.com/MyApp.AppImage", wantError: true, errText: "remote sources are added with 'aim add'"},
-		{name: "github repo rejected", input: "github:owner/repo", wantError: true, errText: "remote sources are added with 'aim add'"},
-		{name: "gitlab repo rejected", input: "gitlab:group/project", wantError: true, errText: "remote sources are added with 'aim add'"},
+		{name: "github repo rejected", input: "github:owner/repo", wantError: true, errText: "unknown argument github:owner/repo"},
+		{name: "gitlab repo rejected", input: "gitlab:group/project", wantError: true, errText: "unknown argument gitlab:group/project"},
 		{name: "http rejected", input: "http://example.com/MyApp.AppImage", wantError: true, errText: "direct URLs must use https; use 'aim add --url https://...'"},
-		{name: "malformed github treated as remote", input: "github:owner", wantError: true, errText: "remote sources are added with 'aim add'"},
-		{name: "malformed gitlab treated as remote", input: "gitlab:group", wantError: true, errText: "remote sources are added with 'aim add'"},
+		{name: "malformed github treated as unknown argument", input: "github:owner", wantError: true, errText: "unknown argument github:owner"},
+		{name: "malformed gitlab treated as unknown argument", input: "gitlab:group", wantError: true, errText: "unknown argument gitlab:group"},
 		{name: "unknown id", input: "missing", wantError: true},
 	}
 
@@ -881,12 +881,12 @@ func TestRemoveCmdOutputsUnlinkedMessage(t *testing.T) {
 	}
 }
 
-func TestUpdateCheckSubcommandReturnsUnknownCommand(t *testing.T) {
+func TestUpdateCheckSubcommandReturnsArgumentError(t *testing.T) {
 	err := runRootCommand(context.Background(), []string{"update", "check", "./MyApp.AppImage"})
 	if err == nil {
-		t.Fatal("expected unknown-command error")
+		t.Fatal("expected argument error")
 	}
-	if !strings.Contains(err.Error(), `unknown command "check" for "aim update"`) {
+	if !strings.Contains(err.Error(), "too many arguments") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -4562,12 +4562,12 @@ func TestUpdateSetSubcommandReturnsUnknownCommand(t *testing.T) {
 	cmd := newRootTestCommand()
 	err := executeTestCommand(context.Background(), cmd, "update", "set", "my-app", "--github", "owner/repo")
 	if err == nil {
-		t.Fatal("expected unknown-command error")
+		t.Fatal("expected argument error")
 	}
 	if code := exitCodeForError(err); code != exitUsage {
 		t.Fatalf("exitCodeForError = %d, want %d", code, exitUsage)
 	}
-	if !strings.Contains(err.Error(), `unknown command "set" for "aim update"`) {
+	if !strings.Contains(err.Error(), "too many arguments") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -4576,12 +4576,12 @@ func TestUpdateUnsetSubcommandReturnsUnknownCommand(t *testing.T) {
 	cmd := newRootTestCommand()
 	err := executeTestCommand(context.Background(), cmd, "update", "unset", "my-app")
 	if err == nil {
-		t.Fatal("expected unknown-command error")
+		t.Fatal("expected argument error")
 	}
 	if code := exitCodeForError(err); code != exitUsage {
 		t.Fatalf("exitCodeForError = %d, want %d", code, exitUsage)
 	}
-	if !strings.Contains(err.Error(), `unknown command "unset" for "aim update"`) {
+	if !strings.Contains(err.Error(), "too many arguments") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

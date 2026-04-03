@@ -125,24 +125,8 @@ asset_url="$({
     $2 == "browser_download_url" {
       asset_url = $4
       if (asset_name ~ ("^aim-[0-9].+-linux-" arch "\\.tar\\.gz$")) {
-        found = 1
         print asset_url
         exit
-      }
-      if (asset_name ~ ("^aim-v.+-linux-" arch "\\.tar\\.gz$")) {
-        legacy_versioned_url = asset_url
-      }
-      if (asset_name == ("aim-linux-" arch ".tar.gz")) {
-        legacy_url = asset_url
-      }
-    }
-    END {
-      if (!found && legacy_versioned_url != "") {
-        print legacy_versioned_url
-        exit
-      }
-      if (!found && legacy_url != "") {
-        print legacy_url
       }
     }
   '

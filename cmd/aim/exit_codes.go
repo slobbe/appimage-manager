@@ -299,13 +299,6 @@ func rewriteCommandError(root *cobra.Command, args []string, err error) error {
 	if errors.Is(err, context.Canceled) {
 		return withUserMessage(tempFailError(err), "Interrupted.")
 	}
-	if unknownCommandNameFromError(err) == "upgrade" {
-		return withUserGuidance(
-			usageError(err),
-			`unknown command "upgrade" for "aim"`,
-			"Use 'aim --upgrade' to upgrade the aim CLI itself.",
-		)
-	}
 	return err
 }
 
