@@ -470,7 +470,7 @@ func flagsForNames(cmd *cobra.Command, names []string) []*pflag.Flag {
 func commonFlagNamesForCommand(cmd *cobra.Command) []string {
 	switch commandName(cmd) {
 	case "aim":
-		return []string{"help", "version", "config", "json", "plain", "no-input"}
+		return []string{"help", "version", "json", "plain", "no-input"}
 	case "add":
 		return []string{"url", "github", "gitlab", "sha256", "no-input", "dry-run", "json"}
 	case "info":

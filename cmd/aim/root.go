@@ -21,11 +21,10 @@ func newRootCommand(version string) *cobra.Command {
 		Use:   "aim",
 		Short: rootCommandDescription,
 		Long:  rootCommandLong,
-		Example: strings.TrimSpace(`
+	Example: strings.TrimSpace(`
   aim --help
   aim --version
   aim --json
-  aim -C /tmp/aim-state list --json
   aim add -n ./Example.AppImage
   aim update --yes
   aim --upgrade
@@ -57,7 +56,6 @@ func newRootCommand(version string) *cobra.Command {
 	persistentFlags.BoolP("debug", "d", false, "enable diagnostic logging")
 	persistentFlags.Bool("verbose", false, "enable diagnostic logging (deprecated: use --debug)")
 	persistentFlags.BoolP("quiet", "q", false, "suppress non-essential status output")
-	stringFlagWithMetavar(persistentFlags, "config", "C", "", "use an alternate AIM state root", "DIR")
 	persistentFlags.BoolP("dry-run", "n", false, "simulate changes without applying them")
 	persistentFlags.BoolP("yes", "y", false, "skip confirmation prompts")
 	persistentFlags.Bool("no-input", false, "disable interactive prompts")

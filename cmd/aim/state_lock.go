@@ -23,7 +23,7 @@ func withStateWriteLock(cmd *cobra.Command, fn func() error) error {
 	defer file.Close()
 
 	if err := unix.Flock(int(file.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
-		return noPermError(fmt.Errorf("another aim process is already modifying this AIM state root; wait for it to finish or rerun with a different -C root"))
+		return noPermError(fmt.Errorf("another aim process is already modifying this AIM state root; wait for it to finish and try again"))
 	}
 	defer func() {
 		_ = unix.Flock(int(file.Fd()), unix.LOCK_UN)

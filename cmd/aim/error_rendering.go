@@ -169,13 +169,13 @@ func rewriteWriteError(err error) error {
 			return withUserGuidance(
 				noPermError(err),
 				fmt.Sprintf("Can't write to %s.", path),
-				fmt.Sprintf("Check directory permissions for %s or rerun with -C to use a writable AIM state root.", path),
+				fmt.Sprintf("Check directory permissions for %s or make the AIM state directories writable.", path),
 			)
 		}
 		return withUserGuidance(
 			noPermError(err),
 			"Can't write AIM state on disk.",
-			"Check directory permissions or rerun with -C to use a writable AIM state root.",
+			"Check directory permissions or make the AIM state directories writable.",
 		)
 	}
 
@@ -183,14 +183,14 @@ func rewriteWriteError(err error) error {
 		return withUserGuidance(
 			cantCreateError(err),
 			fmt.Sprintf("Can't write AIM state at %s.", path),
-			"Check that the destination exists and is writable, or rerun with -C to use a different AIM state root.",
+			"Check that the destination exists and is writable.",
 		)
 	}
 
 	return withUserGuidance(
 		cantCreateError(err),
 		"Can't update AIM state on disk.",
-		"Check that the target directories are writable, or rerun with -C to use a different AIM state root.",
+		"Check that the target directories are writable.",
 	)
 }
 

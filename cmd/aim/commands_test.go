@@ -3646,7 +3646,7 @@ func TestNewRootCommandMetadata(t *testing.T) {
 
 func TestRootPersistentFlagsAvailableOnVisibleCommands(t *testing.T) {
 	root := newRootCommand("1.2.3")
-	required := []string{"debug", "verbose", "quiet", "config", "dry-run", "yes", "no-input", "json", "csv", "plain", "no-color"}
+	required := []string{"debug", "verbose", "quiet", "dry-run", "yes", "no-input", "json", "csv", "plain", "no-color"}
 
 	var visit func(*cobra.Command)
 	visit = func(cmd *cobra.Command) {
@@ -3677,9 +3677,14 @@ func TestRuntimeRejectsDebugAndQuietTogether(t *testing.T) {
 	}
 }
 
-func TestConfigFlagOverridesPathsBeforeCommandExecution(t *testing.T) {
+func TestRuntimePreservesConfiguredPathsBeforeCommandExecution(t *testing.T) {
 	root := newRootCommand("1.2.3")
 	tmp := t.TempDir()
+	originalPaths := config.CurrentPaths()
+	t.Cleanup(func() {
+		config.ApplyPaths(originalPaths)
+	})
+	config.ApplyPaths(config.ResolvePathsFromStateRoot(tmp))
 	var observed config.Paths
 
 	probe := &cobra.Command{
@@ -3692,7 +3697,7 @@ func TestConfigFlagOverridesPathsBeforeCommandExecution(t *testing.T) {
 	}
 	root.AddCommand(probe)
 
-	if err := executeTestCommand(context.Background(), root, "-C", tmp, "probe"); err != nil {
+	if err := executeTestCommand(context.Background(), root, "probe"); err != nil {
 		t.Fatalf("executeTestCommand returned error: %v", err)
 	}
 
@@ -4512,7 +4517,7 @@ func TestWrapWriteErrorAddsActionableGuidance(t *testing.T) {
 	if msg.Summary != "Can't write to /tmp/aim/apps.json." {
 		t.Fatalf("unexpected summary: %#v", msg)
 	}
-	if !strings.Contains(msg.Hint, "rerun with -C") {
+	if !strings.Contains(msg.Hint, "state directories writable") {
 		t.Fatalf("expected writable-root hint, got %#v", msg)
 	}
 }

@@ -14,10 +14,6 @@ Install, integrate, update, and remove AppImages from one terminal tool.
 
 
 .SH OPTIONS
-\fB-C\fP, \fB--config\fP=
-	use an alternate AIM state root
-
-.PP
 \fB--csv\fP[=false]
 	output CSV where supported
 
@@ -71,7 +67,6 @@ Install, integrate, update, and remove AppImages from one terminal tool.
 aim --help
   aim --version
   aim --json
-  aim -C /tmp/aim-state list --json
   aim add -n ./Example.AppImage
   aim update --yes
   aim --upgrade
@@ -110,9 +105,6 @@ expected SHA\-256 for direct https:// add sources
 \-\-url URL
 direct https:// AppImage URL
 .TP
-\-C DIR, \-\-config DIR
-use an alternate AIM state root
-.TP
 \-\-csv
 output CSV where supported
 .TP
@@ -148,9 +140,6 @@ aim help [command]
 Show terminal documentation for aim or one of its commands.
 .TP
 \fBOptions\fP
-.TP
-\-C DIR, \-\-config DIR
-use an alternate AIM state root
 .TP
 \-\-csv
 output CSV where supported
@@ -199,9 +188,6 @@ GitHub repo in the form owner/repo
 .TP
 \-\-gitlab namespace/project
 GitLab project path namespace/project
-.TP
-\-C DIR, \-\-config DIR
-use an alternate AIM state root
 .TP
 \-\-csv
 output CSV where supported
@@ -257,9 +243,6 @@ list integrated AppImages only
 \-\-unlinked
 list unlinked AppImages only
 .TP
-\-C DIR, \-\-config DIR
-use an alternate AIM state root
-.TP
 \-\-csv
 output CSV where supported
 .TP
@@ -300,9 +283,6 @@ aim migrate example\-app
 aim migrate \-n \-\-json
 .TP
 \fBOptions\fP
-.TP
-\-C DIR, \-\-config DIR
-use an alternate AIM state root
 .TP
 \-\-csv
 output CSV where supported
@@ -350,9 +330,6 @@ aim remove \-n example\-app \-\-json
 .TP
 \-\-unlink
 remove only desktop integration; keep managed AppImage files
-.TP
-\-C DIR, \-\-config DIR
-use an alternate AIM state root
 .TP
 \-\-csv
 output CSV where supported
@@ -423,9 +400,6 @@ unset the update source for the given managed app id
 \-\-zsync URL
 direct zsync metadata URL (https, for 'aim update \-\-set')
 .TP
-\-C DIR, \-\-config DIR
-use an alternate AIM state root
-.TP
 \-\-csv
 output CSV where supported
 .TP
@@ -490,7 +464,7 @@ Press Ctrl\-C to cancel in\-flight work.
 If aim ever accepts secret input in the future, it will not read it from plain flags.
 
 .SH ROBUSTNESS
-Network timeout is read from ${XDG_CONFIG_HOME:\-~/.config}/aim/settings.toml or <root>/config/aim/settings.toml when \-C is used.
+Network timeout is read from ${XDG_CONFIG_HOME:\-~/.config}/aim/settings.toml.
 Example settings file: network_timeout = "30s"
 Metadata and update\-check requests use network_timeout as a whole\-request timeout; AppImage downloads use it for connection, TLS handshake, and response\-header waits only.
 Failed long\-running operations print a compact operation log after the main error.

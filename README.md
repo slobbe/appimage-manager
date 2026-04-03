@@ -92,7 +92,6 @@ Bare `aim` prints concise getting-started help. Use `aim --help` for the full in
 - `-v`, `--version`: print the CLI version
 - `-d`, `--debug`: emit diagnostic logs on stderr
 - `-q`, `--quiet`: suppress non-essential status output
-- `-C`, `--config <dir>`: use an alternate AIM state root
 - `-n`, `--dry-run`: preview mutating actions without applying them
 - `-y`, `--yes`: bypass confirmation prompts
 - `--no-input`: disable interactive prompting
@@ -107,7 +106,7 @@ Examples:
 aim list --json
 aim update --check-only --csv
 aim list --plain | grep obsidian
-aim -C /tmp/aim-state add -n ./Example.AppImage
+aim add -n ./Example.AppImage
 aim update --unset example-app --yes
 ```
 
@@ -146,7 +145,7 @@ For unexpected internal failures, `aim` prints a short bug-report path:
 - a hint to rerun with `--debug`
 - the GitHub issues URL for reporting the problem
 
-Expected errors are rewritten to be user-facing and actionable when possible, for example by suggesting `aim list`, `aim update --set <id> ...`, or a writable `-C` state root.
+Expected errors are rewritten to be user-facing and actionable when possible, for example by suggesting `aim list`, `aim update --set <id> ...`, or a writable AIM state directory.
 
 ## Robustness and recovery
 
@@ -157,7 +156,6 @@ Expected errors are rewritten to be user-facing and actionable when possible, fo
   `network_timeout = "30s"`
 - default settings path:
   `${XDG_CONFIG_HOME:-~/.config}/aim/settings.toml`
-- when `-C` is used, the settings file lives under `<root>/config/aim/settings.toml`
 - `network_timeout` caps metadata and update-check requests as a whole; AppImage downloads use it for connection, TLS handshake, and response-header waits only
 - interrupted direct downloads and managed update downloads are staged under the AIM temp root and reused on rerun when resume is safe
 - recent successful managed update checks can be reused for up to 5 minutes on rerun

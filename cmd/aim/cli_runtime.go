@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -20,16 +19,15 @@ import (
 )
 
 type runtimeOptions struct {
-	ConfigRoot string
-	DryRun     bool
-	Yes        bool
-	NoInput    bool
-	JSON       bool
-	CSV        bool
-	Plain      bool
-	NoColor    bool
-	Debug      bool
-	Quiet      bool
+	DryRun  bool
+	Yes     bool
+	NoInput bool
+	JSON    bool
+	CSV     bool
+	Plain   bool
+	NoColor bool
+	Debug   bool
+	Quiet   bool
 }
 
 type runtimeContextKey struct{}
@@ -58,7 +56,6 @@ func prepareRuntime(cmd *cobra.Command) error {
 	if err := validateRuntimeOptions(cmd, opts); err != nil {
 		return err
 	}
-	applyRuntimePaths(opts)
 	settings, err := loadRuntimeSettings()
 	if err != nil {
 		return err
@@ -96,14 +93,6 @@ func parseRuntimeOptions(cmd *cobra.Command) (runtimeOptions, error) {
 	var opts runtimeOptions
 	var err error
 
-	opts.ConfigRoot, err = flagString(cmd, "config")
-	if err != nil {
-		return opts, err
-	}
-	opts.ConfigRoot, err = normalizeConfigRoot(opts.ConfigRoot)
-	if err != nil {
-		return opts, err
-	}
 	opts.DryRun, err = flagBool(cmd, "dry-run")
 	if err != nil {
 		return opts, err
@@ -170,14 +159,6 @@ func validateRuntimeOptions(cmd *cobra.Command, opts runtimeOptions) error {
 	return nil
 }
 
-func applyRuntimePaths(opts runtimeOptions) {
-	if strings.TrimSpace(opts.ConfigRoot) == "" {
-		return
-	}
-
-	config.ApplyPaths(config.ResolvePathsFromStateRoot(opts.ConfigRoot))
-}
-
 func runtimeOptionsFrom(cmd *cobra.Command) runtimeOptions {
 	if cmd == nil || cmd.Context() == nil {
 		return runtimeOptions{}
@@ -214,19 +195,6 @@ func mustEnsureRuntimeDirs() error {
 		return cantCreateError(err)
 	}
 	return nil
-}
-
-func normalizeConfigRoot(value string) (string, error) {
-	trimmed := strings.TrimSpace(value)
-	if trimmed == "" {
-		return "", nil
-	}
-
-	absolute, err := filepath.Abs(trimmed)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Clean(absolute), nil
 }
 
 func commandSupportsCSV(cmd *cobra.Command) bool {

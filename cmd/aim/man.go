@@ -75,7 +75,7 @@ func renderManMetadataSections(cmd *cobra.Command) string {
 			"If aim ever accepts secret input in the future, it will not read it from plain flags.",
 		}, "\n")))
 		sections = append(sections, renderManSection("ROBUSTNESS", strings.Join([]string{
-			"Network timeout is read from ${XDG_CONFIG_HOME:-~/.config}/aim/settings.toml or <root>/config/aim/settings.toml when -C is used.",
+			"Network timeout is read from ${XDG_CONFIG_HOME:-~/.config}/aim/settings.toml.",
 			"Example settings file: network_timeout = \"30s\"",
 			"Metadata and update-check requests use network_timeout as a whole-request timeout; AppImage downloads use it for connection, TLS handshake, and response-header waits only.",
 			"Failed long-running operations print a compact operation log after the main error.",
