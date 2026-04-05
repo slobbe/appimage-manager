@@ -13,6 +13,33 @@ supports_color() {
   [ -z "${NO_COLOR:-}" ]
 }
 
+path_contains_dir() {
+  case ":${PATH:-}:" in
+    *:"$1":*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+shell_rc_file() {
+  shell_name="${SHELL##*/}"
+
+  case "$shell_name" in
+    zsh) printf '%s/.zshrc\n' "$HOME" ;;
+    bash) printf '%s/.bashrc\n' "$HOME" ;;
+    fish) printf '%s/.config/fish/config.fish\n' "$HOME" ;;
+    *) printf '%s/.profile\n' "$HOME" ;;
+  esac
+}
+
+shell_path_export() {
+  shell_name="${SHELL##*/}"
+
+  case "$shell_name" in
+    fish) printf 'fish_add_path $HOME/.local/bin\n' ;;
+    *) printf 'export PATH="$HOME/.local/bin:$PATH"\n' ;;
+  esac
+}
+
 style_stdout() {
   if is_tty_stdout && supports_color; then
     printf '\033[%sm' "$1"
@@ -48,6 +75,7 @@ fail() {
 
 print_summary() {
   extras=""
+  verify_cmd="${bin} --version"
 
   if [ "$man_installed" -eq 1 ]; then
     extras="man"
@@ -71,13 +99,17 @@ print_summary() {
     extras="${extras}fish"
   fi
 
+  if ! path_contains_dir "$inst"; then
+    verify_cmd="${inst}/${bin} --version"
+  fi
+
   if is_tty_stdout && supports_color; then
     printf '%s%s%s\n' "$(style_stdout '1;32')" "${bin} installed" "$(style_stdout '0')"
     printf '  %sbinary:%s %s\n' "$(style_stdout '2')" "$(style_stdout '0')" "${inst}/${bin}"
     if [ -n "$extras" ]; then
       printf '  %sextras:%s %s\n' "$(style_stdout '2')" "$(style_stdout '0')" "$extras"
     fi
-    printf '  %sverify:%s %s --version\n' "$(style_stdout '2')" "$(style_stdout '0')" "$bin"
+    printf '  %sverify:%s %s\n' "$(style_stdout '2')" "$(style_stdout '0')" "$verify_cmd"
     return
   fi
 
@@ -86,7 +118,20 @@ print_summary() {
   if [ -n "$extras" ]; then
     printf '  extras: %s\n' "$extras"
   fi
-  printf '  verify: %s --version\n' "$bin"
+  printf '  verify: %s\n' "$verify_cmd"
+}
+
+print_path_hint() {
+  if path_contains_dir "$inst"; then
+    return
+  fi
+
+  rc_file="$(shell_rc_file)"
+  export_line="$(shell_path_export)"
+
+  warn "${inst} is not on your PATH"
+  printf '  add to %s: %s\n' "$rc_file" "$export_line"
+  printf '  then open a new shell and run: %s --version\n' "$bin"
 }
 
 repo="slobbe/appimage-manager"
@@ -191,3 +236,4 @@ else
 fi
 
 print_summary
+print_path_hint

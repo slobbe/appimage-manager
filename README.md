@@ -15,7 +15,7 @@ curl -fsSL https://raw.githubusercontent.com/slobbe/appimage-manager/main/script
 aim --version
 ```
 
-If `aim` is not on your `PATH`, add `~/.local/bin`.
+If `aim` is not found, make sure `~/.local/bin` is on your `PATH`.
 
 ## How to Use
 
