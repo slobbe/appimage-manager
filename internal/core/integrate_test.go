@@ -186,6 +186,103 @@ func TestIntegrateFromLocalFilePreservesUpstreamDesktopStemForManagedIdentity(t 
 	}
 }
 
+func TestIntegrateFromLocalFileReplacesEquivalentManagedAppWhenDesktopIDChanges(t *testing.T) {
+	tmp := t.TempDir()
+	setupIntegrationConfigForTest(t, tmp)
+	stubDesktopValidationForTest(t)
+	stubIntegrationCacheRefreshForTest(t)
+
+	originalGetEmbeddedUpdateInfo := getEmbeddedUpdateInfo
+	t.Cleanup(func() {
+		getEmbeddedUpdateInfo = originalGetEmbeddedUpdateInfo
+	})
+	getEmbeddedUpdateInfo = func(string) (*UpdateInfo, error) {
+		return &UpdateInfo{
+			Kind:       models.UpdateZsync,
+			UpdateInfo: "zsync|https://example.com/t3-code.AppImage.zsync",
+			Transport:  "zsync",
+		}, nil
+	}
+
+	oldAppDir := filepath.Join(config.AimDir, "t3-code-desktop")
+	oldExecPath := filepath.Join(oldAppDir, "t3-code-desktop.AppImage")
+	oldDesktopPath := filepath.Join(oldAppDir, "t3-code-desktop.desktop")
+	oldDesktopLink := filepath.Join(config.DesktopDir, "t3-code-desktop.desktop")
+	oldIconPath := filepath.Join(config.IconThemeDir, "scalable", "apps", "t3-code-desktop.svg")
+
+	if err := os.MkdirAll(oldAppDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(oldIconPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{oldExecPath, oldDesktopPath, oldIconPath} {
+		if err := os.WriteFile(path, []byte("old"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(oldDesktopPath, oldDesktopLink); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.AddApp(&models.App{
+		ID:               "t3-code-desktop",
+		Name:             "T3 Code",
+		Version:          "0.0.14",
+		ExecPath:         oldExecPath,
+		DesktopEntryPath: oldDesktopPath,
+		DesktopEntryLink: oldDesktopLink,
+		IconPath:         oldIconPath,
+		AddedAt:          "2026-04-01T12:00:00Z",
+		LastCheckedAt:    "2026-04-02T12:00:00Z",
+		Update: &models.UpdateSource{
+			Kind: models.UpdateZsync,
+			Zsync: &models.ZsyncUpdateSource{
+				UpdateInfo: "zsync|https://example.com/t3-code.AppImage.zsync",
+				Transport:  "zsync",
+			},
+		},
+	}, true); err != nil {
+		t.Fatal(err)
+	}
+
+	appImagePath := filepath.Join(tmp, "t3-code.AppImage")
+	writeFakeAppImageExtractorWithDesktop(t, appImagePath, "t3-code.desktop", "T3 Code", "0.0.15", "t3-code", "t3-code.svg")
+
+	app, err := IntegrateFromLocalFile(context.Background(), appImagePath, nil)
+	if err != nil {
+		t.Fatalf("IntegrateFromLocalFile returned error: %v", err)
+	}
+
+	if app.ID != "t3-code" {
+		t.Fatalf("app.ID = %q, want %q", app.ID, "t3-code")
+	}
+	if app.ReplacesID != "" {
+		t.Fatalf("app.ReplacesID = %q, want empty after persisted replacement", app.ReplacesID)
+	}
+	if app.AddedAt != "2026-04-01T12:00:00Z" {
+		t.Fatalf("app.AddedAt = %q", app.AddedAt)
+	}
+	if app.LastCheckedAt != "2026-04-02T12:00:00Z" {
+		t.Fatalf("app.LastCheckedAt = %q", app.LastCheckedAt)
+	}
+	if _, err := repo.GetApp("t3-code-desktop"); err == nil {
+		t.Fatal("expected old app id to be removed from database")
+	}
+	persisted, err := repo.GetApp("t3-code")
+	if err != nil {
+		t.Fatalf("expected new app id to be persisted: %v", err)
+	}
+	if persisted.Update == nil || persisted.Update.Kind != models.UpdateZsync {
+		t.Fatalf("persisted.Update = %#v", persisted.Update)
+	}
+	if _, err := os.Stat(oldAppDir); !os.IsNotExist(err) {
+		t.Fatalf("expected old app dir to be removed, got err=%v", err)
+	}
+	if _, err := os.Lstat(oldDesktopLink); !os.IsNotExist(err) {
+		t.Fatalf("expected old desktop link to be removed, got err=%v", err)
+	}
+}
+
 func TestIntegrateExistingPrefersUnprefixedDesktopLink(t *testing.T) {
 	tmp := t.TempDir()
 	setupIntegrationConfigForTest(t, tmp)

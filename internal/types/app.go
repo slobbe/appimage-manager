@@ -23,6 +23,8 @@ type App struct {
 	ID      string `json:"id"`      // unique app id
 	Version string `json:"version"` // current app version
 
+	ReplacesID string `json:"-"`
+
 	ExecPath         string `json:"exec_path"`
 	IconPath         string `json:"icon_path"`
 	DesktopEntryPath string `json:"desktop_entry_path"`
