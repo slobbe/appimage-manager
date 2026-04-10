@@ -19,25 +19,29 @@ func ParseControlFile(zsyncControlFile io.Reader) (cf *ControlFile, err error) {
 	}
 	err = cf.parseChecksums(reader)
 
-	return cf, nil
+	return cf, err
 }
 
 func (cf *ControlFile) parseControlHeader(reader *bufio.Reader) error {
-	scanner := bufio.NewScanner(reader)
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil && err != io.EOF {
+			return err
+		}
 
-	for scanner.Scan() {
-		line := scanner.Text()
-
-		if line == "\n" {
+		line = strings.TrimRight(line, "\r\n")
+		if line == "" {
 			break
 		}
 
 		key, val := readHeaderLine(line)
-		setHeader(cf, key, val)
-	}
+		if err := setHeader(cf, key, val); err != nil {
+			return err
+		}
 
-	if err := scanner.Err(); err != nil {
-		return err
+		if err == io.EOF {
+			break
+		}
 	}
 
 	return nil
@@ -117,14 +121,33 @@ func (cf *ControlFile) parseChecksums(reader *bufio.Reader) error {
 	if recordSize <= 0 {
 		return fmt.Errorf("invalid record size")
 	}
-	
+
+	payload, err := io.ReadAll(reader)
+	if err != nil {
+		return err
+	}
 	if len(payload)%recordSize != 0 {
-			return fmt.Errorf(
-				"payload length %d is not a multiple of record size %d",
-				len(payload), recordSize,
-			)
+		return fmt.Errorf(
+			"payload length %d is not a multiple of record size %d",
+			len(payload), recordSize,
+		)
+	}
+
+	cf.Blocks = make([]BlockHash, 0, len(payload)/recordSize)
+	for offset := 0; offset < len(payload); offset += recordSize {
+		record := payload[offset : offset+recordSize]
+
+		var weak uint32
+		for _, b := range record[:weakBytes] {
+			weak = (weak << 8) | uint32(b)
 		}
 
+		strong := append([]byte(nil), record[weakBytes:recordSize]...)
+		cf.Blocks = append(cf.Blocks, BlockHash{
+			Weak:   weak,
+			Strong: strong,
+		})
+	}
 
 	return nil
 }
