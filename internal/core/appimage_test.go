@@ -15,10 +15,15 @@ import (
 func TestUpdateDesktopEntryRewritesExecAndIconInAllowedSections(t *testing.T) {
 	dir := t.TempDir()
 	desktopPath := filepath.Join(dir, "my-app.desktop")
+	existingTryExec := filepath.Join(dir, "existing-binary")
 
 	initial := strings.Join([]string{
 		"[Desktop Entry]",
 		"Name=My App",
+		"TryExec=/missing/binary",
+		"TryExec=ghostty",
+		"TryExec=" + existingTryExec,
+		"DBusActivatable=true",
 		"Exec=AppRun %U",
 		"Icon=old-icon",
 		"",
@@ -29,6 +34,10 @@ func TestUpdateDesktopEntryRewritesExecAndIconInAllowedSections(t *testing.T) {
 		"[Not Desktop]",
 		"Exec=should-not-change",
 	}, "\n")
+
+	if err := os.WriteFile(existingTryExec, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("failed to write existing TryExec target: %v", err)
+	}
 
 	if err := os.WriteFile(desktopPath, []byte(initial), 0o644); err != nil {
 		t.Fatalf("failed to write test desktop file: %v", err)
@@ -55,6 +64,18 @@ func TestUpdateDesktopEntryRewritesExecAndIconInAllowedSections(t *testing.T) {
 	}
 	if !strings.Contains(content, "Icon="+iconPath) {
 		t.Fatalf("expected desktop entry Icon to be rewritten, got:\n%s", content)
+	}
+	if strings.Contains(content, "TryExec=/missing/binary") {
+		t.Fatalf("expected invalid absolute TryExec to be removed, got:\n%s", content)
+	}
+	if !strings.Contains(content, "TryExec=ghostty") {
+		t.Fatalf("expected bare-command TryExec to remain unchanged, got:\n%s", content)
+	}
+	if !strings.Contains(content, "TryExec="+existingTryExec) {
+		t.Fatalf("expected existing absolute TryExec to remain unchanged, got:\n%s", content)
+	}
+	if strings.Contains(content, "DBusActivatable=true") {
+		t.Fatalf("expected DBusActivatable to be removed, got:\n%s", content)
 	}
 	if !strings.Contains(content, "[Desktop Action NewWindow]\nExec=\""+execPath+"\" --new-window\nIcon=action-icon") {
 		t.Fatalf("expected action Icon to remain unchanged, got:\n%s", content)
