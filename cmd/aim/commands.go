@@ -503,9 +503,23 @@ func integrateRemoteInstall(ctx context.Context, cmd *cobra.Command, req remoteI
 	app.Source = req.BuildSource(app)
 	app.Update = finalUpdate
 
+	equivalentApp, err := core.FindEquivalentManagedApp(app)
+	if err != nil {
+		return nil, wrapWriteError(err)
+	}
+	if equivalentApp != nil {
+		app.ReplacesID = equivalentApp.ID
+	}
+
 	logOperationf(cmd, "Persisting %s", app.ID)
 	if err := addSingleApp(app, true); err != nil {
 		return nil, wrapWriteError(err)
+	}
+	if strings.TrimSpace(app.ReplacesID) != "" {
+		if _, err := removeManagedApp(ctx, app.ReplacesID, false); err != nil {
+			return nil, wrapWriteError(fmt.Errorf("failed to remove superseded app %s: %w", app.ReplacesID, err))
+		}
+		app.ReplacesID = ""
 	}
 
 	removeStagedDownload(downloadPath)

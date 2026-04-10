@@ -16,6 +16,8 @@ import (
 
 type UpdateOverwritePrompt func(existing, incoming *models.UpdateSource) (bool, error)
 
+var getEmbeddedUpdateInfo = GetUpdateInfo
+
 func IntegrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwrite UpdateOverwritePrompt) (*models.App, error) {
 	return integrateFromLocalFile(ctx, src, confirmUpdateOverwrite, true, true)
 }
@@ -100,6 +102,7 @@ func integrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 	}
 
 	var existingApp *models.App
+	var replacementApp *models.App
 	var updateFromAppImage *models.UpdateSource
 
 	var updateInfoWG sync.WaitGroup
@@ -107,7 +110,7 @@ func integrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 	go func() {
 		defer updateInfoWG.Done()
 
-		updateInfo, err := GetUpdateInfo(extractionData.ExecPath)
+		updateInfo, err := getEmbeddedUpdateInfo(extractionData.ExecPath)
 		if err != nil || updateInfo.Kind != models.UpdateZsync {
 			return
 		}
@@ -162,6 +165,45 @@ func integrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 		}
 	}
 
+	source := models.Source{
+		Kind: models.SourceLocalFile,
+		LocalFile: &models.LocalFileSource{
+			IntegratedAt: timestampNow,
+			OriginalPath: src,
+		},
+	}
+
+	if existingApp == nil {
+		match, err := FindEquivalentManagedApp(&models.App{
+			ID:     appID,
+			Source: source,
+			Update: update,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if match != nil {
+			existingApp = match
+			replacementApp = match
+			if strings.TrimSpace(existingApp.AddedAt) != "" {
+				addedAt = existingApp.AddedAt
+			}
+			lastCheckedAt = existingApp.LastCheckedAt
+
+			if !updateFound {
+				update = existingApp.Update
+			} else if existingApp.Update != nil && existingApp.Update.Kind != models.UpdateNone && confirmUpdateOverwrite != nil {
+				overwrite, err := confirmUpdateOverwrite(existingApp.Update, update)
+				if err != nil {
+					return nil, err
+				}
+				if !overwrite {
+					update = existingApp.Update
+				}
+			}
+		}
+	}
+
 	var (
 		sha256sum string
 		sha1sum   string
@@ -192,14 +234,6 @@ func integrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 		return nil, hashErr
 	}
 
-	source := models.Source{
-		Kind: models.SourceLocalFile,
-		LocalFile: &models.LocalFileSource{
-			IntegratedAt: timestampNow,
-			OriginalPath: src,
-		},
-	}
-
 	app := &models.App{
 		Name:             appInfo.Name,
 		ID:               appInfo.ID,
@@ -219,9 +253,19 @@ func integrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 		Update:           update,
 	}
 
+	if replacementApp != nil {
+		app.ReplacesID = replacementApp.ID
+	}
+
 	if persist {
 		if err := repo.AddApp(app, true); err != nil {
 			return nil, err
+		}
+		if replacementApp != nil {
+			if _, err := Remove(ctx, replacementApp.ID, false); err != nil {
+				return nil, err
+			}
+			app.ReplacesID = ""
 		}
 	}
 

@@ -15,15 +15,16 @@ import (
 	models "github.com/slobbe/appimage-manager/internal/types"
 )
 
-func persistManagedAppliedApps(apps []*models.App) error {
+func persistManagedAppliedApps(ctx context.Context, apps []*models.App) error {
 	if len(apps) == 0 {
 		return nil
 	}
 
 	if err := addAppsBatch(apps, true); err == nil {
-		return nil
+		return cleanupReplacedManagedApps(ctx, apps)
 	}
 
+	persistedApps := make([]*models.App, 0, len(apps))
 	fallbackErrors := make([]string, 0)
 	for _, app := range apps {
 		if app == nil {
@@ -31,11 +32,35 @@ func persistManagedAppliedApps(apps []*models.App) error {
 		}
 		if err := addSingleApp(app, true); err != nil {
 			fallbackErrors = append(fallbackErrors, fmt.Sprintf("%s: %v", app.ID, err))
+			continue
 		}
+		persistedApps = append(persistedApps, app)
 	}
 
 	if len(fallbackErrors) > 0 {
 		return wrapWriteError(fmt.Errorf("failed to persist applied updates: %s", strings.Join(fallbackErrors, "; ")))
+	}
+
+	return cleanupReplacedManagedApps(ctx, persistedApps)
+}
+
+func cleanupReplacedManagedApps(ctx context.Context, apps []*models.App) error {
+	replaced := map[string]struct{}{}
+	for _, app := range apps {
+		if app == nil {
+			continue
+		}
+		replacesID := strings.TrimSpace(app.ReplacesID)
+		if replacesID == "" || replacesID == strings.TrimSpace(app.ID) {
+			continue
+		}
+		if _, seen := replaced[replacesID]; seen {
+			continue
+		}
+		replaced[replacesID] = struct{}{}
+		if _, err := removeManagedApp(ctx, replacesID, false); err != nil {
+			return wrapWriteError(fmt.Errorf("failed to remove superseded app %s: %w", replacesID, err))
+		}
 	}
 
 	return nil
@@ -100,6 +125,18 @@ func applyManagedUpdate(ctx context.Context, update pendingManagedUpdate, report
 	if err != nil {
 		emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageFailed, Message: err.Error()})
 		return nil, err
+	}
+
+	if update.App != nil {
+		app.Source = update.App.Source
+		app.Update = update.App.Update
+		if strings.TrimSpace(update.App.AddedAt) != "" {
+			app.AddedAt = update.App.AddedAt
+		}
+		app.LastCheckedAt = update.App.LastCheckedAt
+		if strings.TrimSpace(update.App.ID) != "" && strings.TrimSpace(update.App.ID) != strings.TrimSpace(app.ID) {
+			app.ReplacesID = update.App.ID
+		}
 	}
 
 	emitManagedApplyEvent(reporter, managedApplyEvent{

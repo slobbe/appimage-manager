@@ -357,7 +357,7 @@ func applyManagedUpdates(ctx context.Context, cmd *cobra.Command, cfg managedUpd
 		}
 
 		logOperationf(cmd, "Persisting applied updates")
-		persistErr = persistManagedAppliedApps(appliedApps)
+		persistErr = persistManagedAppliedApps(ctx, appliedApps)
 		return nil
 	})
 	if err != nil {

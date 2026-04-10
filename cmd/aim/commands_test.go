@@ -5638,9 +5638,11 @@ func TestManagedApplyWorkerCount(t *testing.T) {
 func TestPersistManagedAppliedAppsUsesBatch(t *testing.T) {
 	originalBatch := addAppsBatch
 	originalSingle := addSingleApp
+	originalRemove := removeManagedApp
 	t.Cleanup(func() {
 		addAppsBatch = originalBatch
 		addSingleApp = originalSingle
+		removeManagedApp = originalRemove
 	})
 
 	var batchCalls int32
@@ -5659,8 +5661,12 @@ func TestPersistManagedAppliedAppsUsesBatch(t *testing.T) {
 		atomic.AddInt32(&singleCalls, 1)
 		return nil
 	}
+	removeManagedApp = func(context.Context, string, bool) (*models.App, error) {
+		t.Fatal("removeManagedApp should not be called without replacements")
+		return nil, nil
+	}
 
-	err := persistManagedAppliedApps([]*models.App{{ID: "a"}, {ID: "b"}})
+	err := persistManagedAppliedApps(context.Background(), []*models.App{{ID: "a"}, {ID: "b"}})
 	if err != nil {
 		t.Fatalf("persistManagedAppliedApps returned error: %v", err)
 	}
@@ -5675,9 +5681,11 @@ func TestPersistManagedAppliedAppsUsesBatch(t *testing.T) {
 func TestPersistManagedAppliedAppsFallsBackToSingleWrites(t *testing.T) {
 	originalBatch := addAppsBatch
 	originalSingle := addSingleApp
+	originalRemove := removeManagedApp
 	t.Cleanup(func() {
 		addAppsBatch = originalBatch
 		addSingleApp = originalSingle
+		removeManagedApp = originalRemove
 	})
 
 	var singleCalls int32
@@ -5688,13 +5696,56 @@ func TestPersistManagedAppliedAppsFallsBackToSingleWrites(t *testing.T) {
 		atomic.AddInt32(&singleCalls, 1)
 		return nil
 	}
+	removeManagedApp = func(context.Context, string, bool) (*models.App, error) {
+		t.Fatal("removeManagedApp should not be called without replacements")
+		return nil, nil
+	}
 
-	err := persistManagedAppliedApps([]*models.App{{ID: "a"}, {ID: "b"}})
+	err := persistManagedAppliedApps(context.Background(), []*models.App{{ID: "a"}, {ID: "b"}})
 	if err != nil {
 		t.Fatalf("persistManagedAppliedApps returned error: %v", err)
 	}
 	if atomic.LoadInt32(&singleCalls) != 2 {
 		t.Fatalf("single calls = %d, want 2", singleCalls)
+	}
+}
+
+func TestPersistManagedAppliedAppsRemovesSupersededApps(t *testing.T) {
+	originalBatch := addAppsBatch
+	originalSingle := addSingleApp
+	originalRemove := removeManagedApp
+	t.Cleanup(func() {
+		addAppsBatch = originalBatch
+		addSingleApp = originalSingle
+		removeManagedApp = originalRemove
+	})
+
+	addAppsBatch = func([]*models.App, bool) error {
+		return nil
+	}
+	addSingleApp = func(*models.App, bool) error {
+		t.Fatal("single fallback should not be used")
+		return nil
+	}
+
+	removed := make([]string, 0, 1)
+	removeManagedApp = func(_ context.Context, id string, unlink bool) (*models.App, error) {
+		if unlink {
+			t.Fatal("expected full removal for superseded app")
+		}
+		removed = append(removed, id)
+		return &models.App{ID: id}, nil
+	}
+
+	err := persistManagedAppliedApps(context.Background(), []*models.App{
+		{ID: "t3-code", ReplacesID: "t3-code-desktop"},
+		{ID: "other"},
+	})
+	if err != nil {
+		t.Fatalf("persistManagedAppliedApps returned error: %v", err)
+	}
+	if strings.Join(removed, ",") != "t3-code-desktop" {
+		t.Fatalf("removed ids = %q, want %q", strings.Join(removed, ","), "t3-code-desktop")
 	}
 }
 
