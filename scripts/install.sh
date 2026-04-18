@@ -134,6 +134,139 @@ print_path_hint() {
   printf '  then open a new shell and run: %s --version\n' "$bin"
 }
 
+shell_completion_rc_file() {
+  shell_name="${SHELL##*/}"
+
+  case "$shell_name" in
+    zsh) printf '%s/.zshrc\n' "$HOME" ;;
+    bash) printf '%s/.bashrc\n' "$HOME" ;;
+    fish) printf '%s/.config/fish/config.fish\n' "$HOME" ;;
+    *) return 1 ;;
+  esac
+}
+
+print_completion_snippet() {
+  shell_name="${SHELL##*/}"
+
+  case "$shell_name" in
+    zsh)
+      printf 'fpath=("%s" $fpath)\n' "$zshcompdir"
+      printf 'autoload -U compinit && compinit\n'
+      ;;
+    bash)
+      printf 'if [ -f /usr/share/bash-completion/bash_completion ]; then\n'
+      printf '  . /usr/share/bash-completion/bash_completion\n'
+      printf 'fi\n'
+      ;;
+    fish)
+      printf 'set -Ua fish_complete_path "%s"\n' "$fishcompdir"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+shell_completion_works() {
+  shell_name="${SHELL##*/}"
+
+  case "$shell_name" in
+    zsh)
+      command -v zsh >/dev/null 2>&1 || return 1
+      zsh -ic 'command -v aim >/dev/null 2>&1 || exit 1; autoload -U compinit; compinit >/dev/null 2>&1; [ "${_comps[aim]-}" = "_aim" ]' >/dev/null 2>&1
+      ;;
+    bash)
+      command -v bash >/dev/null 2>&1 || return 1
+      bash -ic 'command -v aim >/dev/null 2>&1 || exit 1; type _completion_loader >/dev/null 2>&1 || exit 1; _completion_loader aim >/dev/null 2>&1 || true; complete -p aim >/dev/null 2>&1' >/dev/null 2>&1
+      ;;
+    fish)
+      command -v fish >/dev/null 2>&1 || return 1
+      fish -ic 'command -q aim; and test (count (complete -C "aim ")) -gt 0' >/dev/null 2>&1
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+print_completion_hint() {
+  if [ "$bash_completion_installed" -eq 0 ] &&
+     [ "$zsh_completion_installed" -eq 0 ] &&
+     [ "$fish_completion_installed" -eq 0 ]; then
+    return
+  fi
+
+  if shell_completion_works; then
+    return
+  fi
+
+  shell_name="${SHELL##*/}"
+  rc_file="$(shell_completion_rc_file 2>/dev/null || true)"
+
+  case "$shell_name" in
+    zsh)
+      if [ "$zsh_completion_installed" -eq 1 ]; then
+        printf '  zsh completion: %s\n' "${zshcompdir}/_${bin}"
+        printf '  if completion is not available, add to %s:\n' "$rc_file"
+        print_completion_snippet | sed 's/^/    /'
+        printf '  then open a new shell.\n'
+      fi
+      ;;
+    bash)
+      if [ "$bash_completion_installed" -eq 1 ]; then
+        printf '  bash completion: %s\n' "${bashcompdir}/${bin}"
+        printf '  if completion is not available, add to %s:\n' "$rc_file"
+        print_completion_snippet | sed 's/^/    /'
+        printf '  then open a new shell.\n'
+      fi
+      ;;
+    fish)
+      if [ "$fish_completion_installed" -eq 1 ]; then
+        printf '  fish completion: %s\n' "${fishcompdir}/${bin}.fish"
+        printf '  if completion is not available, add to %s:\n' "$rc_file"
+        print_completion_snippet | sed 's/^/    /'
+        printf '  then open a new shell.\n'
+      fi
+      ;;
+  esac
+}
+
+configure_shell_completion() {
+  if [ "${AIM_INSTALL_SHELL_RC:-0}" != "1" ]; then
+    return
+  fi
+
+  shell_name="${SHELL##*/}"
+  rc_file="$(shell_completion_rc_file 2>/dev/null || true)"
+
+  if [ -z "$rc_file" ]; then
+    warn "AIM_INSTALL_SHELL_RC=1 is set, but shell ${shell_name:-unknown} is not supported for auto-configuration"
+    return
+  fi
+
+  case "$shell_name" in
+    zsh) [ "$zsh_completion_installed" -eq 1 ] || return ;;
+    bash) [ "$bash_completion_installed" -eq 1 ] || return ;;
+    fish) [ "$fish_completion_installed" -eq 1 ] || return ;;
+    *) return ;;
+  esac
+
+  marker="# aim shell completion"
+  if [ -f "$rc_file" ] && grep -Fq "$marker" "$rc_file"; then
+    printf '  shell completion config already present in %s\n' "$rc_file"
+    return
+  fi
+
+  mkdir -p "$(dirname "$rc_file")"
+  {
+    printf '\n%s\n' "$marker"
+    print_completion_snippet
+    printf '# end aim shell completion\n'
+  } >> "$rc_file"
+
+  printf '  added shell completion config to %s\n' "$rc_file"
+}
+
 repo="slobbe/appimage-manager"
 bin="aim"
 inst="${HOME}/.local/bin"
@@ -237,3 +370,5 @@ fi
 
 print_summary
 print_path_hint
+configure_shell_completion
+print_completion_hint
