@@ -4738,6 +4738,9 @@ func TestRenderShellCompletions(t *testing.T) {
 	if !strings.Contains(bashCompletion, "aim") {
 		t.Fatalf("unexpected bash completion output:\n%s", bashCompletion)
 	}
+	if !strings.Contains(bashCompletion, "__complete") {
+		t.Fatalf("expected bash completion to call Cobra completion endpoint:\n%s", bashCompletion)
+	}
 
 	zshCompletion, err := renderZshCompletion(root)
 	if err != nil {
@@ -4746,6 +4749,9 @@ func TestRenderShellCompletions(t *testing.T) {
 	if !strings.Contains(zshCompletion, "#compdef aim") {
 		t.Fatalf("unexpected zsh completion output:\n%s", zshCompletion)
 	}
+	if !strings.Contains(zshCompletion, "__complete") && !strings.Contains(zshCompletion, "__completeNoDesc") {
+		t.Fatalf("expected zsh completion to call Cobra completion endpoint:\n%s", zshCompletion)
+	}
 
 	fishCompletion, err := renderFishCompletion(root)
 	if err != nil {
@@ -4753,6 +4759,9 @@ func TestRenderShellCompletions(t *testing.T) {
 	}
 	if !strings.Contains(fishCompletion, "complete -c aim") {
 		t.Fatalf("unexpected fish completion output:\n%s", fishCompletion)
+	}
+	if !strings.Contains(fishCompletion, "__aim_perform_completion") {
+		t.Fatalf("expected fish completion wiring helper in output:\n%s", fishCompletion)
 	}
 }
 
@@ -4779,6 +4788,82 @@ func TestWriteCompletionFiles(t *testing.T) {
 		}
 		if !strings.Contains(string(content), tt.expectedSnippet) {
 			t.Fatalf("generated completion %s missing %q:\n%s", tt.path, tt.expectedSnippet, string(content))
+		}
+	}
+}
+
+func TestRootCommandCompletionListsTopLevelCommands(t *testing.T) {
+	root := newRootTestCommand()
+
+	stdout, _, err := executeCommandWithIO(context.Background(), root, "__complete", "")
+	if err != nil {
+		t.Fatalf("completion command returned error: %v", err)
+	}
+
+	for _, expected := range []string{"add", "info", "list", "remove", "update"} {
+		if !strings.Contains(stdout, expected) {
+			t.Fatalf("expected root completion to include %q, got:\n%s", expected, stdout)
+		}
+	}
+}
+
+func TestRootFlagCompletionListsPersistentFlags(t *testing.T) {
+	root := newRootTestCommand()
+
+	stdout, _, err := executeCommandWithIO(context.Background(), root, "__complete", "--j")
+	if err != nil {
+		t.Fatalf("completion command returned error: %v", err)
+	}
+
+	if !strings.Contains(stdout, "--json") {
+		t.Fatalf("expected root completion to include --json, got:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, ":4") {
+		t.Fatalf("expected root completion directive in output, got:\n%s", stdout)
+	}
+}
+
+func TestAddCommandCompletionListsPersistentAndLocalFlags(t *testing.T) {
+	root := newRootTestCommand()
+
+	stdout, _, err := executeCommandWithIO(context.Background(), root, "__complete", "add", "-")
+	if err != nil {
+		t.Fatalf("completion command returned error: %v", err)
+	}
+
+	for _, expected := range []string{"--json", "--yes", "--dry-run", "--github", "--gitlab", "--asset", "--sha256", "--url"} {
+		if !strings.Contains(stdout, expected) {
+			t.Fatalf("expected add completion to include %q, got:\n%s", expected, stdout)
+		}
+	}
+}
+
+func TestAddCommandCompletionFiltersFlagPrefixes(t *testing.T) {
+	root := newRootTestCommand()
+
+	stdout, _, err := executeCommandWithIO(context.Background(), root, "__complete", "add", "--g")
+	if err != nil {
+		t.Fatalf("completion command returned error: %v", err)
+	}
+
+	for _, expected := range []string{"--github", "--gitlab"} {
+		if !strings.Contains(stdout, expected) {
+			t.Fatalf("expected filtered add completion to include %q, got:\n%s", expected, stdout)
+		}
+	}
+}
+
+func TestUpdateCommandCompletionListsSourceFlags(t *testing.T) {
+	root := newRootTestCommand()
+
+	stdout, _, err := executeCommandWithIO(context.Background(), root, "__complete", "update", "--g")
+	if err != nil {
+		t.Fatalf("completion command returned error: %v", err)
+	}
+
+	for _, expected := range []string{"--github", "--gitlab"} {
+		if !strings.Contains(stdout, expected) {
+			t.Fatalf("expected update completion to include %q, got:\n%s", expected, stdout)
 		}
 	}
 }
