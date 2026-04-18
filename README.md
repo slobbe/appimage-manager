@@ -1,9 +1,11 @@
 # aim
 
-> AppImage Manager for the terminal.
-
 [![GitHub Release](https://img.shields.io/github/v/release/slobbe/appimage-manager?sort=semver&display_name=release&style=flat-square&color=royalblue)](https://github.com/slobbe/appimage-manager/releases/latest)
 [![GitHub License](https://img.shields.io/github/license/slobbe/appimage-manager?style=flat-square&color=teal)](/LICENSE)
+
+Manage, integrate and update your AppImages from the terminal.
+
+Set GitHub and GitLab releases as update sources, or use the embedded update information if available.
 
 > [!NOTE]
 > This project is still a **work in progress** and breaking changes may happen at any time while in `v0.x.x`.
