@@ -69,8 +69,9 @@ func newRootCommand(version string) *cobra.Command {
 
 func newAddCommand() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "add [<id|Path/To.AppImage>]",
-		Short: "Install an AppImage from a file, URL, or provider",
+		Use:               "add [<id|Path/To.AppImage>]",
+		Short:             "Install an AppImage from a file, URL, or provider",
+		ValidArgsFunction: completeAddTarget,
 		Example: strings.TrimSpace(`
   aim add ./Example.AppImage
   aim add --url https://example.com/Example.AppImage --sha256 <sha256>
@@ -90,9 +91,10 @@ func newAddCommand() *cobra.Command {
 
 func newRemoveCommand() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "remove <id>",
-		Aliases: []string{"rm"},
-		Short:   "Remove a managed AppImage or only its desktop integration",
+		Use:               "remove <id>",
+		Aliases:           []string{"rm"},
+		Short:             "Remove a managed AppImage or only its desktop integration",
+		ValidArgsFunction: completeManagedAppIDTarget,
 		Example: strings.TrimSpace(`
   aim remove example-app
   aim remove --link example-app
@@ -126,8 +128,9 @@ func newListCommand() *cobra.Command {
 
 func newInfoCommand() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "info [<id|Path/To.AppImage>]",
-		Short: "Show AppImage or package details",
+		Use:               "info [<id|Path/To.AppImage>]",
+		Short:             "Show AppImage or package details",
+		ValidArgsFunction: completeInfoTarget,
 		Example: strings.TrimSpace(`
   aim info example-app
   aim info ./Example.AppImage
@@ -144,10 +147,11 @@ func newInfoCommand() *cobra.Command {
 
 func newUpdateCommand() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "update [id]",
-		Aliases: []string{"u"},
-		Short:   "Check, apply, or configure updates",
-		Long:    "Check or apply updates for managed AppImages, or manage configured update sources.",
+		Use:               "update [id]",
+		Aliases:           []string{"u"},
+		Short:             "Check, apply, or configure updates",
+		Long:              "Check or apply updates for managed AppImages, or manage configured update sources.",
+		ValidArgsFunction: completeUpdateTarget,
 		Example: strings.TrimSpace(`
   aim update
   aim update --check-only --csv
@@ -159,6 +163,8 @@ func newUpdateCommand() *cobra.Command {
 
 	addUpdateCheckFlags(cmd)
 	addUpdateSourceFlags(cmd)
+	mustRegisterFlagCompletion(cmd, "set", completeManagedAppIDFlagValue)
+	mustRegisterFlagCompletion(cmd, "unset", completeManagedAppIDFlagValue)
 
 	return cmd
 }

@@ -4868,6 +4868,225 @@ func TestUpdateCommandCompletionListsSourceFlags(t *testing.T) {
 	}
 }
 
+func TestRemoveCommandCompletionListsManagedAppIDs(t *testing.T) {
+	setupManagedAppCompletionFixture(t)
+	root := newRootTestCommand()
+
+	stdout, _, err := executeCommandWithIO(context.Background(), root, "__complete", "remove", "")
+	if err != nil {
+		t.Fatalf("completion command returned error: %v", err)
+	}
+
+	for _, expected := range []string{"alpha-app", "beta-app", "Alpha App"} {
+		if !strings.Contains(stdout, expected) {
+			t.Fatalf("expected remove completion to include %q, got:\n%s", expected, stdout)
+		}
+	}
+	if !strings.Contains(stdout, ":4") {
+		t.Fatalf("expected no-file-completion directive in output, got:\n%s", stdout)
+	}
+}
+
+func TestUpdateCommandCompletionListsManagedAppIDs(t *testing.T) {
+	setupManagedAppCompletionFixture(t)
+	root := newRootTestCommand()
+
+	stdout, _, err := executeCommandWithIO(context.Background(), root, "__complete", "update", "")
+	if err != nil {
+		t.Fatalf("completion command returned error: %v", err)
+	}
+
+	for _, expected := range []string{"alpha-app", "beta-app"} {
+		if !strings.Contains(stdout, expected) {
+			t.Fatalf("expected update completion to include %q, got:\n%s", expected, stdout)
+		}
+	}
+}
+
+func TestUpdateSetFlagCompletionListsManagedAppIDs(t *testing.T) {
+	setupManagedAppCompletionFixture(t)
+	root := newRootTestCommand()
+
+	stdout, _, err := executeCommandWithIO(context.Background(), root, "__complete", "update", "--set", "")
+	if err != nil {
+		t.Fatalf("completion command returned error: %v", err)
+	}
+
+	for _, expected := range []string{"alpha-app", "beta-app"} {
+		if !strings.Contains(stdout, expected) {
+			t.Fatalf("expected update --set completion to include %q, got:\n%s", expected, stdout)
+		}
+	}
+	if !strings.Contains(stdout, ":4") {
+		t.Fatalf("expected no-file-completion directive in output, got:\n%s", stdout)
+	}
+}
+
+func TestUpdateUnsetFlagCompletionListsManagedAppIDs(t *testing.T) {
+	setupManagedAppCompletionFixture(t)
+	root := newRootTestCommand()
+
+	stdout, _, err := executeCommandWithIO(context.Background(), root, "__complete", "update", "--unset", "")
+	if err != nil {
+		t.Fatalf("completion command returned error: %v", err)
+	}
+
+	for _, expected := range []string{"alpha-app", "beta-app"} {
+		if !strings.Contains(stdout, expected) {
+			t.Fatalf("expected update --unset completion to include %q, got:\n%s", expected, stdout)
+		}
+	}
+	if !strings.Contains(stdout, ":4") {
+		t.Fatalf("expected no-file-completion directive in output, got:\n%s", stdout)
+	}
+}
+
+func TestInfoCommandCompletionDefaultsToManagedAppIDs(t *testing.T) {
+	setupManagedAppCompletionFixture(t)
+	root := newRootTestCommand()
+
+	stdout, _, err := executeCommandWithIO(context.Background(), root, "__complete", "info", "")
+	if err != nil {
+		t.Fatalf("completion command returned error: %v", err)
+	}
+
+	for _, expected := range []string{"alpha-app", "beta-app"} {
+		if !strings.Contains(stdout, expected) {
+			t.Fatalf("expected info completion to include %q, got:\n%s", expected, stdout)
+		}
+	}
+}
+
+func TestAddCommandCompletionDefaultsToManagedAppIDs(t *testing.T) {
+	setupManagedAppCompletionFixture(t)
+	root := newRootTestCommand()
+
+	stdout, _, err := executeCommandWithIO(context.Background(), root, "__complete", "add", "")
+	if err != nil {
+		t.Fatalf("completion command returned error: %v", err)
+	}
+
+	for _, expected := range []string{"alpha-app", "beta-app"} {
+		if !strings.Contains(stdout, expected) {
+			t.Fatalf("expected add completion to include %q, got:\n%s", expected, stdout)
+		}
+	}
+}
+
+func TestInfoCommandCompletionFallsBackToFilesForPathLikeToken(t *testing.T) {
+	setupManagedAppCompletionFixture(t)
+	root := newRootTestCommand()
+
+	stdout, _, err := executeCommandWithIO(context.Background(), root, "__complete", "info", "./")
+	if err != nil {
+		t.Fatalf("completion command returned error: %v", err)
+	}
+
+	for _, unexpected := range []string{"alpha-app", "beta-app"} {
+		if strings.Contains(stdout, unexpected) {
+			t.Fatalf("expected info path completion to exclude %q, got:\n%s", unexpected, stdout)
+		}
+	}
+	if !strings.Contains(stdout, ":0") {
+		t.Fatalf("expected default file-completion directive in output, got:\n%s", stdout)
+	}
+}
+
+func TestAddCommandCompletionFallsBackToFilesForPathLikeToken(t *testing.T) {
+	setupManagedAppCompletionFixture(t)
+	root := newRootTestCommand()
+
+	stdout, _, err := executeCommandWithIO(context.Background(), root, "__complete", "add", "./")
+	if err != nil {
+		t.Fatalf("completion command returned error: %v", err)
+	}
+
+	for _, unexpected := range []string{"alpha-app", "beta-app"} {
+		if strings.Contains(stdout, unexpected) {
+			t.Fatalf("expected add path completion to exclude %q, got:\n%s", unexpected, stdout)
+		}
+	}
+	if !strings.Contains(stdout, ":0") {
+		t.Fatalf("expected default file-completion directive in output, got:\n%s", stdout)
+	}
+}
+
+func TestInfoCommandCompletionSuppressesPositionalSuggestionsWhenProviderFlagSet(t *testing.T) {
+	setupManagedAppCompletionFixture(t)
+	root := newRootTestCommand()
+
+	stdout, _, err := executeCommandWithIO(context.Background(), root, "__complete", "info", "--github", "owner/repo", "")
+	if err != nil {
+		t.Fatalf("completion command returned error: %v", err)
+	}
+
+	for _, unexpected := range []string{"alpha-app", "beta-app"} {
+		if strings.Contains(stdout, unexpected) {
+			t.Fatalf("expected info completion to exclude %q, got:\n%s", unexpected, stdout)
+		}
+	}
+	if !strings.Contains(stdout, ":4") {
+		t.Fatalf("expected no-file-completion directive in output, got:\n%s", stdout)
+	}
+}
+
+func TestAddCommandCompletionSuppressesPositionalSuggestionsWhenSelectorFlagSet(t *testing.T) {
+	setupManagedAppCompletionFixture(t)
+	root := newRootTestCommand()
+
+	stdout, _, err := executeCommandWithIO(context.Background(), root, "__complete", "add", "--url", "https://example.com/app.AppImage", "")
+	if err != nil {
+		t.Fatalf("completion command returned error: %v", err)
+	}
+
+	for _, unexpected := range []string{"alpha-app", "beta-app"} {
+		if strings.Contains(stdout, unexpected) {
+			t.Fatalf("expected add completion to exclude %q, got:\n%s", unexpected, stdout)
+		}
+	}
+	if !strings.Contains(stdout, ":4") {
+		t.Fatalf("expected no-file-completion directive in output, got:\n%s", stdout)
+	}
+}
+
+func TestUpdateCommandCompletionSuppressesPositionalSuggestionsWhenSetFlagActive(t *testing.T) {
+	setupManagedAppCompletionFixture(t)
+	root := newRootTestCommand()
+
+	stdout, _, err := executeCommandWithIO(context.Background(), root, "__complete", "update", "--set", "alpha-app", "")
+	if err != nil {
+		t.Fatalf("completion command returned error: %v", err)
+	}
+
+	for _, unexpected := range []string{"alpha-app", "beta-app"} {
+		if strings.Contains(stdout, unexpected) {
+			t.Fatalf("expected update completion to exclude %q, got:\n%s", unexpected, stdout)
+		}
+	}
+	if !strings.Contains(stdout, ":4") {
+		t.Fatalf("expected no-file-completion directive in output, got:\n%s", stdout)
+	}
+}
+
+func TestUpdateCommandCompletionSuppressesPositionalSuggestionsWhenUnsetFlagActive(t *testing.T) {
+	setupManagedAppCompletionFixture(t)
+	root := newRootTestCommand()
+
+	stdout, _, err := executeCommandWithIO(context.Background(), root, "__complete", "update", "--unset", "alpha-app", "")
+	if err != nil {
+		t.Fatalf("completion command returned error: %v", err)
+	}
+
+	for _, unexpected := range []string{"alpha-app", "beta-app"} {
+		if strings.Contains(stdout, unexpected) {
+			t.Fatalf("expected update completion to exclude %q, got:\n%s", unexpected, stdout)
+		}
+	}
+	if !strings.Contains(stdout, ":4") {
+		t.Fatalf("expected no-file-completion directive in output, got:\n%s", stdout)
+	}
+}
+
 func TestRunManagedUpdateSingleUpToDatePrintedOnce(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "apps.json")
@@ -7021,6 +7240,29 @@ func newManagedUpdateTestCommand(t *testing.T, values map[string]string) *cobra.
 	}
 
 	return cmd
+}
+
+func setupManagedAppCompletionFixture(t *testing.T) {
+	t.Helper()
+
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "apps.json")
+
+	originalDbSrc := config.DbSrc
+	config.DbSrc = dbPath
+	t.Cleanup(func() {
+		config.DbSrc = originalDbSrc
+	})
+
+	if err := repo.SaveDB(dbPath, &repo.DB{
+		SchemaVersion: 1,
+		Apps: map[string]*models.App{
+			"alpha-app": {ID: "alpha-app", Name: "Alpha App"},
+			"beta-app":  {ID: "beta-app", Name: "Beta App"},
+		},
+	}); err != nil {
+		t.Fatalf("failed to write completion test DB: %v", err)
+	}
 }
 
 func executeTestCommand(ctx context.Context, cmd *cobra.Command, args ...string) error {
