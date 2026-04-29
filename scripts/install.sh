@@ -35,8 +35,8 @@ shell_path_export() {
   shell_name="${SHELL##*/}"
 
   case "$shell_name" in
-    fish) printf 'fish_add_path $HOME/.local/bin\n' ;;
-    *) printf 'export PATH="$HOME/.local/bin:$PATH"\n' ;;
+    fish) printf "fish_add_path \$HOME/.local/bin\n" ;;
+    *) printf "export PATH=\"\$HOME/.local/bin:\$PATH\"\n" ;;
   esac
 }
 
@@ -330,7 +330,7 @@ print_completion_snippet() {
 
   case "$shell_name" in
     zsh)
-      printf 'fpath=("%s" $fpath)\n' "$zshcompdir"
+      printf "fpath=(\"%s\" \$fpath)\n" "$zshcompdir"
       printf 'autoload -U compinit && compinit\n'
       ;;
     bash)
