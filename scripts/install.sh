@@ -73,6 +73,180 @@ fail() {
   exit 1
 }
 
+json_release_tag_jq() {
+  jq -r '.tag_name // empty' "$1"
+}
+
+json_release_tag_fallback() {
+  awk -F'"' '
+    $2 == "tag_name" {
+      print $4
+      exit
+    }
+  ' "$1"
+}
+
+json_release_tag() {
+  if command -v jq >/dev/null 2>&1; then
+    json_release_tag_jq "$1"
+    return
+  fi
+
+  json_release_tag_fallback "$1"
+}
+
+json_release_asset_url_jq() {
+  jq -r --arg regex "$2" '
+    .assets[]
+    | select((.name // "") | test($regex))
+    | .browser_download_url // empty
+  ' "$1" | sed -n '1p'
+}
+
+json_release_asset_url_fallback() {
+  awk -F'"' -v regex="$2" '
+    $2 == "name" {
+      asset_name = $4
+      next
+    }
+    $2 == "browser_download_url" {
+      asset_url = $4
+      if (asset_name ~ regex) {
+        print asset_url
+        exit
+      }
+    }
+  ' "$1"
+}
+
+release_asset_url() {
+  json_file="$1"
+  asset_regex="$2"
+  label="$3"
+
+  if command -v jq >/dev/null 2>&1; then
+    url="$(json_release_asset_url_jq "$json_file" "$asset_regex")"
+  else
+    url="$(json_release_asset_url_fallback "$json_file" "$asset_regex")"
+  fi
+
+  if [ -z "$url" ]; then
+    case "$label" in
+      "release archive") fail "no ${label} found for ${goarch}" ;;
+      *) fail "no ${label} found" ;;
+    esac
+  fi
+
+  printf '%s\n' "$url"
+}
+
+sha256_file() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{ print $1 }'
+    return
+  fi
+
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | awk '{ print $1 }'
+    return
+  fi
+
+  fail "sha256sum or shasum is required to verify downloads"
+}
+
+checksum_for_archive() {
+  checksums_file="$1"
+  archive_name="$2"
+
+  awk -v archive_name="$archive_name" '
+    BEGIN {
+      count = 0
+    }
+    {
+      hash = $1
+      name = $2
+      sub(/^\*/, "", name)
+      sub(/^.*\//, "", name)
+
+      if (name == archive_name) {
+        count++
+        checksum = hash
+      }
+    }
+    END {
+      if (count == 1) {
+        print checksum
+        exit 0
+      }
+      if (count == 0) {
+        exit 1
+      }
+      exit 2
+    }
+  ' "$checksums_file"
+}
+
+is_sha256_hex() {
+  case "$1" in
+    *[!0123456789abcdefABCDEF]* | "")
+      return 1
+      ;;
+  esac
+
+  [ "${#1}" -eq 64 ]
+}
+
+is_version_tag() {
+  case "$1" in
+    v*.*.*) ;;
+    *) return 1 ;;
+  esac
+
+  printf '%s\n' "$1" | awk '
+    /^v[0-9]+[.][0-9]+[.][0-9]+$/ {
+      found = 1
+    }
+    END {
+      exit found ? 0 : 1
+    }
+  '
+}
+
+lowercase() {
+  printf '%s' "$1" | tr 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' 'abcdefghijklmnopqrstuvwxyz'
+}
+
+verify_archive_checksum() {
+  archive="$1"
+  checksums_file="$2"
+  archive_url="$3"
+
+  archive_name="${archive_url##*/}"
+  archive_name="${archive_name%%\?*}"
+
+  checksum_status=0
+  expected="$(checksum_for_archive "$checksums_file" "$archive_name")" || checksum_status=$?
+  case "$checksum_status" in
+    0) ;;
+    1) fail "checksums.txt does not contain ${archive_name}" ;;
+    2) fail "checksums.txt contains multiple entries for ${archive_name}" ;;
+    *) fail "failed to read checksums.txt" ;;
+  esac
+
+  if ! is_sha256_hex "$expected"; then
+    fail "checksums.txt contains malformed SHA-256 for ${archive_name}"
+  fi
+
+  expected="$(lowercase "$expected")"
+  actual="$(lowercase "$(sha256_file "$archive")")"
+
+  if [ "$actual" != "$expected" ]; then
+    printf 'expected: %s\n' "$expected" >&2
+    printf 'actual:   %s\n' "$actual" >&2
+    fail "downloaded archive sha256 mismatch"
+  fi
+}
+
 print_summary() {
   extras=""
   verify_cmd="${bin} --version"
@@ -106,6 +280,9 @@ print_summary() {
   if is_tty_stdout && supports_color; then
     printf '%s%s%s\n' "$(style_stdout '1;32')" "${bin} installed" "$(style_stdout '0')"
     printf '  %sbinary:%s %s\n' "$(style_stdout '2')" "$(style_stdout '0')" "${inst}/${bin}"
+    if [ -n "${release_tag:-}" ]; then
+      printf '  %sversion:%s %s\n' "$(style_stdout '2')" "$(style_stdout '0')" "$release_tag"
+    fi
     if [ -n "$extras" ]; then
       printf '  %sextras:%s %s\n' "$(style_stdout '2')" "$(style_stdout '0')" "$extras"
     fi
@@ -115,6 +292,9 @@ print_summary() {
 
   printf '%s installed\n' "$bin"
   printf '  binary: %s\n' "${inst}/${bin}"
+  if [ -n "${release_tag:-}" ]; then
+    printf '  version: %s\n' "$release_tag"
+  fi
   if [ -n "$extras" ]; then
     printf '  extras: %s\n' "$extras"
   fi
@@ -269,6 +449,7 @@ configure_shell_completion() {
 
 repo="slobbe/appimage-manager"
 bin="aim"
+version="${AIM_VERSION:-}"
 inst="${HOME}/.local/bin"
 data_home="${XDG_DATA_HOME:-${HOME}/.local/share}"
 mandir="${data_home}/man/man1"
@@ -292,30 +473,35 @@ cleanup() { rm -rf "$tmpdir"; }
 trap cleanup EXIT INT TERM
 
 tgz="${tmpdir}/aim.tgz"
-api_url="https://api.github.com/repos/${repo}/releases/latest"
+checksums="${tmpdir}/checksums.txt"
+release_json="${tmpdir}/release.json"
 
-asset_url="$({
-  curl -fsSL "$api_url" | tr '{},' '\n' | awk -F'"' -v arch="$goarch" '
-    $2 == "name" {
-      asset_name = $4
-      next
-    }
-    $2 == "browser_download_url" {
-      asset_url = $4
-      if (asset_name ~ ("^aim-[0-9].+-linux-" arch "\\.tar\\.gz$")) {
-        print asset_url
-        exit
-      }
-    }
-  '
-})"
+if [ -z "$version" ]; then
+  api_url="https://api.github.com/repos/${repo}/releases/latest"
+  install_label="latest"
+else
+  if ! is_version_tag "$version"; then
+    fail "AIM_VERSION must match v<major>.<minor>.<patch>"
+  fi
 
-if [ -z "$asset_url" ]; then
-  fail "no release archive found for ${goarch}"
+  api_url="https://api.github.com/repos/${repo}/releases/tags/${version}"
+  install_label="$version"
 fi
 
-section "Installing ${bin}"
-curl -fL "$asset_url" -o "$tgz"
+section "Installing ${bin} ${install_label}"
+curl -fsSL "$api_url" -o "$release_json"
+release_tag="$(json_release_tag "$release_json")"
+if [ -z "$release_tag" ]; then
+  release_tag="$install_label"
+fi
+
+archive_url="$(release_asset_url "$release_json" "^aim-[0-9].*-linux-${goarch}[.]tar[.]gz$" "release archive")"
+checksums_url="$(release_asset_url "$release_json" "^checksums[.]txt$" "checksums.txt")"
+
+curl -fL "$archive_url" -o "$tgz"
+curl -fL "$checksums_url" -o "$checksums"
+
+verify_archive_checksum "$tgz" "$checksums" "$archive_url"
 
 tar -xzf "$tgz" -C "$tmpdir"
 

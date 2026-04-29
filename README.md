@@ -17,7 +17,21 @@ curl -fsSL https://raw.githubusercontent.com/slobbe/appimage-manager/main/script
 aim --version
 ```
 
+The installer verifies the release archive SHA-256 against the published `checksums.txt`.
+
+To install a pinned version:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/slobbe/appimage-manager/main/scripts/install.sh | AIM_VERSION=v1.2.3 sh
+```
+
 If `aim` is not found, make sure `~/.local/bin` is on your `PATH`.
+
+To uninstall the files installed by the installer:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/slobbe/appimage-manager/main/scripts/uninstall.sh | sh
+```
 
 ## How to Use
 
