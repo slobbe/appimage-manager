@@ -30,11 +30,6 @@ func SetHTTPClientTimeout(timeout time.Duration) {
 	} else {
 		githubDiscoveryHTTPClient.Timeout = timeout
 	}
-	if gitLabDiscoveryHTTPClient == nil {
-		gitLabDiscoveryHTTPClient = core.NewHTTPClient(timeout)
-	} else {
-		gitLabDiscoveryHTTPClient.Timeout = timeout
-	}
 }
 
 func (GitHubBackend) Name() string {

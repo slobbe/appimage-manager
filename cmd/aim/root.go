@@ -83,8 +83,7 @@ func newAddCommand() *cobra.Command {
 	flags := cmd.Flags()
 	stringFlagWithMetavar(flags, "url", "", "", "direct https:// AppImage URL", "URL")
 	stringFlagWithMetavar(flags, "github", "", "", "GitHub repo in the form owner/repo", "owner/repo")
-	stringFlagWithMetavar(flags, "gitlab", "", "", "GitLab project path namespace/project", "namespace/project")
-	flags.String("asset", "", "asset filename pattern override for GitHub/GitLab provider add sources")
+	flags.String("asset", "", "asset filename pattern override for GitHub provider add sources")
 	stringFlagWithMetavar(flags, "sha256", "", "", "expected SHA-256 for direct https:// add sources", "SHA256")
 	return cmd
 }
@@ -141,7 +140,6 @@ func newInfoCommand() *cobra.Command {
 	}
 	flags := cmd.Flags()
 	stringFlagWithMetavar(flags, "github", "", "", "GitHub repo in the form owner/repo", "owner/repo")
-	stringFlagWithMetavar(flags, "gitlab", "", "", "GitLab project path namespace/project", "namespace/project")
 	return cmd
 }
 
@@ -179,8 +177,7 @@ func addUpdateSourceFlags(cmd *cobra.Command) {
 	stringFlagWithMetavar(flags, "set", "", "", "set the update source for the given managed app id", "ID")
 	stringFlagWithMetavar(flags, "unset", "", "", "unset the update source for the given managed app id", "ID")
 	stringFlagWithMetavar(flags, "github", "", "", "GitHub repo in the form owner/repo (for 'aim update --set')", "owner/repo")
-	flags.String("asset", "", "asset filename pattern; defaults to \"*.AppImage\" for GitHub/GitLab (for 'aim update --set')")
-	stringFlagWithMetavar(flags, "gitlab", "", "", "GitLab project path namespace/project (for 'aim update --set')", "namespace/project")
+	flags.String("asset", "", "asset filename pattern; defaults to \"*.AppImage\" for GitHub (for 'aim update --set')")
 	stringFlagWithMetavar(flags, "zsync", "", "", "direct zsync metadata URL (https, for 'aim update --set')", "URL")
 	flags.Bool("embedded", false, "use the update source embedded in the current AppImage (for 'aim update --set')")
 }

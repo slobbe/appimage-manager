@@ -76,7 +76,7 @@ func validateDB(db *DB) error {
 
 func isSupportedSourceKind(kind models.SourceKind) bool {
 	switch kind {
-	case models.SourceLocalFile, models.SourceDirectURL, models.SourceGitHubRelease, models.SourceGitLabRelease:
+	case models.SourceLocalFile, models.SourceDirectURL, models.SourceGitHubRelease:
 		return true
 	default:
 		return false
@@ -85,7 +85,7 @@ func isSupportedSourceKind(kind models.SourceKind) bool {
 
 func isSupportedUpdateKind(kind models.UpdateKind) bool {
 	switch kind {
-	case models.UpdateNone, models.UpdateZsync, models.UpdateGitHubRelease, models.UpdateGitLabRelease:
+	case models.UpdateNone, models.UpdateZsync, models.UpdateGitHubRelease:
 		return true
 	default:
 		return false

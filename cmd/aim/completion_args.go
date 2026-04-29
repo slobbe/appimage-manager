@@ -85,7 +85,7 @@ func completeAddTarget(cmd *cobra.Command, args []string, toComplete string) ([]
 	if len(args) > 0 {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
-	if flagChanged(cmd, "url") || flagChanged(cmd, "github") || flagChanged(cmd, "gitlab") {
+	if flagChanged(cmd, "url") || flagChanged(cmd, "github") {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 	if looksLikePathCompletionToken(toComplete) {
@@ -98,7 +98,7 @@ func completeInfoTarget(cmd *cobra.Command, args []string, toComplete string) ([
 	if len(args) > 0 {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
-	if flagChanged(cmd, "github") || flagChanged(cmd, "gitlab") {
+	if flagChanged(cmd, "github") {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 	if looksLikePathCompletionToken(toComplete) {

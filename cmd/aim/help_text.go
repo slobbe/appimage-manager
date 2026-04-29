@@ -375,14 +375,14 @@ func commandSortKey(cmd *cobra.Command) string {
 	}
 	name := cmd.Name()
 	order := map[string]int{
-		"add":     1,
-		"update":  2,
-		"info":    3,
-		"list":    4,
-		"remove":  5,
-		"help":    6,
-		"set":     1,
-		"unset":   2,
+		"add":    1,
+		"update": 2,
+		"info":   3,
+		"list":   4,
+		"remove": 5,
+		"help":   6,
+		"set":    1,
+		"unset":  2,
 	}
 	if priority, ok := order[name]; ok {
 		return fmt.Sprintf("%04d-%s", priority, name)
@@ -471,15 +471,15 @@ func commonFlagNamesForCommand(cmd *cobra.Command) []string {
 	case "aim":
 		return []string{"help", "version", "json", "plain", "no-input"}
 	case "add":
-		return []string{"url", "github", "gitlab", "sha256", "no-input", "dry-run", "json"}
+		return []string{"url", "github", "sha256", "no-input", "dry-run", "json"}
 	case "info":
-		return []string{"github", "gitlab", "no-input", "json"}
+		return []string{"github", "no-input", "json"}
 	case "list":
 		return []string{"integrated", "unlinked", "json", "csv", "plain"}
 	case "remove":
 		return []string{"link", "no-input", "dry-run", "json"}
 	case "update":
-		return []string{"check-only", "set", "unset", "github", "gitlab", "zsync", "embedded", "yes", "dry-run", "json", "csv", "plain"}
+		return []string{"check-only", "set", "unset", "github", "zsync", "embedded", "yes", "dry-run", "json", "csv", "plain"}
 	default:
 		return []string{"dry-run", "json"}
 	}

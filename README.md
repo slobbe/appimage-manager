@@ -5,7 +5,7 @@
 
 Manage, integrate and update your AppImages from the terminal.
 
-Set GitHub and GitLab releases as update sources, or use the embedded update information if available.
+Set GitHub releases as update sources, or use the embedded update information if available.
 
 > [!NOTE]
 > This project is still a **work in progress** and breaking changes may happen at any time while in `v0.x.x`.
@@ -27,7 +27,6 @@ If `aim` is not found, make sure `~/.local/bin` is on your `PATH`.
 aim add ./Example.AppImage
 aim add --url https://example.com/Example.AppImage
 aim add --github owner/repo
-aim add --gitlab namespace/project
 ```
 
 ### Check and apply updates
@@ -41,7 +40,6 @@ aim update --check-only
 
 ```sh
 aim update --set example-app --github owner/repo
-aim update --set example-app --gitlab namespace/project
 aim update --set example-app --zsync https://example.com/Example.AppImage.zsync
 aim update --set example-app --embedded
 aim update --unset example-app

@@ -129,11 +129,6 @@ func managedCheckCacheKey(app *models.App, fallbackIdx int) string {
 			return fmt.Sprintf("github:missing:%s", version)
 		}
 		return fmt.Sprintf("github:%s:%s:%s", normalizeCheckKeyValue(app.Update.GitHubRelease.Repo), normalizeCheckKeyValue(app.Update.GitHubRelease.Asset), version)
-	case models.UpdateGitLabRelease:
-		if app.Update.GitLabRelease == nil {
-			return fmt.Sprintf("gitlab:missing:%s", version)
-		}
-		return fmt.Sprintf("gitlab:%s:%s:%s", normalizeCheckKeyValue(app.Update.GitLabRelease.Project), normalizeCheckKeyValue(app.Update.GitLabRelease.Asset), version)
 	default:
 		return fmt.Sprintf("kind:%s:%s:%d", kind, version, fallbackIdx)
 	}
@@ -284,45 +279,6 @@ func checkAppUpdate(app *models.App) (*pendingManagedUpdate, error) {
 			ZsyncURL:     update.ZsyncURL,
 			ExpectedSHA1: strings.TrimSpace(update.ExpectedSHA1),
 			FromKind:     models.UpdateGitHubRelease,
-		}, nil
-	case models.UpdateGitLabRelease:
-		update, err := runGitLabReleaseUpdateCheck(app.Update, app.Version, app.SHA1)
-		if err != nil {
-			return nil, err
-		}
-		if update == nil {
-			return &pendingManagedUpdate{
-				App:       app,
-				Available: false,
-				Latest:    "",
-				FromKind:  models.UpdateGitLabRelease,
-			}, nil
-		}
-
-		latest := strings.TrimSpace(update.NormalizedVersion)
-		if latest == "" {
-			latest = strings.TrimSpace(update.TagName)
-		}
-		if !update.Available {
-			return &pendingManagedUpdate{
-				App:       app,
-				Available: false,
-				Latest:    latest,
-				FromKind:  models.UpdateGitLabRelease,
-			}, nil
-		}
-
-		return &pendingManagedUpdate{
-			App:          app,
-			URL:          update.DownloadURL,
-			Asset:        update.AssetName,
-			Label:        "Update available",
-			Available:    true,
-			Latest:       latest,
-			Transport:    update.Transport,
-			ZsyncURL:     update.ZsyncURL,
-			ExpectedSHA1: strings.TrimSpace(update.ExpectedSHA1),
-			FromKind:     models.UpdateGitLabRelease,
 		}, nil
 	default:
 		return nil, softwareError(fmt.Errorf("unsupported update source for %s: %q", app.ID, app.Update.Kind))

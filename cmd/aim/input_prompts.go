@@ -60,11 +60,11 @@ func isMissingArgumentError(err error) bool {
 }
 
 func missingInputErrorForAdd() error {
-	return usageError(fmt.Errorf("missing required input; pass <id|Path/To.AppImage> or one of --url, --github, --gitlab"))
+	return usageError(fmt.Errorf("missing required input; pass <id|Path/To.AppImage> or one of --url or --github"))
 }
 
 func missingInputErrorForInfo() error {
-	return usageError(fmt.Errorf("missing required input; pass <id|Path/To.AppImage> or one of --github, --gitlab"))
+	return usageError(fmt.Errorf("missing required input; pass <id|Path/To.AppImage> or --github"))
 }
 
 func missingInputErrorForManagedID() error {

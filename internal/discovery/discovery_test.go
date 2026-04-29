@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"strings"
 	"testing"
 
 	"github.com/slobbe/appimage-manager/internal/core"
@@ -52,35 +51,6 @@ func TestParseGitHubRepoValue(t *testing.T) {
 	}
 }
 
-func TestParseGitLabProjectValue(t *testing.T) {
-	tests := []struct {
-		input     string
-		expect    PackageRef
-		wantError bool
-	}{
-		{input: "group/project", expect: PackageRef{Kind: ProviderGitLab, ProviderRef: "group/project"}},
-		{input: "group/subgroup/project", expect: PackageRef{Kind: ProviderGitLab, ProviderRef: "group/subgroup/project"}},
-		{input: "group", wantError: true},
-		{input: "/group/project", wantError: true},
-	}
-
-	for _, tt := range tests {
-		got, err := ParseGitLabProjectValue(tt.input)
-		if tt.wantError {
-			if err == nil {
-				t.Fatalf("ParseGitLabProjectValue(%q) expected error", tt.input)
-			}
-			continue
-		}
-		if err != nil {
-			t.Fatalf("ParseGitLabProjectValue(%q) returned error: %v", tt.input, err)
-		}
-		if got != tt.expect {
-			t.Fatalf("ParseGitLabProjectValue(%q) = %#v, want %#v", tt.input, got, tt.expect)
-		}
-	}
-}
-
 func TestParsePackageRefURL(t *testing.T) {
 	tests := []struct {
 		input     string
@@ -91,15 +61,9 @@ func TestParsePackageRefURL(t *testing.T) {
 		{input: "https://www.github.com/owner/repo/releases", expect: PackageRef{Kind: ProviderGitHub, ProviderRef: "owner/repo"}},
 		{input: "https://github.com/owner/repo/releases/tag/v1.2.3?tab=readme#fragment", expect: PackageRef{Kind: ProviderGitHub, ProviderRef: "owner/repo"}},
 		{input: "https://github.com/owner/repo/blob/main/README.md", expect: PackageRef{Kind: ProviderGitHub, ProviderRef: "owner/repo"}},
-		{input: "https://gitlab.com/group/project", expect: PackageRef{Kind: ProviderGitLab, ProviderRef: "group/project"}},
-		{input: "https://www.gitlab.com/group/subgroup/project/-/releases/v1.0.0", expect: PackageRef{Kind: ProviderGitLab, ProviderRef: "group/subgroup/project"}},
-		{input: "https://gitlab.com/group/project/-/blob/main/README.md", expect: PackageRef{Kind: ProviderGitLab, ProviderRef: "group/project"}},
-		{input: "https://gitlab.com/group/subgroup/project", expect: PackageRef{Kind: ProviderGitLab, ProviderRef: "group/subgroup/project"}},
 		{input: "https://github.com/owner", wantError: true},
 		{input: "https://github.com/owner/repo/issues/1", wantError: true},
 		{input: "https://github.com/owner/repo/releases/download/v1/App.AppImage", wantError: true},
-		{input: "https://gitlab.com/group", wantError: true},
-		{input: "https://gitlab.com/group/project/-/issues/1", wantError: true},
 		{input: "https://example.com/owner/repo", wantError: true},
 		{input: "http://github.com/owner/repo", wantError: true},
 	}
@@ -166,53 +130,6 @@ func TestGitHubBackendResolveUsesRepoMetadataAndRelease(t *testing.T) {
 		t.Fatalf("metadata.Name = %q", metadata.Name)
 	}
 	if metadata.AssetName != "Obsidian-1.12.4.AppImage" {
-		t.Fatalf("metadata.AssetName = %q", metadata.AssetName)
-	}
-}
-
-func TestGitLabBackendResolveUsesProjectMetadataAndRelease(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.Contains(r.URL.Path, "/projects/group%2Fproject") || strings.Contains(r.URL.Path, "/projects/group/project") {
-			_, _ = w.Write([]byte(`{"name":"Foo App","path_with_namespace":"group/project","description":"Great app","web_url":"https://gitlab.example/group/project","star_count":3}`))
-			return
-		}
-		http.NotFound(w, r)
-	}))
-	defer server.Close()
-
-	originalClient := gitLabDiscoveryHTTPClient
-	originalBaseURL := gitLabDiscoveryAPIBaseURL
-	originalResolve := resolveGitLabReleaseAssetFn
-	t.Cleanup(func() {
-		gitLabDiscoveryHTTPClient = originalClient
-		gitLabDiscoveryAPIBaseURL = originalBaseURL
-		resolveGitLabReleaseAssetFn = originalResolve
-	})
-
-	gitLabDiscoveryHTTPClient = server.Client()
-	gitLabDiscoveryAPIBaseURL = server.URL
-	resolveGitLabReleaseAssetFn = func(project, assetPattern string) (*core.GitLabReleaseAsset, error) {
-		if project != "group/project" || assetPattern != "*.AppImage" {
-			t.Fatalf("unexpected resolve input: %s %s", project, assetPattern)
-		}
-		return &core.GitLabReleaseAsset{
-			DownloadURL: "https://example.com/Foo.AppImage",
-			TagName:     "v2.0.0",
-			AssetName:   "Foo-x86_64.AppImage",
-		}, nil
-	}
-
-	metadata, err := (GitLabBackend{}).Resolve(context.Background(), PackageRef{Kind: ProviderGitLab, ProviderRef: "group/project"}, "")
-	if err != nil {
-		t.Fatalf("Resolve returned error: %v", err)
-	}
-	if !metadata.Installable {
-		t.Fatal("expected metadata to be installable")
-	}
-	if metadata.Name != "Foo App" {
-		t.Fatalf("metadata.Name = %q", metadata.Name)
-	}
-	if metadata.AssetName != "Foo-x86_64.AppImage" {
 		t.Fatalf("metadata.AssetName = %q", metadata.AssetName)
 	}
 }

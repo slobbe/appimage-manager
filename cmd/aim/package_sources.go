@@ -19,54 +19,28 @@ func validateGitHubRepoFlag(value string) (discovery.PackageRef, error) {
 	return ref, nil
 }
 
-func validateGitLabProjectFlag(value string) (discovery.PackageRef, error) {
-	ref, err := discovery.ParseGitLabProjectValue(value)
-	if err != nil {
-		return discovery.PackageRef{}, usageError(fmt.Errorf("--gitlab must be in namespace/project form"))
-	}
-	return ref, nil
-}
-
 func resolveProviderFlagRef(cmd *cobra.Command, args []string) (discovery.PackageRef, bool, error) {
 	githubValue, err := flagString(cmd, "github")
 	if err != nil {
 		return discovery.PackageRef{}, false, err
 	}
-	gitlabValue, err := flagString(cmd, "gitlab")
-	if err != nil {
-		return discovery.PackageRef{}, false, err
-	}
 
 	hasGitHub := strings.TrimSpace(githubValue) != ""
-	hasGitLab := strings.TrimSpace(gitlabValue) != ""
 
-	if !hasGitHub && !hasGitLab {
+	if !hasGitHub {
 		return discovery.PackageRef{}, false, nil
 	}
-	if hasGitHub && hasGitLab {
-		return discovery.PackageRef{}, false, usageError(fmt.Errorf("--github and --gitlab are mutually exclusive"))
-	}
 	if len(args) > 0 {
-		return discovery.PackageRef{}, false, usageError(fmt.Errorf("when using --github or --gitlab, do not pass a positional target"))
+		return discovery.PackageRef{}, false, usageError(fmt.Errorf("when using --github, do not pass a positional target"))
 	}
 
-	if hasGitHub {
-		ref, err := validateGitHubRepoFlag(githubValue)
-		return ref, true, err
-	}
-
-	ref, err := validateGitLabProjectFlag(gitlabValue)
+	ref, err := validateGitHubRepoFlag(githubValue)
 	return ref, true, err
 }
 
 func looksLikeGitHubPackageURL(input string) bool {
 	trimmed := strings.TrimSpace(strings.ToLower(input))
 	return strings.HasPrefix(trimmed, "https://github.com/")
-}
-
-func looksLikeGitLabPackageURL(input string) bool {
-	trimmed := strings.TrimSpace(strings.ToLower(input))
-	return strings.HasPrefix(trimmed, "https://gitlab.com/")
 }
 
 func providerURLGuidance(cmdName, providerFlag, subject, input string) error {
@@ -95,10 +69,6 @@ func positionalAddRemoteGuidance(input string) error {
 		if err := providerURLGuidance("add", "--github", "GitHub sources", trimmed); err != nil {
 			return err
 		}
-	case looksLikeGitLabPackageURL(trimmed):
-		if err := providerURLGuidance("add", "--gitlab", "GitLab sources", trimmed); err != nil {
-			return err
-		}
 	case strings.HasPrefix(strings.ToLower(trimmed), "http://"):
 		return usageError(fmt.Errorf("direct URLs must use https and be passed with --url; use 'aim add --url https://...'"))
 	case isHTTPSURL(trimmed):
@@ -112,8 +82,6 @@ func positionalInfoRemoteGuidance(input string) error {
 	switch {
 	case looksLikeGitHubPackageURL(trimmed):
 		return providerURLGuidance("info", "--github", "GitHub package lookups", trimmed)
-	case looksLikeGitLabPackageURL(trimmed):
-		return providerURLGuidance("info", "--gitlab", "GitLab package lookups", trimmed)
 	default:
 		return nil
 	}
@@ -147,8 +115,6 @@ func backendForRef(ref discovery.PackageRef) (discovery.DiscoveryBackend, error)
 	for _, backend := range discoveryBackends() {
 		switch {
 		case ref.Kind == discovery.ProviderGitHub && strings.EqualFold(backend.Name(), "GitHub"):
-			return backend, nil
-		case ref.Kind == discovery.ProviderGitLab && strings.EqualFold(backend.Name(), "GitLab"):
 			return backend, nil
 		}
 	}
@@ -224,8 +190,6 @@ func installPackageMetadata(ctx context.Context, cmd *cobra.Command, metadata *d
 	switch metadata.Ref.Kind {
 	case discovery.ProviderGitHub:
 		return installResolvedGitHubPackage(ctx, cmd, metadata)
-	case discovery.ProviderGitLab:
-		return installResolvedGitLabPackage(ctx, cmd, metadata)
 	default:
 		return nil, softwareError(fmt.Errorf("unsupported add provider %q", metadata.Ref.Kind))
 	}
@@ -240,17 +204,6 @@ func installResolvedGitHubPackage(ctx context.Context, cmd *cobra.Command, metad
 	}
 	target := &installTarget{Kind: installTargetGitHub, Repo: metadata.Ref.ProviderRef}
 	return integrateGitHubReleaseAsset(ctx, cmd, target, metadata.AssetPattern, release)
-}
-
-func installResolvedGitLabPackage(ctx context.Context, cmd *cobra.Command, metadata *discovery.PackageMetadata) (*models.App, error) {
-	release := &core.GitLabReleaseAsset{
-		DownloadURL:       strings.TrimSpace(metadata.DownloadURL),
-		TagName:           strings.TrimSpace(metadata.ReleaseTag),
-		NormalizedVersion: strings.TrimSpace(strings.TrimPrefix(metadata.LatestVersion, "v")),
-		AssetName:         strings.TrimSpace(metadata.AssetName),
-	}
-	target := &installTarget{Kind: installTargetGitLab, Project: metadata.Ref.ProviderRef}
-	return integrateGitLabReleaseAsset(ctx, cmd, target, metadata.AssetPattern, release)
 }
 
 func printPackageMetadata(cmd *cobra.Command, metadata *discovery.PackageMetadata) {
@@ -295,8 +248,6 @@ func formatProviderRef(ref discovery.PackageRef) string {
 	switch ref.Kind {
 	case discovery.ProviderGitHub:
 		return "GitHub " + value
-	case discovery.ProviderGitLab:
-		return "GitLab " + value
 	default:
 		return value
 	}
@@ -311,10 +262,6 @@ func installTargetLabel(target *installTarget) string {
 	case installTargetGitHub:
 		if value := strings.TrimSpace(target.Repo); value != "" {
 			return "GitHub " + value
-		}
-	case installTargetGitLab:
-		if value := strings.TrimSpace(target.Project); value != "" {
-			return "GitLab " + value
 		}
 	case installTargetDirectURL:
 		if value := strings.TrimSpace(target.URL); value != "" {
@@ -334,8 +281,6 @@ func formatAddProviderCommand(ref discovery.PackageRef) string {
 	switch ref.Kind {
 	case discovery.ProviderGitHub:
 		return "aim add --github " + value
-	case discovery.ProviderGitLab:
-		return "aim add --gitlab " + value
 	default:
 		return "aim add"
 	}

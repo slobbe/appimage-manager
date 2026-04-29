@@ -77,11 +77,6 @@ func updateSummary(update *models.UpdateSource) string {
 			return "github: <missing>"
 		}
 		return fmt.Sprintf("github: %s, asset: %s", update.GitHubRelease.Repo, update.GitHubRelease.Asset)
-	case models.UpdateGitLabRelease:
-		if update.GitLabRelease == nil {
-			return "gitlab: <missing>"
-		}
-		return fmt.Sprintf("gitlab: %s, asset: %s", update.GitLabRelease.Project, update.GitLabRelease.Asset)
 	default:
 		return string(update.Kind)
 	}

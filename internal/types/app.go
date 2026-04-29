@@ -6,7 +6,6 @@ const (
 	SourceLocalFile     SourceKind = "local_file"
 	SourceDirectURL     SourceKind = "direct_url"
 	SourceGitHubRelease SourceKind = "github_release"
-	SourceGitLabRelease SourceKind = "gitlab_release"
 )
 
 type UpdateKind string
@@ -15,7 +14,6 @@ const (
 	UpdateNone          UpdateKind = "none"
 	UpdateZsync         UpdateKind = "zsync"
 	UpdateGitHubRelease UpdateKind = "github_release"
-	UpdateGitLabRelease UpdateKind = "gitlab_release"
 )
 
 type App struct {
@@ -51,7 +49,6 @@ type Source struct {
 	LocalFile     *LocalFileSource     `json:"local_file,omitempty"`
 	DirectURL     *DirectURLSource     `json:"direct_url,omitempty"`
 	GitHubRelease *GitHubReleaseSource `json:"github_release,omitempty"`
-	GitLabRelease *GitLabReleaseSource `json:"gitlab_release,omitempty"`
 }
 
 type LocalFileSource struct {
@@ -73,19 +70,10 @@ type GitHubReleaseSource struct {
 	DownloadedAt string `json:"downloaded_at"`
 }
 
-type GitLabReleaseSource struct {
-	Project      string `json:"project"`
-	Asset        string `json:"asset"`
-	Tag          string `json:"tag"`
-	AssetName    string `json:"asset_name"`
-	DownloadedAt string `json:"downloaded_at"`
-}
-
 type UpdateSource struct {
 	Kind          UpdateKind                 `json:"kind"`
 	Zsync         *ZsyncUpdateSource         `json:"zsync,omitempty"`
 	GitHubRelease *GitHubReleaseUpdateSource `json:"github_release,omitempty"`
-	GitLabRelease *GitLabReleaseUpdateSource `json:"gitlab_release,omitempty"`
 }
 
 type ZsyncUpdateSource struct {
@@ -97,9 +85,4 @@ type GitHubReleaseUpdateSource struct {
 	Repo        string `json:"repo"`
 	Asset       string `json:"asset"`
 	ReleaseKind string `json:"release_kind,omitempty"`
-}
-
-type GitLabReleaseUpdateSource struct {
-	Project string `json:"project"`
-	Asset   string `json:"asset"`
 }

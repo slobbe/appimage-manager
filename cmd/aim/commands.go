@@ -131,7 +131,7 @@ func resolveAddInput(cmd *cobra.Command, args []string) (addInputSelection, erro
 		targetCount++
 	}
 	if targetCount > 1 {
-		return addInputSelection{}, usageError(fmt.Errorf("choose exactly one add selector: positional target, --url, --github, or --gitlab"))
+		return addInputSelection{}, usageError(fmt.Errorf("choose exactly one add selector: positional target, --url, or --github"))
 	}
 
 	if strings.TrimSpace(urlValue) != "" {
@@ -302,14 +302,12 @@ type installTargetKind string
 const (
 	installTargetDirectURL installTargetKind = "direct_url"
 	installTargetGitHub    installTargetKind = "github_release"
-	installTargetGitLab    installTargetKind = "gitlab_release"
 )
 
 type installTarget struct {
-	Kind    installTargetKind
-	URL     string
-	Repo    string
-	Project string
+	Kind installTargetKind
+	URL  string
+	Repo string
 }
 
 func resolveInstallTarget(input string) (*installTarget, error) {
@@ -352,13 +350,13 @@ func validateInstallTargetFlags(cmd *cobra.Command, target *installTarget) error
 	}
 
 	switch target.Kind {
-	case installTargetGitHub, installTargetGitLab:
+	case installTargetGitHub:
 		if sha256 != "" {
 			return usageError(fmt.Errorf("--sha256 is only supported with direct https URLs"))
 		}
 	case installTargetDirectURL:
 		if assetPattern != "" {
-			return usageError(fmt.Errorf("--asset is only supported with GitHub or GitLab provider sources"))
+			return usageError(fmt.Errorf("--asset is only supported with GitHub provider sources"))
 		}
 		if sha256 != "" && !isSHA256Hex(sha256) {
 			return usageError(fmt.Errorf("--sha256 must be a valid 64-character hexadecimal SHA-256"))
@@ -418,35 +416,6 @@ func integrateGitHubReleaseAsset(ctx context.Context, cmd *cobra.Command, target
 				GitHubRelease: &models.GitHubReleaseUpdateSource{
 					Repo:  target.Repo,
 					Asset: assetPattern,
-				},
-			}
-		},
-	})
-}
-
-func integrateGitLabReleaseAsset(ctx context.Context, cmd *cobra.Command, target *installTarget, assetPattern string, release *core.GitLabReleaseAsset) (*models.App, error) {
-	return integrateRemoteInstall(ctx, cmd, remoteInstallRequest{
-		DisplayLabel: target.Project,
-		DownloadURL:  release.DownloadURL,
-		AssetName:    release.AssetName,
-		BuildSource: func(app *models.App) models.Source {
-			return models.Source{
-				Kind: models.SourceGitLabRelease,
-				GitLabRelease: &models.GitLabReleaseSource{
-					Project:      target.Project,
-					Asset:        assetPattern,
-					Tag:          release.TagName,
-					AssetName:    release.AssetName,
-					DownloadedAt: app.UpdatedAt,
-				},
-			}
-		},
-		BuildUpdate: func(*models.App) *models.UpdateSource {
-			return &models.UpdateSource{
-				Kind: models.UpdateGitLabRelease,
-				GitLabRelease: &models.GitLabReleaseUpdateSource{
-					Project: target.Project,
-					Asset:   assetPattern,
 				},
 			}
 		},
@@ -576,10 +545,6 @@ func updateSourcesEqual(a, b *models.UpdateSource) bool {
 		return a.GitHubRelease != nil && b.GitHubRelease != nil &&
 			strings.TrimSpace(a.GitHubRelease.Repo) == strings.TrimSpace(b.GitHubRelease.Repo) &&
 			strings.TrimSpace(a.GitHubRelease.Asset) == strings.TrimSpace(b.GitHubRelease.Asset)
-	case models.UpdateGitLabRelease:
-		return a.GitLabRelease != nil && b.GitLabRelease != nil &&
-			strings.TrimSpace(a.GitLabRelease.Project) == strings.TrimSpace(b.GitLabRelease.Project) &&
-			strings.TrimSpace(a.GitLabRelease.Asset) == strings.TrimSpace(b.GitLabRelease.Asset)
 	case models.UpdateZsync:
 		return a.Zsync != nil && b.Zsync != nil &&
 			strings.TrimSpace(a.Zsync.UpdateInfo) == strings.TrimSpace(b.Zsync.UpdateInfo) &&
@@ -886,7 +851,7 @@ func runInstallTarget(ctx context.Context, cmd *cobra.Command, refArg string) er
 	switch target.Kind {
 	case installTargetDirectURL:
 		app, err = integrateFromDirectURL(ctx, cmd, target, sha256)
-	case installTargetGitHub, installTargetGitLab:
+	case installTargetGitHub:
 		var metadata *discovery.PackageMetadata
 		metadata, err = resolveInstallablePackageMetadataFromTarget(ctx, cmd, refArg, target, assetPattern)
 		if err == nil {
@@ -987,7 +952,7 @@ func validateAddIntegrateFlags(cmd *cobra.Command) error {
 		return err
 	}
 	if assetPattern != "" {
-		return usageError(fmt.Errorf("--asset is only supported with GitHub or GitLab provider sources"))
+		return usageError(fmt.Errorf("--asset is only supported with GitHub provider sources"))
 	}
 	sha256, err := flagString(cmd, "sha256")
 	if err != nil {
@@ -1228,7 +1193,7 @@ func unsetManagedUpdateSource(cmd *cobra.Command, app *models.App, prompt string
 }
 
 func hasUpdateSetFlags(cmd *cobra.Command) bool {
-	keys := []string{"github", "gitlab", "asset", "zsync", "embedded"}
+	keys := []string{"github", "asset", "zsync", "embedded"}
 	for _, key := range keys {
 		if flagChanged(cmd, key) {
 			return true
@@ -1242,10 +1207,6 @@ func validateEmbeddedUpdateSetFlags(cmd *cobra.Command) error {
 	if err != nil {
 		return err
 	}
-	gitlabProject, err := flagString(cmd, "gitlab")
-	if err != nil {
-		return err
-	}
 	zsyncURL, err := flagString(cmd, "zsync")
 	if err != nil {
 		return err
@@ -1256,11 +1217,11 @@ func validateEmbeddedUpdateSetFlags(cmd *cobra.Command) error {
 	}
 
 	if assetPattern != "" {
-		return usageError(fmt.Errorf("--asset is only supported with --github or --gitlab"))
+		return usageError(fmt.Errorf("--asset is only supported with --github"))
 	}
 
 	selectorCount := 1
-	for _, value := range []string{githubRepo, gitlabProject, zsyncURL} {
+	for _, value := range []string{githubRepo, zsyncURL} {
 		if value != "" {
 			selectorCount++
 		}
@@ -1399,10 +1360,6 @@ func resolveUpdateSourceFromSetFlags(cmd *cobra.Command) (*models.UpdateSource, 
 	if err != nil {
 		return nil, err
 	}
-	gitlabProject, err := flagString(cmd, "gitlab")
-	if err != nil {
-		return nil, err
-	}
 	assetPattern, err := flagString(cmd, "asset")
 	if err != nil {
 		return nil, err
@@ -1413,14 +1370,14 @@ func resolveUpdateSourceFromSetFlags(cmd *cobra.Command) (*models.UpdateSource, 
 	}
 
 	selectorCount := 0
-	for _, value := range []string{githubRepo, gitlabProject, zsyncURL} {
+	for _, value := range []string{githubRepo, zsyncURL} {
 		if value != "" {
 			selectorCount++
 		}
 	}
 
 	if selectorCount == 0 {
-		return nil, usageError(fmt.Errorf("missing update source; set one of --github, --gitlab, --zsync, or --embedded"))
+		return nil, usageError(fmt.Errorf("missing update source; set one of --github, --zsync, or --embedded"))
 	}
 	if selectorCount > 1 {
 		return nil, usageError(fmt.Errorf("update source flags are mutually exclusive"))
@@ -1443,26 +1400,9 @@ func resolveUpdateSourceFromSetFlags(cmd *cobra.Command) (*models.UpdateSource, 
 		}, nil
 	}
 
-	if gitlabProject != "" {
-		ref, err := validateGitLabProjectFlag(gitlabProject)
-		if err != nil {
-			return nil, err
-		}
-		if assetPattern == "" {
-			assetPattern = defaultReleaseAssetPattern
-		}
-		return &models.UpdateSource{
-			Kind: models.UpdateGitLabRelease,
-			GitLabRelease: &models.GitLabReleaseUpdateSource{
-				Project: ref.ProviderRef,
-				Asset:   assetPattern,
-			},
-		}, nil
-	}
-
 	if zsyncURL != "" {
 		if assetPattern != "" {
-			return nil, usageError(fmt.Errorf("--asset is only supported with --github or --gitlab"))
+			return nil, usageError(fmt.Errorf("--asset is only supported with --github"))
 		}
 		if !isHTTPSURL(zsyncURL) {
 			return nil, usageError(fmt.Errorf("--zsync must be a valid https URL"))
@@ -1477,9 +1417,9 @@ func resolveUpdateSourceFromSetFlags(cmd *cobra.Command) (*models.UpdateSource, 
 	}
 
 	if assetPattern != "" {
-		return nil, usageError(fmt.Errorf("--asset is only supported with --github or --gitlab"))
+		return nil, usageError(fmt.Errorf("--asset is only supported with --github"))
 	}
-	return nil, usageError(fmt.Errorf("missing update source; set one of --github, --gitlab, --zsync, or --embedded"))
+	return nil, usageError(fmt.Errorf("missing update source; set one of --github, --zsync, or --embedded"))
 }
 
 type pendingManagedUpdate struct {
@@ -1510,15 +1450,12 @@ type managedCheckFailure struct {
 var runAppUpdateCheck = checkAppUpdate
 var runZsyncUpdateCheck = core.ZsyncUpdateCheck
 var runGitHubReleaseUpdateCheck = core.GitHubReleaseUpdateCheck
-var runGitLabReleaseUpdateCheck = core.GitLabReleaseUpdateCheck
 var discoveryBackends = func() []discovery.DiscoveryBackend {
 	return []discovery.DiscoveryBackend{
 		discovery.GitHubBackend{},
-		discovery.GitLabBackend{},
 	}
 }
 var resolveGitHubReleaseAsset = core.ResolveGitHubReleaseAsset
-var resolveGitLabReleaseAsset = core.ResolveGitLabReleaseAsset
 var downloadRemoteAsset = downloadUpdateAsset
 var downloadManagedRemoteAsset = downloadUpdateAssetWithProgress
 var integrateManagedUpdate = core.IntegrateFromLocalFileWithoutCacheRefreshOrPersist

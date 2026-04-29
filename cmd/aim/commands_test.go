@@ -70,10 +70,8 @@ func TestResolveIntegrateTarget(t *testing.T) {
 		{name: "unlinked id", input: "unlinked", expect: integrateTargetUnlinked},
 		{name: "direct url rejected", input: "https://example.com/MyApp.AppImage", wantError: true, errText: "remote sources are added with 'aim add'"},
 		{name: "github repo rejected", input: "github:owner/repo", wantError: true, errText: "unknown argument github:owner/repo"},
-		{name: "gitlab repo rejected", input: "gitlab:group/project", wantError: true, errText: "unknown argument gitlab:group/project"},
 		{name: "http rejected", input: "http://example.com/MyApp.AppImage", wantError: true, errText: "direct URLs must use https; use 'aim add --url https://...'"},
 		{name: "malformed github treated as unknown argument", input: "github:owner", wantError: true, errText: "unknown argument github:owner"},
-		{name: "malformed gitlab treated as unknown argument", input: "gitlab:group", wantError: true, errText: "unknown argument gitlab:group"},
 		{name: "unknown id", input: "missing", wantError: true},
 	}
 
@@ -133,13 +131,11 @@ func TestResolveInstallTarget(t *testing.T) {
 	}{
 		{name: "direct url", input: "https://example.com/MyApp.AppImage", expect: installTargetDirectURL},
 		{name: "github repo url treated as direct url", input: "https://github.com/owner/repo", expect: installTargetDirectURL},
-		{name: "gitlab repo url treated as direct url", input: "https://gitlab.com/group/project", expect: installTargetDirectURL},
 		{name: "github release download url", input: "https://github.com/owner/repo/releases/download/v1/App.AppImage", expect: installTargetDirectURL},
 		{name: "http rejected", input: "http://example.com/MyApp.AppImage", wantError: true, errText: "--url must use https"},
 		{name: "local path rejected", input: "/tmp/MyApp.AppImage", wantError: true, errText: "local AppImages are added with 'aim add <Path/To.AppImage>'"},
 		{name: "managed id rejected", input: "managed", wantError: true, errText: "managed app IDs are added with 'aim add <id>'"},
 		{name: "legacy github ref", input: "github:owner", wantError: true, errText: "--url must be a valid https URL"},
-		{name: "legacy gitlab ref", input: "gitlab:group", wantError: true, errText: "--url must be a valid https URL"},
 		{name: "unknown target", input: "missing", wantError: true, errText: "--url must be a valid https URL"},
 	}
 
@@ -647,25 +643,25 @@ func TestRootPackageCommandFlags(t *testing.T) {
 		t.Fatal("expected add, info, and update commands")
 	}
 
-	if got := countFlags(addCmd.Flags()); got != 5 {
-		t.Fatalf("add flags = %d, want 5", got)
+	if got := countFlags(addCmd.Flags()); got != 4 {
+		t.Fatalf("add flags = %d, want 4", got)
 	}
 
-	for _, name := range []string{"url", "github", "gitlab", "asset", "sha256"} {
+	for _, name := range []string{"url", "github", "asset", "sha256"} {
 		if addCmd.Flags().Lookup(name) == nil {
 			t.Fatalf("add flags missing %s", name)
 		}
 	}
 
-	if got := countFlags(infoCmd.Flags()); got != 2 {
-		t.Fatalf("info flags = %d, want 2", got)
+	if got := countFlags(infoCmd.Flags()); got != 1 {
+		t.Fatalf("info flags = %d, want 1", got)
 	}
-	for _, name := range []string{"github", "gitlab"} {
+	for _, name := range []string{"github"} {
 		if infoCmd.Flags().Lookup(name) == nil {
 			t.Fatalf("info flags missing %s", name)
 		}
 	}
-	for _, name := range []string{"set", "unset", "github", "gitlab", "asset", "zsync", "embedded"} {
+	for _, name := range []string{"set", "unset", "github", "asset", "zsync", "embedded"} {
 		if updateCmd.Flags().Lookup(name) == nil {
 			t.Fatalf("update flags missing %s", name)
 		}
@@ -685,13 +681,11 @@ func TestStructuredFlagHelpUsesSemanticMetavars(t *testing.T) {
 			required: []string{
 				"--url URL",
 				"--github owner/repo",
-				"--gitlab namespace/project",
 				"--sha256 SHA256",
 				"--asset string",
 			},
 			unwanted: []string{
 				"--github string",
-				"--gitlab string",
 				"--sha256 string",
 			},
 		},
@@ -700,11 +694,9 @@ func TestStructuredFlagHelpUsesSemanticMetavars(t *testing.T) {
 			args: []string{"info", "--help"},
 			required: []string{
 				"--github owner/repo",
-				"--gitlab namespace/project",
 			},
 			unwanted: []string{
 				"--github string",
-				"--gitlab string",
 			},
 		},
 		{
@@ -714,13 +706,11 @@ func TestStructuredFlagHelpUsesSemanticMetavars(t *testing.T) {
 				"--set ID",
 				"--unset ID",
 				"--github owner/repo",
-				"--gitlab namespace/project",
 				"--zsync URL",
 				"--asset string",
 			},
 			unwanted: []string{
 				"--github string",
-				"--gitlab string",
 				"--zsync string",
 				"\n  set",
 				"\n  unset",
@@ -764,7 +754,7 @@ func TestMissingInfoArgumentShowsConciseHelpOnStderr(t *testing.T) {
 	if strings.TrimSpace(stdout) != "" {
 		t.Fatalf("expected no stdout output, got:\n%s", stdout)
 	}
-	for _, expected := range []string{"missing required input; pass <id|Path/To.AppImage> or one of --github, --gitlab", "USAGE", "EXAMPLES", `Use "aim info --help"`} {
+	for _, expected := range []string{"missing required input; pass <id|Path/To.AppImage> or --github", "USAGE", "EXAMPLES", `Use "aim info --help"`} {
 		if !strings.Contains(stderr, expected) {
 			t.Fatalf("expected stderr to contain %q:\n%s", expected, stderr)
 		}
@@ -1134,12 +1124,6 @@ func TestValidateInstallTargetFlags(t *testing.T) {
 			wantError: true,
 		},
 		{
-			name:      "sha256 rejected for gitlab",
-			target:    &installTarget{Kind: installTargetGitLab},
-			args:      []string{"--gitlab", "group/project", "--sha256", strings.Repeat("a", 64)},
-			wantError: true,
-		},
-		{
 			name:      "invalid sha256 rejected",
 			target:    &installTarget{Kind: installTargetDirectURL},
 			args:      []string{"--url", "https://example.com/MyApp.AppImage", "--sha256", "not-a-hash"},
@@ -1154,11 +1138,6 @@ func TestValidateInstallTargetFlags(t *testing.T) {
 			name:   "valid github asset",
 			target: &installTarget{Kind: installTargetGitHub},
 			args:   []string{"--github", "owner/repo", "--asset", "*.AppImage"},
-		},
-		{
-			name:   "valid gitlab asset",
-			target: &installTarget{Kind: installTargetGitLab},
-			args:   []string{"--gitlab", "group/project", "--asset", "*.AppImage"},
 		},
 	}
 
@@ -1200,7 +1179,7 @@ func TestAddCmdRejectsLocalTargetsWithRemoteFlags(t *testing.T) {
 	}
 
 	err := runAddCommand(context.Background(), []string{"./MyApp.AppImage", "--asset", "*.AppImage"})
-	if err == nil || !strings.Contains(err.Error(), "--asset is only supported with GitHub or GitLab provider sources") {
+	if err == nil || !strings.Contains(err.Error(), "--asset is only supported with GitHub provider sources") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -1227,19 +1206,14 @@ func TestAddCmdRemoteFlagValidation(t *testing.T) {
 	}
 
 	err = runAddCommand(context.Background(), []string{"--url", "https://example.com/app.AppImage", "--asset", "*.AppImage"})
-	if err == nil || !strings.Contains(err.Error(), "--asset is only supported with GitHub or GitLab provider sources") {
+	if err == nil || !strings.Contains(err.Error(), "--asset is only supported with GitHub provider sources") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
-func TestAddCmdRejectsMixedProviderSelectors(t *testing.T) {
-	err := runAddCommand(context.Background(), []string{"--github", "owner/repo", "--gitlab", "group/project"})
-	if err == nil || !strings.Contains(err.Error(), "--github and --gitlab are mutually exclusive") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	err = runAddCommand(context.Background(), []string{"--github", "owner/repo", "./MyApp.AppImage"})
-	if err == nil || !strings.Contains(err.Error(), "when using --github or --gitlab, do not pass a positional target") {
+func TestAddCmdRejectsProviderSelectorWithPositionalTarget(t *testing.T) {
+	err := runAddCommand(context.Background(), []string{"--github", "owner/repo", "./MyApp.AppImage"})
+	if err == nil || !strings.Contains(err.Error(), "when using --github, do not pass a positional target") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -1254,11 +1228,6 @@ func TestAddCmdRejectsLegacyProviderRef(t *testing.T) {
 func TestAddCmdRejectsInvalidProviderFlagForms(t *testing.T) {
 	err := runAddCommand(context.Background(), []string{"--github", "owner"})
 	if err == nil || !strings.Contains(err.Error(), "--github must be in owner/repo form") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	err = runAddCommand(context.Background(), []string{"--gitlab", "group"})
-	if err == nil || !strings.Contains(err.Error(), "--gitlab must be in namespace/project form") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -1679,211 +1648,6 @@ func TestAddCmdGitHubShowsProgressStages(t *testing.T) {
 	}
 }
 
-func TestAddCmdGitLabSetsDefaultAssetSourceAndUpdate(t *testing.T) {
-	tempDir := t.TempDir()
-	setupAddCommandConfigForTest(t, tempDir)
-
-	originalBackends := discoveryBackends
-	originalResolve := resolveGitLabReleaseAsset
-	originalDownload := downloadRemoteAsset
-	originalIntegrate := integrateLocalApp
-	originalAddSingle := addSingleApp
-	t.Cleanup(func() {
-		discoveryBackends = originalBackends
-		resolveGitLabReleaseAsset = originalResolve
-		downloadRemoteAsset = originalDownload
-		integrateLocalApp = originalIntegrate
-		addSingleApp = originalAddSingle
-	})
-
-	discoveryBackends = func() []discovery.DiscoveryBackend {
-		return []discovery.DiscoveryBackend{
-			&stubDiscoveryBackend{
-				name: "GitLab",
-				resolveFn: func(context.Context, discovery.PackageRef, string) (*discovery.PackageMetadata, error) {
-					return &discovery.PackageMetadata{
-						Name:          "My App",
-						Provider:      "GitLab",
-						Ref:           discovery.PackageRef{Kind: discovery.ProviderGitLab, ProviderRef: "group/project"},
-						LatestVersion: "2.0.0",
-						AssetName:     "MyApp-x86_64.AppImage",
-						AssetPattern:  "*.AppImage",
-						DownloadURL:   "https://example.com/MyApp-x86_64.AppImage",
-						Installable:   true,
-						ReleaseTag:    "v2.0.0",
-					}, nil
-				},
-			},
-		}
-	}
-	resolveGitLabReleaseAsset = func(project, assetPattern string) (*core.GitLabReleaseAsset, error) {
-		if project != "group/project" {
-			t.Fatalf("project = %q", project)
-		}
-		if assetPattern != "*.AppImage" {
-			t.Fatalf("assetPattern = %q", assetPattern)
-		}
-		return &core.GitLabReleaseAsset{
-			DownloadURL: "https://example.com/MyApp-x86_64.AppImage",
-			TagName:     "v2.0.0",
-			AssetName:   "MyApp-x86_64.AppImage",
-		}, nil
-	}
-	downloadRemoteAsset = func(context.Context, string, string, bool) error { return nil }
-	integrateLocalApp = func(context.Context, string, core.UpdateOverwritePrompt) (*models.App, error) {
-		return &models.App{ID: "my-app", Name: "My App", Version: "2.0.0", UpdatedAt: "2026-03-08T12:00:00Z"}, nil
-	}
-	addSingleApp = repo.AddApp
-
-	if err := runAddCommand(context.Background(), []string{"--gitlab", "group/project"}); err != nil {
-		t.Fatalf("runAddCommand returned error: %v", err)
-	}
-
-	app, err := repo.GetApp("my-app")
-	if err != nil {
-		t.Fatalf("failed to load persisted app: %v", err)
-	}
-	if app.Source.Kind != models.SourceGitLabRelease {
-		t.Fatalf("Source.Kind = %q", app.Source.Kind)
-	}
-	if app.Source.GitLabRelease == nil || app.Source.GitLabRelease.Asset != "*.AppImage" || app.Source.GitLabRelease.Tag != "v2.0.0" {
-		t.Fatalf("unexpected gitlab source: %#v", app.Source.GitLabRelease)
-	}
-	if app.Update == nil || app.Update.Kind != models.UpdateGitLabRelease || app.Update.GitLabRelease == nil {
-		t.Fatalf("unexpected update source: %#v", app.Update)
-	}
-}
-
-func TestAddCmdGitLabPersistsCustomAsset(t *testing.T) {
-	tempDir := t.TempDir()
-	setupAddCommandConfigForTest(t, tempDir)
-
-	originalBackends := discoveryBackends
-	originalResolve := resolveGitLabReleaseAsset
-	originalDownload := downloadRemoteAsset
-	originalIntegrate := integrateLocalApp
-	originalAddSingle := addSingleApp
-	t.Cleanup(func() {
-		discoveryBackends = originalBackends
-		resolveGitLabReleaseAsset = originalResolve
-		downloadRemoteAsset = originalDownload
-		integrateLocalApp = originalIntegrate
-		addSingleApp = originalAddSingle
-	})
-
-	discoveryBackends = func() []discovery.DiscoveryBackend {
-		return []discovery.DiscoveryBackend{
-			&stubDiscoveryBackend{
-				name: "GitLab",
-				resolveFn: func(context.Context, discovery.PackageRef, string) (*discovery.PackageMetadata, error) {
-					return &discovery.PackageMetadata{
-						Name:          "My App",
-						Provider:      "GitLab",
-						Ref:           discovery.PackageRef{Kind: discovery.ProviderGitLab, ProviderRef: "group/project"},
-						LatestVersion: "2.0.0",
-						AssetName:     "MyApp-x86_64.AppImage",
-						AssetPattern:  "MyApp-*-x86_64.AppImage",
-						DownloadURL:   "https://example.com/MyApp-x86_64.AppImage",
-						Installable:   true,
-						ReleaseTag:    "v2.0.0",
-					}, nil
-				},
-			},
-		}
-	}
-	resolveGitLabReleaseAsset = func(project, assetPattern string) (*core.GitLabReleaseAsset, error) {
-		if assetPattern != "MyApp-*-x86_64.AppImage" {
-			t.Fatalf("assetPattern = %q", assetPattern)
-		}
-		return &core.GitLabReleaseAsset{
-			DownloadURL: "https://example.com/MyApp-x86_64.AppImage",
-			TagName:     "v2.0.0",
-			AssetName:   "MyApp-x86_64.AppImage",
-		}, nil
-	}
-	downloadRemoteAsset = func(context.Context, string, string, bool) error { return nil }
-	integrateLocalApp = func(context.Context, string, core.UpdateOverwritePrompt) (*models.App, error) {
-		return &models.App{ID: "my-app", Name: "My App", Version: "2.0.0", UpdatedAt: "2026-03-08T12:00:00Z"}, nil
-	}
-	addSingleApp = repo.AddApp
-
-	if err := runAddCommand(context.Background(), []string{"--gitlab", "group/project", "--asset", "MyApp-*-x86_64.AppImage"}); err != nil {
-		t.Fatalf("runAddCommand returned error: %v", err)
-	}
-
-	app, err := repo.GetApp("my-app")
-	if err != nil {
-		t.Fatalf("failed to load persisted app: %v", err)
-	}
-	if app.Source.GitLabRelease == nil || app.Source.GitLabRelease.Asset != "MyApp-*-x86_64.AppImage" {
-		t.Fatalf("unexpected gitlab source: %#v", app.Source.GitLabRelease)
-	}
-}
-
-func TestAddCmdGitLabProviderRef(t *testing.T) {
-	tempDir := t.TempDir()
-	setupAddCommandConfigForTest(t, tempDir)
-
-	originalBackends := discoveryBackends
-	originalResolve := resolveGitLabReleaseAsset
-	originalDownload := downloadRemoteAsset
-	originalIntegrate := integrateLocalApp
-	originalAddSingle := addSingleApp
-	t.Cleanup(func() {
-		discoveryBackends = originalBackends
-		resolveGitLabReleaseAsset = originalResolve
-		downloadRemoteAsset = originalDownload
-		integrateLocalApp = originalIntegrate
-		addSingleApp = originalAddSingle
-	})
-
-	discoveryBackends = func() []discovery.DiscoveryBackend {
-		return []discovery.DiscoveryBackend{
-			&stubDiscoveryBackend{
-				name: "GitLab",
-				resolveFn: func(context.Context, discovery.PackageRef, string) (*discovery.PackageMetadata, error) {
-					return &discovery.PackageMetadata{
-						Name:          "My App",
-						Provider:      "GitLab",
-						Ref:           discovery.PackageRef{Kind: discovery.ProviderGitLab, ProviderRef: "group/project"},
-						LatestVersion: "2.0.0",
-						AssetName:     "MyApp-x86_64.AppImage",
-						AssetPattern:  "*.AppImage",
-						DownloadURL:   "https://example.com/MyApp-x86_64.AppImage",
-						Installable:   true,
-						ReleaseTag:    "v2.0.0",
-					}, nil
-				},
-			},
-		}
-	}
-	resolveGitLabReleaseAsset = func(project, assetPattern string) (*core.GitLabReleaseAsset, error) {
-		if project != "group/project" || assetPattern != "*.AppImage" {
-			t.Fatalf("unexpected install resolution: %s %s", project, assetPattern)
-		}
-		return &core.GitLabReleaseAsset{
-			DownloadURL: "https://example.com/MyApp-x86_64.AppImage",
-			TagName:     "v2.0.0",
-			AssetName:   "MyApp-x86_64.AppImage",
-		}, nil
-	}
-	downloadRemoteAsset = func(context.Context, string, string, bool) error { return nil }
-	integrateLocalApp = func(context.Context, string, core.UpdateOverwritePrompt) (*models.App, error) {
-		return &models.App{ID: "my-app", Name: "My App", Version: "2.0.0", UpdatedAt: "2026-03-08T12:00:00Z"}, nil
-	}
-	addSingleApp = repo.AddApp
-
-	output := captureStdout(t, func() {
-		if err := runAddCommand(context.Background(), []string{"--gitlab", "group/project"}); err != nil {
-			t.Fatalf("runAddCommand returned error: %v", err)
-		}
-	})
-
-	if !strings.Contains(output, "Installed: My App v2.0.0 [my-app]") {
-		t.Fatalf("unexpected output:\n%s", output)
-	}
-}
-
 type stubDiscoveryBackend struct {
 	name      string
 	resolveFn func(context.Context, discovery.PackageRef, string) (*discovery.PackageMetadata, error)
@@ -1949,62 +1713,6 @@ func TestInfoCmdDirectProviderRef(t *testing.T) {
 		t.Fatalf("did not expect asset pattern, got:\n%s", output)
 	}
 	if strings.Contains(output, "github_release: owner/repo, asset: *.AppImage") {
-		t.Fatalf("did not expect raw update summary, got:\n%s", output)
-	}
-}
-
-func TestInfoCmdGitLabProviderRefOutput(t *testing.T) {
-	originalBackends := discoveryBackends
-	t.Cleanup(func() {
-		discoveryBackends = originalBackends
-	})
-
-	discoveryBackends = func() []discovery.DiscoveryBackend {
-		return []discovery.DiscoveryBackend{
-			&stubDiscoveryBackend{
-				name: "GitLab",
-				resolveFn: func(context.Context, discovery.PackageRef, string) (*discovery.PackageMetadata, error) {
-					return &discovery.PackageMetadata{
-						Name:          "Foo App",
-						Provider:      "GitLab",
-						Ref:           discovery.PackageRef{Kind: discovery.ProviderGitLab, ProviderRef: "group/project"},
-						RepoURL:       "https://gitlab.com/group/project",
-						Summary:       "A GitLab test app",
-						LatestVersion: "2.0.0",
-						AssetName:     "Foo-x86_64.AppImage",
-						AssetPattern:  "Foo-*-x86_64.AppImage",
-						Installable:   true,
-					}, nil
-				},
-			},
-		}
-	}
-
-	output := captureStdout(t, func() {
-		if err := runInfoCommand(context.Background(), []string{"--gitlab", "group/project"}); err != nil {
-			t.Fatalf("runInfoCommand returned error: %v", err)
-		}
-	})
-
-	if !strings.Contains(output, "Resolving package metadata for GitLab group/project...") {
-		t.Fatalf("unexpected output:\n%s", output)
-	}
-	if !strings.Contains(output, "Foo App") {
-		t.Fatalf("unexpected output:\n%s", output)
-	}
-	if !strings.Contains(output, "Managed updates: yes") {
-		t.Fatalf("expected managed updates summary, got:\n%s", output)
-	}
-	if !strings.Contains(output, "aim add --gitlab group/project") {
-		t.Fatalf("expected install preview, got:\n%s", output)
-	}
-	if strings.Contains(output, "Notes") {
-		t.Fatalf("did not expect Notes section, got:\n%s", output)
-	}
-	if strings.Contains(output, "Asset pattern:") {
-		t.Fatalf("did not expect asset pattern, got:\n%s", output)
-	}
-	if strings.Contains(output, "gitlab_release: group/project, asset: Foo-*-x86_64.AppImage") {
 		t.Fatalf("did not expect raw update summary, got:\n%s", output)
 	}
 }
@@ -2097,47 +1805,6 @@ func TestInfoCmdGitHubPackageRef(t *testing.T) {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
 	if !strings.Contains(output, "aim add --github owner/repo") {
-		t.Fatalf("expected install preview, got:\n%s", output)
-	}
-}
-
-func TestInfoCmdGitLabPackageRef(t *testing.T) {
-	originalBackends := discoveryBackends
-	t.Cleanup(func() {
-		discoveryBackends = originalBackends
-	})
-
-	discoveryBackends = func() []discovery.DiscoveryBackend {
-		return []discovery.DiscoveryBackend{
-			&stubDiscoveryBackend{
-				name: "GitLab",
-				resolveFn: func(context.Context, discovery.PackageRef, string) (*discovery.PackageMetadata, error) {
-					return &discovery.PackageMetadata{
-						Name:          "Foo App",
-						Provider:      "GitLab",
-						Ref:           discovery.PackageRef{Kind: discovery.ProviderGitLab, ProviderRef: "group/project"},
-						RepoURL:       "https://gitlab.com/group/project",
-						Summary:       "A GitLab test app",
-						LatestVersion: "2.0.0",
-						AssetName:     "Foo-x86_64.AppImage",
-						AssetPattern:  "Foo-*-x86_64.AppImage",
-						Installable:   true,
-					}, nil
-				},
-			},
-		}
-	}
-
-	output := captureStdout(t, func() {
-		if err := runInfoCommand(context.Background(), []string{"--gitlab", "group/project"}); err != nil {
-			t.Fatalf("runInfoCommand returned error: %v", err)
-		}
-	})
-
-	if !strings.Contains(output, "Foo App") || !strings.Contains(output, "Managed updates: yes") {
-		t.Fatalf("unexpected output:\n%s", output)
-	}
-	if !strings.Contains(output, "aim add --gitlab group/project") {
 		t.Fatalf("expected install preview, got:\n%s", output)
 	}
 }
@@ -2267,72 +1934,6 @@ func TestAddCmdRejectsPositionalGitHubURL(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "use 'aim add --github owner/repo'") {
 		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestAddCmdDirectProviderRefAssetOverride(t *testing.T) {
-	originalBackends := discoveryBackends
-	originalResolve := resolveGitLabReleaseAsset
-	originalDownload := downloadRemoteAsset
-	originalIntegrate := integrateLocalApp
-	originalAddSingle := addSingleApp
-	t.Cleanup(func() {
-		discoveryBackends = originalBackends
-		resolveGitLabReleaseAsset = originalResolve
-		downloadRemoteAsset = originalDownload
-		integrateLocalApp = originalIntegrate
-		addSingleApp = originalAddSingle
-	})
-
-	tempDir := t.TempDir()
-	setupAddCommandConfigForTest(t, tempDir)
-
-	discoveryBackends = func() []discovery.DiscoveryBackend {
-		return []discovery.DiscoveryBackend{
-			&stubDiscoveryBackend{
-				name: "GitLab",
-				resolveFn: func(context.Context, discovery.PackageRef, string) (*discovery.PackageMetadata, error) {
-					return &discovery.PackageMetadata{
-						Name:          "Foo App",
-						Provider:      "GitLab",
-						Ref:           discovery.PackageRef{Kind: discovery.ProviderGitLab, ProviderRef: "group/project"},
-						LatestVersion: "2.0.0",
-						AssetName:     "Foo-x86_64.AppImage",
-						AssetPattern:  "Foo-*-x86_64.AppImage",
-						DownloadURL:   "https://example.com/Foo-x86_64.AppImage",
-						Installable:   true,
-						ReleaseTag:    "v2.0.0",
-					}, nil
-				},
-			},
-		}
-	}
-	resolveGitLabReleaseAsset = func(project, assetPattern string) (*core.GitLabReleaseAsset, error) {
-		if assetPattern != "Foo-*-x86_64.AppImage" {
-			t.Fatalf("assetPattern = %q", assetPattern)
-		}
-		return &core.GitLabReleaseAsset{
-			DownloadURL: "https://example.com/Foo-x86_64.AppImage",
-			TagName:     "v2.0.0",
-			AssetName:   "Foo-x86_64.AppImage",
-		}, nil
-	}
-	downloadRemoteAsset = func(context.Context, string, string, bool) error { return nil }
-	integrateLocalApp = func(context.Context, string, core.UpdateOverwritePrompt) (*models.App, error) {
-		return &models.App{ID: "foo-app", Name: "Foo App", Version: "2.0.0", UpdatedAt: "2026-03-08T12:00:00Z"}, nil
-	}
-	addSingleApp = repo.AddApp
-
-	if err := runAddCommand(context.Background(), []string{"--gitlab", "group/project", "--asset", "Foo-*-x86_64.AppImage"}); err != nil {
-		t.Fatalf("runAddCommand returned error: %v", err)
-	}
-
-	app, err := repo.GetApp("foo-app")
-	if err != nil {
-		t.Fatalf("failed to load installed app: %v", err)
-	}
-	if app.Source.GitLabRelease == nil || app.Source.GitLabRelease.Asset != "Foo-*-x86_64.AppImage" {
-		t.Fatalf("unexpected gitlab source: %#v", app.Source.GitLabRelease)
 	}
 }
 
@@ -2648,21 +2249,9 @@ func TestResolveUpdateSourceFromSetFlags(t *testing.T) {
 			asset:  "*.AppImage",
 		},
 		{
-			name:   "gitlab source",
-			flags:  map[string]string{"gitlab": "group/project", "asset": "*.AppImage"},
-			expect: models.UpdateGitLabRelease,
-			asset:  "*.AppImage",
-		},
-		{
 			name:   "github source default asset",
 			flags:  map[string]string{"github": "owner/repo"},
 			expect: models.UpdateGitHubRelease,
-			asset:  "*.AppImage",
-		},
-		{
-			name:   "gitlab source default asset",
-			flags:  map[string]string{"gitlab": "group/project"},
-			expect: models.UpdateGitLabRelease,
 			asset:  "*.AppImage",
 		},
 		{
@@ -2672,17 +2261,12 @@ func TestResolveUpdateSourceFromSetFlags(t *testing.T) {
 		},
 		{
 			name:      "mutually exclusive selectors",
-			flags:     map[string]string{"github": "owner/repo", "gitlab": "group/project", "asset": "*.AppImage"},
+			flags:     map[string]string{"github": "owner/repo", "zsync": "https://example.com/MyApp.AppImage.zsync", "asset": "*.AppImage"},
 			wantError: true,
 		},
 		{
 			name:      "invalid github selector",
 			flags:     map[string]string{"github": "owner"},
-			wantError: true,
-		},
-		{
-			name:      "invalid gitlab selector",
-			flags:     map[string]string{"gitlab": "group"},
 			wantError: true,
 		},
 	}
@@ -2699,10 +2283,6 @@ func TestResolveUpdateSourceFromSetFlags(t *testing.T) {
 				switch tt.name {
 				case "invalid github selector":
 					if !strings.Contains(err.Error(), "--github must be in owner/repo form") {
-						t.Fatalf("unexpected error: %v", err)
-					}
-				case "invalid gitlab selector":
-					if !strings.Contains(err.Error(), "--gitlab must be in namespace/project form") {
 						t.Fatalf("unexpected error: %v", err)
 					}
 				}
@@ -2722,10 +2302,6 @@ func TestResolveUpdateSourceFromSetFlags(t *testing.T) {
 			case models.UpdateGitHubRelease:
 				if source.GitHubRelease == nil || source.GitHubRelease.Asset != tt.asset {
 					t.Fatalf("github asset = %q, want %q", source.GitHubRelease.Asset, tt.asset)
-				}
-			case models.UpdateGitLabRelease:
-				if source.GitLabRelease == nil || source.GitLabRelease.Asset != tt.asset {
-					t.Fatalf("gitlab asset = %q, want %q", source.GitLabRelease.Asset, tt.asset)
 				}
 			}
 		})
@@ -3038,7 +2614,7 @@ func TestInfoCmdArgumentValidation(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected missing argument error")
 	}
-	if !strings.Contains(err.Error(), "missing required input; pass <id|Path/To.AppImage> or one of --github, --gitlab") {
+	if !strings.Contains(err.Error(), "missing required input; pass <id|Path/To.AppImage> or --github") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -3061,7 +2637,7 @@ func TestAddMissingInputNoTTYShowsGuidance(t *testing.T) {
 	if code := exitCodeForError(err); code != exitUsage {
 		t.Fatalf("exitCodeForError = %d, want %d", code, exitUsage)
 	}
-	if !strings.Contains(err.Error(), "missing required input; pass <id|Path/To.AppImage> or one of --url, --github, --gitlab") {
+	if !strings.Contains(err.Error(), "missing required input; pass <id|Path/To.AppImage> or one of --url or --github") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -3074,7 +2650,7 @@ func TestAddMissingInputNoInputShowsGuidance(t *testing.T) {
 	if code := exitCodeForError(err); code != exitUsage {
 		t.Fatalf("exitCodeForError = %d, want %d", code, exitUsage)
 	}
-	if !strings.Contains(err.Error(), "missing required input; pass <id|Path/To.AppImage> or one of --url, --github, --gitlab") {
+	if !strings.Contains(err.Error(), "missing required input; pass <id|Path/To.AppImage> or one of --url or --github") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -4611,7 +4187,7 @@ func TestUpdateSetDryRunDoesNotPersist(t *testing.T) {
 
 	cmd := newRootTestCommand()
 	_ = captureStdout(t, func() {
-		if err := executeTestCommand(context.Background(), cmd, "update", "--set", "my-app", "--gitlab", "group/project", "--dry-run", "--json"); err != nil {
+		if err := executeTestCommand(context.Background(), cmd, "update", "--set", "my-app", "--zsync", "https://example.com/MyApp.AppImage.zsync", "--dry-run", "--json"); err != nil {
 			t.Fatalf("executeTestCommand returned error: %v", err)
 		}
 	})
@@ -4647,7 +4223,6 @@ func TestRenderManPageIncludesMetadata(t *testing.T) {
 		"\\-\\-set ID",
 		"\\-\\-unset ID",
 		"\\-\\-github owner/repo",
-		"\\-\\-gitlab namespace/project",
 		"\\-\\-zsync URL",
 		".SH VERSION",
 		".SH AUTHOR",
@@ -4831,7 +4406,7 @@ func TestAddCommandCompletionListsPersistentAndLocalFlags(t *testing.T) {
 		t.Fatalf("completion command returned error: %v", err)
 	}
 
-	for _, expected := range []string{"--json", "--yes", "--dry-run", "--github", "--gitlab", "--asset", "--sha256", "--url"} {
+	for _, expected := range []string{"--json", "--yes", "--dry-run", "--github", "--asset", "--sha256", "--url"} {
 		if !strings.Contains(stdout, expected) {
 			t.Fatalf("expected add completion to include %q, got:\n%s", expected, stdout)
 		}
@@ -4846,7 +4421,7 @@ func TestAddCommandCompletionFiltersFlagPrefixes(t *testing.T) {
 		t.Fatalf("completion command returned error: %v", err)
 	}
 
-	for _, expected := range []string{"--github", "--gitlab"} {
+	for _, expected := range []string{"--github"} {
 		if !strings.Contains(stdout, expected) {
 			t.Fatalf("expected filtered add completion to include %q, got:\n%s", expected, stdout)
 		}
@@ -4861,7 +4436,7 @@ func TestUpdateCommandCompletionListsSourceFlags(t *testing.T) {
 		t.Fatalf("completion command returned error: %v", err)
 	}
 
-	for _, expected := range []string{"--github", "--gitlab"} {
+	for _, expected := range []string{"--github"} {
 		if !strings.Contains(stdout, expected) {
 			t.Fatalf("expected update completion to include %q, got:\n%s", expected, stdout)
 		}
@@ -7001,7 +6576,7 @@ func TestUpdateSetPromptText(t *testing.T) {
 	}
 
 	output := captureStdoutWithInput(t, "n\n", func() {
-		if err := runRootCommand(context.Background(), []string{"update", "--set", "my-app", "--gitlab", "group/project"}); err != nil {
+		if err := runRootCommand(context.Background(), []string{"update", "--set", "my-app", "--zsync", "https://example.com/MyApp.AppImage.zsync"}); err != nil {
 			t.Fatalf("runRootCommand returned error: %v", err)
 		}
 	})
@@ -7009,7 +6584,7 @@ func TestUpdateSetPromptText(t *testing.T) {
 	if !strings.Contains(output, "Current:\n  github: owner/repo, asset: *.AppImage") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
-	if !strings.Contains(output, "Incoming:\n  gitlab: group/project, asset: *.AppImage") {
+	if !strings.Contains(output, "Incoming:\n  zsync: zsync|https://example.com/MyApp.AppImage.zsync") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
 	if !strings.Contains(output, "Replace source for my-app? [y/N]: ") {
@@ -7228,7 +6803,6 @@ func newManagedUpdateTestCommand(t *testing.T, values map[string]string) *cobra.
 	cmd.Flags().String("set", "", "")
 	cmd.Flags().String("unset", "", "")
 	cmd.Flags().String("github", "", "")
-	cmd.Flags().String("gitlab", "", "")
 	cmd.Flags().String("asset", "", "")
 	cmd.Flags().String("zsync", "", "")
 	cmd.Flags().Bool("embedded", false, "")

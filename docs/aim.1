@@ -91,13 +91,10 @@ aim add \-n ./Example.AppImage \-\-json
 \fBOptions\fP
 .TP
 \-\-asset string
-asset filename pattern override for GitHub/GitLab provider add sources
+asset filename pattern override for GitHub provider add sources
 .TP
 \-\-github owner/repo
 GitHub repo in the form owner/repo
-.TP
-\-\-gitlab namespace/project
-GitLab project path namespace/project
 .TP
 \-\-sha256 SHA256
 expected SHA\-256 for direct https:// add sources
@@ -185,9 +182,6 @@ aim info example\-app \-\-json
 .TP
 \-\-github owner/repo
 GitHub repo in the form owner/repo
-.TP
-\-\-gitlab namespace/project
-GitLab project path namespace/project
 .TP
 \-\-csv
 output CSV where supported
@@ -336,7 +330,7 @@ aim update \-\-unset example\-app \-\-yes
 \fBOptions\fP
 .TP
 \-\-asset string
-asset filename pattern; defaults to "*.AppImage" for GitHub/GitLab (for 'aim update \-\-set')
+asset filename pattern; defaults to "*.AppImage" for GitHub (for 'aim update \-\-set')
 .TP
 \-\-check\-only
 check only; do not apply updates
@@ -346,9 +340,6 @@ use the update source embedded in the current AppImage (for 'aim update \-\-set'
 .TP
 \-\-github owner/repo
 GitHub repo in the form owner/repo (for 'aim update \-\-set')
-.TP
-\-\-gitlab namespace/project
-GitLab project path namespace/project (for 'aim update \-\-set')
 .TP
 \-\-set ID
 set the update source for the given managed app id

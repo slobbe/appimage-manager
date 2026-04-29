@@ -65,10 +65,6 @@ func UpdateSourcesEqual(a, b *models.UpdateSource) bool {
 		return a.GitHubRelease != nil && b.GitHubRelease != nil &&
 			strings.TrimSpace(a.GitHubRelease.Repo) == strings.TrimSpace(b.GitHubRelease.Repo) &&
 			strings.TrimSpace(a.GitHubRelease.Asset) == strings.TrimSpace(b.GitHubRelease.Asset)
-	case models.UpdateGitLabRelease:
-		return a.GitLabRelease != nil && b.GitLabRelease != nil &&
-			strings.TrimSpace(a.GitLabRelease.Project) == strings.TrimSpace(b.GitLabRelease.Project) &&
-			strings.TrimSpace(a.GitLabRelease.Asset) == strings.TrimSpace(b.GitLabRelease.Asset)
 	case models.UpdateZsync:
 		return a.Zsync != nil && b.Zsync != nil &&
 			strings.TrimSpace(a.Zsync.UpdateInfo) == strings.TrimSpace(b.Zsync.UpdateInfo) &&
@@ -99,10 +95,6 @@ func SourcesEqual(a, b *models.Source) bool {
 		return a.GitHubRelease != nil && b.GitHubRelease != nil &&
 			strings.TrimSpace(a.GitHubRelease.Repo) == strings.TrimSpace(b.GitHubRelease.Repo) &&
 			strings.TrimSpace(a.GitHubRelease.Asset) == strings.TrimSpace(b.GitHubRelease.Asset)
-	case models.SourceGitLabRelease:
-		return a.GitLabRelease != nil && b.GitLabRelease != nil &&
-			strings.TrimSpace(a.GitLabRelease.Project) == strings.TrimSpace(b.GitLabRelease.Project) &&
-			strings.TrimSpace(a.GitLabRelease.Asset) == strings.TrimSpace(b.GitLabRelease.Asset)
 	default:
 		return false
 	}
