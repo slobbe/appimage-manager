@@ -1,11 +1,9 @@
-# aim
+# `aim` - AppImage Manager CLI
 
 [![GitHub Release](https://img.shields.io/github/v/release/slobbe/appimage-manager?sort=semver&display_name=release&style=flat-square&color=royalblue)](https://github.com/slobbe/appimage-manager/releases/latest)
 [![GitHub License](https://img.shields.io/github/license/slobbe/appimage-manager?style=flat-square&color=teal)](/LICENSE)
 
-Manage, integrate and update your AppImages from the terminal.
-
-Set GitHub releases as update sources, or use the embedded update information if available.
+A simple CLI to install, integrate, and update AppImages.
 
 > [!NOTE]
 > This project is still a **work in progress** and breaking changes may happen at any time while in `v0.x.x`.
@@ -17,12 +15,10 @@ curl -fsSL https://raw.githubusercontent.com/slobbe/appimage-manager/main/script
 aim --version
 ```
 
-The installer verifies the release archive SHA-256 against the published `checksums.txt`.
-
 To install a pinned version:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/slobbe/appimage-manager/main/scripts/install.sh | AIM_VERSION=v1.2.3 sh
+curl -fsSL https://raw.githubusercontent.com/slobbe/appimage-manager/main/scripts/install.sh | AIM_VERSION=v0.15.4 sh
 ```
 
 If `aim` is not found, make sure `~/.local/bin` is on your `PATH`.
