@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - 'v*.*.*'
+      - "v*.*.*"
 
 permissions:
   contents: write
@@ -28,11 +28,70 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Install ShellCheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: Check gofmt
+        run: |
+          unformatted="$(gofmt -l $(git ls-files "*.go"))"
+          if [ -n "$unformatted" ]; then
+            printf "Go files are not gofmt-formatted:\n%s\n" "$unformatted"
+            exit 1
+          fi
+
       - name: Run tests
         run: go test ./...
 
+      - name: Check coverage
+        run: |
+          go test ./... -covermode=atomic -coverprofile=coverage.out
+          total="$(go tool cover -func=coverage.out | awk '/^total:/ { gsub(/%/, "", $3); print $3 }')"
+          minimum="70.0"
+
+          awk -v total="$total" -v minimum="$minimum" 'BEGIN {
+            if (total + 0 < minimum + 0) {
+              printf "coverage %.1f%% is below required %.1f%%\n", total, minimum
+              exit 1
+            }
+            printf "coverage %.1f%% meets required %.1f%%\n", total, minimum
+          }'
+
+          {
+            printf "## Coverage\n\n"
+            printf "Total statement coverage: **%s%%**\n\n" "$total"
+            printf "Required minimum: **%s%%**\n" "$minimum"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage profile
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-coverage-profile
+          path: coverage.out
+          if-no-files-found: error
+
+      - name: Run race tests
+        run: go test -race ./...
+
       - name: Run vet
         run: go vet ./...
+
+      - name: Run govulncheck
+        run: "$(go env GOPATH)/bin/govulncheck" ./...
+
+      - name: Check GoReleaser config
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: check
+
+      - name: Run ShellCheck
+        run: shellcheck scripts/*.sh
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v7

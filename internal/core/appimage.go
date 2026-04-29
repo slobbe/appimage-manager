@@ -1,6 +1,7 @@
 package core
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -127,26 +128,36 @@ func ExtractAppImage(ctx context.Context, src string) (*ExtractionData, error) {
 	extractCmd.Dir = tmpDir
 	extractCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
+	var out bytes.Buffer
+	extractCmd.Stdout = &out
+	extractCmd.Stderr = &out
+
+	if err := extractCmd.Start(); err != nil {
+		if errors.Is(ctx.Err(), context.Canceled) {
+			return nil, context.Canceled
+		}
+		return nil, fmt.Errorf("extraction failed: %w\nOutput: %s", err, out.String())
+	}
+
+	pid := extractCmd.Process.Pid
 	done := make(chan struct{})
 	if ctx != nil {
 		go func() {
 			select {
 			case <-ctx.Done():
-				if extractCmd.Process != nil {
-					_ = syscall.Kill(-extractCmd.Process.Pid, syscall.SIGKILL)
-				}
+				_ = syscall.Kill(-pid, syscall.SIGKILL)
 			case <-done:
 			}
 		}()
 	}
 
-	out, err := extractCmd.CombinedOutput()
+	err = extractCmd.Wait()
 	close(done)
 	if err != nil {
 		if errors.Is(ctx.Err(), context.Canceled) {
 			return nil, context.Canceled
 		}
-		return nil, fmt.Errorf("extraction failed: %w\nOutput: %s", err, string(out))
+		return nil, fmt.Errorf("extraction failed: %w\nOutput: %s", err, out.String())
 	}
 
 	root := filepath.Join(tmpDir, "squashfs-root")

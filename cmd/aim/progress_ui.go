@@ -99,7 +99,6 @@ func (h *ttyProgressHandle) stopAndClear() {
 			return nil
 		}
 		close(h.stopCh)
-		h.stopCh = nil
 		return h.doneCh
 	}()
 
@@ -109,6 +108,7 @@ func (h *ttyProgressHandle) stopAndClear() {
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	h.stopCh = nil
 	h.clearLocked()
 }
 
