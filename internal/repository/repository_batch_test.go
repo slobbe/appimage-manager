@@ -3,12 +3,79 @@ package repo
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/slobbe/appimage-manager/internal/config"
 	models "github.com/slobbe/appimage-manager/internal/types"
 )
+
+func TestSaveDBCreatesParentDirectory(t *testing.T) {
+	tmp := t.TempDir()
+	dbPath := filepath.Join(tmp, "nested", "state", "aim", "apps.json")
+
+	if err := SaveDB(dbPath, &DB{SchemaVersion: 1, Apps: map[string]*models.App{}}); err != nil {
+		t.Fatalf("SaveDB returned error: %v", err)
+	}
+
+	if _, err := os.Stat(dbPath); err != nil {
+		t.Fatalf("expected database file to exist: %v", err)
+	}
+
+	db, err := LoadDB(dbPath)
+	if err != nil {
+		t.Fatalf("LoadDB returned error: %v", err)
+	}
+	if db.SchemaVersion != 1 {
+		t.Fatalf("db.SchemaVersion = %d, want 1", db.SchemaVersion)
+	}
+	if len(db.Apps) != 0 {
+		t.Fatalf("len(db.Apps) = %d, want 0", len(db.Apps))
+	}
+}
+
+func TestSaveDBPreservesExistingPermissions(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("permission bits are not portable on Windows")
+	}
+
+	tmp := t.TempDir()
+	dbPath := filepath.Join(tmp, "apps.json")
+
+	if err := os.WriteFile(dbPath, []byte(`{"schemaVersion":1,"apps":{}}`), 0o600); err != nil {
+		t.Fatalf("failed to seed db file: %v", err)
+	}
+
+	if err := SaveDB(dbPath, &DB{SchemaVersion: 1, Apps: map[string]*models.App{}}); err != nil {
+		t.Fatalf("SaveDB returned error: %v", err)
+	}
+
+	info, err := os.Stat(dbPath)
+	if err != nil {
+		t.Fatalf("failed to stat db file: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("db mode = %o, want 600", got)
+	}
+}
+
+func TestSaveDBUsesUniqueTempFilesAndCleansUp(t *testing.T) {
+	tmp := t.TempDir()
+	dbPath := filepath.Join(tmp, "apps.json")
+
+	if err := SaveDB(dbPath, &DB{SchemaVersion: 1, Apps: map[string]*models.App{}}); err != nil {
+		t.Fatalf("SaveDB returned error: %v", err)
+	}
+
+	matches, err := filepath.Glob(filepath.Join(tmp, ".apps.json.*.tmp"))
+	if err != nil {
+		t.Fatalf("failed to glob temp files: %v", err)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("expected no temp files after successful save, found %v", matches)
+	}
+}
 
 func TestUpdateCheckMetadataBatch(t *testing.T) {
 	tmp := t.TempDir()
