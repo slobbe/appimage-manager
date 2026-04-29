@@ -49,8 +49,9 @@ jobs:
 
       - name: Check coverage
         run: |
-          go test ./... -covermode=atomic -coverprofile=coverage.out
-          total="$(go tool cover -func=coverage.out | awk '/^total:/ { gsub(/%/, "", $3); print $3 }')"
+          coverage_profile="${RUNNER_TEMP}/release-coverage.out"
+          go test ./... -covermode=atomic -coverprofile="$coverage_profile"
+          total="$(go tool cover -func="$coverage_profile" | awk '/^total:/ { gsub(/%/, "", $3); print $3 }')"
           minimum="70.0"
 
           awk -v total="$total" -v minimum="$minimum" 'BEGIN {
@@ -71,7 +72,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: release-coverage-profile
-          path: coverage.out
+          path: ${{ runner.temp }}/release-coverage.out
           if-no-files-found: error
 
       - name: Run race tests
