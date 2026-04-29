@@ -6,6 +6,7 @@ on:
       - "v*.*.*"
 
 permissions:
+  actions: read
   contents: write
 
 concurrency:
@@ -28,62 +29,39 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Install ShellCheck
+      - name: Resolve tagged commit
+        id: tagged-commit
         run: |
-          sudo apt-get update
-          sudo apt-get install -y shellcheck
+          printf "sha=%s\n" "$(git rev-list -n 1 "$GITHUB_REF_NAME")" >> "$GITHUB_OUTPUT"
 
-      - name: Install govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@latest
-
-      - name: Check gofmt
-        run: |
-          unformatted="$(gofmt -l $(git ls-files "*.go"))"
-          if [ -n "$unformatted" ]; then
-            printf "Go files are not gofmt-formatted:\n%s\n" "$unformatted"
-            exit 1
-          fi
-
-      - name: Run tests
-        run: go test ./...
-
-      - name: Check coverage
-        run: |
-          coverage_profile="${RUNNER_TEMP}/release-coverage.out"
-          go test ./... -covermode=atomic -coverprofile="$coverage_profile"
-          total="$(go tool cover -func="$coverage_profile" | awk '/^total:/ { gsub(/%/, "", $3); print $3 }')"
-          minimum="70.0"
-
-          awk -v total="$total" -v minimum="$minimum" 'BEGIN {
-            if (total + 0 < minimum + 0) {
-              printf "coverage %.1f%% is below required %.1f%%\n", total, minimum
-              exit 1
-            }
-            printf "coverage %.1f%% meets required %.1f%%\n", total, minimum
-          }'
-
-          {
-            printf "## Coverage\n\n"
-            printf "Total statement coverage: **%s%%**\n\n" "$total"
-            printf "Required minimum: **%s%%**\n" "$minimum"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Upload coverage profile
-        uses: actions/upload-artifact@v4
+      - name: Verify CI passed for tagged commit
+        uses: actions/github-script@v7
         with:
-          name: release-coverage-profile
-          path: ${{ runner.temp }}/release-coverage.out
-          if-no-files-found: error
+          script: |
+            const { owner, repo } = context.repo;
+            const sha = "${{ steps.tagged-commit.outputs.sha }}";
 
-      - name: Run race tests
-        run: go test -race ./...
+            const { data } = await github.rest.actions.listWorkflowRuns({
+              owner,
+              repo,
+              workflow_id: "ci.yml",
+              branch: "main",
+              event: "push",
+              status: "success",
+              per_page: 100,
+            });
 
-      - name: Run vet
-        run: go vet ./...
+            const matchingRun = data.workflow_runs.find((run) => (
+              run.head_sha === sha &&
+              run.conclusion === "success"
+            ));
 
-      - name: Run govulncheck
-        run: |
-          "$(go env GOPATH)/bin/govulncheck" ./...
+            if (!matchingRun) {
+              core.setFailed(`No successful CI push run for ${sha} on main. Tag releases must reference a commit that already passed CI.`);
+              return;
+            }
+
+            core.info(`Found successful CI run ${matchingRun.html_url} for ${sha}.`);
 
       - name: Check GoReleaser config
         uses: goreleaser/goreleaser-action@v7
@@ -91,9 +69,6 @@ jobs:
           distribution: goreleaser
           version: "~> v2"
           args: check
-
-      - name: Run ShellCheck
-        run: shellcheck scripts/*.sh
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v7
