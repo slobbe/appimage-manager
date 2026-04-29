@@ -2,8 +2,10 @@ package core
 
 import (
 	"bufio"
+	"bytes"
 	"debug/elf"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -11,6 +13,8 @@ import (
 	util "github.com/slobbe/appimage-manager/internal/helpers"
 	models "github.com/slobbe/appimage-manager/internal/types"
 )
+
+const zsyncMetadataMaxBytes = 1 << 20
 
 type UpdateInfo struct {
 	Kind       models.UpdateKind
@@ -49,16 +53,34 @@ func ZsyncUpdateCheck(upd *models.UpdateSource, localSHA1 string) (*UpdateData, 
 		return nil, fmt.Errorf("missing zsync update url")
 	}
 
-	resp, err := http.Get(updateInfo.UpdateUrl)
+	req, err := http.NewRequest(http.MethodGet, updateInfo.UpdateUrl, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := SharedHTTPClient().Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return nil, fmt.Errorf("zsync metadata returned status %s", resp.Status)
+	}
+
+	metadata, err := io.ReadAll(io.LimitReader(resp.Body, zsyncMetadataMaxBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read zsync metadata: %w", err)
+	}
+	if len(metadata) > zsyncMetadataMaxBytes {
+		return nil, fmt.Errorf("zsync metadata exceeds %d bytes", zsyncMetadataMaxBytes)
+	}
+
 	update := UpdateData{}
 	update.DownloadUrlZsync = updateInfo.UpdateUrl
 
-	scanner := bufio.NewScanner(resp.Body)
+	scanner := bufio.NewScanner(bytes.NewReader(metadata))
+	scanner.Buffer(make([]byte, 64*1024), zsyncMetadataMaxBytes+1)
 	for scanner.Scan() {
 		line := scanner.Text()
 		if line == "" {
@@ -80,6 +102,9 @@ func ZsyncUpdateCheck(upd *models.UpdateSource, localSHA1 string) (*UpdateData, 
 			t, _ := time.Parse(time.RFC1123, strings.TrimSpace(mtime))
 			update.RemoteTime = t.Format(time.RFC3339)
 		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("failed to read zsync metadata: %w", err)
 	}
 
 	if update.RemoteFilename != "" {

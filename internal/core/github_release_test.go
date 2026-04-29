@@ -280,9 +280,11 @@ func TestGitHubReleaseUpdateCheckUsesSiblingZsyncTransport(t *testing.T) {
 	defer server.Close()
 
 	originalClient := githubReleaseHTTPClient
+	originalSharedClient := sharedHTTPClient
 	originalTransport := http.DefaultTransport
 	t.Cleanup(func() {
 		githubReleaseHTTPClient = originalClient
+		sharedHTTPClient = originalSharedClient
 		http.DefaultTransport = originalTransport
 	})
 
@@ -296,6 +298,7 @@ func TestGitHubReleaseUpdateCheckUsesSiblingZsyncTransport(t *testing.T) {
 			next: server.Client().Transport,
 		},
 	}
+	sharedHTTPClient = githubReleaseHTTPClient
 	http.DefaultTransport = &rewriteHostTransport{
 		base: baseURL,
 		next: server.Client().Transport,
@@ -346,9 +349,11 @@ func TestGitHubReleaseUpdateCheckIgnoresMissingSiblingZsync(t *testing.T) {
 	defer server.Close()
 
 	originalClient := githubReleaseHTTPClient
+	originalSharedClient := sharedHTTPClient
 	originalTransport := http.DefaultTransport
 	t.Cleanup(func() {
 		githubReleaseHTTPClient = originalClient
+		sharedHTTPClient = originalSharedClient
 		http.DefaultTransport = originalTransport
 	})
 
@@ -362,6 +367,7 @@ func TestGitHubReleaseUpdateCheckIgnoresMissingSiblingZsync(t *testing.T) {
 			next: server.Client().Transport,
 		},
 	}
+	sharedHTTPClient = githubReleaseHTTPClient
 	http.DefaultTransport = &rewriteHostTransport{
 		base: baseURL,
 		next: server.Client().Transport,
@@ -403,9 +409,11 @@ func TestGitHubReleaseUpdateCheckIgnoresMalformedSiblingZsync(t *testing.T) {
 	defer server.Close()
 
 	originalClient := githubReleaseHTTPClient
+	originalSharedClient := sharedHTTPClient
 	originalTransport := http.DefaultTransport
 	t.Cleanup(func() {
 		githubReleaseHTTPClient = originalClient
+		sharedHTTPClient = originalSharedClient
 		http.DefaultTransport = originalTransport
 	})
 
@@ -419,6 +427,7 @@ func TestGitHubReleaseUpdateCheckIgnoresMalformedSiblingZsync(t *testing.T) {
 			next: server.Client().Transport,
 		},
 	}
+	sharedHTTPClient = githubReleaseHTTPClient
 	http.DefaultTransport = &rewriteHostTransport{
 		base: baseURL,
 		next: server.Client().Transport,
@@ -462,9 +471,11 @@ func TestGitHubReleaseUpdateCheckSkipsSiblingZsyncWhenUpToDate(t *testing.T) {
 	defer server.Close()
 
 	originalClient := githubReleaseHTTPClient
+	originalSharedClient := sharedHTTPClient
 	originalTransport := http.DefaultTransport
 	t.Cleanup(func() {
 		githubReleaseHTTPClient = originalClient
+		sharedHTTPClient = originalSharedClient
 		http.DefaultTransport = originalTransport
 	})
 
@@ -478,6 +489,7 @@ func TestGitHubReleaseUpdateCheckSkipsSiblingZsyncWhenUpToDate(t *testing.T) {
 			next: server.Client().Transport,
 		},
 	}
+	sharedHTTPClient = githubReleaseHTTPClient
 	http.DefaultTransport = &rewriteHostTransport{
 		base: baseURL,
 		next: server.Client().Transport,
