@@ -81,7 +81,8 @@ jobs:
         run: go vet ./...
 
       - name: Run govulncheck
-        run: "$(go env GOPATH)/bin/govulncheck" ./...
+        run: |
+          "$(go env GOPATH)/bin/govulncheck" ./...
 
       - name: Check GoReleaser config
         uses: goreleaser/goreleaser-action@v7
