@@ -1,12 +1,103 @@
 package core
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
+	"fmt"
 	"path/filepath"
 	"strings"
 
+	util "github.com/slobbe/appimage-manager/internal/helpers"
 	repo "github.com/slobbe/appimage-manager/internal/repository"
 	models "github.com/slobbe/appimage-manager/internal/types"
 )
+
+func ResolveManagedAppID(appName, upstreamID, hashSeed string, incoming *models.App) (string, *models.App, error) {
+	candidates := managedIDCandidates(appName, upstreamID, hashSeed)
+	if len(candidates) == 0 {
+		return "", nil, fmt.Errorf("managed app id cannot be empty")
+	}
+
+	allApps, err := repo.GetAllApps()
+	if err != nil {
+		return "", nil, err
+	}
+
+	var equivalentApp *models.App
+	for _, existing := range allApps {
+		if existing == nil || strings.TrimSpace(existing.ID) == "" {
+			continue
+		}
+		if appsShareManagedIdentity(existing, incoming) {
+			if equivalentApp != nil && strings.TrimSpace(equivalentApp.ID) != strings.TrimSpace(existing.ID) {
+				equivalentApp = nil
+				break
+			}
+			equivalentApp = existing
+		}
+	}
+
+	for _, candidate := range candidates {
+		existing := allApps[candidate]
+		if existing == nil {
+			if equivalentApp != nil && strings.TrimSpace(equivalentApp.ID) != candidate {
+				return candidate, equivalentApp, nil
+			}
+			return candidate, nil, nil
+		}
+		if appsShareManagedIdentity(existing, incoming) {
+			return candidate, nil, nil
+		}
+	}
+
+	fallback := candidates[len(candidates)-1]
+	if equivalentApp != nil && strings.TrimSpace(equivalentApp.ID) != fallback {
+		return fallback, equivalentApp, nil
+	}
+	return fallback, nil, nil
+}
+
+func managedIDCandidates(appName, upstreamID, hashSeed string) []string {
+	upstreamID = strings.TrimSpace(upstreamID)
+	base := util.Slugify(appName)
+	if base == "" {
+		base = upstreamID
+	}
+	base = strings.TrimSpace(base)
+	if base == "" {
+		return nil
+	}
+
+	candidates := []string{base}
+	if upstreamID != "" {
+		withUpstream := base + "-" + upstreamID
+		if !containsString(candidates, withUpstream) {
+			candidates = append(candidates, withUpstream)
+		}
+
+		withHash := withUpstream + "-" + shortIdentityHash(upstreamID, hashSeed)
+		if !containsString(candidates, withHash) {
+			candidates = append(candidates, withHash)
+		}
+	}
+
+	return candidates
+}
+
+func shortIdentityHash(parts ...string) string {
+	seed := strings.Join(parts, "\x00")
+	sum := sha1.Sum([]byte(seed))
+	return hex.EncodeToString(sum[:])[:6]
+}
+
+func containsString(values []string, needle string) bool {
+	for _, value := range values {
+		if value == needle {
+			return true
+		}
+	}
+	return false
+}
 
 func FindEquivalentManagedApp(incoming *models.App) (*models.App, error) {
 	if incoming == nil {
@@ -60,7 +151,7 @@ func UpdateSourcesEqual(a, b *models.UpdateSource) bool {
 
 	switch a.Kind {
 	case models.UpdateNone:
-		return true
+		return false
 	case models.UpdateGitHubRelease:
 		return a.GitHubRelease != nil && b.GitHubRelease != nil &&
 			strings.TrimSpace(a.GitHubRelease.Repo) == strings.TrimSpace(b.GitHubRelease.Repo) &&

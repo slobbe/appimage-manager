@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -35,8 +36,8 @@ func TestIntegrateFromLocalFileWithSymlinkedDesktopEntry(t *testing.T) {
 	if app.Name != "0 A.D." {
 		t.Fatalf("app.Name = %q, want %q", app.Name, "0 A.D.")
 	}
-	if app.ID != "0ad" {
-		t.Fatalf("app.ID = %q, want %q", app.ID, "0ad")
+	if app.ID != "0-ad" {
+		t.Fatalf("app.ID = %q, want %q", app.ID, "0-ad")
 	}
 
 	desktopInfo, err := os.Lstat(app.DesktopEntryPath)
@@ -150,7 +151,7 @@ func TestIntegrateFromLocalFileReturnsPromptlyWhenContextCanceled(t *testing.T) 
 	}
 }
 
-func TestIntegrateFromLocalFilePreservesUpstreamDesktopStemForManagedIdentity(t *testing.T) {
+func TestIntegrateFromLocalFileUsesReadableManagedIdentity(t *testing.T) {
 	tmp := t.TempDir()
 	setupIntegrationConfigForTest(t, tmp)
 	stubDesktopValidationForTest(t)
@@ -164,25 +165,181 @@ func TestIntegrateFromLocalFilePreservesUpstreamDesktopStemForManagedIdentity(t 
 		t.Fatalf("IntegrateFromLocalFile returned error: %v", err)
 	}
 
-	if app.ID != "t3-code-desktop" {
-		t.Fatalf("app.ID = %q, want %q", app.ID, "t3-code-desktop")
+	if app.ID != "t3-code-alpha" {
+		t.Fatalf("app.ID = %q, want %q", app.ID, "t3-code-alpha")
 	}
 
-	expectedAppDir := filepath.Join(config.AimDir, "t3-code-desktop")
-	if app.ExecPath != filepath.Join(expectedAppDir, "t3-code-desktop.AppImage") {
+	expectedAppDir := filepath.Join(config.AimDir, "t3-code-alpha")
+	if app.ExecPath != filepath.Join(expectedAppDir, "t3-code-alpha.AppImage") {
 		t.Fatalf("ExecPath = %q", app.ExecPath)
 	}
-	if app.DesktopEntryPath != filepath.Join(expectedAppDir, "t3-code-desktop.desktop") {
+	if app.DesktopEntryPath != filepath.Join(expectedAppDir, "t3-code-alpha.desktop") {
 		t.Fatalf("DesktopEntryPath = %q", app.DesktopEntryPath)
 	}
-	if app.IconPath != filepath.Join(config.IconThemeDir, "scalable", "apps", "t3-code-desktop.svg") {
+	if app.IconPath != filepath.Join(config.IconThemeDir, "scalable", "apps", "t3-code-alpha.svg") {
 		t.Fatalf("IconPath = %q", app.IconPath)
 	}
 	if _, err := os.Stat(app.IconPath); err != nil {
 		t.Fatalf("expected installed icon at %q: %v", app.IconPath, err)
 	}
-	if app.DesktopEntryLink != filepath.Join(config.DesktopDir, "t3-code-desktop.desktop") {
+	if app.DesktopEntryLink != filepath.Join(config.DesktopDir, "t3-code-alpha.desktop") {
 		t.Fatalf("DesktopEntryLink = %q", app.DesktopEntryLink)
+	}
+}
+
+func TestIntegrateFromLocalFileUsesNameForGenericDesktopID(t *testing.T) {
+	tmp := t.TempDir()
+	setupIntegrationConfigForTest(t, tmp)
+	stubDesktopValidationForTest(t)
+	stubIntegrationCacheRefreshForTest(t)
+
+	appImagePath := filepath.Join(tmp, "desktop.AppImage")
+	writeFakeAppImageExtractorWithDesktop(t, appImagePath, "desktop.desktop", "ClickUp", "2603135dev5rzzi", "desktop", "desktop.svg")
+
+	app, err := IntegrateFromLocalFile(context.Background(), appImagePath, nil)
+	if err != nil {
+		t.Fatalf("IntegrateFromLocalFile returned error: %v", err)
+	}
+
+	if app.ID != "clickup" {
+		t.Fatalf("app.ID = %q, want %q", app.ID, "clickup")
+	}
+
+	expectedAppDir := filepath.Join(config.AimDir, "clickup")
+	if app.ExecPath != filepath.Join(expectedAppDir, "clickup.AppImage") {
+		t.Fatalf("ExecPath = %q", app.ExecPath)
+	}
+	if app.DesktopEntryPath != filepath.Join(expectedAppDir, "clickup.desktop") {
+		t.Fatalf("DesktopEntryPath = %q", app.DesktopEntryPath)
+	}
+	if app.DesktopEntryLink != filepath.Join(config.DesktopDir, "clickup.desktop") {
+		t.Fatalf("DesktopEntryLink = %q", app.DesktopEntryLink)
+	}
+	if app.IconPath != filepath.Join(config.IconThemeDir, "scalable", "apps", "clickup.svg") {
+		t.Fatalf("IconPath = %q", app.IconPath)
+	}
+
+	content, err := os.ReadFile(app.DesktopEntryPath)
+	if err != nil {
+		t.Fatalf("failed to read desktop entry: %v", err)
+	}
+	desktopEntry := string(content)
+	if !strings.Contains(desktopEntry, "Exec="+app.ExecPath+" %U") {
+		t.Fatalf("expected rewritten Exec to reference clickup AppImage, got:\n%s", desktopEntry)
+	}
+	if !strings.Contains(desktopEntry, "Icon="+app.IconPath) {
+		t.Fatalf("expected rewritten Icon to reference clickup icon, got:\n%s", desktopEntry)
+	}
+}
+
+func TestIntegrateFromLocalFileMigratesGenericOldIDToReadableID(t *testing.T) {
+	tmp := t.TempDir()
+	setupIntegrationConfigForTest(t, tmp)
+	stubDesktopValidationForTest(t)
+	stubIntegrationCacheRefreshForTest(t)
+
+	appImagePath := filepath.Join(tmp, "desktop.AppImage")
+	oldAppDir := filepath.Join(config.AimDir, "desktop")
+	oldExecPath := filepath.Join(oldAppDir, "desktop.AppImage")
+	oldDesktopPath := filepath.Join(oldAppDir, "desktop.desktop")
+	oldDesktopLink := filepath.Join(config.DesktopDir, "desktop.desktop")
+	oldIconPath := filepath.Join(config.IconThemeDir, "scalable", "apps", "desktop.svg")
+
+	if err := os.MkdirAll(oldAppDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(oldIconPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{oldExecPath, oldDesktopPath, oldIconPath} {
+		if err := os.WriteFile(path, []byte("old"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(oldDesktopPath, oldDesktopLink); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.AddApp(&models.App{
+		ID:               "desktop",
+		Name:             "ClickUp",
+		Version:          "2603135dev5rzzi",
+		ExecPath:         oldExecPath,
+		DesktopEntryPath: oldDesktopPath,
+		DesktopEntryLink: oldDesktopLink,
+		IconPath:         oldIconPath,
+		AddedAt:          "2026-04-01T12:00:00Z",
+		LastCheckedAt:    "2026-04-02T12:00:00Z",
+		Source: models.Source{
+			Kind: models.SourceLocalFile,
+			LocalFile: &models.LocalFileSource{
+				OriginalPath: appImagePath,
+			},
+		},
+		Update: &models.UpdateSource{Kind: models.UpdateNone},
+	}, true); err != nil {
+		t.Fatal(err)
+	}
+
+	writeFakeAppImageExtractorWithDesktop(t, appImagePath, "desktop.desktop", "ClickUp", "2603135dev5rzzi", "desktop", "desktop.svg")
+
+	app, err := IntegrateFromLocalFile(context.Background(), appImagePath, nil)
+	if err != nil {
+		t.Fatalf("IntegrateFromLocalFile returned error: %v", err)
+	}
+
+	if app.ID != "clickup" {
+		t.Fatalf("app.ID = %q, want clickup", app.ID)
+	}
+	if app.AddedAt != "2026-04-01T12:00:00Z" {
+		t.Fatalf("app.AddedAt = %q", app.AddedAt)
+	}
+	if app.LastCheckedAt != "2026-04-02T12:00:00Z" {
+		t.Fatalf("app.LastCheckedAt = %q", app.LastCheckedAt)
+	}
+	if _, err := repo.GetApp("desktop"); err == nil {
+		t.Fatal("expected old desktop id to be removed from database")
+	}
+	if _, err := repo.GetApp("clickup"); err != nil {
+		t.Fatalf("expected clickup id to be persisted: %v", err)
+	}
+	if _, err := os.Stat(oldAppDir); !os.IsNotExist(err) {
+		t.Fatalf("expected old app dir to be removed, got err=%v", err)
+	}
+	if _, err := os.Lstat(oldDesktopLink); !os.IsNotExist(err) {
+		t.Fatalf("expected old desktop link to be removed, got err=%v", err)
+	}
+	if _, err := os.Stat(oldIconPath); !os.IsNotExist(err) {
+		t.Fatalf("expected old icon to be removed, got err=%v", err)
+	}
+}
+
+func TestRemoveStaleInstalledIconKeepsIconReferencedByAnotherApp(t *testing.T) {
+	tmp := t.TempDir()
+	setupIntegrationConfigForTest(t, tmp)
+
+	oldIconPath := filepath.Join(config.IconThemeDir, "scalable", "apps", "shared.svg")
+	newIconPath := filepath.Join(config.IconThemeDir, "scalable", "apps", "clickup.svg")
+	if err := os.MkdirAll(filepath.Dir(oldIconPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(oldIconPath, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(newIconPath, []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.AddApp(&models.App{
+		ID:       "other",
+		Name:     "Other",
+		IconPath: oldIconPath,
+	}, true); err != nil {
+		t.Fatal(err)
+	}
+
+	removeStaleInstalledIcon(oldIconPath, newIconPath, "clickup")
+
+	if _, err := os.Stat(oldIconPath); err != nil {
+		t.Fatalf("expected shared icon to remain: %v", err)
 	}
 }
 

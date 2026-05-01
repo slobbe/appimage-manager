@@ -54,67 +54,13 @@ func integrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 		appInfo.ID = extractionData.DesktopStem
 	}
 
-	appID := appInfo.ID
-
-	outDir := filepath.Join(config.AimDir, appID)
-	if err := os.MkdirAll(outDir, 0o755); err != nil {
-		return nil, err
-	}
-
 	tmpDir := (*extractionData).Dir
 	defer func() {
 		_ = os.RemoveAll(tmpDir)
 	}()
 
-	extractionData.Dir = outDir
-
-	if extractionData.ExecPath, err = util.Move(extractionData.ExecPath, filepath.Join(extractionData.Dir, appID+filepath.Ext(extractionData.ExecPath))); err != nil {
-		return nil, err
-	}
-	if extractionData.DesktopEntryPath, err = util.Move(extractionData.DesktopEntryPath, filepath.Join(extractionData.Dir, appID+filepath.Ext(extractionData.DesktopEntryPath))); err != nil {
-		return nil, err
-	}
-	if extractionData.IconPath, err = util.Move(extractionData.IconPath, filepath.Join(extractionData.Dir, appID+filepath.Ext(extractionData.IconPath))); err != nil {
-		return nil, err
-	}
-
-	installedIconPath, desktopIconValue, err := InstallDesktopIcon(appID, extractionData.IconPath)
-	if err != nil {
-		return nil, err
-	}
-	extractionData.IconPath = installedIconPath
-
-	if err := UpdateDesktopEntry(ctx, extractionData.DesktopEntryPath, extractionData.ExecPath, desktopIconValue); err != nil {
-		return nil, err
-	}
-
-	if err := ValidateDesktopEntry(ctx, extractionData.DesktopEntryPath); err != nil {
-		return nil, err
-	}
-
-	if err := util.MakeExecutable(extractionData.ExecPath); err != nil {
-		return nil, err
-	}
-
-	desktopEntryLink, err := MakeDesktopLink(extractionData.DesktopEntryPath, appID+".desktop", "aim-"+appID+".desktop")
-	if err != nil {
-		return nil, err
-	}
-
-	var existingApp *models.App
-	var replacementApp *models.App
 	var updateFromAppImage *models.UpdateSource
-
-	var updateInfoWG sync.WaitGroup
-	updateInfoWG.Add(1)
-	go func() {
-		defer updateInfoWG.Done()
-
-		updateInfo, err := getEmbeddedUpdateInfo(extractionData.ExecPath)
-		if err != nil || updateInfo.Kind != models.UpdateZsync {
-			return
-		}
-
+	if updateInfo, err := getEmbeddedUpdateInfo(extractionData.ExecPath); err == nil && updateInfo.Kind == models.UpdateZsync {
 		updateFromAppImage = &models.UpdateSource{
 			Kind: models.UpdateZsync,
 			Zsync: &models.ZsyncUpdateSource{
@@ -122,15 +68,7 @@ func integrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 				Transport:  updateInfo.Transport,
 			},
 		}
-	}()
-
-	if appData, err := repo.GetApp(appID); err == nil {
-		existingApp = appData
-	} else if !strings.Contains(err.Error(), "does not exists in database") {
-		return nil, err
 	}
-
-	updateInfoWG.Wait()
 
 	timestampNow := util.NowISO()
 	addedAt := timestampNow
@@ -144,6 +82,36 @@ func integrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 	updateFound := updateFromAppImage != nil
 	if updateFound {
 		update = updateFromAppImage
+	}
+
+	source := models.Source{
+		Kind: models.SourceLocalFile,
+		LocalFile: &models.LocalFileSource{
+			IntegratedAt: timestampNow,
+			OriginalPath: src,
+		},
+	}
+
+	upstreamID := appInfo.ID
+	incomingIdentity := &models.App{
+		ID:     upstreamID,
+		Name:   appInfo.Name,
+		Source: source,
+		Update: update,
+	}
+
+	appID, replacementApp, err := ResolveManagedAppID(appInfo.Name, upstreamID, src, incomingIdentity)
+	if err != nil {
+		return nil, err
+	}
+
+	var existingApp *models.App
+	if replacementApp != nil {
+		existingApp = replacementApp
+	} else if appData, err := repo.GetApp(appID); err == nil {
+		existingApp = appData
+	} else if !strings.Contains(err.Error(), "does not exists in database") {
+		return nil, err
 	}
 
 	if existingApp != nil {
@@ -165,43 +133,48 @@ func integrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 		}
 	}
 
-	source := models.Source{
-		Kind: models.SourceLocalFile,
-		LocalFile: &models.LocalFileSource{
-			IntegratedAt: timestampNow,
-			OriginalPath: src,
-		},
+	outDir := filepath.Join(config.AimDir, appID)
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		return nil, err
 	}
 
-	if existingApp == nil {
-		match, err := FindEquivalentManagedApp(&models.App{
-			ID:     appID,
-			Source: source,
-			Update: update,
-		})
-		if err != nil {
-			return nil, err
-		}
-		if match != nil {
-			existingApp = match
-			replacementApp = match
-			if strings.TrimSpace(existingApp.AddedAt) != "" {
-				addedAt = existingApp.AddedAt
-			}
-			lastCheckedAt = existingApp.LastCheckedAt
+	extractionData.Dir = outDir
 
-			if !updateFound {
-				update = existingApp.Update
-			} else if existingApp.Update != nil && existingApp.Update.Kind != models.UpdateNone && confirmUpdateOverwrite != nil {
-				overwrite, err := confirmUpdateOverwrite(existingApp.Update, update)
-				if err != nil {
-					return nil, err
-				}
-				if !overwrite {
-					update = existingApp.Update
-				}
-			}
-		}
+	if extractionData.ExecPath, err = util.Move(extractionData.ExecPath, filepath.Join(extractionData.Dir, appID+filepath.Ext(extractionData.ExecPath))); err != nil {
+		return nil, err
+	}
+	if extractionData.DesktopEntryPath, err = util.Move(extractionData.DesktopEntryPath, filepath.Join(extractionData.Dir, appID+filepath.Ext(extractionData.DesktopEntryPath))); err != nil {
+		return nil, err
+	}
+	if extractionData.IconPath, err = util.Move(extractionData.IconPath, filepath.Join(extractionData.Dir, appID+filepath.Ext(extractionData.IconPath))); err != nil {
+		return nil, err
+	}
+
+	installedIconPath, desktopIconValue, err := InstallDesktopIcon(appID, extractionData.IconPath)
+	if err != nil {
+		return nil, err
+	}
+	extractionData.IconPath = installedIconPath
+
+	if existingApp != nil && replacementApp == nil {
+		removeStaleInstalledIcon(existingApp.IconPath, installedIconPath, appID)
+	}
+
+	if err := UpdateDesktopEntry(ctx, extractionData.DesktopEntryPath, extractionData.ExecPath, desktopIconValue); err != nil {
+		return nil, err
+	}
+
+	if err := ValidateDesktopEntry(ctx, extractionData.DesktopEntryPath); err != nil {
+		return nil, err
+	}
+
+	if err := util.MakeExecutable(extractionData.ExecPath); err != nil {
+		return nil, err
+	}
+
+	desktopEntryLink, err := MakeDesktopLink(extractionData.DesktopEntryPath, appID+".desktop", "aim-"+appID+".desktop")
+	if err != nil {
+		return nil, err
 	}
 
 	var (
@@ -236,7 +209,7 @@ func integrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 
 	app := &models.App{
 		Name:             appInfo.Name,
-		ID:               appInfo.ID,
+		ID:               appID,
 		Version:          appInfo.Version,
 		ExecPath:         extractionData.ExecPath,
 		DesktopEntryPath: extractionData.DesktopEntryPath,
@@ -325,4 +298,32 @@ func MakeDesktopLink(src, preferredName, fallbackName string) (string, error) {
 	}
 
 	return desktopLink, nil
+}
+
+func removeStaleInstalledIcon(oldPath, newPath, appID string) {
+	oldPath = filepath.Clean(strings.TrimSpace(oldPath))
+	newPath = filepath.Clean(strings.TrimSpace(newPath))
+	if oldPath == "." || oldPath == "" || oldPath == newPath {
+		return
+	}
+
+	appDir := filepath.Join(config.AimDir, appID)
+	if oldPath == appDir || strings.HasPrefix(oldPath, appDir+string(filepath.Separator)) {
+		return
+	}
+
+	allApps, err := repo.GetAllApps()
+	if err != nil {
+		return
+	}
+	for _, app := range allApps {
+		if app == nil || strings.TrimSpace(app.ID) == appID {
+			continue
+		}
+		if filepath.Clean(strings.TrimSpace(app.IconPath)) == oldPath {
+			return
+		}
+	}
+
+	_ = os.Remove(oldPath)
 }
