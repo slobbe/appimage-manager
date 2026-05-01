@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/slobbe/appimage-manager/internal/core"
@@ -162,6 +163,59 @@ func requireInstallablePackageMetadata(metadata *discovery.PackageMetadata) (*di
 	return nil, usageError(fmt.Errorf("package is not installable: %s", strings.TrimSpace(metadata.InstallReason)))
 }
 
+func resolveGitHubAssetAmbiguity(cmd *cobra.Command, metadata *discovery.PackageMetadata) (*discovery.PackageMetadata, error) {
+	if metadata == nil || !metadata.AssetAmbiguous {
+		return metadata, nil
+	}
+	if runtimeOptionsFrom(cmd).JSON || !canPromptForInput(cmd) {
+		return nil, usageError(fmt.Errorf("%s; use --asset to choose one of: %s", assetAmbiguityReason(metadata), strings.Join(assetCandidateNames(metadata.AssetCandidates), ", ")))
+	}
+
+	writeDataf(cmd, "Multiple AppImage assets match this release:\n")
+	for i, candidate := range metadata.AssetCandidates {
+		label := strings.TrimSpace(candidate.ArchLabel)
+		if label == "" {
+			label = "generic"
+		}
+		writeDataf(cmd, "  %d. %s (%s)\n", i+1, candidate.Name, label)
+	}
+	writeDataf(cmd, "\n")
+
+	value, err := readPromptedValue(cmd, fmt.Sprintf("Select asset [1-%d]: ", len(metadata.AssetCandidates)))
+	if err != nil {
+		return nil, err
+	}
+	index, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil || index < 1 || index > len(metadata.AssetCandidates) {
+		return nil, usageError(fmt.Errorf("invalid asset selection %q", value))
+	}
+
+	selected := metadata.AssetCandidates[index-1]
+	resolved := *metadata
+	resolved.AssetName = selected.Name
+	resolved.DownloadURL = selected.DownloadURL
+	resolved.AssetAmbiguous = false
+	resolved.AssetReason = ""
+	return &resolved, nil
+}
+
+func assetAmbiguityReason(metadata *discovery.PackageMetadata) string {
+	if metadata != nil && strings.TrimSpace(metadata.AssetReason) != "" {
+		return strings.TrimSpace(metadata.AssetReason)
+	}
+	return "multiple assets match"
+}
+
+func assetCandidateNames(candidates []discovery.AssetCandidate) []string {
+	names := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		if strings.TrimSpace(candidate.Name) != "" {
+			names = append(names, candidate.Name)
+		}
+	}
+	return names
+}
+
 func resolveInstallablePackageMetadataFromTarget(ctx context.Context, cmd *cobra.Command, refArg string, target *installTarget, assetPattern string) (*discovery.PackageMetadata, error) {
 	metadata, err := resolvePackageMetadataWithProgress(cmd, installTargetLabel(target), func() (*discovery.PackageMetadata, error) {
 		return resolvePackageMetadataFromInput(ctx, refArg, assetPattern)
@@ -169,7 +223,11 @@ func resolveInstallablePackageMetadataFromTarget(ctx context.Context, cmd *cobra
 	if err != nil {
 		return nil, err
 	}
-	return requireInstallablePackageMetadata(metadata)
+	metadata, err = requireInstallablePackageMetadata(metadata)
+	if err != nil {
+		return nil, err
+	}
+	return resolveGitHubAssetAmbiguity(cmd, metadata)
 }
 
 func resolveInstallablePackageMetadataFromRef(ctx context.Context, cmd *cobra.Command, ref discovery.PackageRef, assetPattern string) (*discovery.PackageMetadata, error) {
@@ -179,7 +237,11 @@ func resolveInstallablePackageMetadataFromRef(ctx context.Context, cmd *cobra.Co
 	if err != nil {
 		return nil, err
 	}
-	return requireInstallablePackageMetadata(metadata)
+	metadata, err = requireInstallablePackageMetadata(metadata)
+	if err != nil {
+		return nil, err
+	}
+	return resolveGitHubAssetAmbiguity(cmd, metadata)
 }
 
 func installPackageMetadata(ctx context.Context, cmd *cobra.Command, metadata *discovery.PackageMetadata) (*models.App, error) {

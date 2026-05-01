@@ -1590,6 +1590,116 @@ func TestAddCmdGitHubUsesCustomAsset(t *testing.T) {
 	}
 }
 
+func TestAddCmdGitHubAmbiguousAssetNoInputShowsGuidance(t *testing.T) {
+	tempDir := t.TempDir()
+	setupAddCommandConfigForTest(t, tempDir)
+
+	originalBackends := discoveryBackends
+	originalDownload := downloadRemoteAsset
+	t.Cleanup(func() {
+		discoveryBackends = originalBackends
+		downloadRemoteAsset = originalDownload
+	})
+
+	discoveryBackends = func() []discovery.DiscoveryBackend {
+		return []discovery.DiscoveryBackend{
+			&stubDiscoveryBackend{
+				name: "GitHub",
+				resolveFn: func(context.Context, discovery.PackageRef, string) (*discovery.PackageMetadata, error) {
+					return &discovery.PackageMetadata{
+						Name:           "My App",
+						Provider:       "GitHub",
+						Ref:            discovery.PackageRef{Kind: discovery.ProviderGitHub, ProviderRef: "owner/repo"},
+						AssetPattern:   "*.AppImage",
+						Installable:    true,
+						AssetAmbiguous: true,
+						AssetReason:    "multiple generic assets match",
+						AssetCandidates: []discovery.AssetCandidate{
+							{Name: "MyApp.AppImage", DownloadURL: "https://example.com/MyApp.AppImage", ArchLabel: "generic"},
+							{Name: "MyApp-portable.AppImage", DownloadURL: "https://example.com/MyApp-portable.AppImage", ArchLabel: "generic"},
+						},
+					}, nil
+				},
+			},
+		}
+	}
+	downloadRemoteAsset = func(context.Context, string, string, bool) error {
+		t.Fatal("download should not be attempted for unresolved ambiguous assets")
+		return nil
+	}
+
+	err := runAddCommand(context.Background(), []string{"--github", "owner/repo", "--no-input"})
+	if err == nil {
+		t.Fatal("expected ambiguous asset error")
+	}
+	if !strings.Contains(err.Error(), "use --asset") || !strings.Contains(err.Error(), "MyApp-portable.AppImage") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestAddCmdGitHubPromptsForAmbiguousAsset(t *testing.T) {
+	tempDir := t.TempDir()
+	setupAddCommandConfigForTest(t, tempDir)
+
+	originalBackends := discoveryBackends
+	originalDownload := downloadRemoteAsset
+	originalIntegrate := integrateLocalApp
+	originalAddSingle := addSingleApp
+	t.Cleanup(func() {
+		discoveryBackends = originalBackends
+		downloadRemoteAsset = originalDownload
+		integrateLocalApp = originalIntegrate
+		addSingleApp = originalAddSingle
+	})
+
+	var downloadedURL string
+	discoveryBackends = func() []discovery.DiscoveryBackend {
+		return []discovery.DiscoveryBackend{
+			&stubDiscoveryBackend{
+				name: "GitHub",
+				resolveFn: func(context.Context, discovery.PackageRef, string) (*discovery.PackageMetadata, error) {
+					return &discovery.PackageMetadata{
+						Name:           "My App",
+						Provider:       "GitHub",
+						Ref:            discovery.PackageRef{Kind: discovery.ProviderGitHub, ProviderRef: "owner/repo"},
+						LatestVersion:  "1.2.3",
+						AssetPattern:   "*.AppImage",
+						Installable:    true,
+						ReleaseTag:     "v1.2.3",
+						AssetAmbiguous: true,
+						AssetReason:    "multiple generic assets match",
+						AssetCandidates: []discovery.AssetCandidate{
+							{Name: "MyApp.AppImage", DownloadURL: "https://example.com/MyApp.AppImage", ArchLabel: "generic"},
+							{Name: "MyApp-portable.AppImage", DownloadURL: "https://example.com/MyApp-portable.AppImage", ArchLabel: "generic"},
+						},
+					}, nil
+				},
+			},
+		}
+	}
+	downloadRemoteAsset = func(_ context.Context, url, _ string, _ bool) error {
+		downloadedURL = url
+		return nil
+	}
+	integrateLocalApp = func(context.Context, string, core.UpdateOverwritePrompt) (*models.App, error) {
+		return &models.App{ID: "my-app", Name: "My App", Version: "1.2.3", UpdatedAt: "2026-03-08T12:00:00Z"}, nil
+	}
+	addSingleApp = repo.AddApp
+
+	output := captureStdoutWithInput(t, "2\n", func() {
+		if err := runAddCommand(context.Background(), []string{"--github", "owner/repo"}); err != nil {
+			t.Fatalf("runAddCommand returned error: %v", err)
+		}
+	})
+
+	if downloadedURL != "https://example.com/MyApp-portable.AppImage" {
+		t.Fatalf("downloadedURL = %q", downloadedURL)
+	}
+	if !strings.Contains(output, "Select asset [1-2]") {
+		t.Fatalf("prompt missing from output:\n%s", output)
+	}
+}
+
 func TestAddCmdGitHubShowsProgressStages(t *testing.T) {
 	tempDir := t.TempDir()
 	setupAddCommandConfigForTest(t, tempDir)

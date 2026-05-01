@@ -801,12 +801,15 @@ func runShowPackageRef(ctx context.Context, cmd *cobra.Command, ref discovery.Pa
 	if err != nil {
 		return err
 	}
-
 	if runtimeOptionsFrom(cmd).JSON {
 		return printJSONSuccess(cmd, map[string]interface{}{
 			"kind":     "package_metadata",
 			"metadata": packageMetadataOutput(metadata),
 		})
+	}
+	metadata, err = resolveGitHubAssetAmbiguity(cmd, metadata)
+	if err != nil {
+		return err
 	}
 
 	printPackageMetadata(cmd, metadata)

@@ -7,6 +7,9 @@ type resolvedReleaseMetadata struct {
 	TagName           string
 	NormalizedVersion string
 	AssetName         string
+	AssetCandidates   []AssetCandidate
+	AssetAmbiguous    bool
+	AssetReason       string
 }
 
 func newUnavailablePackageMetadata(provider string, ref PackageRef, repoURL, assetPattern, reason string) *PackageMetadata {
@@ -22,16 +25,19 @@ func newUnavailablePackageMetadata(provider string, ref PackageRef, repoURL, ass
 
 func newInstallablePackageMetadata(provider string, ref PackageRef, repoURL, name, summary, assetPattern string, release resolvedReleaseMetadata) *PackageMetadata {
 	return &PackageMetadata{
-		Name:          firstNonEmpty(name, DisplayNameFromRef(ref.ProviderRef)),
-		Provider:      strings.TrimSpace(provider),
-		Ref:           ref,
-		RepoURL:       strings.TrimSpace(repoURL),
-		LatestVersion: versionForDisplay(release.NormalizedVersion, release.TagName),
-		AssetName:     strings.TrimSpace(release.AssetName),
-		AssetPattern:  normalizeAssetPattern(assetPattern),
-		DownloadURL:   strings.TrimSpace(release.DownloadURL),
-		Installable:   true,
-		ReleaseTag:    strings.TrimSpace(release.TagName),
-		Summary:       strings.TrimSpace(summary),
+		Name:            firstNonEmpty(name, DisplayNameFromRef(ref.ProviderRef)),
+		Provider:        strings.TrimSpace(provider),
+		Ref:             ref,
+		RepoURL:         strings.TrimSpace(repoURL),
+		LatestVersion:   versionForDisplay(release.NormalizedVersion, release.TagName),
+		AssetName:       strings.TrimSpace(release.AssetName),
+		AssetPattern:    normalizeAssetPattern(assetPattern),
+		DownloadURL:     strings.TrimSpace(release.DownloadURL),
+		AssetCandidates: release.AssetCandidates,
+		AssetAmbiguous:  release.AssetAmbiguous,
+		AssetReason:     strings.TrimSpace(release.AssetReason),
+		Installable:     true,
+		ReleaseTag:      strings.TrimSpace(release.TagName),
+		Summary:         strings.TrimSpace(summary),
 	}
 }

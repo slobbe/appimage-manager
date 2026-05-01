@@ -114,6 +114,93 @@ func TestMatchAssetArchPreference(t *testing.T) {
 	}
 }
 
+func TestMatchAssetTreatsForeignArchAsNonGeneric(t *testing.T) {
+	assets := []releaseAsset{
+		{Name: "YouTube-Music-3.11.0-armv7l.AppImage", BrowserDownloadURL: "https://example.com/armv7l"},
+		{Name: "YouTube-Music-3.11.0.AppImage", BrowserDownloadURL: "https://example.com/generic"},
+		{Name: "YouTube-Music-3.11.0-arm64.AppImage", BrowserDownloadURL: "https://example.com/arm64"},
+	}
+
+	name, url := matchAsset(assets, "*.AppImage", "amd64")
+	if name != "YouTube-Music-3.11.0.AppImage" || url != "https://example.com/generic" {
+		t.Fatalf("selection got (%q, %q), want generic AppImage", name, url)
+	}
+}
+
+func TestMatchAssetAdditionalArchAliases(t *testing.T) {
+	tests := []struct {
+		name      string
+		arch      string
+		assetName string
+	}{
+		{name: "arm64 aarch64", arch: "arm64", assetName: "MyApp-aarch64.AppImage"},
+		{name: "arm armv7l", arch: "arm", assetName: "MyApp-armv7l.AppImage"},
+		{name: "amd64 x86-64", arch: "amd64", assetName: "MyApp-x86-64.AppImage"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assets := []releaseAsset{
+				{Name: "MyApp.AppImage", BrowserDownloadURL: "https://example.com/generic"},
+				{Name: tt.assetName, BrowserDownloadURL: "https://example.com/match"},
+			}
+			name, url := matchAsset(assets, "*.AppImage", tt.arch)
+			if name != tt.assetName || url != "https://example.com/match" {
+				t.Fatalf("selection got (%q, %q), want (%q, %q)", name, url, tt.assetName, "https://example.com/match")
+			}
+		})
+	}
+}
+
+func TestMatchAssetOnlyForeignArchIsAmbiguous(t *testing.T) {
+	assets := []releaseAsset{
+		{Name: "MyApp-arm64.AppImage", BrowserDownloadURL: "https://example.com/arm64"},
+		{Name: "MyApp-armv7l.AppImage", BrowserDownloadURL: "https://example.com/armv7l"},
+	}
+
+	selection := matchAssetSelection(assets, "*.AppImage", "amd64")
+	if !selection.ambiguous {
+		t.Fatal("expected only foreign assets to be ambiguous")
+	}
+	if !strings.Contains(selection.reason, "no asset matches local architecture amd64") {
+		t.Fatalf("reason = %q", selection.reason)
+	}
+}
+
+func TestMatchAssetMultipleLocalArchIsAmbiguous(t *testing.T) {
+	assets := []releaseAsset{
+		{Name: "MyApp-x86_64.AppImage", BrowserDownloadURL: "https://example.com/x86_64"},
+		{Name: "MyApp-amd64.AppImage", BrowserDownloadURL: "https://example.com/amd64"},
+	}
+
+	selection := matchAssetSelection(assets, "*.AppImage", "amd64")
+	if !selection.ambiguous {
+		t.Fatal("expected multiple local arch assets to be ambiguous")
+	}
+	if len(selection.candidates) != 2 {
+		t.Fatalf("candidate count = %d, want 2", len(selection.candidates))
+	}
+}
+
+func TestMatchAssetMultipleGenericIsAmbiguous(t *testing.T) {
+	assets := []releaseAsset{
+		{Name: "MyApp.AppImage", BrowserDownloadURL: "https://example.com/one"},
+		{Name: "MyApp-portable.AppImage", BrowserDownloadURL: "https://example.com/two"},
+	}
+
+	selection := matchAssetSelection(assets, "*.AppImage", "amd64")
+	if !selection.ambiguous {
+		t.Fatal("expected multiple generic assets to be ambiguous")
+	}
+}
+
+func TestClassifyAssetArchAvoidsSubstringFalsePositive(t *testing.T) {
+	arch, label := classifyAssetArch("Charmingly.Named.AppImage")
+	if arch != "" || label != "generic" {
+		t.Fatalf("classifyAssetArch returned (%q, %q), want generic", arch, label)
+	}
+}
+
 func TestMatchAssetNoMatch(t *testing.T) {
 	assets := []releaseAsset{
 		{Name: "MyApp-x86_64.AppImage", BrowserDownloadURL: "https://example.com/amd64"},

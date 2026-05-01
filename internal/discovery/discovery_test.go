@@ -93,9 +93,11 @@ func TestGitHubBackendResolveUsesRepoMetadataAndRelease(t *testing.T) {
 
 	originalClient := githubDiscoveryHTTPClient
 	originalResolve := resolveGitHubReleaseAssetFn
+	originalResolveSelection := resolveGitHubReleaseAssetSelectionFn
 	t.Cleanup(func() {
 		githubDiscoveryHTTPClient = originalClient
 		resolveGitHubReleaseAssetFn = originalResolve
+		resolveGitHubReleaseAssetSelectionFn = originalResolveSelection
 	})
 
 	baseURL, err := url.Parse(server.URL)
@@ -109,13 +111,19 @@ func TestGitHubBackendResolveUsesRepoMetadataAndRelease(t *testing.T) {
 		},
 	}
 	resolveGitHubReleaseAssetFn = func(repoSlug, assetPattern string) (*core.GitHubReleaseAsset, error) {
+		t.Fatal("legacy resolver should not be called")
+		return nil, nil
+	}
+	resolveGitHubReleaseAssetSelectionFn = func(repoSlug, assetPattern, arch string) (*core.GitHubReleaseAssetSelection, error) {
 		if repoSlug != "obsidianmd/obsidian-releases" || assetPattern != "*.AppImage" {
 			t.Fatalf("unexpected resolve input: %s %s", repoSlug, assetPattern)
 		}
-		return &core.GitHubReleaseAsset{
-			DownloadURL: "https://example.com/Obsidian.AppImage",
-			TagName:     "v1.12.4",
-			AssetName:   "Obsidian-1.12.4.AppImage",
+		return &core.GitHubReleaseAssetSelection{
+			Release: &core.GitHubReleaseAsset{
+				DownloadURL: "https://example.com/Obsidian.AppImage",
+				TagName:     "v1.12.4",
+				AssetName:   "Obsidian-1.12.4.AppImage",
+			},
 		}, nil
 	}
 
@@ -131,5 +139,54 @@ func TestGitHubBackendResolveUsesRepoMetadataAndRelease(t *testing.T) {
 	}
 	if metadata.AssetName != "Obsidian-1.12.4.AppImage" {
 		t.Fatalf("metadata.AssetName = %q", metadata.AssetName)
+	}
+}
+
+func TestGitHubBackendResolvePreservesAmbiguousAssetCandidates(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"name":"example","full_name":"owner/repo","description":"Example","html_url":"https://github.com/owner/repo"}`))
+	}))
+	defer server.Close()
+
+	originalClient := githubDiscoveryHTTPClient
+	originalResolveSelection := resolveGitHubReleaseAssetSelectionFn
+	t.Cleanup(func() {
+		githubDiscoveryHTTPClient = originalClient
+		resolveGitHubReleaseAssetSelectionFn = originalResolveSelection
+	})
+
+	baseURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("failed to parse server URL: %v", err)
+	}
+	githubDiscoveryHTTPClient = &http.Client{
+		Transport: &rewriteHostTransport{
+			base: baseURL,
+			next: server.Client().Transport,
+		},
+	}
+	resolveGitHubReleaseAssetSelectionFn = func(repoSlug, assetPattern, arch string) (*core.GitHubReleaseAssetSelection, error) {
+		return &core.GitHubReleaseAssetSelection{
+			Ambiguous: true,
+			Reason:    "multiple generic assets match",
+			Candidates: []core.GitHubReleaseAssetCandidate{
+				{Name: "Example.AppImage", DownloadURL: "https://example.com/one", ArchLabel: "generic"},
+				{Name: "Example-portable.AppImage", DownloadURL: "https://example.com/two", ArchLabel: "generic"},
+			},
+		}, nil
+	}
+
+	metadata, err := (GitHubBackend{}).Resolve(context.Background(), PackageRef{Kind: ProviderGitHub, ProviderRef: "owner/repo"}, "")
+	if err != nil {
+		t.Fatalf("Resolve returned error: %v", err)
+	}
+	if !metadata.AssetAmbiguous {
+		t.Fatal("expected ambiguous metadata")
+	}
+	if metadata.AssetReason != "multiple generic assets match" {
+		t.Fatalf("AssetReason = %q", metadata.AssetReason)
+	}
+	if len(metadata.AssetCandidates) != 2 || metadata.AssetCandidates[1].Name != "Example-portable.AppImage" {
+		t.Fatalf("unexpected candidates: %#v", metadata.AssetCandidates)
 	}
 }

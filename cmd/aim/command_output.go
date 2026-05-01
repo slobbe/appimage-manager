@@ -137,18 +137,21 @@ func packageMetadataOutput(metadata *discovery.PackageMetadata) map[string]inter
 		return nil
 	}
 	return map[string]interface{}{
-		"name":           metadata.Name,
-		"provider":       metadata.Provider,
-		"ref":            metadata.Ref,
-		"repo_url":       metadata.RepoURL,
-		"latest_version": metadata.LatestVersion,
-		"asset_name":     metadata.AssetName,
-		"asset_pattern":  metadata.AssetPattern,
-		"download_url":   metadata.DownloadURL,
-		"installable":    metadata.Installable,
-		"install_reason": metadata.InstallReason,
-		"release_tag":    metadata.ReleaseTag,
-		"summary":        metadata.Summary,
+		"name":             metadata.Name,
+		"provider":         metadata.Provider,
+		"ref":              metadata.Ref,
+		"repo_url":         metadata.RepoURL,
+		"latest_version":   metadata.LatestVersion,
+		"asset_name":       metadata.AssetName,
+		"asset_pattern":    metadata.AssetPattern,
+		"download_url":     metadata.DownloadURL,
+		"asset_candidates": metadata.AssetCandidates,
+		"asset_ambiguous":  metadata.AssetAmbiguous,
+		"asset_reason":     metadata.AssetReason,
+		"installable":      metadata.Installable,
+		"install_reason":   metadata.InstallReason,
+		"release_tag":      metadata.ReleaseTag,
+		"summary":          metadata.Summary,
 	}
 }
 

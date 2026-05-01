@@ -23,6 +23,7 @@ type gitHubRepoResponse struct {
 
 var githubDiscoveryHTTPClient = core.NewHTTPClient(coreHTTPTimeout)
 var resolveGitHubReleaseAssetFn = core.ResolveGitHubReleaseAsset
+var resolveGitHubReleaseAssetSelectionFn = core.ResolveGitHubReleaseAssetSelection
 
 func SetHTTPClientTimeout(timeout time.Duration) {
 	if githubDiscoveryHTTPClient == nil {
@@ -45,7 +46,7 @@ func (GitHubBackend) Resolve(ctx context.Context, ref PackageRef, assetOverride 
 	assetPattern := normalizeAssetPattern(assetOverride)
 	repoURL := "https://github.com/" + repoSlug
 
-	release, err := resolveGitHubReleaseAssetFn(repoSlug, assetPattern)
+	selection, err := resolveGitHubReleaseAssetSelectionFn(repoSlug, assetPattern, "")
 	if err != nil {
 		return newUnavailablePackageMetadata("GitHub", ref, repoURL, assetPattern, err.Error()), nil
 	}
@@ -53,6 +54,11 @@ func (GitHubBackend) Resolve(ctx context.Context, ref PackageRef, assetOverride 
 	repoInfo, err := fetchGitHubRepo(ctx, repoSlug)
 	if err != nil {
 		return nil, err
+	}
+
+	release := selection.Release
+	if release == nil {
+		release = &core.GitHubReleaseAsset{}
 	}
 
 	return newInstallablePackageMetadata(
@@ -67,8 +73,24 @@ func (GitHubBackend) Resolve(ctx context.Context, ref PackageRef, assetOverride 
 			TagName:           release.TagName,
 			NormalizedVersion: release.NormalizedVersion,
 			AssetName:         release.AssetName,
+			AssetCandidates:   discoveryAssetCandidates(selection.Candidates),
+			AssetAmbiguous:    selection.Ambiguous,
+			AssetReason:       selection.Reason,
 		},
 	), nil
+}
+
+func discoveryAssetCandidates(candidates []core.GitHubReleaseAssetCandidate) []AssetCandidate {
+	result := make([]AssetCandidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		result = append(result, AssetCandidate{
+			Name:        candidate.Name,
+			DownloadURL: candidate.DownloadURL,
+			Arch:        candidate.Arch,
+			ArchLabel:   candidate.ArchLabel,
+		})
+	}
+	return result
 }
 
 func fetchGitHubRepo(ctx context.Context, repoSlug string) (*gitHubRepoResponse, error) {

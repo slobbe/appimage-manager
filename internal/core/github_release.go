@@ -30,6 +30,20 @@ type GitHubReleaseAsset struct {
 	PreRelease        bool
 }
 
+type GitHubReleaseAssetCandidate struct {
+	Name        string
+	DownloadURL string
+	Arch        string
+	ArchLabel   string
+}
+
+type GitHubReleaseAssetSelection struct {
+	Release    *GitHubReleaseAsset
+	Candidates []GitHubReleaseAssetCandidate
+	Ambiguous  bool
+	Reason     string
+}
+
 type gitHubReleaseResponse struct {
 	TagName    string         `json:"tag_name"`
 	Prerelease bool           `json:"prerelease"`
@@ -73,6 +87,17 @@ func GitHubReleaseUpdateCheck(update *models.UpdateSource, currentVersion, local
 }
 
 func ResolveGitHubReleaseAsset(repoSlug, assetPattern string) (*GitHubReleaseAsset, error) {
+	selection, err := ResolveGitHubReleaseAssetSelection(repoSlug, assetPattern, runtime.GOARCH)
+	if err != nil {
+		return nil, err
+	}
+	if selection.Ambiguous {
+		return nil, fmt.Errorf("%s: %s", selection.Reason, formatAssetCandidateNames(selection.Candidates))
+	}
+	return selection.Release, nil
+}
+
+func ResolveGitHubReleaseAssetSelection(repoSlug, assetPattern, arch string) (*GitHubReleaseAssetSelection, error) {
 	repoSlug = strings.TrimSpace(repoSlug)
 	if repoSlug == "" || strings.Count(repoSlug, "/") != 1 {
 		return nil, fmt.Errorf("invalid github repo %q", repoSlug)
@@ -93,17 +118,33 @@ func ResolveGitHubReleaseAsset(repoSlug, assetPattern string) (*GitHubReleaseAss
 		return nil, fmt.Errorf("no matching github releases found")
 	}
 
-	assetName, downloadURL := matchAsset(release.Assets, assetPattern, runtime.GOARCH)
-	if downloadURL == "" {
+	if strings.TrimSpace(arch) == "" {
+		arch = runtime.GOARCH
+	}
+	assetSelection := matchAssetSelection(release.Assets, assetPattern, arch)
+	if len(assetSelection.candidates) == 0 {
 		return nil, fmt.Errorf("no assets match pattern %q", assetPattern)
 	}
+	candidates := gitHubReleaseAssetCandidates(assetSelection.candidates)
 
-	return &GitHubReleaseAsset{
-		DownloadURL:       downloadURL,
-		TagName:           release.TagName,
-		NormalizedVersion: normalizeVersion(release.TagName),
-		AssetName:         assetName,
-		PreRelease:        release.Prerelease,
+	if assetSelection.ambiguous {
+		return &GitHubReleaseAssetSelection{
+			Candidates: candidates,
+			Ambiguous:  true,
+			Reason:     assetSelection.reason,
+		}, nil
+	}
+
+	selected := assetSelection.selected
+	return &GitHubReleaseAssetSelection{
+		Release: &GitHubReleaseAsset{
+			DownloadURL:       selected.url,
+			TagName:           release.TagName,
+			NormalizedVersion: normalizeVersion(release.TagName),
+			AssetName:         selected.name,
+			PreRelease:        release.Prerelease,
+		},
+		Candidates: candidates,
 	}, nil
 }
 
