@@ -97,6 +97,153 @@ func TestRefreshDesktopIntegrationCachesFallsBackToGtkIconCache(t *testing.T) {
 	}
 }
 
+func TestRefreshDesktopIntegrationCachesUsesKBuildSycoca6(t *testing.T) {
+	originalLookPath := integrationCacheLookPath
+	originalCommand := integrationCacheCommandContext
+	originalWarn := integrationCacheWarn
+	t.Cleanup(func() {
+		integrationCacheLookPath = originalLookPath
+		integrationCacheCommandContext = originalCommand
+		integrationCacheWarn = originalWarn
+	})
+
+	integrationCacheLookPath = func(name string) (string, error) {
+		switch name {
+		case "update-desktop-database", "kbuildsycoca6", "xdg-icon-resource":
+			return name, nil
+		default:
+			return "", exec.ErrNotFound
+		}
+	}
+
+	var calls [][]string
+	integrationCacheCommandContext = func(ctx context.Context, name string, arg ...string) *exec.Cmd {
+		call := append([]string{name}, arg...)
+		calls = append(calls, call)
+		return exec.CommandContext(ctx, "sh", "-c", "exit 0")
+	}
+	integrationCacheWarn = func(string) {}
+
+	refreshDesktopIntegrationCaches(context.Background())
+
+	if len(calls) != 3 {
+		t.Fatalf("expected 3 command calls, got %d", len(calls))
+	}
+	if calls[1][0] != "kbuildsycoca6" {
+		t.Fatalf("second command = %q, want kbuildsycoca6", calls[1][0])
+	}
+}
+
+func TestRefreshDesktopIntegrationCachesFallsBackToKBuildSycoca5(t *testing.T) {
+	originalLookPath := integrationCacheLookPath
+	originalCommand := integrationCacheCommandContext
+	originalWarn := integrationCacheWarn
+	t.Cleanup(func() {
+		integrationCacheLookPath = originalLookPath
+		integrationCacheCommandContext = originalCommand
+		integrationCacheWarn = originalWarn
+	})
+
+	integrationCacheLookPath = func(name string) (string, error) {
+		switch name {
+		case "update-desktop-database", "kbuildsycoca5", "xdg-icon-resource":
+			return name, nil
+		case "kbuildsycoca6":
+			return "", exec.ErrNotFound
+		default:
+			return "", exec.ErrNotFound
+		}
+	}
+
+	var calls [][]string
+	integrationCacheCommandContext = func(ctx context.Context, name string, arg ...string) *exec.Cmd {
+		call := append([]string{name}, arg...)
+		calls = append(calls, call)
+		return exec.CommandContext(ctx, "sh", "-c", "exit 0")
+	}
+	integrationCacheWarn = func(string) {}
+
+	refreshDesktopIntegrationCaches(context.Background())
+
+	if len(calls) != 3 {
+		t.Fatalf("expected 3 command calls, got %d", len(calls))
+	}
+	if calls[1][0] != "kbuildsycoca5" {
+		t.Fatalf("second command = %q, want kbuildsycoca5", calls[1][0])
+	}
+}
+
+func TestRefreshDesktopIntegrationCachesDoesNotWarnWhenKDEServiceCacheToolsMissing(t *testing.T) {
+	originalLookPath := integrationCacheLookPath
+	originalCommand := integrationCacheCommandContext
+	originalWarn := integrationCacheWarn
+	t.Cleanup(func() {
+		integrationCacheLookPath = originalLookPath
+		integrationCacheCommandContext = originalCommand
+		integrationCacheWarn = originalWarn
+	})
+
+	integrationCacheLookPath = func(name string) (string, error) {
+		switch name {
+		case "update-desktop-database", "xdg-icon-resource":
+			return name, nil
+		default:
+			return "", exec.ErrNotFound
+		}
+	}
+	integrationCacheCommandContext = func(ctx context.Context, name string, arg ...string) *exec.Cmd {
+		return exec.CommandContext(ctx, "sh", "-c", "exit 0")
+	}
+
+	warnings := 0
+	integrationCacheWarn = func(string) {
+		warnings++
+	}
+
+	refreshDesktopIntegrationCaches(context.Background())
+
+	if warnings != 0 {
+		t.Fatalf("warnings = %d, want 0", warnings)
+	}
+}
+
+func TestRefreshDesktopIntegrationCachesWarnsWhenKDEServiceCacheFails(t *testing.T) {
+	originalLookPath := integrationCacheLookPath
+	originalCommand := integrationCacheCommandContext
+	originalWarn := integrationCacheWarn
+	t.Cleanup(func() {
+		integrationCacheLookPath = originalLookPath
+		integrationCacheCommandContext = originalCommand
+		integrationCacheWarn = originalWarn
+	})
+
+	integrationCacheLookPath = func(name string) (string, error) {
+		switch name {
+		case "update-desktop-database", "kbuildsycoca6", "xdg-icon-resource":
+			return name, nil
+		default:
+			return "", exec.ErrNotFound
+		}
+	}
+	integrationCacheCommandContext = func(ctx context.Context, name string, arg ...string) *exec.Cmd {
+		if name == "kbuildsycoca6" {
+			return exec.CommandContext(ctx, "sh", "-c", "exit 1")
+		}
+		return exec.CommandContext(ctx, "sh", "-c", "exit 0")
+	}
+
+	warnings := 0
+	integrationCacheWarn = func(string) {
+		warnings++
+	}
+
+	refreshDesktopIntegrationCaches(context.Background())
+
+	if warnings == 0 {
+		t.Fatal("expected warning when KDE service cache refresh fails")
+	}
+}
+
 func TestRefreshDesktopIntegrationCachesWarnsOnCommandFailure(t *testing.T) {
 	originalLookPath := integrationCacheLookPath
 	originalCommand := integrationCacheCommandContext
