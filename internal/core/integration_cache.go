@@ -21,6 +21,10 @@ func refreshDesktopIntegrationCaches(ctx context.Context) {
 		integrationCacheWarn(fmt.Sprintf("Warning: failed to refresh desktop database: %v", err))
 	}
 
+	if err := refreshKDEServiceCache(ctx); err != nil {
+		integrationCacheWarn(fmt.Sprintf("Warning: failed to refresh KDE service cache: %v", err))
+	}
+
 	ranXDG, err := runCommandIfAvailable(ctx, "xdg-icon-resource", "forceupdate")
 	if err != nil {
 		integrationCacheWarn(fmt.Sprintf("Warning: failed to refresh icon cache via xdg-icon-resource: %v", err))
@@ -38,6 +42,16 @@ func refreshDesktopIntegrationCaches(ctx context.Context) {
 
 func RefreshDesktopIntegrationCaches(ctx context.Context) {
 	refreshDesktopIntegrationCaches(ctx)
+}
+
+func refreshKDEServiceCache(ctx context.Context) error {
+	if ran, err := runCommandIfAvailable(ctx, "kbuildsycoca6"); ran || err != nil {
+		return err
+	}
+	if _, err := runCommandIfAvailable(ctx, "kbuildsycoca5"); err != nil {
+		return err
+	}
+	return nil
 }
 
 func runCommandIfAvailable(ctx context.Context, name string, args ...string) (bool, error) {

@@ -10,10 +10,10 @@ import (
 	util "github.com/slobbe/appimage-manager/internal/helpers"
 )
 
-func InstallDesktopIcon(appID, iconSrc string) (string, string, error) {
-	appID = strings.TrimSpace(appID)
-	if appID == "" {
-		return "", "", fmt.Errorf("app id cannot be empty")
+func InstallDesktopIcon(iconID, iconSrc string) (string, string, error) {
+	iconID = strings.TrimSpace(iconID)
+	if iconID == "" {
+		return "", "", fmt.Errorf("icon id cannot be empty")
 	}
 
 	iconSrc = strings.TrimSpace(iconSrc)
@@ -27,7 +27,7 @@ func InstallDesktopIcon(appID, iconSrc string) (string, string, error) {
 	}
 
 	destDir := iconInstallDir(ext)
-	destName := appID + ext
+	destName := iconID + ext
 
 	destPath := filepath.Join(destDir, destName)
 	desktopIconValue := destPath
