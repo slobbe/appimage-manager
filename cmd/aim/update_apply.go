@@ -96,13 +96,17 @@ func applyManagedUpdate(ctx context.Context, update pendingManagedUpdate, report
 	}
 
 	if !usedZsync {
-		emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageDownload})
+		emitManagedApplyEvent(reporter, managedApplyEvent{
+			Stage:        managedApplyStageDownload,
+			DownloadName: fileName,
+		})
 		logOperationContextf(ctx, "Downloading update for %s", update.App.ID)
 		if err := downloadManagedRemoteAsset(ctx, update.URL, downloadPath, false, func(downloaded, total int64) {
 			emitManagedApplyEvent(reporter, managedApplyEvent{
 				Stage:         managedApplyStageDownload,
 				Downloaded:    downloaded,
 				DownloadTotal: total,
+				DownloadName:  fileName,
 			})
 		}); err != nil {
 			emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageFailed, Message: err.Error()})
@@ -230,15 +234,54 @@ func verifyDownloadedUpdate(downloadPath string, update pendingManagedUpdate) er
 	return nil
 }
 
+type downloadDescriptionContextKey struct{}
+
+func withDownloadDescription(ctx context.Context, description string) context.Context {
+	description = strings.TrimSpace(description)
+	if description == "" {
+		return ctx
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, downloadDescriptionContextKey{}, description)
+}
+
+func downloadDescriptionFromContext(ctx context.Context, fallback string) string {
+	if ctx != nil {
+		if description, ok := ctx.Value(downloadDescriptionContextKey{}).(string); ok {
+			if description = strings.TrimSpace(description); description != "" {
+				return description
+			}
+		}
+	}
+	fallback = strings.TrimSpace(fallback)
+	if fallback == "" {
+		return "Downloading update"
+	}
+	return fallback
+}
+
 func downloadUpdateAsset(ctx context.Context, assetURL, destination string, interactive bool) error {
-	return downloadUpdateAssetWithProgress(ctx, assetURL, destination, interactive, nil)
+	description := downloadDescriptionFromContext(ctx, "Downloading update")
+	return downloadUpdateAssetWithDescription(ctx, assetURL, destination, description, interactive, nil)
 }
 
 func downloadUpdateAssetWithProgress(ctx context.Context, assetURL, destination string, interactive bool, onProgress func(downloaded, total int64)) error {
+	description := downloadDescriptionFromContext(ctx, "Downloading update")
+	return downloadUpdateAssetWithDescription(ctx, assetURL, destination, description, interactive, onProgress)
+}
+
+func downloadUpdateAssetWithDescription(ctx context.Context, assetURL, destination, description string, interactive bool, onProgress func(downloaded, total int64)) error {
+	description = strings.TrimSpace(description)
+	if description == "" {
+		description = "Downloading update"
+	}
+
 	ownsProgress := onProgress == nil
 	var progress progressHandle
 	if ownsProgress {
-		progress = newProcessSpinnerProgress("Downloading update", interactive)
+		progress = newProcessSpinnerProgress(description, interactive)
 	}
 	defer func() {
 		if progress != nil && interactive {
@@ -335,7 +378,7 @@ func downloadUpdateAssetWithProgress(ctx context.Context, assetURL, destination 
 	)
 	if ownsProgress && interactive && progress != nil {
 		progress.Clear()
-		progress = newProcessByteProgress("Downloading update", total, true)
+		progress = newProcessByteProgress(description, total, true)
 		if total > 0 {
 			progressMode = progressModeBytes
 		}

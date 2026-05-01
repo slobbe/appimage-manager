@@ -439,7 +439,8 @@ func integrateRemoteInstall(ctx context.Context, cmd *cobra.Command, req remoteI
 	}
 
 	logOperationf(cmd, "Downloading install asset from %s", req.DownloadURL)
-	if err := downloadRemoteAsset(ctx, req.DownloadURL, downloadPath, isTerminalStderr()); err != nil {
+	downloadCtx := withDownloadDescription(ctx, fmt.Sprintf("Downloading %s", fileName))
+	if err := downloadRemoteAsset(downloadCtx, req.DownloadURL, downloadPath, isTerminalStderr()); err != nil {
 		return nil, err
 	}
 

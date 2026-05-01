@@ -6028,6 +6028,32 @@ func TestDownloadUpdateAssetWithProgressSkipsFallbackProgressWhenExternallyOwned
 	}
 }
 
+func TestDownloadUpdateAssetWithDescriptionPrintsFilenameLabel(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "payload")
+	}))
+	defer server.Close()
+
+	destination := filepath.Join(t.TempDir(), "app.AppImage")
+	output := captureStdout(t, func() {
+		err := downloadUpdateAssetWithDescription(
+			context.Background(),
+			server.URL,
+			destination,
+			"Downloading My-App-v0.1.0-amd64.AppImage",
+			false,
+			nil,
+		)
+		if err != nil {
+			t.Fatalf("downloadUpdateAssetWithDescription returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "Downloading My-App-v0.1.0-amd64.AppImage...") {
+		t.Fatalf("expected filename download label, got:\n%s", output)
+	}
+}
+
 func TestSingleManagedApplyControllerKeepsSpinnerUntilByteProgressArrives(t *testing.T) {
 	controller := newSingleManagedApplyController(&cobra.Command{}, "my-app")
 
@@ -6040,6 +6066,43 @@ func TestSingleManagedApplyControllerKeepsSpinnerUntilByteProgressArrives(t *tes
 	controller.Event(managedApplyEvent{Stage: managedApplyStageDownload, Downloaded: 1024, DownloadTotal: 2048})
 	if controller.handleMode != progressModeBytes {
 		t.Fatalf("handleMode after byte progress = %v, want %v", controller.handleMode, progressModeBytes)
+	}
+}
+
+func TestSingleManagedApplyControllerUsesDownloadFilename(t *testing.T) {
+	controller := newSingleManagedApplyController(&cobra.Command{}, "my-app")
+
+	controller.Event(managedApplyEvent{
+		Stage:         managedApplyStageDownload,
+		Downloaded:    1024,
+		DownloadTotal: 2048,
+		DownloadName:  "My-App-v0.1.0-amd64.AppImage",
+	})
+
+	handle, ok := controller.handle.(*plainProgressHandle)
+	if !ok {
+		t.Fatalf("controller handle = %T, want *plainProgressHandle", controller.handle)
+	}
+	if handle.description != "Downloading My-App-v0.1.0-amd64.AppImage" {
+		t.Fatalf("description = %q, want filename download label", handle.description)
+	}
+}
+
+func TestSingleManagedApplyControllerFallsBackToAppIDForDownloadLabel(t *testing.T) {
+	controller := newSingleManagedApplyController(&cobra.Command{}, "my-app")
+
+	controller.Event(managedApplyEvent{
+		Stage:         managedApplyStageDownload,
+		Downloaded:    1024,
+		DownloadTotal: 2048,
+	})
+
+	handle, ok := controller.handle.(*plainProgressHandle)
+	if !ok {
+		t.Fatalf("controller handle = %T, want *plainProgressHandle", controller.handle)
+	}
+	if handle.description != "Downloading my-app" {
+		t.Fatalf("description = %q, want app id download label", handle.description)
 	}
 }
 

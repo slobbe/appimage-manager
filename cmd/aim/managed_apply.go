@@ -33,6 +33,7 @@ type managedApplyEvent struct {
 	Stage         managedApplyStage
 	Downloaded    int64
 	DownloadTotal int64
+	DownloadName  string
 	Message       string
 	Version       string
 }
@@ -77,6 +78,7 @@ type singleManagedApplyController struct {
 	handleMode    progressMode
 	downloaded    int64
 	downloadTotal int64
+	downloadName  string
 }
 
 func runManagedApplies(ctx context.Context, cmd *cobra.Command, pending []pendingManagedUpdate) []managedApplyResult {
@@ -244,6 +246,9 @@ func (c *singleManagedApplyController) Event(event managedApplyEvent) {
 	if strings.TrimSpace(event.AppID) != "" {
 		c.appID = strings.TrimSpace(event.AppID)
 	}
+	if strings.TrimSpace(event.DownloadName) != "" {
+		c.downloadName = strings.TrimSpace(event.DownloadName)
+	}
 
 	switch event.Stage {
 	case managedApplyStageDownload:
@@ -314,7 +319,11 @@ func (c *singleManagedApplyController) setSpinnerDescription(description string)
 }
 
 func (c *singleManagedApplyController) updateDownloadProgress(downloaded, total int64) {
-	description := fmt.Sprintf("Downloading %s", c.appID)
+	downloadName := c.appID
+	if strings.TrimSpace(c.downloadName) != "" {
+		downloadName = strings.TrimSpace(c.downloadName)
+	}
+	description := fmt.Sprintf("Downloading %s", downloadName)
 	if downloaded <= 0 && total == 0 {
 		c.setSpinnerDescription(description)
 		return
