@@ -1,0 +1,120 @@
+package discovery
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"strings"
+	"time"
+
+	core "github.com/slobbe/appimage-manager/internal/app"
+)
+
+type GitHubBackend struct{}
+
+type gitHubRepoResponse struct {
+	Name            string `json:"name"`
+	FullName        string `json:"full_name"`
+	Description     string `json:"description"`
+	HTMLURL         string `json:"html_url"`
+	StargazersCount int    `json:"stargazers_count"`
+}
+
+var githubDiscoveryHTTPClient = core.NewHTTPClient(coreHTTPTimeout)
+var resolveGitHubReleaseAssetFn = core.ResolveGitHubReleaseAsset
+var resolveGitHubReleaseAssetSelectionFn = core.ResolveGitHubReleaseAssetSelection
+
+func SetHTTPClientTimeout(timeout time.Duration) {
+	if githubDiscoveryHTTPClient == nil {
+		githubDiscoveryHTTPClient = core.NewHTTPClient(timeout)
+	} else {
+		githubDiscoveryHTTPClient.Timeout = timeout
+	}
+}
+
+func (GitHubBackend) Name() string {
+	return "GitHub"
+}
+
+func (GitHubBackend) Resolve(ctx context.Context, ref PackageRef, assetOverride string) (*PackageMetadata, error) {
+	if ref.Kind != ProviderGitHub {
+		return nil, fmt.Errorf("invalid github package ref")
+	}
+
+	repoSlug := strings.TrimSpace(ref.ProviderRef)
+	assetPattern := normalizeAssetPattern(assetOverride)
+	repoURL := "https://github.com/" + repoSlug
+
+	selection, err := resolveGitHubReleaseAssetSelectionFn(repoSlug, assetPattern, "")
+	if err != nil {
+		return newUnavailablePackageMetadata("GitHub", ref, repoURL, assetPattern, err.Error()), nil
+	}
+
+	repoInfo, err := fetchGitHubRepo(ctx, repoSlug)
+	if err != nil {
+		return nil, err
+	}
+
+	release := selection.Release
+	if release == nil {
+		release = &core.GitHubReleaseAsset{}
+	}
+
+	return newInstallablePackageMetadata(
+		"GitHub",
+		ref,
+		firstNonEmpty(strings.TrimSpace(repoInfo.HTMLURL), repoURL),
+		strings.TrimSpace(repoInfo.Name),
+		strings.TrimSpace(repoInfo.Description),
+		assetPattern,
+		resolvedReleaseMetadata{
+			DownloadURL:       release.DownloadURL,
+			TagName:           release.TagName,
+			NormalizedVersion: release.NormalizedVersion,
+			AssetName:         release.AssetName,
+			AssetCandidates:   discoveryAssetCandidates(selection.Candidates),
+			AssetAmbiguous:    selection.Ambiguous,
+			AssetReason:       selection.Reason,
+		},
+	), nil
+}
+
+func discoveryAssetCandidates(candidates []core.GitHubReleaseAssetCandidate) []AssetCandidate {
+	result := make([]AssetCandidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		result = append(result, AssetCandidate{
+			Name:        candidate.Name,
+			DownloadURL: candidate.DownloadURL,
+			Arch:        candidate.Arch,
+			ArchLabel:   candidate.ArchLabel,
+		})
+	}
+	return result
+}
+
+func fetchGitHubRepo(ctx context.Context, repoSlug string) (*gitHubRepoResponse, error) {
+	requestURL := fmt.Sprintf("https://api.github.com/repos/%s", repoSlug)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+
+	resp, err := githubDiscoveryHTTPClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return nil, fmt.Errorf("github repo api returned status %s", resp.Status)
+	}
+
+	var payload gitHubRepoResponse
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return nil, err
+	}
+
+	return &payload, nil
+}

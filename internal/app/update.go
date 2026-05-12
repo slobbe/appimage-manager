@@ -1,0 +1,250 @@
+package app
+
+import (
+	"bufio"
+	"bytes"
+	"debug/elf"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"time"
+
+	models "github.com/slobbe/appimage-manager/internal/domain"
+	util "github.com/slobbe/appimage-manager/internal/infra/helpers"
+)
+
+const zsyncMetadataMaxBytes = 1 << 20
+
+type UpdateInfo struct {
+	Kind       models.UpdateKind
+	UpdateInfo string
+	UpdateUrl  string
+	Transport  string
+}
+
+type UpdateData struct {
+	Available         bool
+	DownloadUrl       string
+	DownloadUrlZsync  string
+	RemoteTime        string
+	RemoteSHA1        string
+	RemoteFilename    string
+	NormalizedVersion string
+	PreRelease        bool
+	AssetName         string
+}
+
+func ZsyncUpdateCheck(upd *models.UpdateSource, localSHA1 string) (*UpdateData, error) {
+	if upd.Kind != models.UpdateZsync || upd.Zsync == nil {
+		return nil, fmt.Errorf("no zsync update information")
+	}
+
+	if strings.TrimSpace(upd.Zsync.UpdateInfo) == "" {
+		return nil, fmt.Errorf("missing zsync update info")
+	}
+
+	updateInfo, err := parseUpdateInfoString(upd.Zsync.UpdateInfo)
+	if err != nil {
+		return nil, err
+	}
+
+	if strings.TrimSpace(updateInfo.UpdateUrl) == "" {
+		return nil, fmt.Errorf("missing zsync update url")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, updateInfo.UpdateUrl, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := SharedHTTPClient().Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return nil, fmt.Errorf("zsync metadata returned status %s", resp.Status)
+	}
+
+	metadata, err := io.ReadAll(io.LimitReader(resp.Body, zsyncMetadataMaxBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read zsync metadata: %w", err)
+	}
+	if len(metadata) > zsyncMetadataMaxBytes {
+		return nil, fmt.Errorf("zsync metadata exceeds %d bytes", zsyncMetadataMaxBytes)
+	}
+
+	update := UpdateData{}
+	update.DownloadUrlZsync = updateInfo.UpdateUrl
+
+	scanner := bufio.NewScanner(bytes.NewReader(metadata))
+	scanner.Buffer(make([]byte, 64*1024), zsyncMetadataMaxBytes+1)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			break
+		}
+
+		sha1, exists := strings.CutPrefix(line, "SHA-1:")
+		if exists {
+			update.RemoteSHA1 = strings.TrimSpace(sha1)
+		}
+
+		filename, exists := strings.CutPrefix(line, "Filename:")
+		if exists {
+			update.RemoteFilename = strings.TrimSpace(filename)
+		}
+
+		mtime, exists := strings.CutPrefix(line, "MTime:")
+		if exists {
+			t, _ := time.Parse(time.RFC1123, strings.TrimSpace(mtime))
+			update.RemoteTime = t.Format(time.RFC3339)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("failed to read zsync metadata: %w", err)
+	}
+
+	if update.RemoteFilename != "" {
+		update.RemoteFilename = strings.TrimSuffix(update.RemoteFilename, ".zsync")
+	}
+	update.NormalizedVersion = normalizeComparableVersion(update.RemoteFilename)
+
+	if update.RemoteFilename == "" || update.RemoteSHA1 == "" {
+		return nil, fmt.Errorf("invalid zsync metadata")
+	}
+
+	lastSlash := strings.LastIndex(update.DownloadUrlZsync, "/")
+	update.DownloadUrl = update.DownloadUrlZsync[:lastSlash+1] + update.RemoteFilename
+	update.AssetName = update.RemoteFilename
+
+	update.Available = update.RemoteSHA1 != localSHA1
+
+	return &update, nil
+}
+
+func GetUpdateInfo(src string) (*UpdateInfo, error) {
+	info, err := extractUpdateInfo(src)
+	if err != nil {
+		return nil, err
+	}
+
+	return parseUpdateInfoString(info)
+}
+
+func parseUpdateInfoString(info string) (*UpdateInfo, error) {
+	info = strings.TrimSpace(info)
+	if info == "" {
+		return nil, fmt.Errorf("empty update info")
+	}
+
+	updateInfo := &UpdateInfo{
+		UpdateInfo: info,
+	}
+
+	parts := strings.Split(info, "|")
+
+	switch parts[0] {
+	case "zsync":
+		if len(parts) < 2 {
+			return nil, fmt.Errorf("invalid update info")
+		}
+
+		updateInfo.Kind = models.UpdateZsync
+		updateInfo.Transport = "zsync"
+		updateInfo.UpdateUrl = parts[1]
+	case "gh-releases-zsync":
+		if len(parts) < 5 {
+			return nil, fmt.Errorf("invalid update info")
+		}
+		updateInfo.Kind = models.UpdateZsync
+		updateInfo.Transport = "gh-releases"
+
+		owner := parts[1]
+		repo := parts[2]
+		tag := parts[3]
+		zsyncFile := parts[4]
+
+		if tag == "latest" {
+			latestTag, err := githubLatestVersionTag(owner, repo)
+			if err != nil {
+				return nil, err
+			}
+
+			tag = latestTag
+		}
+
+		zsyncFile = strings.ReplaceAll(zsyncFile, "*", tag)
+
+		updateInfo.UpdateUrl = strings.Join(
+			[]string{"https://github.com", owner, repo, "releases/download", tag, zsyncFile},
+			"/")
+	default:
+		return nil, fmt.Errorf("unsupported update info kind %q", parts[0])
+	}
+
+	return updateInfo, nil
+}
+
+func githubLatestVersionTag(owner, repo string) (string, error) {
+	url := fmt.Sprintf("https://github.com/%s/%s/releases/latest", owner, repo)
+
+	client := &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	resp, err := client.Get(url)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 300 || resp.StatusCode > 399 {
+		return "", fmt.Errorf("unexpected status %s", resp.Status)
+	}
+	loc := resp.Header.Get("Location")
+	if loc == "" {
+		return "", fmt.Errorf("missing redirect location")
+	}
+	parts := strings.Split(loc, "/")
+
+	return parts[len(parts)-1], nil
+}
+
+func extractUpdateInfo(src string) (string, error) {
+	if !util.HasExtension(src, ".AppImage") {
+		return "", fmt.Errorf("source must be .AppImage file")
+	}
+
+	src, err := util.MakeAbsolute(src)
+	if err != nil {
+		return "", err
+	}
+
+	f, err := elf.Open(src)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	section := f.Section(".upd_info")
+	if section == nil {
+		return "", fmt.Errorf("no update information found in ELF headers")
+	}
+
+	data, err := section.Data()
+	if err != nil {
+		return "", err
+	}
+
+	strData := string(data)
+	if i := strings.Index(strData, "\x00"); i != -1 {
+		strData = strData[:i]
+	}
+
+	return strings.TrimSpace(strData), nil
+}
