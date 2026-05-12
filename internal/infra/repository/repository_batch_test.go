@@ -218,6 +218,30 @@ func TestAddAppsBatch(t *testing.T) {
 	}
 }
 
+func TestStoreUsesExplicitPath(t *testing.T) {
+	tmp := t.TempDir()
+	dbPath := filepath.Join(tmp, "apps.json")
+
+	originalDbSrc := config.DbSrc
+	config.DbSrc = ""
+	t.Cleanup(func() {
+		config.DbSrc = originalDbSrc
+	})
+
+	store := NewStore(dbPath)
+	if err := store.AddApp(&models.App{ID: "app-a", Name: "A"}, false); err != nil {
+		t.Fatalf("Store.AddApp returned error: %v", err)
+	}
+
+	app, err := store.GetApp("app-a")
+	if err != nil {
+		t.Fatalf("Store.GetApp returned error: %v", err)
+	}
+	if app.Name != "A" {
+		t.Fatalf("app.Name = %q, want %q", app.Name, "A")
+	}
+}
+
 func TestAddAppsBatchOverwriteBehavior(t *testing.T) {
 	tmp := t.TempDir()
 	dbPath := filepath.Join(tmp, "apps.json")

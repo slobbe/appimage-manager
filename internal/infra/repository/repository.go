@@ -1,172 +1,54 @@
 package repo
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	models "github.com/slobbe/appimage-manager/internal/domain"
 	"github.com/slobbe/appimage-manager/internal/infra/config"
 )
 
-type DB struct {
-	SchemaVersion int                    `json:"schemaVersion"`
-	Apps          map[string]*models.App `json:"apps"`
+type Store struct {
+	path string
 }
 
-type CheckMetadataUpdate struct {
-	ID            string
-	Checked       bool
-	Available     bool
-	Latest        string
-	LastCheckedAt string
+func NewStore(path string) *Store {
+	return &Store{path: strings.TrimSpace(path)}
 }
 
-func LoadDB(path string) (*DB, error) {
-	b, err := os.ReadFile(path)
+func DefaultStore() *Store {
+	return NewStore(config.DbSrc)
+}
+
+func (s *Store) requirePath() (string, error) {
+	if s == nil || s.path == "" {
+		return "", fmt.Errorf("database source cannot be empty")
+	}
+	return s.path, nil
+}
+
+func (s *Store) load() (*DB, error) {
+	path, err := s.requirePath()
 	if err != nil {
-		if os.IsNotExist(err) {
-			return &DB{SchemaVersion: 1, Apps: map[string]*models.App{}}, nil
-		}
 		return nil, err
 	}
-	var db DB
-	if err := json.Unmarshal(b, &db); err != nil {
-		return nil, err
-	}
-	if err := validateDB(&db); err != nil {
-		return nil, err
-	}
-	return &db, nil
+	return LoadDB(path)
 }
 
-func validateDB(db *DB) error {
-	if db == nil {
-		return fmt.Errorf("database cannot be empty")
-	}
-	if db.SchemaVersion != 1 {
-		return fmt.Errorf("unsupported schema version: %d", db.SchemaVersion)
-	}
-	if db.Apps == nil {
-		return fmt.Errorf("apps collection cannot be empty")
-	}
-
-	for key, app := range db.Apps {
-		if app == nil {
-			return fmt.Errorf("app %q cannot be empty", strings.TrimSpace(key))
-		}
-
-		appID := strings.TrimSpace(app.ID)
-		if appID == "" {
-			appID = strings.TrimSpace(key)
-		}
-
-		if kind := strings.TrimSpace(string(app.Source.Kind)); kind != "" && !isSupportedSourceKind(app.Source.Kind) {
-			return fmt.Errorf("unsupported source kind for %s: %q", appID, app.Source.Kind)
-		}
-
-		if app.Update != nil && !isSupportedUpdateKind(app.Update.Kind) {
-			return fmt.Errorf("unsupported update kind for %s: %q", appID, app.Update.Kind)
-		}
-	}
-
-	return nil
-}
-
-func isSupportedSourceKind(kind models.SourceKind) bool {
-	switch kind {
-	case models.SourceLocalFile, models.SourceDirectURL, models.SourceGitHubRelease:
-		return true
-	default:
-		return false
-	}
-}
-
-func isSupportedUpdateKind(kind models.UpdateKind) bool {
-	switch kind {
-	case models.UpdateNone, models.UpdateZsync, models.UpdateGitHubRelease:
-		return true
-	default:
-		return false
-	}
-}
-
-func SaveDB(path string, db *DB) error {
-	b, err := json.MarshalIndent(db, "", "  ")
+func (s *Store) save(db *DB) error {
+	path, err := s.requirePath()
 	if err != nil {
 		return err
 	}
-
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-
-	perm := os.FileMode(0o644)
-	if info, err := os.Stat(path); err == nil {
-		perm = info.Mode().Perm()
-	} else if !os.IsNotExist(err) {
-		return err
-	}
-
-	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".*.tmp")
-	if err != nil {
-		return err
-	}
-	tmpPath := tmp.Name()
-	cleanup := true
-	defer func() {
-		if cleanup {
-			_ = os.Remove(tmpPath)
-		}
-	}()
-
-	if err := tmp.Chmod(perm); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if _, err := tmp.Write(b); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-
-	if err := os.Rename(tmpPath, path); err != nil {
-		return err
-	}
-	cleanup = false
-
-	return syncDir(dir)
+	return SaveDB(path, db)
 }
 
-func syncDir(path string) error {
-	dir, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer dir.Close()
-
-	return dir.Sync()
-}
-
-func AddApp(appData *models.App, overwrite bool) error {
+func (s *Store) AddApp(appData *models.App, overwrite bool) error {
 	if appData == nil {
 		return fmt.Errorf("app data cannot be empty")
 	}
 
-	if len(config.DbSrc) < 1 {
-		return fmt.Errorf("database source cannot be empty")
-	}
-
-	db, err := LoadDB(config.DbSrc)
+	db, err := s.load()
 	if err != nil {
 		return err
 	}
@@ -179,27 +61,19 @@ func AddApp(appData *models.App, overwrite bool) error {
 	_, exists := db.Apps[key]
 	if exists && !overwrite {
 		return fmt.Errorf("%s already exists in database", key)
-	} else {
-		db.Apps[key] = appData
 	}
 
-	if err := SaveDB(config.DbSrc, db); err != nil {
-		return err
-	}
+	db.Apps[key] = appData
 
-	return nil
+	return s.save(db)
 }
 
-func AddAppsBatch(apps []*models.App, overwrite bool) error {
+func (s *Store) AddAppsBatch(apps []*models.App, overwrite bool) error {
 	if len(apps) == 0 {
 		return nil
 	}
 
-	if len(config.DbSrc) < 1 {
-		return fmt.Errorf("database source cannot be empty")
-	}
-
-	db, err := LoadDB(config.DbSrc)
+	db, err := s.load()
 	if err != nil {
 		return err
 	}
@@ -222,23 +96,15 @@ func AddAppsBatch(apps []*models.App, overwrite bool) error {
 		db.Apps[key] = appData
 	}
 
-	if err := SaveDB(config.DbSrc, db); err != nil {
-		return err
-	}
-
-	return nil
+	return s.save(db)
 }
 
-func UpdateApp(appData *models.App) error {
+func (s *Store) UpdateApp(appData *models.App) error {
 	if appData == nil {
 		return fmt.Errorf("app data cannot be empty")
 	}
 
-	if len(config.DbSrc) < 1 {
-		return fmt.Errorf("database source cannot be empty")
-	}
-
-	db, err := LoadDB(config.DbSrc)
+	db, err := s.load()
 	if err != nil {
 		return err
 	}
@@ -255,23 +121,15 @@ func UpdateApp(appData *models.App) error {
 
 	db.Apps[key] = appData
 
-	if err := SaveDB(config.DbSrc, db); err != nil {
-		return err
-	}
-
-	return nil
+	return s.save(db)
 }
 
-func RemoveApp(key string) error {
+func (s *Store) RemoveApp(key string) error {
 	if len(key) < 1 {
 		return fmt.Errorf("invalid app slug")
 	}
 
-	if len(config.DbSrc) < 1 {
-		return fmt.Errorf("database source cannot be empty")
-	}
-
-	db, err := LoadDB(config.DbSrc)
+	db, err := s.load()
 	if err != nil {
 		return err
 	}
@@ -283,43 +141,29 @@ func RemoveApp(key string) error {
 
 	delete(db.Apps, key)
 
-	if err := SaveDB(config.DbSrc, db); err != nil {
-		return err
-	}
-
-	return nil
+	return s.save(db)
 }
 
-func GetApp(key string) (*models.App, error) {
+func (s *Store) GetApp(key string) (*models.App, error) {
 	if len(key) < 1 {
 		return nil, fmt.Errorf("invalid app slug")
 	}
 
-	if len(config.DbSrc) < 1 {
-		return nil, fmt.Errorf("database source cannot be empty")
-	}
-
-	db, err := LoadDB(config.DbSrc)
+	db, err := s.load()
 	if err != nil {
 		return nil, err
 	}
 
-	_, exists := db.Apps[key]
+	appData, exists := db.Apps[key]
 	if !exists {
 		return nil, fmt.Errorf("%s does not exists in database", key)
 	}
 
-	appData := db.Apps[key]
-
 	return appData, nil
 }
 
-func GetAllApps() (map[string]*models.App, error) {
-	if len(config.DbSrc) < 1 {
-		return nil, fmt.Errorf("database source cannot be empty")
-	}
-
-	db, err := LoadDB(config.DbSrc)
+func (s *Store) GetAllApps() (map[string]*models.App, error) {
+	db, err := s.load()
 	if err != nil {
 		return nil, err
 	}
@@ -327,42 +171,26 @@ func GetAllApps() (map[string]*models.App, error) {
 	return db.Apps, nil
 }
 
-func UpdateCheckMetadataBatch(updates []CheckMetadataUpdate) error {
-	if len(updates) == 0 {
-		return nil
-	}
+func AddApp(appData *models.App, overwrite bool) error {
+	return DefaultStore().AddApp(appData, overwrite)
+}
 
-	if len(config.DbSrc) < 1 {
-		return fmt.Errorf("database source cannot be empty")
-	}
+func AddAppsBatch(apps []*models.App, overwrite bool) error {
+	return DefaultStore().AddAppsBatch(apps, overwrite)
+}
 
-	db, err := LoadDB(config.DbSrc)
-	if err != nil {
-		return err
-	}
+func UpdateApp(appData *models.App) error {
+	return DefaultStore().UpdateApp(appData)
+}
 
-	for _, update := range updates {
-		key := strings.TrimSpace(update.ID)
-		if key == "" {
-			return fmt.Errorf("invalid app slug")
-		}
+func RemoveApp(key string) error {
+	return DefaultStore().RemoveApp(key)
+}
 
-		appData, exists := db.Apps[key]
-		if !exists {
-			return fmt.Errorf("%s does not exists in database", key)
-		}
+func GetApp(key string) (*models.App, error) {
+	return DefaultStore().GetApp(key)
+}
 
-		if update.Checked {
-			appData.UpdateAvailable = update.Available
-			appData.LatestVersion = strings.TrimSpace(update.Latest)
-		}
-
-		appData.LastCheckedAt = strings.TrimSpace(update.LastCheckedAt)
-	}
-
-	if err := SaveDB(config.DbSrc, db); err != nil {
-		return err
-	}
-
-	return nil
+func GetAllApps() (map[string]*models.App, error) {
+	return DefaultStore().GetAllApps()
 }
