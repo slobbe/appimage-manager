@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/slobbe/appimage-manager/internal/infra/config"
 	util "github.com/slobbe/appimage-manager/internal/infra/helpers"
 )
 
@@ -48,11 +47,15 @@ func InstallDesktopIcon(iconID, iconSrc string) (string, string, error) {
 }
 
 func iconInstallDir(ext string) string {
+	paths, err := requirePaths()
+	if err != nil {
+		return ""
+	}
 	if ext == ".svg" {
-		return filepath.Join(config.IconThemeDir, "scalable", "apps")
+		return filepath.Join(paths.IconThemeDir, "scalable", "apps")
 	}
 
-	return filepath.Join(config.IconThemeDir, "256x256", "apps")
+	return filepath.Join(paths.IconThemeDir, "256x256", "apps")
 }
 
 func ensureDir(dir string) error {

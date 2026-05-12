@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/slobbe/appimage-manager/internal/infra/config"
+	"github.com/slobbe/appimage-manager/internal/cli/config"
 )
 
 func TestInstallDesktopIconPNGUsesAbsoluteThemePath(t *testing.T) {
@@ -96,9 +96,17 @@ func setupIconDirsForTest(t *testing.T, tmp string) {
 	t.Helper()
 
 	originalThemeDir := config.IconThemeDir
+	originalPaths := defaultPaths
 	t.Cleanup(func() {
 		config.IconThemeDir = originalThemeDir
+		defaultPaths = originalPaths
 	})
 
 	config.IconThemeDir = filepath.Join(tmp, "icons", "hicolor")
+	SetPaths(Paths{
+		AimDir:       filepath.Join(tmp, "aim"),
+		DesktopDir:   filepath.Join(tmp, "applications"),
+		TempDir:      filepath.Join(tmp, "cache", "tmp"),
+		IconThemeDir: config.IconThemeDir,
+	})
 }

@@ -25,3 +25,23 @@ func requireStore() (AppStore, error) {
 	}
 	return defaultStore, nil
 }
+
+type Paths struct {
+	AimDir       string
+	DesktopDir   string
+	TempDir      string
+	IconThemeDir string
+}
+
+var defaultPaths Paths
+
+func SetPaths(paths Paths) {
+	defaultPaths = paths
+}
+
+func requirePaths() (Paths, error) {
+	if defaultPaths.AimDir == "" || defaultPaths.DesktopDir == "" || defaultPaths.TempDir == "" || defaultPaths.IconThemeDir == "" {
+		return Paths{}, fmt.Errorf("app paths are not configured")
+	}
+	return defaultPaths, nil
+}

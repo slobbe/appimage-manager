@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/slobbe/appimage-manager/internal/cli/config"
 	models "github.com/slobbe/appimage-manager/internal/domain"
-	"github.com/slobbe/appimage-manager/internal/infra/config"
 	"github.com/slobbe/appimage-manager/internal/infra/discovery"
 	"github.com/spf13/cobra"
 )

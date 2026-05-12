@@ -13,7 +13,6 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/slobbe/appimage-manager/internal/infra/config"
 	util "github.com/slobbe/appimage-manager/internal/infra/helpers"
 )
 
@@ -92,6 +91,11 @@ func ReadAppImageInfo(ctx context.Context, src string) (*AppInfo, error) {
 }
 
 func ExtractAppImage(ctx context.Context, src string) (*ExtractionData, error) {
+	paths, err := requirePaths()
+	if err != nil {
+		return nil, err
+	}
+
 	srcInfo, err := os.Stat(src)
 	if err != nil {
 		return nil, fmt.Errorf("failed to access source file: %w", err)
@@ -115,7 +119,7 @@ func ExtractAppImage(ctx context.Context, src string) (*ExtractionData, error) {
 		return nil, fmt.Errorf("failed to make executable: %w", err)
 	}
 
-	tmpDir := config.TempDir + "-" + srcFileName
+	tmpDir := paths.TempDir + "-" + srcFileName
 	if err := os.MkdirAll(tmpDir, 0o755); err != nil {
 		return nil, fmt.Errorf("failed to create temporary directory %s: %w", tmpDir, err)
 	}
@@ -180,7 +184,7 @@ func ExtractAppImage(ctx context.Context, src string) (*ExtractionData, error) {
 		return nil, fmt.Errorf("failed to locate icon file: %w", err)
 	}
 
-	extractDir := filepath.Join(config.AimDir, "."+srcFileName)
+	extractDir := filepath.Join(paths.AimDir, "."+srcFileName)
 	if err := os.MkdirAll(extractDir, 0o755); err != nil {
 		return nil, fmt.Errorf("failed to create temporary extracttion directory %s: %w", extractDir, err)
 	}

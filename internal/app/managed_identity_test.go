@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/slobbe/appimage-manager/internal/cli/config"
 	models "github.com/slobbe/appimage-manager/internal/domain"
 	repo "github.com/slobbe/appimage-manager/internal/infra/repository"
 )
@@ -41,7 +42,7 @@ func TestResolveManagedAppIDDisambiguatesWithUpstreamID(t *testing.T) {
 	tmp := t.TempDir()
 	setupIntegrationConfigForTest(t, tmp)
 
-	if err := repo.AddApp(existingIdentity("notes", "Notes", "/tmp/vendor1.AppImage"), true); err != nil {
+	if err := repo.NewStore(config.DbSrc).AddApp(existingIdentity("notes", "Notes", "/tmp/vendor1.AppImage"), true); err != nil {
 		t.Fatal(err)
 	}
 
@@ -58,10 +59,10 @@ func TestResolveManagedAppIDDisambiguatesWithHash(t *testing.T) {
 	tmp := t.TempDir()
 	setupIntegrationConfigForTest(t, tmp)
 
-	if err := repo.AddApp(existingIdentity("notes", "Notes", "/tmp/vendor1.AppImage"), true); err != nil {
+	if err := repo.NewStore(config.DbSrc).AddApp(existingIdentity("notes", "Notes", "/tmp/vendor1.AppImage"), true); err != nil {
 		t.Fatal(err)
 	}
-	if err := repo.AddApp(existingIdentity("notes-com.vendor2.Notes", "Notes", "/tmp/other-vendor2.AppImage"), true); err != nil {
+	if err := repo.NewStore(config.DbSrc).AddApp(existingIdentity("notes-com.vendor2.Notes", "Notes", "/tmp/other-vendor2.AppImage"), true); err != nil {
 		t.Fatal(err)
 	}
 
@@ -82,7 +83,7 @@ func TestResolveManagedAppIDReusesSameEquivalentID(t *testing.T) {
 	setupIntegrationConfigForTest(t, tmp)
 
 	src := filepath.Join(tmp, "desktop.AppImage")
-	if err := repo.AddApp(existingIdentity("clickup", "ClickUp", src), true); err != nil {
+	if err := repo.NewStore(config.DbSrc).AddApp(existingIdentity("clickup", "ClickUp", src), true); err != nil {
 		t.Fatal(err)
 	}
 
@@ -103,7 +104,7 @@ func TestResolveManagedAppIDReturnsEquivalentReplacementForOldID(t *testing.T) {
 	setupIntegrationConfigForTest(t, tmp)
 
 	src := filepath.Join(tmp, "desktop.AppImage")
-	if err := repo.AddApp(existingIdentity("desktop", "ClickUp", src), true); err != nil {
+	if err := repo.NewStore(config.DbSrc).AddApp(existingIdentity("desktop", "ClickUp", src), true); err != nil {
 		t.Fatal(err)
 	}
 

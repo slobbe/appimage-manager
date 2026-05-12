@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-
-	"github.com/slobbe/appimage-manager/internal/infra/config"
 )
 
 var (
@@ -17,7 +15,13 @@ var (
 )
 
 func refreshDesktopIntegrationCaches(ctx context.Context) {
-	if _, err := runCommandIfAvailable(ctx, "update-desktop-database", config.DesktopDir); err != nil {
+	paths, err := requirePaths()
+	if err != nil {
+		integrationCacheWarn(fmt.Sprintf("Warning: failed to refresh integration caches: %v", err))
+		return
+	}
+
+	if _, err := runCommandIfAvailable(ctx, "update-desktop-database", paths.DesktopDir); err != nil {
 		integrationCacheWarn(fmt.Sprintf("Warning: failed to refresh desktop database: %v", err))
 	}
 
@@ -35,7 +39,7 @@ func refreshDesktopIntegrationCaches(ctx context.Context) {
 		return
 	}
 
-	if _, err := runCommandIfAvailable(ctx, "gtk-update-icon-cache", "-f", config.IconThemeDir); err != nil {
+	if _, err := runCommandIfAvailable(ctx, "gtk-update-icon-cache", "-f", paths.IconThemeDir); err != nil {
 		integrationCacheWarn(fmt.Sprintf("Warning: failed to refresh icon cache via gtk-update-icon-cache: %v", err))
 	}
 }

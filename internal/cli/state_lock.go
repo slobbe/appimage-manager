@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/slobbe/appimage-manager/internal/infra/config"
+	"github.com/slobbe/appimage-manager/internal/cli/config"
 	"github.com/spf13/cobra"
 	"golang.org/x/sys/unix"
 )

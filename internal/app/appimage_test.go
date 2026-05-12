@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slobbe/appimage-manager/internal/infra/config"
+	"github.com/slobbe/appimage-manager/internal/cli/config"
 )
 
 func TestUpdateDesktopEntryRewritesExecAndIconInAllowedSections(t *testing.T) {
@@ -377,13 +377,21 @@ func setupExtractionConfigForTest(t *testing.T, tmp string) {
 
 	originalAimDir := config.AimDir
 	originalTempDir := config.TempDir
+	originalPaths := defaultPaths
 	t.Cleanup(func() {
 		config.AimDir = originalAimDir
 		config.TempDir = originalTempDir
+		defaultPaths = originalPaths
 	})
 
 	config.AimDir = filepath.Join(tmp, "aim")
 	config.TempDir = filepath.Join(tmp, "cache", "tmp")
+	SetPaths(Paths{
+		AimDir:       config.AimDir,
+		DesktopDir:   filepath.Join(tmp, "applications"),
+		TempDir:      config.TempDir,
+		IconThemeDir: filepath.Join(tmp, "icons", "hicolor"),
+	})
 }
 
 func writeFakeAppImageExtractor(t *testing.T, dst string) {

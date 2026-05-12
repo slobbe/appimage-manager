@@ -20,8 +20,8 @@ import (
 	"time"
 
 	core "github.com/slobbe/appimage-manager/internal/app"
+	"github.com/slobbe/appimage-manager/internal/cli/config"
 	models "github.com/slobbe/appimage-manager/internal/domain"
-	"github.com/slobbe/appimage-manager/internal/infra/config"
 	"github.com/slobbe/appimage-manager/internal/infra/discovery"
 	util "github.com/slobbe/appimage-manager/internal/infra/helpers"
 	repo "github.com/slobbe/appimage-manager/internal/infra/repository"
@@ -900,7 +900,7 @@ func TestUpdateCheckMetadata(t *testing.T) {
 		t.Fatalf("failed to write test DB: %v", err)
 	}
 
-	app, err := repo.GetApp("my-app")
+	app, err := repo.NewStore(config.DbSrc).GetApp("my-app")
 	if err != nil {
 		t.Fatalf("failed to load app: %v", err)
 	}
@@ -909,7 +909,7 @@ func TestUpdateCheckMetadata(t *testing.T) {
 		t.Fatalf("updateCheckMetadata returned error: %v", err)
 	}
 
-	updated, err := repo.GetApp("my-app")
+	updated, err := repo.NewStore(config.DbSrc).GetApp("my-app")
 	if err != nil {
 		t.Fatalf("failed to load updated app: %v", err)
 	}
@@ -1272,7 +1272,7 @@ func TestAddCmdDirectURLWithChecksum(t *testing.T) {
 			UpdatedAt: "2026-03-08T12:00:00Z",
 		}, nil
 	}
-	addSingleApp = repo.AddApp
+	addSingleApp = defaultAddSingleApp
 
 	output := captureStdout(t, func() {
 		if err := runAddCommand(context.Background(), []string{"--url", "https://example.com/MyApp.AppImage", "--sha256", expectedSHA256}); err != nil {
@@ -1284,7 +1284,7 @@ func TestAddCmdDirectURLWithChecksum(t *testing.T) {
 		t.Fatalf("did not expect checksum warning:\n%s", output)
 	}
 
-	app, err := repo.GetApp("my-app")
+	app, err := repo.NewStore(config.DbSrc).GetApp("my-app")
 	if err != nil {
 		t.Fatalf("failed to load persisted app: %v", err)
 	}
@@ -1329,7 +1329,7 @@ func TestAddCmdDirectURLWithoutChecksumWarns(t *testing.T) {
 			UpdatedAt: "2026-03-08T12:00:00Z",
 		}, nil
 	}
-	addSingleApp = repo.AddApp
+	addSingleApp = defaultAddSingleApp
 
 	output := captureStdout(t, func() {
 		if err := runAddCommand(context.Background(), []string{"--url", "https://example.com/MyApp.AppImage"}); err != nil {
@@ -1436,13 +1436,13 @@ func TestAddCmdGitHubSetsDefaultAssetSourceAndUpdate(t *testing.T) {
 			UpdatedAt: "2026-03-08T12:00:00Z",
 		}, nil
 	}
-	addSingleApp = repo.AddApp
+	addSingleApp = defaultAddSingleApp
 
 	if err := runAddCommand(context.Background(), []string{"--github", "owner/repo"}); err != nil {
 		t.Fatalf("runAddCommand returned error: %v", err)
 	}
 
-	app, err := repo.GetApp("my-app")
+	app, err := repo.NewStore(config.DbSrc).GetApp("my-app")
 	if err != nil {
 		t.Fatalf("failed to load persisted app: %v", err)
 	}
@@ -1511,13 +1511,13 @@ func TestAddCmdGitHubPersistsCustomAsset(t *testing.T) {
 	integrateLocalApp = func(context.Context, string, core.UpdateOverwritePrompt) (*models.App, error) {
 		return &models.App{ID: "my-app", Name: "My App", Version: "1.2.3", UpdatedAt: "2026-03-08T12:00:00Z"}, nil
 	}
-	addSingleApp = repo.AddApp
+	addSingleApp = defaultAddSingleApp
 
 	if err := runAddCommand(context.Background(), []string{"--github", "owner/repo", "--asset", "MyApp-*-x86_64.AppImage"}); err != nil {
 		t.Fatalf("runAddCommand returned error: %v", err)
 	}
 
-	app, err := repo.GetApp("my-app")
+	app, err := repo.NewStore(config.DbSrc).GetApp("my-app")
 	if err != nil {
 		t.Fatalf("failed to load persisted app: %v", err)
 	}
@@ -1577,7 +1577,7 @@ func TestAddCmdGitHubUsesCustomAsset(t *testing.T) {
 	integrateLocalApp = func(context.Context, string, core.UpdateOverwritePrompt) (*models.App, error) {
 		return &models.App{ID: "my-app", Name: "My App", Version: "1.2.3", UpdatedAt: "2026-03-08T12:00:00Z"}, nil
 	}
-	addSingleApp = repo.AddApp
+	addSingleApp = defaultAddSingleApp
 
 	output := captureStdout(t, func() {
 		if err := runAddCommand(context.Background(), []string{"--github", "owner/repo", "--asset", "MyApp-*-x86_64.AppImage"}); err != nil {
@@ -1684,7 +1684,7 @@ func TestAddCmdGitHubPromptsForAmbiguousAsset(t *testing.T) {
 	integrateLocalApp = func(context.Context, string, core.UpdateOverwritePrompt) (*models.App, error) {
 		return &models.App{ID: "my-app", Name: "My App", Version: "1.2.3", UpdatedAt: "2026-03-08T12:00:00Z"}, nil
 	}
-	addSingleApp = repo.AddApp
+	addSingleApp = defaultAddSingleApp
 
 	output := captureStdoutWithInput(t, "2\n", func() {
 		if err := runAddCommand(context.Background(), []string{"--github", "owner/repo"}); err != nil {
@@ -1739,7 +1739,7 @@ func TestAddCmdGitHubShowsProgressStages(t *testing.T) {
 	integrateLocalApp = func(context.Context, string, core.UpdateOverwritePrompt) (*models.App, error) {
 		return &models.App{ID: "my-app", Name: "My App", Version: "1.2.3", UpdatedAt: "2026-03-08T12:00:00Z"}, nil
 	}
-	addSingleApp = repo.AddApp
+	addSingleApp = defaultAddSingleApp
 
 	output := captureStdout(t, func() {
 		if err := runAddCommand(context.Background(), []string{"--github", "owner/repo"}); err != nil {
@@ -1970,13 +1970,13 @@ func TestAddCmdDirectProviderRefDelegatesToExistingAddFlow(t *testing.T) {
 	integrateLocalApp = func(context.Context, string, core.UpdateOverwritePrompt) (*models.App, error) {
 		return &models.App{ID: "my-app", Name: "My App", Version: "1.2.3", UpdatedAt: "2026-03-08T12:00:00Z"}, nil
 	}
-	addSingleApp = repo.AddApp
+	addSingleApp = defaultAddSingleApp
 
 	if err := runAddCommand(context.Background(), []string{"--github", "owner/repo"}); err != nil {
 		t.Fatalf("runAddCommand returned error: %v", err)
 	}
 
-	app, err := repo.GetApp("my-app")
+	app, err := repo.NewStore(config.DbSrc).GetApp("my-app")
 	if err != nil {
 		t.Fatalf("failed to load installed app: %v", err)
 	}
@@ -2036,7 +2036,7 @@ func TestAddCmdRejectsPositionalGitHubURL(t *testing.T) {
 	integrateLocalApp = func(context.Context, string, core.UpdateOverwritePrompt) (*models.App, error) {
 		return &models.App{ID: "my-app", Name: "My App", Version: "1.2.3", UpdatedAt: "2026-03-08T12:00:00Z"}, nil
 	}
-	addSingleApp = repo.AddApp
+	addSingleApp = defaultAddSingleApp
 
 	err := runAddCommand(context.Background(), []string{"https://github.com/owner/repo"})
 	if err == nil {
@@ -2955,7 +2955,7 @@ func TestUpdateSetEmbeddedSetsEmbeddedSource(t *testing.T) {
 		}
 	})
 
-	app, err := repo.GetApp("my-app")
+	app, err := repo.NewStore(config.DbSrc).GetApp("my-app")
 	if err != nil {
 		t.Fatalf("failed to reload app: %v", err)
 	}
@@ -3016,7 +3016,7 @@ func TestUpdateSetEmbeddedMissingPromptsToUnsetOrKeep(t *testing.T) {
 		}
 	})
 
-	appKeep, err := repo.GetApp("my-app")
+	appKeep, err := repo.NewStore(config.DbSrc).GetApp("my-app")
 	if err != nil {
 		t.Fatalf("failed to reload app: %v", err)
 	}
@@ -3050,7 +3050,7 @@ func TestUpdateSetEmbeddedMissingPromptsToUnsetOrKeep(t *testing.T) {
 		}
 	})
 
-	appUnset, err := repo.GetApp("my-app")
+	appUnset, err := repo.NewStore(config.DbSrc).GetApp("my-app")
 	if err != nil {
 		t.Fatalf("failed to reload app: %v", err)
 	}
@@ -3170,7 +3170,7 @@ func TestUpdateUnsetCommand(t *testing.T) {
 			t.Fatalf("runRootCommand returned error: %v", err)
 		}
 	})
-	app, err := repo.GetApp("my-app")
+	app, err := repo.NewStore(config.DbSrc).GetApp("my-app")
 	if err != nil {
 		t.Fatalf("failed to reload app: %v", err)
 	}
@@ -3540,7 +3540,7 @@ func TestRemoveDryRunDoesNotMutateDB(t *testing.T) {
 		}
 	})
 
-	stillThere, err := repo.GetApp("my-app")
+	stillThere, err := repo.NewStore(config.DbSrc).GetApp("my-app")
 	if err != nil {
 		t.Fatalf("expected app to remain in db: %v", err)
 	}
@@ -3651,7 +3651,7 @@ func TestUpdateUnsetYesBypassesPrompt(t *testing.T) {
 		t.Fatalf("executeTestCommand returned error: %v", err)
 	}
 
-	updated, err := repo.GetApp("my-app")
+	updated, err := repo.NewStore(config.DbSrc).GetApp("my-app")
 	if err != nil {
 		t.Fatalf("GetApp returned error: %v", err)
 	}
@@ -4302,7 +4302,7 @@ func TestUpdateSetDryRunDoesNotPersist(t *testing.T) {
 		}
 	})
 
-	app, err := repo.GetApp("my-app")
+	app, err := repo.NewStore(config.DbSrc).GetApp("my-app")
 	if err != nil {
 		t.Fatalf("GetApp returned error: %v", err)
 	}

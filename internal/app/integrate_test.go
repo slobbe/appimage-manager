@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/slobbe/appimage-manager/internal/cli/config"
 	models "github.com/slobbe/appimage-manager/internal/domain"
-	"github.com/slobbe/appimage-manager/internal/infra/config"
 	repo "github.com/slobbe/appimage-manager/internal/infra/repository"
 )
 
@@ -56,7 +56,7 @@ func TestIntegrateFromLocalFileWithSymlinkedDesktopEntry(t *testing.T) {
 		t.Fatalf("desktop symlink target = %q, want %q", linkTarget, app.DesktopEntryPath)
 	}
 
-	persisted, err := repo.GetApp(app.ID)
+	persisted, err := repo.NewStore(config.DbSrc).GetApp(app.ID)
 	if err != nil {
 		t.Fatalf("expected persisted app %q: %v", app.ID, err)
 	}
@@ -117,7 +117,7 @@ func TestIntegrateFromLocalFileWithoutCacheRefreshOrPersistSkipsDatabaseSave(t *
 		t.Fatal("expected integrated app")
 	}
 
-	if _, err := repo.GetApp(app.ID); err == nil {
+	if _, err := repo.NewStore(config.DbSrc).GetApp(app.ID); err == nil {
 		t.Fatalf("expected app %q not to be persisted", app.ID)
 	}
 }
@@ -259,7 +259,7 @@ func TestIntegrateFromLocalFileMigratesGenericOldIDToReadableID(t *testing.T) {
 	if err := os.Symlink(oldDesktopPath, oldDesktopLink); err != nil {
 		t.Fatal(err)
 	}
-	if err := repo.AddApp(&models.App{
+	if err := repo.NewStore(config.DbSrc).AddApp(&models.App{
 		ID:               "desktop",
 		Name:             "ClickUp",
 		Version:          "2603135dev5rzzi",
@@ -296,10 +296,10 @@ func TestIntegrateFromLocalFileMigratesGenericOldIDToReadableID(t *testing.T) {
 	if app.LastCheckedAt != "2026-04-02T12:00:00Z" {
 		t.Fatalf("app.LastCheckedAt = %q", app.LastCheckedAt)
 	}
-	if _, err := repo.GetApp("desktop"); err == nil {
+	if _, err := repo.NewStore(config.DbSrc).GetApp("desktop"); err == nil {
 		t.Fatal("expected old desktop id to be removed from database")
 	}
-	if _, err := repo.GetApp("clickup"); err != nil {
+	if _, err := repo.NewStore(config.DbSrc).GetApp("clickup"); err != nil {
 		t.Fatalf("expected clickup id to be persisted: %v", err)
 	}
 	if _, err := os.Stat(oldAppDir); !os.IsNotExist(err) {
@@ -328,7 +328,7 @@ func TestRemoveStaleInstalledIconKeepsIconReferencedByAnotherApp(t *testing.T) {
 	if err := os.WriteFile(newIconPath, []byte("new"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := repo.AddApp(&models.App{
+	if err := repo.NewStore(config.DbSrc).AddApp(&models.App{
 		ID:       "other",
 		Name:     "Other",
 		IconPath: oldIconPath,
@@ -381,7 +381,7 @@ func TestIntegrateFromLocalFileReplacesEquivalentManagedAppWhenDesktopIDChanges(
 	if err := os.Symlink(oldDesktopPath, oldDesktopLink); err != nil {
 		t.Fatal(err)
 	}
-	if err := repo.AddApp(&models.App{
+	if err := repo.NewStore(config.DbSrc).AddApp(&models.App{
 		ID:               "t3-code-desktop",
 		Name:             "T3 Code",
 		Version:          "0.0.14",
@@ -422,10 +422,10 @@ func TestIntegrateFromLocalFileReplacesEquivalentManagedAppWhenDesktopIDChanges(
 	if app.LastCheckedAt != "2026-04-02T12:00:00Z" {
 		t.Fatalf("app.LastCheckedAt = %q", app.LastCheckedAt)
 	}
-	if _, err := repo.GetApp("t3-code-desktop"); err == nil {
+	if _, err := repo.NewStore(config.DbSrc).GetApp("t3-code-desktop"); err == nil {
 		t.Fatal("expected old app id to be removed from database")
 	}
-	persisted, err := repo.GetApp("t3-code")
+	persisted, err := repo.NewStore(config.DbSrc).GetApp("t3-code")
 	if err != nil {
 		t.Fatalf("expected new app id to be persisted: %v", err)
 	}
@@ -467,7 +467,7 @@ func TestIntegrateExistingPrefersUnprefixedDesktopLink(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := repo.AddApp(&models.App{
+	if err := repo.NewStore(config.DbSrc).AddApp(&models.App{
 		ID:               "my-app",
 		Name:             "My App",
 		ExecPath:         execPath,
@@ -495,6 +495,7 @@ func setupIntegrationConfigForTest(t *testing.T, tmp string) {
 	originalIconThemeDir := config.IconThemeDir
 	originalDbSrc := config.DbSrc
 	originalStore := defaultStore
+	originalPaths := defaultPaths
 	t.Cleanup(func() {
 		config.AimDir = originalAimDir
 		config.TempDir = originalTempDir
@@ -502,6 +503,7 @@ func setupIntegrationConfigForTest(t *testing.T, tmp string) {
 		config.IconThemeDir = originalIconThemeDir
 		config.DbSrc = originalDbSrc
 		defaultStore = originalStore
+		defaultPaths = originalPaths
 	})
 
 	config.AimDir = filepath.Join(tmp, "aim")
@@ -509,6 +511,12 @@ func setupIntegrationConfigForTest(t *testing.T, tmp string) {
 	config.DesktopDir = filepath.Join(tmp, "applications")
 	config.IconThemeDir = filepath.Join(tmp, "icons", "hicolor")
 	config.DbSrc = filepath.Join(tmp, "state", "aim", "apps.json")
+	SetPaths(Paths{
+		AimDir:       config.AimDir,
+		DesktopDir:   config.DesktopDir,
+		TempDir:      config.TempDir,
+		IconThemeDir: config.IconThemeDir,
+	})
 	SetStore(repo.NewStore(config.DbSrc))
 
 	dirs := []string{

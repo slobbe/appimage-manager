@@ -411,14 +411,14 @@ func renderManagedUpdateRows(cmd *cobra.Command, opts runtimeOptions, rows []upd
 
 func collectManagedUpdateTargets(targetID string) ([]*models.App, error) {
 	if strings.TrimSpace(targetID) != "" {
-		app, err := repo.GetApp(targetID)
+		app, err := getManagedApp(targetID)
 		if err != nil {
 			return nil, wrapManagedAppLookupError(targetID, err)
 		}
 		return []*models.App{app}, nil
 	}
 
-	allApps, err := repo.GetAllApps()
+	allApps, err := getAllManagedApps()
 	if err != nil {
 		return nil, err
 	}

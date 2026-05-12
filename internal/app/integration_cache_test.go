@@ -4,11 +4,10 @@ import (
 	"context"
 	"os/exec"
 	"testing"
-
-	"github.com/slobbe/appimage-manager/internal/infra/config"
 )
 
 func TestRefreshDesktopIntegrationCachesUsesXDGIconResource(t *testing.T) {
+	setupCachePathsForTest(t)
 	originalLookPath := integrationCacheLookPath
 	originalCommand := integrationCacheCommandContext
 	originalWarn := integrationCacheWarn
@@ -52,18 +51,15 @@ func TestRefreshDesktopIntegrationCachesUsesXDGIconResource(t *testing.T) {
 }
 
 func TestRefreshDesktopIntegrationCachesFallsBackToGtkIconCache(t *testing.T) {
+	setupCachePathsForTest(t)
 	originalLookPath := integrationCacheLookPath
 	originalCommand := integrationCacheCommandContext
 	originalWarn := integrationCacheWarn
-	originalIconThemeDir := config.IconThemeDir
 	t.Cleanup(func() {
 		integrationCacheLookPath = originalLookPath
 		integrationCacheCommandContext = originalCommand
 		integrationCacheWarn = originalWarn
-		config.IconThemeDir = originalIconThemeDir
 	})
-
-	config.IconThemeDir = "/tmp/hicolor"
 
 	integrationCacheLookPath = func(name string) (string, error) {
 		switch name {
@@ -98,6 +94,7 @@ func TestRefreshDesktopIntegrationCachesFallsBackToGtkIconCache(t *testing.T) {
 }
 
 func TestRefreshDesktopIntegrationCachesUsesKBuildSycoca6(t *testing.T) {
+	setupCachePathsForTest(t)
 	originalLookPath := integrationCacheLookPath
 	originalCommand := integrationCacheCommandContext
 	originalWarn := integrationCacheWarn
@@ -135,6 +132,7 @@ func TestRefreshDesktopIntegrationCachesUsesKBuildSycoca6(t *testing.T) {
 }
 
 func TestRefreshDesktopIntegrationCachesFallsBackToKBuildSycoca5(t *testing.T) {
+	setupCachePathsForTest(t)
 	originalLookPath := integrationCacheLookPath
 	originalCommand := integrationCacheCommandContext
 	originalWarn := integrationCacheWarn
@@ -174,6 +172,7 @@ func TestRefreshDesktopIntegrationCachesFallsBackToKBuildSycoca5(t *testing.T) {
 }
 
 func TestRefreshDesktopIntegrationCachesDoesNotWarnWhenKDEServiceCacheToolsMissing(t *testing.T) {
+	setupCachePathsForTest(t)
 	originalLookPath := integrationCacheLookPath
 	originalCommand := integrationCacheCommandContext
 	originalWarn := integrationCacheWarn
@@ -208,6 +207,7 @@ func TestRefreshDesktopIntegrationCachesDoesNotWarnWhenKDEServiceCacheToolsMissi
 }
 
 func TestRefreshDesktopIntegrationCachesWarnsWhenKDEServiceCacheFails(t *testing.T) {
+	setupCachePathsForTest(t)
 	originalLookPath := integrationCacheLookPath
 	originalCommand := integrationCacheCommandContext
 	originalWarn := integrationCacheWarn
@@ -245,6 +245,7 @@ func TestRefreshDesktopIntegrationCachesWarnsWhenKDEServiceCacheFails(t *testing
 }
 
 func TestRefreshDesktopIntegrationCachesWarnsOnCommandFailure(t *testing.T) {
+	setupCachePathsForTest(t)
 	originalLookPath := integrationCacheLookPath
 	originalCommand := integrationCacheCommandContext
 	originalWarn := integrationCacheWarn
@@ -280,4 +281,20 @@ func TestRefreshDesktopIntegrationCachesWarnsOnCommandFailure(t *testing.T) {
 	if warnings == 0 {
 		t.Fatal("expected at least one warning when icon cache refresh fails")
 	}
+}
+
+func setupCachePathsForTest(t *testing.T) {
+	t.Helper()
+
+	originalPaths := defaultPaths
+	t.Cleanup(func() {
+		defaultPaths = originalPaths
+	})
+
+	SetPaths(Paths{
+		AimDir:       "/tmp/aim",
+		DesktopDir:   "/tmp/applications",
+		TempDir:      "/tmp/cache",
+		IconThemeDir: "/tmp/hicolor",
+	})
 }

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/slobbe/appimage-manager/internal/cli/config"
 	models "github.com/slobbe/appimage-manager/internal/domain"
-	"github.com/slobbe/appimage-manager/internal/infra/config"
 )
 
 func TestSaveDBCreatesParentDirectory(t *testing.T) {
@@ -122,11 +122,11 @@ func TestUpdateCheckMetadataBatch(t *testing.T) {
 		},
 	}
 
-	if err := UpdateCheckMetadataBatch(updates); err != nil {
+	if err := NewStore(dbPath).UpdateCheckMetadataBatch(updates); err != nil {
 		t.Fatalf("UpdateCheckMetadataBatch returned error: %v", err)
 	}
 
-	appA, err := GetApp("app-a")
+	appA, err := NewStore(dbPath).GetApp("app-a")
 	if err != nil {
 		t.Fatalf("failed to load app-a: %v", err)
 	}
@@ -140,7 +140,7 @@ func TestUpdateCheckMetadataBatch(t *testing.T) {
 		t.Fatalf("app-a last_checked_at = %q, want %q", appA.LastCheckedAt, "2026-02-24T11:00:00Z")
 	}
 
-	appB, err := GetApp("app-b")
+	appB, err := NewStore(dbPath).GetApp("app-b")
 	if err != nil {
 		t.Fatalf("failed to load app-b: %v", err)
 	}
@@ -169,7 +169,7 @@ func TestUpdateCheckMetadataBatchMissingApp(t *testing.T) {
 		t.Fatalf("failed to seed DB: %v", err)
 	}
 
-	err := UpdateCheckMetadataBatch([]CheckMetadataUpdate{{
+	err := NewStore(dbPath).UpdateCheckMetadataBatch([]CheckMetadataUpdate{{
 		ID:            "missing",
 		Checked:       true,
 		Available:     true,
@@ -199,7 +199,7 @@ func TestAddAppsBatch(t *testing.T) {
 	}
 
 	apps := []*models.App{{ID: "app-a", Name: "A"}, {ID: "app-b", Name: "B"}}
-	if err := AddAppsBatch(apps, true); err != nil {
+	if err := NewStore(dbPath).AddAppsBatch(apps, true); err != nil {
 		t.Fatalf("AddAppsBatch returned error: %v", err)
 	}
 
@@ -261,16 +261,16 @@ func TestAddAppsBatchOverwriteBehavior(t *testing.T) {
 		t.Fatalf("failed to seed DB: %v", err)
 	}
 
-	err := AddAppsBatch([]*models.App{{ID: "app-a", Name: "New"}}, false)
+	err := NewStore(dbPath).AddAppsBatch([]*models.App{{ID: "app-a", Name: "New"}}, false)
 	if err == nil {
 		t.Fatal("expected overwrite protection error")
 	}
 
-	if err := AddAppsBatch([]*models.App{{ID: "app-a", Name: "New"}}, true); err != nil {
+	if err := NewStore(dbPath).AddAppsBatch([]*models.App{{ID: "app-a", Name: "New"}}, true); err != nil {
 		t.Fatalf("AddAppsBatch with overwrite returned error: %v", err)
 	}
 
-	app, err := GetApp("app-a")
+	app, err := NewStore(dbPath).GetApp("app-a")
 	if err != nil {
 		t.Fatalf("failed to load app-a: %v", err)
 	}

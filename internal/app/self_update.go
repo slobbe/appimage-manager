@@ -12,8 +12,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-
-	"github.com/slobbe/appimage-manager/internal/infra/config"
 )
 
 var (
@@ -155,11 +153,15 @@ func runInstallerScript(ctx context.Context, scriptURL string) error {
 		return fmt.Errorf("installer script download failed with status %s", resp.Status)
 	}
 
-	if err := os.MkdirAll(config.TempDir, 0o755); err != nil {
+	paths, err := requirePaths()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(paths.TempDir, 0o755); err != nil {
 		return err
 	}
 
-	scriptPath := filepath.Join(config.TempDir, "aim-upgrade-installer.sh")
+	scriptPath := filepath.Join(paths.TempDir, "aim-upgrade-installer.sh")
 	scriptFile, err := os.OpenFile(scriptPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o700)
 	if err != nil {
 		return err

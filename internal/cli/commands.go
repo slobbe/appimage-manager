@@ -13,7 +13,6 @@ import (
 	models "github.com/slobbe/appimage-manager/internal/domain"
 	"github.com/slobbe/appimage-manager/internal/infra/discovery"
 	util "github.com/slobbe/appimage-manager/internal/infra/helpers"
-	repo "github.com/slobbe/appimage-manager/internal/infra/repository"
 	"github.com/spf13/cobra"
 )
 
@@ -274,7 +273,7 @@ func resolveIntegrateTarget(input string) (*integrateTarget, error) {
 		return nil, usageError(fmt.Errorf("missing required argument <Path/To.AppImage|id>"))
 	}
 
-	if app, err := repo.GetApp(trimmed); err == nil {
+	if app, err := getManagedApp(trimmed); err == nil {
 		kind := integrateTargetIntegrated
 		if strings.TrimSpace(app.DesktopEntryLink) == "" {
 			kind = integrateTargetUnlinked
@@ -324,7 +323,7 @@ func resolveInstallTarget(input string) (*installTarget, error) {
 		return nil, usageError(fmt.Errorf("--url must use https"))
 	}
 
-	if app, err := repo.GetApp(trimmed); err == nil && app != nil {
+	if app, err := getManagedApp(trimmed); err == nil && app != nil {
 		return nil, usageError(fmt.Errorf("managed app IDs are added with 'aim add <id>'"))
 	}
 
@@ -502,7 +501,7 @@ func chooseRemoteUpdateSource(cmd *cobra.Command, id string, incoming *models.Up
 		incoming = &models.UpdateSource{Kind: models.UpdateNone}
 	}
 
-	existingApp, err := repo.GetApp(id)
+	existingApp, err := getManagedApp(id)
 	if err != nil {
 		return incoming, nil
 	}
@@ -579,7 +578,7 @@ func RemoveCmd(cmd *cobra.Command, args []string) error {
 
 	opts := runtimeOptionsFrom(cmd)
 	if opts.DryRun {
-		app, err := repo.GetApp(id)
+		app, err := getManagedApp(id)
 		if err != nil {
 			return wrapManagedAppLookupError(id, err)
 		}
@@ -647,7 +646,7 @@ func ListCmd(cmd *cobra.Command, args []string) error {
 		all = true
 	}
 
-	apps, err := repo.GetAllApps()
+	apps, err := getAllManagedApps()
 	if err != nil {
 		return err
 	}
@@ -975,7 +974,7 @@ func resolveInspectTarget(input string) (*inspectTarget, error) {
 		return nil, usageError(fmt.Errorf("missing required argument <id|Path/To.AppImage>"))
 	}
 
-	if app, err := repo.GetApp(trimmed); err == nil {
+	if app, err := getManagedApp(trimmed); err == nil {
 		return &inspectTarget{Kind: inspectTargetManaged, App: app}, nil
 	}
 
@@ -1188,7 +1187,7 @@ func unsetManagedUpdateSource(cmd *cobra.Command, app *models.App, prompt string
 	}
 
 	app.Update = &models.UpdateSource{Kind: models.UpdateNone}
-	if err := repo.UpdateApp(app); err != nil {
+	if err := updateManagedApp(app); err != nil {
 		return false, wrapWriteError(err)
 	}
 
@@ -1255,7 +1254,7 @@ func runUpdateSetMode(cmd *cobra.Command, id string) error {
 		}
 	}
 
-	app, err := repo.GetApp(id)
+	app, err := getManagedApp(id)
 	if err != nil {
 		return wrapManagedAppLookupError(id, err)
 	}
@@ -1307,7 +1306,7 @@ func runUpdateSetMode(cmd *cobra.Command, id string) error {
 	if err := withStateWriteLock(cmd, func() error {
 		logOperationf(cmd, "Setting update source for %s", id)
 		app.Update = incomingSource
-		if err := repo.UpdateApp(app); err != nil {
+		if err := updateManagedApp(app); err != nil {
 			return wrapWriteError(err)
 		}
 		return nil
@@ -1331,7 +1330,7 @@ func runUpdateUnsetMode(cmd *cobra.Command, id string) error {
 		return printConciseHelpError(cmd, "missing required input; pass --unset <id> to remove an update source")
 	}
 
-	app, err := repo.GetApp(id)
+	app, err := getManagedApp(id)
 	if err != nil {
 		return wrapManagedAppLookupError(id, err)
 	}
@@ -1473,8 +1472,8 @@ var integrateLocalApp = core.IntegrateFromLocalFile
 var readAppImageInfo = core.ReadAppImageInfo
 var getAppImageUpdateInfo = core.GetUpdateInfo
 var removeManagedApp = core.Remove
-var addAppsBatch = repo.AddAppsBatch
-var addSingleApp = repo.AddApp
+var addAppsBatch = defaultAddAppsBatch
+var addSingleApp = defaultAddSingleApp
 
 const defaultReleaseAssetPattern = "*.AppImage"
 

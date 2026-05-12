@@ -9,7 +9,6 @@ import (
 	"sync"
 
 	models "github.com/slobbe/appimage-manager/internal/domain"
-	"github.com/slobbe/appimage-manager/internal/infra/config"
 	util "github.com/slobbe/appimage-manager/internal/infra/helpers"
 )
 
@@ -31,6 +30,10 @@ func IntegrateFromLocalFileWithoutCacheRefreshOrPersist(ctx context.Context, src
 
 func integrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwrite UpdateOverwritePrompt, refreshCaches bool, persist bool) (*models.App, error) {
 	store, err := requireStore()
+	if err != nil {
+		return nil, err
+	}
+	paths, err := requirePaths()
 	if err != nil {
 		return nil, err
 	}
@@ -137,7 +140,7 @@ func integrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 		}
 	}
 
-	outDir := filepath.Join(config.AimDir, appID)
+	outDir := filepath.Join(paths.AimDir, appID)
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return nil, err
 	}
@@ -287,6 +290,11 @@ func IntegrateExisting(ctx context.Context, id string) (*models.App, error) {
 }
 
 func MakeDesktopLink(src, preferredName, fallbackName string) (string, error) {
+	paths, err := requirePaths()
+	if err != nil {
+		return "", err
+	}
+
 	if src == "" {
 		return "", fmt.Errorf("source cannot be empty")
 	}
@@ -295,7 +303,7 @@ func MakeDesktopLink(src, preferredName, fallbackName string) (string, error) {
 		return "", fmt.Errorf("desktop link name cannot be empty")
 	}
 
-	desktopLink, err := util.ResolveDesktopLinkPath(config.DesktopDir, src, preferredName, fallbackName)
+	desktopLink, err := util.ResolveDesktopLinkPath(paths.DesktopDir, src, preferredName, fallbackName)
 	if err != nil {
 		return "", err
 	}
@@ -310,13 +318,18 @@ func MakeDesktopLink(src, preferredName, fallbackName string) (string, error) {
 }
 
 func removeStaleInstalledIcon(store AppStore, oldPath, newPath, appID string) {
+	paths, err := requirePaths()
+	if err != nil {
+		return
+	}
+
 	oldPath = filepath.Clean(strings.TrimSpace(oldPath))
 	newPath = filepath.Clean(strings.TrimSpace(newPath))
 	if oldPath == "." || oldPath == "" || oldPath == newPath {
 		return
 	}
 
-	appDir := filepath.Join(config.AimDir, appID)
+	appDir := filepath.Join(paths.AimDir, appID)
 	if oldPath == appDir || strings.HasPrefix(oldPath, appDir+string(filepath.Separator)) {
 		return
 	}

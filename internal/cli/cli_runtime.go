@@ -13,7 +13,7 @@ import (
 	"time"
 
 	core "github.com/slobbe/appimage-manager/internal/app"
-	"github.com/slobbe/appimage-manager/internal/infra/config"
+	"github.com/slobbe/appimage-manager/internal/cli/config"
 	"github.com/slobbe/appimage-manager/internal/infra/discovery"
 	repo "github.com/slobbe/appimage-manager/internal/infra/repository"
 	"github.com/spf13/cobra"
@@ -63,6 +63,7 @@ func prepareRuntime(cmd *cobra.Command) error {
 	}
 	core.SetHTTPClientTimeout(settings.NetworkTimeout)
 	core.SetDownloadHTTPClientTimeout(settings.NetworkTimeout)
+	core.SetPaths(appPathsFromConfig(config.CurrentPaths()))
 	core.SetStore(repo.NewStore(config.DbSrc))
 	discovery.SetHTTPClientTimeout(settings.NetworkTimeout)
 
@@ -79,6 +80,15 @@ func prepareRuntime(cmd *cobra.Command) error {
 	ctx = context.WithValue(ctx, runtimeSettingsContextKey{}, settings)
 	cmd.SetContext(ctx)
 	return nil
+}
+
+func appPathsFromConfig(paths config.Paths) core.Paths {
+	return core.Paths{
+		AimDir:       paths.AimDir,
+		DesktopDir:   paths.DesktopDir,
+		TempDir:      paths.TempDir,
+		IconThemeDir: paths.IconThemeDir,
+	}
 }
 
 func loadRuntimeSettings() (runtimeSettings, error) {

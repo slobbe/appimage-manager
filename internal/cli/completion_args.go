@@ -4,7 +4,6 @@ import (
 	"sort"
 	"strings"
 
-	repo "github.com/slobbe/appimage-manager/internal/infra/repository"
 	"github.com/spf13/cobra"
 )
 
@@ -14,7 +13,7 @@ type managedAppCompletion struct {
 }
 
 func completeManagedAppIDs(toComplete string, directive cobra.ShellCompDirective) ([]cobra.Completion, cobra.ShellCompDirective) {
-	apps, err := repo.GetAllApps()
+	apps, err := getAllManagedApps()
 	if err != nil {
 		return nil, directive
 	}

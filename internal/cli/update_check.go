@@ -166,7 +166,7 @@ func flushManagedCheckMetadata(updates []repo.CheckMetadataUpdate) error {
 		return nil
 	}
 
-	return repo.UpdateCheckMetadataBatch(updates)
+	return updateCheckMetadataBatch(updates)
 }
 
 func updateCheckMetadata(app *models.App, checked, available bool, latest string) error {
@@ -176,7 +176,7 @@ func updateCheckMetadata(app *models.App, checked, available bool, latest string
 
 	lastCheckedAt := util.NowISO()
 
-	if err := repo.UpdateCheckMetadataBatch([]repo.CheckMetadataUpdate{{
+	if err := updateCheckMetadataBatch([]repo.CheckMetadataUpdate{{
 		ID:            app.ID,
 		Checked:       checked,
 		Available:     available,

@@ -44,7 +44,3 @@ func (s *Store) UpdateCheckMetadataBatch(updates []CheckMetadataUpdate) error {
 
 	return s.save(db)
 }
-
-func UpdateCheckMetadataBatch(updates []CheckMetadataUpdate) error {
-	return DefaultStore().UpdateCheckMetadataBatch(updates)
-}

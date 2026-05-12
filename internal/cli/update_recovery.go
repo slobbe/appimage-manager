@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/slobbe/appimage-manager/internal/cli/config"
 	models "github.com/slobbe/appimage-manager/internal/domain"
-	"github.com/slobbe/appimage-manager/internal/infra/config"
 	util "github.com/slobbe/appimage-manager/internal/infra/helpers"
 )
 

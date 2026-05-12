@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	models "github.com/slobbe/appimage-manager/internal/domain"
-	"github.com/slobbe/appimage-manager/internal/infra/config"
 )
 
 type Store struct {
@@ -14,10 +13,6 @@ type Store struct {
 
 func NewStore(path string) *Store {
 	return &Store{path: strings.TrimSpace(path)}
-}
-
-func DefaultStore() *Store {
-	return NewStore(config.DbSrc)
 }
 
 func (s *Store) requirePath() (string, error) {
@@ -169,28 +164,4 @@ func (s *Store) GetAllApps() (map[string]*models.App, error) {
 	}
 
 	return db.Apps, nil
-}
-
-func AddApp(appData *models.App, overwrite bool) error {
-	return DefaultStore().AddApp(appData, overwrite)
-}
-
-func AddAppsBatch(apps []*models.App, overwrite bool) error {
-	return DefaultStore().AddAppsBatch(apps, overwrite)
-}
-
-func UpdateApp(appData *models.App) error {
-	return DefaultStore().UpdateApp(appData)
-}
-
-func RemoveApp(key string) error {
-	return DefaultStore().RemoveApp(key)
-}
-
-func GetApp(key string) (*models.App, error) {
-	return DefaultStore().GetApp(key)
-}
-
-func GetAllApps() (map[string]*models.App, error) {
-	return DefaultStore().GetAllApps()
 }

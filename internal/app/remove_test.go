@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/slobbe/appimage-manager/internal/cli/config"
 	models "github.com/slobbe/appimage-manager/internal/domain"
-	"github.com/slobbe/appimage-manager/internal/infra/config"
 	repo "github.com/slobbe/appimage-manager/internal/infra/repository"
 )
 
@@ -59,7 +59,7 @@ func TestRemoveUnlinkPreservesManagedFiles(t *testing.T) {
 		t.Fatalf("returned app DesktopEntryLink = %q, want empty", app.DesktopEntryLink)
 	}
 
-	persisted, err := repo.GetApp("my-app")
+	persisted, err := repo.NewStore(config.DbSrc).GetApp("my-app")
 	if err != nil {
 		t.Fatalf("expected app to remain persisted: %v", err)
 	}
@@ -121,7 +121,7 @@ func TestRemoveDeletesManagedFilesWhenNotUnlinking(t *testing.T) {
 		t.Fatalf("Remove returned error: %v", err)
 	}
 
-	if _, err := repo.GetApp("my-app"); err == nil {
+	if _, err := repo.NewStore(config.DbSrc).GetApp("my-app"); err == nil {
 		t.Fatal("expected app to be removed from database")
 	}
 	if _, err := os.Stat(appDir); !os.IsNotExist(err) {

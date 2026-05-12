@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -383,6 +384,8 @@ func TestRunInstallerScriptRejectsBadStatus(t *testing.T) {
 }
 
 func TestRunInstallerScriptExecutesDownloadedScript(t *testing.T) {
+	setupSelfUpdatePathsForTest(t)
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("#!/bin/sh\nexit 0\n"))
@@ -404,6 +407,8 @@ func TestRunInstallerScriptExecutesDownloadedScript(t *testing.T) {
 }
 
 func TestRunInstallerScriptSurfacesFailureOutput(t *testing.T) {
+	setupSelfUpdatePathsForTest(t)
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("#!/bin/sh\necho failure-output >&2\nexit 7\n"))
@@ -429,4 +434,21 @@ func TestRunInstallerScriptSurfacesFailureOutput(t *testing.T) {
 	if !strings.Contains(err.Error(), "failure-output") {
 		t.Fatalf("expected installer output in error: %v", err)
 	}
+}
+
+func setupSelfUpdatePathsForTest(t *testing.T) {
+	t.Helper()
+
+	originalPaths := defaultPaths
+	t.Cleanup(func() {
+		defaultPaths = originalPaths
+	})
+
+	tmp := t.TempDir()
+	SetPaths(Paths{
+		AimDir:       filepath.Join(tmp, "aim"),
+		DesktopDir:   filepath.Join(tmp, "applications"),
+		TempDir:      filepath.Join(tmp, "cache", "tmp"),
+		IconThemeDir: filepath.Join(tmp, "icons", "hicolor"),
+	})
 }

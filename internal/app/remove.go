@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	models "github.com/slobbe/appimage-manager/internal/domain"
-	"github.com/slobbe/appimage-manager/internal/infra/config"
 )
 
 func Remove(ctx context.Context, id string, unlink bool) (*models.App, error) {
@@ -21,6 +20,11 @@ func Remove(ctx context.Context, id string, unlink bool) (*models.App, error) {
 }
 
 func remove(ctx context.Context, store AppStore, id string, unlink bool) (*models.App, error) {
+	paths, err := requirePaths()
+	if err != nil {
+		return nil, err
+	}
+
 	appData, err := store.GetApp(id)
 	if err != nil {
 		return nil, fmt.Errorf("no app with id %s exists", id)
@@ -40,7 +44,7 @@ func remove(ctx context.Context, store AppStore, id string, unlink bool) (*model
 			return appData, err
 		}
 
-		appDir := filepath.Join(config.AimDir, appData.ID)
+		appDir := filepath.Join(paths.AimDir, appData.ID)
 		if appData.IconPath != "" {
 			iconPath := filepath.Clean(appData.IconPath)
 			if iconPath != appDir && !strings.HasPrefix(iconPath, appDir+string(filepath.Separator)) {
