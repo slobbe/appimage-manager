@@ -11,7 +11,6 @@ import (
 	models "github.com/slobbe/appimage-manager/internal/domain"
 	"github.com/slobbe/appimage-manager/internal/infra/config"
 	util "github.com/slobbe/appimage-manager/internal/infra/helpers"
-	repo "github.com/slobbe/appimage-manager/internal/infra/repository"
 )
 
 type UpdateOverwritePrompt func(existing, incoming *models.UpdateSource) (bool, error)
@@ -31,11 +30,16 @@ func IntegrateFromLocalFileWithoutCacheRefreshOrPersist(ctx context.Context, src
 }
 
 func integrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwrite UpdateOverwritePrompt, refreshCaches bool, persist bool) (*models.App, error) {
+	store, err := requireStore()
+	if err != nil {
+		return nil, err
+	}
+
 	if !util.HasExtension(src, ".AppImage") {
 		return nil, fmt.Errorf("source file must be a .AppImage file")
 	}
 
-	src, err := util.MakeAbsolute(src)
+	src, err = util.MakeAbsolute(src)
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +104,7 @@ func integrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 		Update: update,
 	}
 
-	appID, replacementApp, err := ResolveManagedAppID(appInfo.Name, upstreamID, src, incomingIdentity)
+	appID, replacementApp, err := resolveManagedAppID(store, appInfo.Name, upstreamID, src, incomingIdentity)
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +112,7 @@ func integrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 	var existingApp *models.App
 	if replacementApp != nil {
 		existingApp = replacementApp
-	} else if appData, err := repo.GetApp(appID); err == nil {
+	} else if appData, err := store.GetApp(appID); err == nil {
 		existingApp = appData
 	} else if !strings.Contains(err.Error(), "does not exists in database") {
 		return nil, err
@@ -157,7 +161,7 @@ func integrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 	extractionData.IconPath = installedIconPath
 
 	if existingApp != nil && replacementApp == nil {
-		removeStaleInstalledIcon(existingApp.IconPath, installedIconPath, appID)
+		removeStaleInstalledIcon(store, existingApp.IconPath, installedIconPath, appID)
 	}
 
 	if err := UpdateDesktopEntry(ctx, extractionData.DesktopEntryPath, extractionData.ExecPath, desktopIconValue); err != nil {
@@ -231,11 +235,11 @@ func integrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 	}
 
 	if persist {
-		if err := repo.AddApp(app, true); err != nil {
+		if err := store.AddApp(app, true); err != nil {
 			return nil, err
 		}
 		if replacementApp != nil {
-			if _, err := Remove(ctx, replacementApp.ID, false); err != nil {
+			if _, err := remove(ctx, store, replacementApp.ID, false); err != nil {
 				return nil, err
 			}
 			app.ReplacesID = ""
@@ -250,7 +254,12 @@ func IntegrateExisting(ctx context.Context, id string) (*models.App, error) {
 		return nil, fmt.Errorf("id cannot be empty")
 	}
 
-	app, err := repo.GetApp(id)
+	store, err := requireStore()
+	if err != nil {
+		return nil, err
+	}
+
+	app, err := store.GetApp(id)
 	if err != nil {
 		return app, err
 	}
@@ -270,7 +279,7 @@ func IntegrateExisting(ctx context.Context, id string) (*models.App, error) {
 
 	refreshDesktopIntegrationCaches(ctx)
 
-	if err := repo.AddApp(app, true); err != nil {
+	if err := store.AddApp(app, true); err != nil {
 		return app, err
 	}
 
@@ -300,7 +309,7 @@ func MakeDesktopLink(src, preferredName, fallbackName string) (string, error) {
 	return desktopLink, nil
 }
 
-func removeStaleInstalledIcon(oldPath, newPath, appID string) {
+func removeStaleInstalledIcon(store AppStore, oldPath, newPath, appID string) {
 	oldPath = filepath.Clean(strings.TrimSpace(oldPath))
 	newPath = filepath.Clean(strings.TrimSpace(newPath))
 	if oldPath == "." || oldPath == "" || oldPath == newPath {
@@ -312,7 +321,7 @@ func removeStaleInstalledIcon(oldPath, newPath, appID string) {
 		return
 	}
 
-	allApps, err := repo.GetAllApps()
+	allApps, err := store.GetAllApps()
 	if err != nil {
 		return
 	}

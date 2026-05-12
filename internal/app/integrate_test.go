@@ -336,7 +336,7 @@ func TestRemoveStaleInstalledIconKeepsIconReferencedByAnotherApp(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	removeStaleInstalledIcon(oldIconPath, newIconPath, "clickup")
+	removeStaleInstalledIcon(defaultStore, oldIconPath, newIconPath, "clickup")
 
 	if _, err := os.Stat(oldIconPath); err != nil {
 		t.Fatalf("expected shared icon to remain: %v", err)
@@ -494,12 +494,14 @@ func setupIntegrationConfigForTest(t *testing.T, tmp string) {
 	originalDesktopDir := config.DesktopDir
 	originalIconThemeDir := config.IconThemeDir
 	originalDbSrc := config.DbSrc
+	originalStore := defaultStore
 	t.Cleanup(func() {
 		config.AimDir = originalAimDir
 		config.TempDir = originalTempDir
 		config.DesktopDir = originalDesktopDir
 		config.IconThemeDir = originalIconThemeDir
 		config.DbSrc = originalDbSrc
+		defaultStore = originalStore
 	})
 
 	config.AimDir = filepath.Join(tmp, "aim")
@@ -507,6 +509,7 @@ func setupIntegrationConfigForTest(t *testing.T, tmp string) {
 	config.DesktopDir = filepath.Join(tmp, "applications")
 	config.IconThemeDir = filepath.Join(tmp, "icons", "hicolor")
 	config.DbSrc = filepath.Join(tmp, "state", "aim", "apps.json")
+	SetStore(repo.NewStore(config.DbSrc))
 
 	dirs := []string{
 		config.AimDir,

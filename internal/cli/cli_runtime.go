@@ -15,6 +15,7 @@ import (
 	core "github.com/slobbe/appimage-manager/internal/app"
 	"github.com/slobbe/appimage-manager/internal/infra/config"
 	"github.com/slobbe/appimage-manager/internal/infra/discovery"
+	repo "github.com/slobbe/appimage-manager/internal/infra/repository"
 	"github.com/spf13/cobra"
 )
 
@@ -62,6 +63,7 @@ func prepareRuntime(cmd *cobra.Command) error {
 	}
 	core.SetHTTPClientTimeout(settings.NetworkTimeout)
 	core.SetDownloadHTTPClientTimeout(settings.NetworkTimeout)
+	core.SetStore(repo.NewStore(config.DbSrc))
 	discovery.SetHTTPClientTimeout(settings.NetworkTimeout)
 
 	if opts.Debug {

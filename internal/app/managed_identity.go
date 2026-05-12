@@ -9,16 +9,24 @@ import (
 
 	models "github.com/slobbe/appimage-manager/internal/domain"
 	util "github.com/slobbe/appimage-manager/internal/infra/helpers"
-	repo "github.com/slobbe/appimage-manager/internal/infra/repository"
 )
 
 func ResolveManagedAppID(appName, upstreamID, hashSeed string, incoming *models.App) (string, *models.App, error) {
+	store, err := requireStore()
+	if err != nil {
+		return "", nil, err
+	}
+
+	return resolveManagedAppID(store, appName, upstreamID, hashSeed, incoming)
+}
+
+func resolveManagedAppID(store AppStore, appName, upstreamID, hashSeed string, incoming *models.App) (string, *models.App, error) {
 	candidates := managedIDCandidates(appName, upstreamID, hashSeed)
 	if len(candidates) == 0 {
 		return "", nil, fmt.Errorf("managed app id cannot be empty")
 	}
 
-	allApps, err := repo.GetAllApps()
+	allApps, err := store.GetAllApps()
 	if err != nil {
 		return "", nil, err
 	}
@@ -104,7 +112,12 @@ func FindEquivalentManagedApp(incoming *models.App) (*models.App, error) {
 		return nil, nil
 	}
 
-	allApps, err := repo.GetAllApps()
+	store, err := requireStore()
+	if err != nil {
+		return nil, err
+	}
+
+	allApps, err := store.GetAllApps()
 	if err != nil {
 		return nil, err
 	}

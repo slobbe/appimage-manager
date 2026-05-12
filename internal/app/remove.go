@@ -9,11 +9,19 @@ import (
 
 	models "github.com/slobbe/appimage-manager/internal/domain"
 	"github.com/slobbe/appimage-manager/internal/infra/config"
-	repo "github.com/slobbe/appimage-manager/internal/infra/repository"
 )
 
 func Remove(ctx context.Context, id string, unlink bool) (*models.App, error) {
-	appData, err := repo.GetApp(id)
+	store, err := requireStore()
+	if err != nil {
+		return nil, err
+	}
+
+	return remove(ctx, store, id, unlink)
+}
+
+func remove(ctx context.Context, store AppStore, id string, unlink bool) (*models.App, error) {
+	appData, err := store.GetApp(id)
 	if err != nil {
 		return nil, fmt.Errorf("no app with id %s exists", id)
 	}
@@ -24,11 +32,11 @@ func Remove(ctx context.Context, id string, unlink bool) (*models.App, error) {
 
 	if unlink {
 		appData.DesktopEntryLink = ""
-		if err := repo.AddApp(appData, true); err != nil {
+		if err := store.AddApp(appData, true); err != nil {
 			return appData, err
 		}
 	} else {
-		if err := repo.RemoveApp(appData.ID); err != nil {
+		if err := store.RemoveApp(appData.ID); err != nil {
 			return appData, err
 		}
 
