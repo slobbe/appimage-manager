@@ -40,21 +40,16 @@ func TestResolveIntegrateTarget(t *testing.T) {
 		config.DbSrc = originalDbSrc
 	})
 
-	db := &repo.DB{
-		SchemaVersion: 1,
-		Apps: map[string]*models.App{
-			"integrated": {
-				ID:               "integrated",
-				DesktopEntryLink: "/tmp/integrated.desktop",
-			},
-			"unlinked": {
-				ID:               "unlinked",
-				DesktopEntryLink: "",
-			},
+	if err := repo.NewStore(dbPath).ReplaceApps(map[string]*models.App{
+		"integrated": {
+			ID:               "integrated",
+			DesktopEntryLink: "/tmp/integrated.desktop",
 		},
-	}
-
-	if err := repo.SaveDB(dbPath, db); err != nil {
+		"unlinked": {
+			ID:               "unlinked",
+			DesktopEntryLink: "",
+		},
+	}); err != nil {
 		t.Fatalf("failed to write test DB: %v", err)
 	}
 
@@ -110,15 +105,11 @@ func TestResolveInstallTarget(t *testing.T) {
 		config.DbSrc = originalDbSrc
 	})
 
-	db := &repo.DB{
-		SchemaVersion: 1,
-		Apps: map[string]*models.App{
-			"managed": {
-				ID: "managed",
-			},
+	if err := repo.NewStore(dbPath).ReplaceApps(map[string]*models.App{
+		"managed": {
+			ID: "managed",
 		},
-	}
-	if err := repo.SaveDB(dbPath, db); err != nil {
+	}); err != nil {
 		t.Fatalf("failed to write test DB: %v", err)
 	}
 
@@ -891,11 +882,8 @@ func TestUpdateCheckMetadata(t *testing.T) {
 		config.DbSrc = originalDbSrc
 	})
 
-	if err := repo.SaveDB(dbPath, &repo.DB{
-		SchemaVersion: 1,
-		Apps: map[string]*models.App{
-			"my-app": {ID: "my-app", Name: "My App"},
-		},
+	if err := repo.NewStore(dbPath).ReplaceApps(map[string]*models.App{
+		"my-app": {ID: "my-app", Name: "My App"},
 	}); err != nil {
 		t.Fatalf("failed to write test DB: %v", err)
 	}
@@ -935,15 +923,12 @@ func TestAddCmdManagedIDAlreadyIntegratedMessage(t *testing.T) {
 		config.DbSrc = originalDbSrc
 	})
 
-	if err := repo.SaveDB(dbPath, &repo.DB{
-		SchemaVersion: 1,
-		Apps: map[string]*models.App{
-			"my-app": {
-				ID:               "my-app",
-				Name:             "My App",
-				Version:          "1.0.0",
-				DesktopEntryLink: "/tmp/my-app.desktop",
-			},
+	if err := repo.NewStore(dbPath).ReplaceApps(map[string]*models.App{
+		"my-app": {
+			ID:               "my-app",
+			Name:             "My App",
+			Version:          "1.0.0",
+			DesktopEntryLink: "/tmp/my-app.desktop",
 		},
 	}); err != nil {
 		t.Fatalf("failed to write test DB: %v", err)
@@ -978,14 +963,11 @@ func TestAddCmdManagedIDReintegratedMessage(t *testing.T) {
 		config.DbSrc = originalDbSrc
 	})
 
-	if err := repo.SaveDB(dbPath, &repo.DB{
-		SchemaVersion: 1,
-		Apps: map[string]*models.App{
-			"my-app": {
-				ID:      "my-app",
-				Name:    "My App",
-				Version: "1.0.0",
-			},
+	if err := repo.NewStore(dbPath).ReplaceApps(map[string]*models.App{
+		"my-app": {
+			ID:      "my-app",
+			Name:    "My App",
+			Version: "1.0.0",
 		},
 	}); err != nil {
 		t.Fatalf("failed to write test DB: %v", err)
@@ -1054,15 +1036,12 @@ func TestAddCmdRoutesManagedIDToIntegrateFlow(t *testing.T) {
 		config.DbSrc = originalDbSrc
 	})
 
-	if err := repo.SaveDB(dbPath, &repo.DB{
-		SchemaVersion: 1,
-		Apps: map[string]*models.App{
-			"my-app": {
-				ID:               "my-app",
-				Name:             "My App",
-				Version:          "1.0.0",
-				DesktopEntryLink: "/tmp/my-app.desktop",
-			},
+	if err := repo.NewStore(dbPath).ReplaceApps(map[string]*models.App{
+		"my-app": {
+			ID:               "my-app",
+			Name:             "My App",
+			Version:          "1.0.0",
+			DesktopEntryLink: "/tmp/my-app.desktop",
 		},
 	}); err != nil {
 		t.Fatalf("failed to write test DB: %v", err)
@@ -1169,11 +1148,8 @@ func TestAddCmdRejectsLocalTargetsWithRemoteFlags(t *testing.T) {
 		config.DbSrc = originalDbSrc
 	})
 
-	if err := repo.SaveDB(dbPath, &repo.DB{
-		SchemaVersion: 1,
-		Apps: map[string]*models.App{
-			"my-app": {ID: "my-app"},
-		},
+	if err := repo.NewStore(dbPath).ReplaceApps(map[string]*models.App{
+		"my-app": {ID: "my-app"},
 	}); err != nil {
 		t.Fatalf("failed to write test DB: %v", err)
 	}
@@ -2187,11 +2163,8 @@ func TestAddRemoteResolverRejectsManagedID(t *testing.T) {
 		config.DbSrc = originalDbSrc
 	})
 
-	if err := repo.SaveDB(dbPath, &repo.DB{
-		SchemaVersion: 1,
-		Apps: map[string]*models.App{
-			"my-app": {ID: "my-app"},
-		},
+	if err := repo.NewStore(dbPath).ReplaceApps(map[string]*models.App{
+		"my-app": {ID: "my-app"},
 	}); err != nil {
 		t.Fatalf("failed to write test DB: %v", err)
 	}
@@ -2216,7 +2189,7 @@ func TestListCmdEmptyStates(t *testing.T) {
 			config.DbSrc = originalDbSrc
 		})
 
-		if err := repo.SaveDB(dbPath, &repo.DB{SchemaVersion: 1, Apps: map[string]*models.App{}}); err != nil {
+		if err := repo.NewStore(dbPath).ReplaceApps(map[string]*models.App{}); err != nil {
 			t.Fatalf("failed to write test DB: %v", err)
 		}
 
@@ -2241,11 +2214,8 @@ func TestListCmdEmptyStates(t *testing.T) {
 			config.DbSrc = originalDbSrc
 		})
 
-		if err := repo.SaveDB(dbPath, &repo.DB{
-			SchemaVersion: 1,
-			Apps: map[string]*models.App{
-				"my-app": {ID: "my-app", Name: "My App"},
-			},
+		if err := repo.NewStore(dbPath).ReplaceApps(map[string]*models.App{
+			"my-app": {ID: "my-app", Name: "My App"},
 		}); err != nil {
 			t.Fatalf("failed to write test DB: %v", err)
 		}
@@ -2271,11 +2241,8 @@ func TestListCmdEmptyStates(t *testing.T) {
 			config.DbSrc = originalDbSrc
 		})
 
-		if err := repo.SaveDB(dbPath, &repo.DB{
-			SchemaVersion: 1,
-			Apps: map[string]*models.App{
-				"my-app": {ID: "my-app", Name: "My App", DesktopEntryLink: "/tmp/my-app.desktop"},
-			},
+		if err := repo.NewStore(dbPath).ReplaceApps(map[string]*models.App{
+			"my-app": {ID: "my-app", Name: "My App", DesktopEntryLink: "/tmp/my-app.desktop"},
 		}); err != nil {
 			t.Fatalf("failed to write test DB: %v", err)
 		}
@@ -2302,21 +2269,18 @@ func TestListCmdUsesDynamicIDWidthAndTruncatesLongNames(t *testing.T) {
 		config.DbSrc = originalDbSrc
 	})
 
-	if err := repo.SaveDB(dbPath, &repo.DB{
-		SchemaVersion: 1,
-		Apps: map[string]*models.App{
-			"obsidian": {
-				ID:               "obsidian",
-				Name:             "Obsidian",
-				Version:          "1.12.4",
-				DesktopEntryLink: "/tmp/obsidian.desktop",
-			},
-			"raspberry-pi-imager": {
-				ID:               "raspberry-pi-imager",
-				Name:             "Raspberry Pi Imager With An Extremely Long Name",
-				Version:          "2.0.6",
-				DesktopEntryLink: "/tmp/rpi.desktop",
-			},
+	if err := repo.NewStore(dbPath).ReplaceApps(map[string]*models.App{
+		"obsidian": {
+			ID:               "obsidian",
+			Name:             "Obsidian",
+			Version:          "1.12.4",
+			DesktopEntryLink: "/tmp/obsidian.desktop",
+		},
+		"raspberry-pi-imager": {
+			ID:               "raspberry-pi-imager",
+			Name:             "Raspberry Pi Imager With An Extremely Long Name",
+			Version:          "2.0.6",
+			DesktopEntryLink: "/tmp/rpi.desktop",
 		},
 	}); err != nil {
 		t.Fatalf("failed to write test DB: %v", err)
@@ -2443,24 +2407,21 @@ func TestInfoCmdManagedShowsEmbeddedSource(t *testing.T) {
 		config.DbSrc = originalDbSrc
 	})
 
-	if err := repo.SaveDB(dbPath, &repo.DB{
-		SchemaVersion: 1,
-		Apps: map[string]*models.App{
-			"my-app": {
-				ID:              "my-app",
-				Name:            "My App",
-				Version:         "1.0.0",
-				ExecPath:        "/tmp/MyApp.AppImage",
-				Update:          &models.UpdateSource{Kind: models.UpdateNone},
-				UpdateAvailable: true,
-				LatestVersion:   "1.1.0",
-				LastCheckedAt:   "2026-03-16T12:00:00Z",
-				Source: models.Source{
-					Kind: models.SourceGitHubRelease,
-					GitHubRelease: &models.GitHubReleaseSource{
-						Repo:  "owner/repo",
-						Asset: "*.AppImage",
-					},
+	if err := repo.NewStore(dbPath).ReplaceApps(map[string]*models.App{
+		"my-app": {
+			ID:              "my-app",
+			Name:            "My App",
+			Version:         "1.0.0",
+			ExecPath:        "/tmp/MyApp.AppImage",
+			Update:          &models.UpdateSource{Kind: models.UpdateNone},
+			UpdateAvailable: true,
+			LatestVersion:   "1.1.0",
+			LastCheckedAt:   "2026-03-16T12:00:00Z",
+			Source: models.Source{
+				Kind: models.SourceGitHubRelease,
+				GitHubRelease: &models.GitHubReleaseSource{
+					Repo:  "owner/repo",
+					Asset: "*.AppImage",
 				},
 			},
 		},
@@ -2522,20 +2483,17 @@ func TestInfoCmdManagedShowsMissingEmbeddedSource(t *testing.T) {
 		config.DbSrc = originalDbSrc
 	})
 
-	if err := repo.SaveDB(dbPath, &repo.DB{
-		SchemaVersion: 1,
-		Apps: map[string]*models.App{
-			"my-app": {
-				ID:       "my-app",
-				Name:     "My App",
-				Version:  "1.0.0",
-				ExecPath: "/tmp/MyApp.AppImage",
-				Update: &models.UpdateSource{
-					Kind: models.UpdateGitHubRelease,
-					GitHubRelease: &models.GitHubReleaseUpdateSource{
-						Repo:  "owner/repo",
-						Asset: "*.AppImage",
-					},
+	if err := repo.NewStore(dbPath).ReplaceApps(map[string]*models.App{
+		"my-app": {
+			ID:       "my-app",
+			Name:     "My App",
+			Version:  "1.0.0",
+			ExecPath: "/tmp/MyApp.AppImage",
+			Update: &models.UpdateSource{
+				Kind: models.UpdateGitHubRelease,
+				GitHubRelease: &models.GitHubReleaseUpdateSource{
+					Repo:  "owner/repo",
+					Asset: "*.AppImage",
 				},
 			},
 		},
@@ -2623,23 +2581,20 @@ func TestInfoCmdManagedApp(t *testing.T) {
 		config.DbSrc = originalDbSrc
 	})
 
-	if err := repo.SaveDB(dbPath, &repo.DB{
-		SchemaVersion: 1,
-		Apps: map[string]*models.App{
-			"my-app": {
-				ID:              "my-app",
-				Name:            "My App",
-				Version:         "1.0.0",
-				ExecPath:        "/tmp/MyApp.AppImage",
-				UpdateAvailable: true,
-				LatestVersion:   "1.1.0",
-				LastCheckedAt:   "2026-03-17T12:00:00Z",
-				Update: &models.UpdateSource{
-					Kind: models.UpdateGitHubRelease,
-					GitHubRelease: &models.GitHubReleaseUpdateSource{
-						Repo:  "owner/repo",
-						Asset: "*.AppImage",
-					},
+	if err := repo.NewStore(dbPath).ReplaceApps(map[string]*models.App{
+		"my-app": {
+			ID:              "my-app",
+			Name:            "My App",
+			Version:         "1.0.0",
+			ExecPath:        "/tmp/MyApp.AppImage",
+			UpdateAvailable: true,
+			LatestVersion:   "1.1.0",
+			LastCheckedAt:   "2026-03-17T12:00:00Z",
+			Update: &models.UpdateSource{
+				Kind: models.UpdateGitHubRelease,
+				GitHubRelease: &models.GitHubReleaseUpdateSource{
+					Repo:  "owner/repo",
+					Asset: "*.AppImage",
 				},
 			},
 		},
@@ -2819,7 +2774,7 @@ func TestAddPromptsForMissingInputOnTTY(t *testing.T) {
 		ExecPath:         filepath.Join(tmp, "MyApp.AppImage"),
 		DesktopEntryLink: filepath.Join(tmp, "applications", "my-app.desktop"),
 	}
-	if err := repo.SaveDB(dbPath, &repo.DB{SchemaVersion: 1, Apps: map[string]*models.App{"my-app": app}}); err != nil {
+	if err := repo.NewStore(dbPath).ReplaceApps(map[string]*models.App{"my-app": app}); err != nil {
 		t.Fatalf("failed to write db: %v", err)
 	}
 
@@ -2854,7 +2809,7 @@ func TestInfoPromptsForMissingInputOnTTY(t *testing.T) {
 		ExecPath:         filepath.Join(tmp, "MyApp.AppImage"),
 		DesktopEntryLink: filepath.Join(tmp, "applications", "my-app.desktop"),
 	}
-	if err := repo.SaveDB(dbPath, &repo.DB{SchemaVersion: 1, Apps: map[string]*models.App{"my-app": app}}); err != nil {
+	if err := repo.NewStore(dbPath).ReplaceApps(map[string]*models.App{"my-app": app}); err != nil {
 		t.Fatalf("failed to write db: %v", err)
 	}
 
@@ -2888,7 +2843,7 @@ func TestRemovePromptsForMissingInputOnTTY(t *testing.T) {
 		ExecPath:         filepath.Join(tmp, "aim", "my-app", "my-app.AppImage"),
 		DesktopEntryLink: filepath.Join(tmp, "applications", "my-app.desktop"),
 	}
-	if err := repo.SaveDB(dbPath, &repo.DB{SchemaVersion: 1, Apps: map[string]*models.App{"my-app": app}}); err != nil {
+	if err := repo.NewStore(dbPath).ReplaceApps(map[string]*models.App{"my-app": app}); err != nil {
 		t.Fatalf("failed to write db: %v", err)
 	}
 
@@ -2917,19 +2872,16 @@ func TestUpdateSetEmbeddedSetsEmbeddedSource(t *testing.T) {
 		config.DbSrc = originalDbSrc
 	})
 
-	if err := repo.SaveDB(dbPath, &repo.DB{
-		SchemaVersion: 1,
-		Apps: map[string]*models.App{
-			"my-app": {
-				ID:       "my-app",
-				Name:     "My App",
-				ExecPath: "/tmp/MyApp.AppImage",
-				Update: &models.UpdateSource{
-					Kind: models.UpdateGitHubRelease,
-					GitHubRelease: &models.GitHubReleaseUpdateSource{
-						Repo:  "owner/repo",
-						Asset: "*.AppImage",
-					},
+	if err := repo.NewStore(dbPath).ReplaceApps(map[string]*models.App{
+		"my-app": {
+			ID:       "my-app",
+			Name:     "My App",
+			ExecPath: "/tmp/MyApp.AppImage",
+			Update: &models.UpdateSource{
+				Kind: models.UpdateGitHubRelease,
+				GitHubRelease: &models.GitHubReleaseUpdateSource{
+					Repo:  "owner/repo",
+					Asset: "*.AppImage",
 				},
 			},
 		},
@@ -2987,15 +2939,12 @@ func TestUpdateSetEmbeddedMissingPromptsToUnsetOrKeep(t *testing.T) {
 
 	writeDB := func(update *models.UpdateSource) {
 		t.Helper()
-		if err := repo.SaveDB(dbPath, &repo.DB{
-			SchemaVersion: 1,
-			Apps: map[string]*models.App{
-				"my-app": {
-					ID:       "my-app",
-					Name:     "My App",
-					ExecPath: "/tmp/MyApp.AppImage",
-					Update:   update,
-				},
+		if err := repo.NewStore(dbPath).ReplaceApps(map[string]*models.App{
+			"my-app": {
+				ID:       "my-app",
+				Name:     "My App",
+				ExecPath: "/tmp/MyApp.AppImage",
+				Update:   update,
 			},
 		}); err != nil {
 			t.Fatalf("failed to write test DB: %v", err)
@@ -3072,15 +3021,12 @@ func TestUpdateSetEmbeddedMissingWithoutConfiguredSource(t *testing.T) {
 		config.DbSrc = originalDbSrc
 	})
 
-	if err := repo.SaveDB(dbPath, &repo.DB{
-		SchemaVersion: 1,
-		Apps: map[string]*models.App{
-			"my-app": {
-				ID:       "my-app",
-				Name:     "My App",
-				ExecPath: "/tmp/MyApp.AppImage",
-				Update:   &models.UpdateSource{Kind: models.UpdateNone},
-			},
+	if err := repo.NewStore(dbPath).ReplaceApps(map[string]*models.App{
+		"my-app": {
+			ID:       "my-app",
+			Name:     "My App",
+			ExecPath: "/tmp/MyApp.AppImage",
+			Update:   &models.UpdateSource{Kind: models.UpdateNone},
 		},
 	}); err != nil {
 		t.Fatalf("failed to write test DB: %v", err)
@@ -3120,14 +3066,11 @@ func TestUpdateUnsetCommand(t *testing.T) {
 
 	writeDB := func(update *models.UpdateSource) {
 		t.Helper()
-		if err := repo.SaveDB(dbPath, &repo.DB{
-			SchemaVersion: 1,
-			Apps: map[string]*models.App{
-				"my-app": {
-					ID:     "my-app",
-					Name:   "My App",
-					Update: update,
-				},
+		if err := repo.NewStore(dbPath).ReplaceApps(map[string]*models.App{
+			"my-app": {
+				ID:     "my-app",
+				Name:   "My App",
+				Update: update,
 			},
 		}); err != nil {
 			t.Fatalf("failed to write test DB: %v", err)
@@ -3337,12 +3280,9 @@ func TestListCSVOutput(t *testing.T) {
 		config.DbSrc = originalDbSrc
 	})
 
-	if err := repo.SaveDB(dbPath, &repo.DB{
-		SchemaVersion: 1,
-		Apps: map[string]*models.App{
-			"z-app": {ID: "z-app", Name: "Zed", Version: "1.0.0", ExecPath: "/tmp/z.AppImage"},
-			"a-app": {ID: "a-app", Name: "Alpha", Version: "2.0.0", ExecPath: "/tmp/a.AppImage"},
-		},
+	if err := repo.NewStore(dbPath).ReplaceApps(map[string]*models.App{
+		"z-app": {ID: "z-app", Name: "Zed", Version: "1.0.0", ExecPath: "/tmp/z.AppImage"},
+		"a-app": {ID: "a-app", Name: "Alpha", Version: "2.0.0", ExecPath: "/tmp/a.AppImage"},
 	}); err != nil {
 		t.Fatalf("failed to write test db: %v", err)
 	}
@@ -3377,16 +3317,13 @@ func TestListPlainOutput(t *testing.T) {
 		config.DbSrc = originalDbSrc
 	})
 
-	if err := repo.SaveDB(dbPath, &repo.DB{
-		SchemaVersion: 1,
-		Apps: map[string]*models.App{
-			"obsidian": {
-				ID:               "obsidian",
-				Name:             "Obsidian",
-				Version:          "1.8.10",
-				ExecPath:         "/tmp/Obsidian.AppImage",
-				DesktopEntryLink: "/tmp/obsidian.desktop",
-			},
+	if err := repo.NewStore(dbPath).ReplaceApps(map[string]*models.App{
+		"obsidian": {
+			ID:               "obsidian",
+			Name:             "Obsidian",
+			Version:          "1.8.10",
+			ExecPath:         "/tmp/Obsidian.AppImage",
+			DesktopEntryLink: "/tmp/obsidian.desktop",
 		},
 	}); err != nil {
 		t.Fatalf("failed to write test db: %v", err)
@@ -3529,7 +3466,7 @@ func TestRemoveDryRunDoesNotMutateDB(t *testing.T) {
 		ExecPath:         filepath.Join(tmp, "aim", "my-app", "my-app.AppImage"),
 		DesktopEntryLink: filepath.Join(tmp, "applications", "my-app.desktop"),
 	}
-	if err := repo.SaveDB(dbPath, &repo.DB{SchemaVersion: 1, Apps: map[string]*models.App{"my-app": app}}); err != nil {
+	if err := repo.NewStore(dbPath).ReplaceApps(map[string]*models.App{"my-app": app}); err != nil {
 		t.Fatalf("failed to write db: %v", err)
 	}
 
@@ -3570,7 +3507,7 @@ func TestUpdateUnsetFailsNonInteractiveWithoutYes(t *testing.T) {
 			},
 		},
 	}
-	if err := repo.SaveDB(dbPath, &repo.DB{SchemaVersion: 1, Apps: map[string]*models.App{"my-app": app}}); err != nil {
+	if err := repo.NewStore(dbPath).ReplaceApps(map[string]*models.App{"my-app": app}); err != nil {
 		t.Fatalf("failed to write db: %v", err)
 	}
 
@@ -3606,7 +3543,7 @@ func TestUpdateUnsetFailsWithNoInputWithoutYes(t *testing.T) {
 			},
 		},
 	}
-	if err := repo.SaveDB(dbPath, &repo.DB{SchemaVersion: 1, Apps: map[string]*models.App{"my-app": app}}); err != nil {
+	if err := repo.NewStore(dbPath).ReplaceApps(map[string]*models.App{"my-app": app}); err != nil {
 		t.Fatalf("failed to write db: %v", err)
 	}
 
@@ -3642,7 +3579,7 @@ func TestUpdateUnsetYesBypassesPrompt(t *testing.T) {
 			},
 		},
 	}
-	if err := repo.SaveDB(dbPath, &repo.DB{SchemaVersion: 1, Apps: map[string]*models.App{"my-app": app}}); err != nil {
+	if err := repo.NewStore(dbPath).ReplaceApps(map[string]*models.App{"my-app": app}); err != nil {
 		t.Fatalf("failed to write db: %v", err)
 	}
 
@@ -3669,18 +3606,15 @@ func TestManagedUpdateJSONOutput(t *testing.T) {
 		config.DbSrc = originalDbSrc
 	})
 
-	if err := repo.SaveDB(dbPath, &repo.DB{
-		SchemaVersion: 1,
-		Apps: map[string]*models.App{
-			"my-app": {
-				ID:      "my-app",
-				Version: "1.0.0",
-				Update: &models.UpdateSource{
-					Kind: models.UpdateGitHubRelease,
-					GitHubRelease: &models.GitHubReleaseUpdateSource{
-						Repo:  "owner/repo",
-						Asset: "*.AppImage",
-					},
+	if err := repo.NewStore(dbPath).ReplaceApps(map[string]*models.App{
+		"my-app": {
+			ID:      "my-app",
+			Version: "1.0.0",
+			Update: &models.UpdateSource{
+				Kind: models.UpdateGitHubRelease,
+				GitHubRelease: &models.GitHubReleaseUpdateSource{
+					Repo:  "owner/repo",
+					Asset: "*.AppImage",
 				},
 			},
 		},
@@ -4031,7 +3965,7 @@ func TestRemoveMissingAppExitCode(t *testing.T) {
 		config.DbSrc = originalDbSrc
 	})
 
-	if err := repo.SaveDB(dbPath, &repo.DB{SchemaVersion: 1, Apps: map[string]*models.App{}}); err != nil {
+	if err := repo.NewStore(dbPath).ReplaceApps(map[string]*models.App{}); err != nil {
 		t.Fatalf("failed to write db: %v", err)
 	}
 
@@ -4158,15 +4092,12 @@ func TestInfoReadableOutputUsesStdoutOnly(t *testing.T) {
 		config.DbSrc = originalDbSrc
 	})
 
-	if err := repo.SaveDB(dbPath, &repo.DB{
-		SchemaVersion: 1,
-		Apps: map[string]*models.App{
-			"my-app": {
-				ID:       "my-app",
-				Name:     "My App",
-				Version:  "1.0.0",
-				ExecPath: filepath.Join(tmp, "my-app.AppImage"),
-			},
+	if err := repo.NewStore(dbPath).ReplaceApps(map[string]*models.App{
+		"my-app": {
+			ID:       "my-app",
+			Name:     "My App",
+			Version:  "1.0.0",
+			ExecPath: filepath.Join(tmp, "my-app.AppImage"),
 		},
 	}); err != nil {
 		t.Fatalf("failed to write db: %v", err)
@@ -4291,7 +4222,7 @@ func TestUpdateSetDryRunDoesNotPersist(t *testing.T) {
 			},
 		},
 	}
-	if err := repo.SaveDB(dbPath, &repo.DB{SchemaVersion: 1, Apps: map[string]*models.App{"my-app": original}}); err != nil {
+	if err := repo.NewStore(dbPath).ReplaceApps(map[string]*models.App{"my-app": original}); err != nil {
 		t.Fatalf("failed to write db: %v", err)
 	}
 
@@ -4782,13 +4713,10 @@ func TestRunManagedUpdateSingleUpToDatePrintedOnce(t *testing.T) {
 		config.DbSrc = originalDbSrc
 	})
 
-	if err := repo.SaveDB(dbPath, &repo.DB{
-		SchemaVersion: 1,
-		Apps: map[string]*models.App{
-			"my-app": {
-				ID:   "my-app",
-				Name: "My App",
-			},
+	if err := repo.NewStore(dbPath).ReplaceApps(map[string]*models.App{
+		"my-app": {
+			ID:   "my-app",
+			Name: "My App",
 		},
 	}); err != nil {
 		t.Fatalf("failed to write test DB: %v", err)
@@ -4831,11 +4759,8 @@ func TestRunManagedUpdateSingleNoSourceConfigured(t *testing.T) {
 		config.DbSrc = originalDbSrc
 	})
 
-	if err := repo.SaveDB(dbPath, &repo.DB{
-		SchemaVersion: 1,
-		Apps: map[string]*models.App{
-			"my-app": {ID: "my-app", Name: "My App"},
-		},
+	if err := repo.NewStore(dbPath).ReplaceApps(map[string]*models.App{
+		"my-app": {ID: "my-app", Name: "My App"},
 	}); err != nil {
 		t.Fatalf("failed to write test DB: %v", err)
 	}
@@ -4885,12 +4810,9 @@ func TestRunManagedUpdateBatchContinuesOnCheckFailure(t *testing.T) {
 		config.DbSrc = originalDbSrc
 	})
 
-	if err := repo.SaveDB(dbPath, &repo.DB{
-		SchemaVersion: 1,
-		Apps: map[string]*models.App{
-			"app-a": {ID: "app-a", Name: "App A"},
-			"app-b": {ID: "app-b", Name: "App B"},
-		},
+	if err := repo.NewStore(dbPath).ReplaceApps(map[string]*models.App{
+		"app-a": {ID: "app-a", Name: "App A"},
+		"app-b": {ID: "app-b", Name: "App B"},
 	}); err != nil {
 		t.Fatalf("failed to write test DB: %v", err)
 	}
@@ -4940,11 +4862,8 @@ func TestRunManagedUpdateSingleCheckFailureRewritesError(t *testing.T) {
 		config.DbSrc = originalDbSrc
 	})
 
-	if err := repo.SaveDB(dbPath, &repo.DB{
-		SchemaVersion: 1,
-		Apps: map[string]*models.App{
-			"my-app": {ID: "my-app", Name: "My App"},
-		},
+	if err := repo.NewStore(dbPath).ReplaceApps(map[string]*models.App{
+		"my-app": {ID: "my-app", Name: "My App"},
 	}); err != nil {
 		t.Fatalf("failed to write test DB: %v", err)
 	}
@@ -4984,12 +4903,9 @@ func TestRunManagedUpdateBatchAllUpToDateSummary(t *testing.T) {
 		config.DbSrc = originalDbSrc
 	})
 
-	if err := repo.SaveDB(dbPath, &repo.DB{
-		SchemaVersion: 1,
-		Apps: map[string]*models.App{
-			"app-a": {ID: "app-a", Name: "App A"},
-			"app-b": {ID: "app-b", Name: "App B"},
-		},
+	if err := repo.NewStore(dbPath).ReplaceApps(map[string]*models.App{
+		"app-a": {ID: "app-a", Name: "App A"},
+		"app-b": {ID: "app-b", Name: "App B"},
 	}); err != nil {
 		t.Fatalf("failed to write test DB: %v", err)
 	}
@@ -5027,11 +4943,8 @@ func TestRunManagedUpdateCheckOnlyShowsDownloadAndAsset(t *testing.T) {
 		config.DbSrc = originalDbSrc
 	})
 
-	if err := repo.SaveDB(dbPath, &repo.DB{
-		SchemaVersion: 1,
-		Apps: map[string]*models.App{
-			"my-app": {ID: "my-app", Name: "My App", Version: "1.0.0"},
-		},
+	if err := repo.NewStore(dbPath).ReplaceApps(map[string]*models.App{
+		"my-app": {ID: "my-app", Name: "My App", Version: "1.0.0"},
 	}); err != nil {
 		t.Fatalf("failed to write test DB: %v", err)
 	}
@@ -5079,11 +4992,8 @@ func TestRunManagedUpdateSinglePromptText(t *testing.T) {
 		config.DbSrc = originalDbSrc
 	})
 
-	if err := repo.SaveDB(dbPath, &repo.DB{
-		SchemaVersion: 1,
-		Apps: map[string]*models.App{
-			"my-app": {ID: "my-app", Name: "My App", Version: "1.0.0"},
-		},
+	if err := repo.NewStore(dbPath).ReplaceApps(map[string]*models.App{
+		"my-app": {ID: "my-app", Name: "My App", Version: "1.0.0"},
 	}); err != nil {
 		t.Fatalf("failed to write test DB: %v", err)
 	}
@@ -5127,12 +5037,9 @@ func TestRunManagedUpdateBatchPromptText(t *testing.T) {
 		config.DbSrc = originalDbSrc
 	})
 
-	if err := repo.SaveDB(dbPath, &repo.DB{
-		SchemaVersion: 1,
-		Apps: map[string]*models.App{
-			"app-a": {ID: "app-a", Name: "App A", Version: "1.0.0"},
-			"app-b": {ID: "app-b", Name: "App B", Version: "2.0.0"},
-		},
+	if err := repo.NewStore(dbPath).ReplaceApps(map[string]*models.App{
+		"app-a": {ID: "app-a", Name: "App A", Version: "1.0.0"},
+		"app-b": {ID: "app-b", Name: "App B", Version: "2.0.0"},
 	}); err != nil {
 		t.Fatalf("failed to write test DB: %v", err)
 	}
@@ -5953,11 +5860,8 @@ func TestRunManagedUpdateUsesUnifiedApplyUIForSingleApp(t *testing.T) {
 		runManagedApply = originalApply
 	})
 
-	if err := repo.SaveDB(dbPath, &repo.DB{
-		SchemaVersion: 1,
-		Apps: map[string]*models.App{
-			"my-app": {ID: "my-app", Name: "My App", Version: "1.0.0"},
-		},
+	if err := repo.NewStore(dbPath).ReplaceApps(map[string]*models.App{
+		"my-app": {ID: "my-app", Name: "My App", Version: "1.0.0"},
 	}); err != nil {
 		t.Fatalf("failed to write test DB: %v", err)
 	}
@@ -6125,7 +6029,7 @@ func TestRunManagedUpdateAppliesConcurrentlyWithMaxFiveWorkers(t *testing.T) {
 		id := fmt.Sprintf("app-%d", idx)
 		apps[id] = &models.App{ID: id, Name: id, Version: "1.0.0"}
 	}
-	if err := repo.SaveDB(dbPath, &repo.DB{SchemaVersion: 1, Apps: apps}); err != nil {
+	if err := repo.NewStore(dbPath).ReplaceApps(apps); err != nil {
 		t.Fatalf("failed to write test DB: %v", err)
 	}
 
@@ -6187,12 +6091,9 @@ func TestRunManagedUpdateAllowsConcurrentDownloadStages(t *testing.T) {
 		runManagedApply = originalApply
 	})
 
-	if err := repo.SaveDB(dbPath, &repo.DB{
-		SchemaVersion: 1,
-		Apps: map[string]*models.App{
-			"app-a": {ID: "app-a", Version: "1.0.0"},
-			"app-b": {ID: "app-b", Version: "1.0.0"},
-		},
+	if err := repo.NewStore(dbPath).ReplaceApps(map[string]*models.App{
+		"app-a": {ID: "app-a", Version: "1.0.0"},
+		"app-b": {ID: "app-b", Version: "1.0.0"},
 	}); err != nil {
 		t.Fatalf("failed to write test DB: %v", err)
 	}
@@ -6281,13 +6182,10 @@ func TestRunManagedUpdatePersistsSuccessesInPendingOrder(t *testing.T) {
 		addSingleApp = originalSingle
 	})
 
-	if err := repo.SaveDB(dbPath, &repo.DB{
-		SchemaVersion: 1,
-		Apps: map[string]*models.App{
-			"app-a": {ID: "app-a", Version: "1.0.0"},
-			"app-b": {ID: "app-b", Version: "1.0.0"},
-			"app-c": {ID: "app-c", Version: "1.0.0"},
-		},
+	if err := repo.NewStore(dbPath).ReplaceApps(map[string]*models.App{
+		"app-a": {ID: "app-a", Version: "1.0.0"},
+		"app-b": {ID: "app-b", Version: "1.0.0"},
+		"app-c": {ID: "app-c", Version: "1.0.0"},
 	}); err != nil {
 		t.Fatalf("failed to write test DB: %v", err)
 	}
@@ -6345,12 +6243,9 @@ func TestRunManagedUpdateContinuesAfterApplyFailure(t *testing.T) {
 		addAppsBatch = originalBatch
 	})
 
-	if err := repo.SaveDB(dbPath, &repo.DB{
-		SchemaVersion: 1,
-		Apps: map[string]*models.App{
-			"app-a": {ID: "app-a", Version: "1.0.0"},
-			"app-b": {ID: "app-b", Version: "1.0.0"},
-		},
+	if err := repo.NewStore(dbPath).ReplaceApps(map[string]*models.App{
+		"app-a": {ID: "app-a", Version: "1.0.0"},
+		"app-b": {ID: "app-b", Version: "1.0.0"},
 	}); err != nil {
 		t.Fatalf("failed to write test DB: %v", err)
 	}
@@ -6729,18 +6624,15 @@ func TestUpdateSetPromptText(t *testing.T) {
 		config.DbSrc = originalDbSrc
 	})
 
-	if err := repo.SaveDB(dbPath, &repo.DB{
-		SchemaVersion: 1,
-		Apps: map[string]*models.App{
-			"my-app": {
-				ID:   "my-app",
-				Name: "My App",
-				Update: &models.UpdateSource{
-					Kind: models.UpdateGitHubRelease,
-					GitHubRelease: &models.GitHubReleaseUpdateSource{
-						Repo:  "owner/repo",
-						Asset: "*.AppImage",
-					},
+	if err := repo.NewStore(dbPath).ReplaceApps(map[string]*models.App{
+		"my-app": {
+			ID:   "my-app",
+			Name: "My App",
+			Update: &models.UpdateSource{
+				Kind: models.UpdateGitHubRelease,
+				GitHubRelease: &models.GitHubReleaseUpdateSource{
+					Repo:  "owner/repo",
+					Asset: "*.AppImage",
 				},
 			},
 		},
@@ -7001,12 +6893,9 @@ func setupManagedAppCompletionFixture(t *testing.T) {
 		config.DbSrc = originalDbSrc
 	})
 
-	if err := repo.SaveDB(dbPath, &repo.DB{
-		SchemaVersion: 1,
-		Apps: map[string]*models.App{
-			"alpha-app": {ID: "alpha-app", Name: "Alpha App"},
-			"beta-app":  {ID: "beta-app", Name: "Beta App"},
-		},
+	if err := repo.NewStore(dbPath).ReplaceApps(map[string]*models.App{
+		"alpha-app": {ID: "alpha-app", Name: "Alpha App"},
+		"beta-app":  {ID: "beta-app", Name: "Beta App"},
 	}); err != nil {
 		t.Fatalf("failed to write completion test DB: %v", err)
 	}

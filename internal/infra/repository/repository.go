@@ -22,20 +22,20 @@ func (s *Store) requirePath() (string, error) {
 	return s.path, nil
 }
 
-func (s *Store) load() (*DB, error) {
+func (s *Store) load() (*db, error) {
 	path, err := s.requirePath()
 	if err != nil {
 		return nil, err
 	}
-	return LoadDB(path)
+	return loadDB(path)
 }
 
-func (s *Store) save(db *DB) error {
+func (s *Store) save(data *db) error {
 	path, err := s.requirePath()
 	if err != nil {
 		return err
 	}
-	return SaveDB(path, db)
+	return saveDB(path, data)
 }
 
 func (s *Store) AddApp(appData *models.App, overwrite bool) error {
@@ -164,4 +164,12 @@ func (s *Store) GetAllApps() (map[string]*models.App, error) {
 	}
 
 	return db.Apps, nil
+}
+
+func (s *Store) ReplaceApps(apps map[string]*models.App) error {
+	if apps == nil {
+		apps = map[string]*models.App{}
+	}
+
+	return s.save(&db{SchemaVersion: 1, Apps: apps})
 }

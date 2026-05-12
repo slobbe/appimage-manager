@@ -35,17 +35,14 @@ func TestRemoveUnlinkPreservesManagedFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := repo.SaveDB(config.DbSrc, &repo.DB{
-		SchemaVersion: 1,
-		Apps: map[string]*models.App{
-			"my-app": {
-				ID:               "my-app",
-				Name:             "My App",
-				ExecPath:         execPath,
-				DesktopEntryPath: desktopPath,
-				DesktopEntryLink: desktopLink,
-				IconPath:         iconPath,
-			},
+	if err := repo.NewStore(config.DbSrc).ReplaceApps(map[string]*models.App{
+		"my-app": {
+			ID:               "my-app",
+			Name:             "My App",
+			ExecPath:         execPath,
+			DesktopEntryPath: desktopPath,
+			DesktopEntryLink: desktopLink,
+			IconPath:         iconPath,
 		},
 	}); err != nil {
 		t.Fatal(err)
@@ -101,17 +98,14 @@ func TestRemoveDeletesManagedFilesWhenNotUnlinking(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := repo.SaveDB(config.DbSrc, &repo.DB{
-		SchemaVersion: 1,
-		Apps: map[string]*models.App{
-			"my-app": {
-				ID:               "my-app",
-				Name:             "My App",
-				ExecPath:         execPath,
-				DesktopEntryPath: desktopPath,
-				DesktopEntryLink: desktopLink,
-				IconPath:         externalIcon,
-			},
+	if err := repo.NewStore(config.DbSrc).ReplaceApps(map[string]*models.App{
+		"my-app": {
+			ID:               "my-app",
+			Name:             "My App",
+			ExecPath:         execPath,
+			DesktopEntryPath: desktopPath,
+			DesktopEntryLink: desktopLink,
+			IconPath:         externalIcon,
 		},
 	}); err != nil {
 		t.Fatal(err)

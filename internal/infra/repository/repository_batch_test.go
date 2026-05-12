@@ -11,21 +11,21 @@ import (
 	models "github.com/slobbe/appimage-manager/internal/domain"
 )
 
-func TestSaveDBCreatesParentDirectory(t *testing.T) {
+func TestSaveCreatesParentDirectory(t *testing.T) {
 	tmp := t.TempDir()
 	dbPath := filepath.Join(tmp, "nested", "state", "aim", "apps.json")
 
-	if err := SaveDB(dbPath, &DB{SchemaVersion: 1, Apps: map[string]*models.App{}}); err != nil {
-		t.Fatalf("SaveDB returned error: %v", err)
+	if err := saveDB(dbPath, &db{SchemaVersion: 1, Apps: map[string]*models.App{}}); err != nil {
+		t.Fatalf("save returned error: %v", err)
 	}
 
 	if _, err := os.Stat(dbPath); err != nil {
 		t.Fatalf("expected database file to exist: %v", err)
 	}
 
-	db, err := LoadDB(dbPath)
+	db, err := loadDB(dbPath)
 	if err != nil {
-		t.Fatalf("LoadDB returned error: %v", err)
+		t.Fatalf("load returned error: %v", err)
 	}
 	if db.SchemaVersion != 1 {
 		t.Fatalf("db.SchemaVersion = %d, want 1", db.SchemaVersion)
@@ -35,7 +35,7 @@ func TestSaveDBCreatesParentDirectory(t *testing.T) {
 	}
 }
 
-func TestSaveDBPreservesExistingPermissions(t *testing.T) {
+func TestSavePreservesExistingPermissions(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("permission bits are not portable on Windows")
 	}
@@ -47,8 +47,8 @@ func TestSaveDBPreservesExistingPermissions(t *testing.T) {
 		t.Fatalf("failed to seed db file: %v", err)
 	}
 
-	if err := SaveDB(dbPath, &DB{SchemaVersion: 1, Apps: map[string]*models.App{}}); err != nil {
-		t.Fatalf("SaveDB returned error: %v", err)
+	if err := saveDB(dbPath, &db{SchemaVersion: 1, Apps: map[string]*models.App{}}); err != nil {
+		t.Fatalf("save returned error: %v", err)
 	}
 
 	info, err := os.Stat(dbPath)
@@ -60,12 +60,12 @@ func TestSaveDBPreservesExistingPermissions(t *testing.T) {
 	}
 }
 
-func TestSaveDBUsesUniqueTempFilesAndCleansUp(t *testing.T) {
+func TestSaveUsesUniqueTempFilesAndCleansUp(t *testing.T) {
 	tmp := t.TempDir()
 	dbPath := filepath.Join(tmp, "apps.json")
 
-	if err := SaveDB(dbPath, &DB{SchemaVersion: 1, Apps: map[string]*models.App{}}); err != nil {
-		t.Fatalf("SaveDB returned error: %v", err)
+	if err := saveDB(dbPath, &db{SchemaVersion: 1, Apps: map[string]*models.App{}}); err != nil {
+		t.Fatalf("save returned error: %v", err)
 	}
 
 	matches, err := filepath.Glob(filepath.Join(tmp, ".apps.json.*.tmp"))
@@ -87,7 +87,7 @@ func TestUpdateCheckMetadataBatch(t *testing.T) {
 		config.DbSrc = originalDbSrc
 	})
 
-	if err := SaveDB(dbPath, &DB{
+	if err := saveDB(dbPath, &db{
 		SchemaVersion: 1,
 		Apps: map[string]*models.App{
 			"app-a": {
@@ -102,7 +102,7 @@ func TestUpdateCheckMetadataBatch(t *testing.T) {
 			},
 		},
 	}); err != nil {
-		t.Fatalf("failed to seed DB: %v", err)
+		t.Fatalf("failed to seed db: %v", err)
 	}
 
 	updates := []CheckMetadataUpdate{
@@ -165,8 +165,8 @@ func TestUpdateCheckMetadataBatchMissingApp(t *testing.T) {
 		config.DbSrc = originalDbSrc
 	})
 
-	if err := SaveDB(dbPath, &DB{SchemaVersion: 1, Apps: map[string]*models.App{}}); err != nil {
-		t.Fatalf("failed to seed DB: %v", err)
+	if err := saveDB(dbPath, &db{SchemaVersion: 1, Apps: map[string]*models.App{}}); err != nil {
+		t.Fatalf("failed to seed db: %v", err)
 	}
 
 	err := NewStore(dbPath).UpdateCheckMetadataBatch([]CheckMetadataUpdate{{
@@ -194,8 +194,8 @@ func TestAddAppsBatch(t *testing.T) {
 		config.DbSrc = originalDbSrc
 	})
 
-	if err := SaveDB(dbPath, &DB{SchemaVersion: 1, Apps: map[string]*models.App{}}); err != nil {
-		t.Fatalf("failed to seed DB: %v", err)
+	if err := saveDB(dbPath, &db{SchemaVersion: 1, Apps: map[string]*models.App{}}); err != nil {
+		t.Fatalf("failed to seed db: %v", err)
 	}
 
 	apps := []*models.App{{ID: "app-a", Name: "A"}, {ID: "app-b", Name: "B"}}
@@ -203,7 +203,7 @@ func TestAddAppsBatch(t *testing.T) {
 		t.Fatalf("AddAppsBatch returned error: %v", err)
 	}
 
-	db, err := LoadDB(dbPath)
+	db, err := loadDB(dbPath)
 	if err != nil {
 		t.Fatalf("failed to load db: %v", err)
 	}
@@ -252,13 +252,13 @@ func TestAddAppsBatchOverwriteBehavior(t *testing.T) {
 		config.DbSrc = originalDbSrc
 	})
 
-	if err := SaveDB(dbPath, &DB{
+	if err := saveDB(dbPath, &db{
 		SchemaVersion: 1,
 		Apps: map[string]*models.App{
 			"app-a": {ID: "app-a", Name: "Old"},
 		},
 	}); err != nil {
-		t.Fatalf("failed to seed DB: %v", err)
+		t.Fatalf("failed to seed db: %v", err)
 	}
 
 	err := NewStore(dbPath).AddAppsBatch([]*models.App{{ID: "app-a", Name: "New"}}, false)
@@ -279,7 +279,7 @@ func TestAddAppsBatchOverwriteBehavior(t *testing.T) {
 	}
 }
 
-func TestLoadDBRejectsUnsupportedUpdateKind(t *testing.T) {
+func TestLoadRejectsUnsupportedUpdateKind(t *testing.T) {
 	tmp := t.TempDir()
 	dbPath := filepath.Join(tmp, "apps.json")
 
@@ -296,10 +296,10 @@ func TestLoadDBRejectsUnsupportedUpdateKind(t *testing.T) {
   }
 }`
 	if err := os.WriteFile(dbPath, []byte(raw), 0o644); err != nil {
-		t.Fatalf("failed to write legacy DB: %v", err)
+		t.Fatalf("failed to write legacy db: %v", err)
 	}
 
-	_, err := LoadDB(dbPath)
+	_, err := loadDB(dbPath)
 	if err == nil {
 		t.Fatal("expected unsupported update kind error")
 	}
@@ -308,7 +308,7 @@ func TestLoadDBRejectsUnsupportedUpdateKind(t *testing.T) {
 	}
 }
 
-func TestLoadDBRejectsMissingSchemaVersion(t *testing.T) {
+func TestLoadRejectsMissingSchemaVersion(t *testing.T) {
 	tmp := t.TempDir()
 	dbPath := filepath.Join(tmp, "apps.json")
 
@@ -319,7 +319,7 @@ func TestLoadDBRejectsMissingSchemaVersion(t *testing.T) {
 		t.Fatalf("failed to write db: %v", err)
 	}
 
-	_, err := LoadDB(dbPath)
+	_, err := loadDB(dbPath)
 	if err == nil {
 		t.Fatal("expected schema version error")
 	}
@@ -328,7 +328,7 @@ func TestLoadDBRejectsMissingSchemaVersion(t *testing.T) {
 	}
 }
 
-func TestLoadDBRejectsZeroSchemaVersion(t *testing.T) {
+func TestLoadRejectsZeroSchemaVersion(t *testing.T) {
 	tmp := t.TempDir()
 	dbPath := filepath.Join(tmp, "apps.json")
 
@@ -340,7 +340,7 @@ func TestLoadDBRejectsZeroSchemaVersion(t *testing.T) {
 		t.Fatalf("failed to write db: %v", err)
 	}
 
-	_, err := LoadDB(dbPath)
+	_, err := loadDB(dbPath)
 	if err == nil {
 		t.Fatal("expected schema version error")
 	}
@@ -349,7 +349,7 @@ func TestLoadDBRejectsZeroSchemaVersion(t *testing.T) {
 	}
 }
 
-func TestLoadDBRejectsUnsupportedSchemaVersion(t *testing.T) {
+func TestLoadRejectsUnsupportedSchemaVersion(t *testing.T) {
 	tmp := t.TempDir()
 	dbPath := filepath.Join(tmp, "apps.json")
 
@@ -361,7 +361,7 @@ func TestLoadDBRejectsUnsupportedSchemaVersion(t *testing.T) {
 		t.Fatalf("failed to write db: %v", err)
 	}
 
-	_, err := LoadDB(dbPath)
+	_, err := loadDB(dbPath)
 	if err == nil {
 		t.Fatal("expected schema version error")
 	}
@@ -370,7 +370,7 @@ func TestLoadDBRejectsUnsupportedSchemaVersion(t *testing.T) {
 	}
 }
 
-func TestLoadDBRejectsMissingAppsCollection(t *testing.T) {
+func TestLoadRejectsMissingAppsCollection(t *testing.T) {
 	tmp := t.TempDir()
 	dbPath := filepath.Join(tmp, "apps.json")
 
@@ -381,7 +381,7 @@ func TestLoadDBRejectsMissingAppsCollection(t *testing.T) {
 		t.Fatalf("failed to write db: %v", err)
 	}
 
-	_, err := LoadDB(dbPath)
+	_, err := loadDB(dbPath)
 	if err == nil {
 		t.Fatal("expected apps collection error")
 	}
@@ -390,7 +390,7 @@ func TestLoadDBRejectsMissingAppsCollection(t *testing.T) {
 	}
 }
 
-func TestLoadDBRejectsNullAppsCollection(t *testing.T) {
+func TestLoadRejectsNullAppsCollection(t *testing.T) {
 	tmp := t.TempDir()
 	dbPath := filepath.Join(tmp, "apps.json")
 
@@ -402,7 +402,7 @@ func TestLoadDBRejectsNullAppsCollection(t *testing.T) {
 		t.Fatalf("failed to write db: %v", err)
 	}
 
-	_, err := LoadDB(dbPath)
+	_, err := loadDB(dbPath)
 	if err == nil {
 		t.Fatal("expected apps collection error")
 	}
@@ -411,7 +411,7 @@ func TestLoadDBRejectsNullAppsCollection(t *testing.T) {
 	}
 }
 
-func TestLoadDBRejectsUnsupportedDirectURLUpdateKind(t *testing.T) {
+func TestLoadRejectsUnsupportedDirectURLUpdateKind(t *testing.T) {
 	tmp := t.TempDir()
 	dbPath := filepath.Join(tmp, "apps.json")
 
@@ -428,10 +428,10 @@ func TestLoadDBRejectsUnsupportedDirectURLUpdateKind(t *testing.T) {
   }
 }`
 	if err := os.WriteFile(dbPath, []byte(raw), 0o644); err != nil {
-		t.Fatalf("failed to write legacy DB: %v", err)
+		t.Fatalf("failed to write legacy db: %v", err)
 	}
 
-	_, err := LoadDB(dbPath)
+	_, err := loadDB(dbPath)
 	if err == nil {
 		t.Fatal("expected unsupported update kind error")
 	}
@@ -440,7 +440,7 @@ func TestLoadDBRejectsUnsupportedDirectURLUpdateKind(t *testing.T) {
 	}
 }
 
-func TestLoadDBRejectsUnsupportedSourceKind(t *testing.T) {
+func TestLoadRejectsUnsupportedSourceKind(t *testing.T) {
 	tmp := t.TempDir()
 	dbPath := filepath.Join(tmp, "apps.json")
 
@@ -457,10 +457,10 @@ func TestLoadDBRejectsUnsupportedSourceKind(t *testing.T) {
   }
 }`
 	if err := os.WriteFile(dbPath, []byte(raw), 0o644); err != nil {
-		t.Fatalf("failed to write legacy DB: %v", err)
+		t.Fatalf("failed to write legacy db: %v", err)
 	}
 
-	_, err := LoadDB(dbPath)
+	_, err := loadDB(dbPath)
 	if err == nil {
 		t.Fatal("expected unsupported source kind error")
 	}

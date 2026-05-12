@@ -8,31 +8,31 @@ import (
 	models "github.com/slobbe/appimage-manager/internal/domain"
 )
 
-type DB struct {
+type db struct {
 	SchemaVersion int                    `json:"schemaVersion"`
 	Apps          map[string]*models.App `json:"apps"`
 }
 
-func LoadDB(path string) (*DB, error) {
+func loadDB(path string) (*db, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return &DB{SchemaVersion: 1, Apps: map[string]*models.App{}}, nil
+			return &db{SchemaVersion: 1, Apps: map[string]*models.App{}}, nil
 		}
 		return nil, err
 	}
-	var db DB
-	if err := json.Unmarshal(b, &db); err != nil {
+	var data db
+	if err := json.Unmarshal(b, &data); err != nil {
 		return nil, err
 	}
-	if err := validateDB(&db); err != nil {
+	if err := validateDB(&data); err != nil {
 		return nil, err
 	}
-	return &db, nil
+	return &data, nil
 }
 
-func SaveDB(path string, db *DB) error {
-	b, err := json.MarshalIndent(db, "", "  ")
+func saveDB(path string, data *db) error {
+	b, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
 		return err
 	}

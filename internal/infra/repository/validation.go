@@ -7,7 +7,7 @@ import (
 	models "github.com/slobbe/appimage-manager/internal/domain"
 )
 
-func validateDB(db *DB) error {
+func validateDB(db *db) error {
 	if db == nil {
 		return fmt.Errorf("database cannot be empty")
 	}
