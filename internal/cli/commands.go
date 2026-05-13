@@ -12,6 +12,7 @@ import (
 	appimage "github.com/slobbe/appimage-manager/internal/app/appimage"
 	"github.com/slobbe/appimage-manager/internal/app/discovery"
 	appintegrate "github.com/slobbe/appimage-manager/internal/app/integrate"
+	appremove "github.com/slobbe/appimage-manager/internal/app/remove"
 	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
 	models "github.com/slobbe/appimage-manager/internal/domain"
 	fsys "github.com/slobbe/appimage-manager/internal/infra/filesystem"
@@ -1457,7 +1458,7 @@ var integrateExistingApp = appintegrate.IntegrateExisting
 var integrateLocalApp = appintegrate.IntegrateFromLocalFile
 var readAppImageInfo = appimage.ReadAppImageInfo
 var getAppImageUpdateInfo = appupdate.GetUpdateInfo
-var removeManagedApp = core.Remove
+var removeManagedApp = appremove.Remove
 var addAppsBatch = defaultAddAppsBatch
 var addSingleApp = defaultAddSingleApp
 

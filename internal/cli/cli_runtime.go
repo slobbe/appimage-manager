@@ -15,6 +15,7 @@ import (
 	core "github.com/slobbe/appimage-manager/internal/app"
 	"github.com/slobbe/appimage-manager/internal/app/discovery"
 	appintegrate "github.com/slobbe/appimage-manager/internal/app/integrate"
+	appremove "github.com/slobbe/appimage-manager/internal/app/remove"
 	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
 	"github.com/slobbe/appimage-manager/internal/cli/config"
 	repo "github.com/slobbe/appimage-manager/internal/infra/repository"
@@ -70,6 +71,8 @@ func prepareRuntime(cmd *cobra.Command) error {
 	core.SetStore(repo.NewStore(config.DbSrc))
 	appintegrate.SetPaths(integratePathsFromConfig(config.CurrentPaths()))
 	appintegrate.SetStore(repo.NewStore(config.DbSrc))
+	appremove.SetPaths(removePathsFromConfig(config.CurrentPaths()))
+	appremove.SetStore(repo.NewStore(config.DbSrc))
 	discovery.SetHTTPClientTimeout(settings.NetworkTimeout)
 
 	if opts.Debug {
@@ -92,6 +95,14 @@ func integratePathsFromConfig(paths config.Paths) appintegrate.Paths {
 		AimDir:       paths.AimDir,
 		DesktopDir:   paths.DesktopDir,
 		TempDir:      paths.TempDir,
+		IconThemeDir: paths.IconThemeDir,
+	}
+}
+
+func removePathsFromConfig(paths config.Paths) appremove.Paths {
+	return appremove.Paths{
+		AimDir:       paths.AimDir,
+		DesktopDir:   paths.DesktopDir,
 		IconThemeDir: paths.IconThemeDir,
 	}
 }
