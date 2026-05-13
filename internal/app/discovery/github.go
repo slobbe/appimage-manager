@@ -2,35 +2,20 @@ package discovery
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"net/http"
 	"strings"
 	"time"
 
 	"github.com/slobbe/appimage-manager/internal/infra/github"
-	"github.com/slobbe/appimage-manager/internal/infra/httpclient"
 )
 
 type GitHubBackend struct{}
 
-type gitHubRepoResponse struct {
-	Name            string `json:"name"`
-	FullName        string `json:"full_name"`
-	Description     string `json:"description"`
-	HTMLURL         string `json:"html_url"`
-	StargazersCount int    `json:"stargazers_count"`
-}
-
-var githubDiscoveryHTTPClient = httpclient.New(coreHTTPTimeout)
 var resolveGitHubReleaseAssetSelectionFn = github.ResolveReleaseAssetSelection
+var fetchGitHubRepositoryFn = github.FetchRepository
 
 func SetHTTPClientTimeout(timeout time.Duration) {
-	if githubDiscoveryHTTPClient == nil {
-		githubDiscoveryHTTPClient = httpclient.New(timeout)
-	} else {
-		githubDiscoveryHTTPClient.Timeout = timeout
-	}
+	github.SetRepositoryHTTPClientTimeout(timeout)
 }
 
 func (GitHubBackend) Name() string {
@@ -51,7 +36,7 @@ func (GitHubBackend) Resolve(ctx context.Context, ref PackageRef, assetOverride 
 		return newUnavailablePackageMetadata("GitHub", ref, repoURL, assetPattern, err.Error()), nil
 	}
 
-	repoInfo, err := fetchGitHubRepo(ctx, repoSlug)
+	repoInfo, err := fetchGitHubRepositoryFn(ctx, repoSlug)
 	if err != nil {
 		return nil, err
 	}
@@ -91,30 +76,4 @@ func discoveryAssetCandidates(candidates []github.ReleaseAssetCandidate) []Asset
 		})
 	}
 	return result
-}
-
-func fetchGitHubRepo(ctx context.Context, repoSlug string) (*gitHubRepoResponse, error) {
-	requestURL := fmt.Sprintf("https://api.github.com/repos/%s", repoSlug)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-
-	resp, err := githubDiscoveryHTTPClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return nil, fmt.Errorf("github repo api returned status %s", resp.Status)
-	}
-
-	var payload gitHubRepoResponse
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return nil, err
-	}
-
-	return &payload, nil
 }

@@ -7,8 +7,8 @@ import (
 	"strings"
 
 	core "github.com/slobbe/appimage-manager/internal/app"
+	"github.com/slobbe/appimage-manager/internal/app/discovery"
 	models "github.com/slobbe/appimage-manager/internal/domain"
-	"github.com/slobbe/appimage-manager/internal/infra/discovery"
 	"github.com/spf13/cobra"
 )
 

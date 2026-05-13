@@ -2,26 +2,10 @@ package discovery
 
 import (
 	"context"
-	"net/http"
-	"net/http/httptest"
-	"net/url"
 	"testing"
 
 	"github.com/slobbe/appimage-manager/internal/infra/github"
 )
-
-type rewriteHostTransport struct {
-	base *url.URL
-	next http.RoundTripper
-}
-
-func (t *rewriteHostTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	clone := req.Clone(req.Context())
-	clone.URL.Scheme = t.base.Scheme
-	clone.URL.Host = t.base.Host
-	clone.Host = t.base.Host
-	return t.next.RoundTrip(clone)
-}
 
 func TestParseGitHubRepoValue(t *testing.T) {
 	tests := []struct {
@@ -86,27 +70,24 @@ func TestParsePackageRefURL(t *testing.T) {
 }
 
 func TestGitHubBackendResolveUsesRepoMetadataAndRelease(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"name":"obsidian-releases","full_name":"obsidianmd/obsidian-releases","description":"Releases of Obsidian","html_url":"https://github.com/obsidianmd/obsidian-releases","stargazers_count":10}`))
-	}))
-	defer server.Close()
-
-	originalClient := githubDiscoveryHTTPClient
 	originalResolveSelection := resolveGitHubReleaseAssetSelectionFn
+	originalFetchRepository := fetchGitHubRepositoryFn
 	t.Cleanup(func() {
-		githubDiscoveryHTTPClient = originalClient
 		resolveGitHubReleaseAssetSelectionFn = originalResolveSelection
+		fetchGitHubRepositoryFn = originalFetchRepository
 	})
 
-	baseURL, err := url.Parse(server.URL)
-	if err != nil {
-		t.Fatalf("failed to parse server URL: %v", err)
-	}
-	githubDiscoveryHTTPClient = &http.Client{
-		Transport: &rewriteHostTransport{
-			base: baseURL,
-			next: server.Client().Transport,
-		},
+	fetchGitHubRepositoryFn = func(ctx context.Context, repoSlug string) (*github.Repository, error) {
+		if repoSlug != "obsidianmd/obsidian-releases" {
+			t.Fatalf("unexpected repo metadata input: %s", repoSlug)
+		}
+		return &github.Repository{
+			Name:            "obsidian-releases",
+			FullName:        "obsidianmd/obsidian-releases",
+			Description:     "Releases of Obsidian",
+			HTMLURL:         "https://github.com/obsidianmd/obsidian-releases",
+			StargazersCount: 10,
+		}, nil
 	}
 	resolveGitHubReleaseAssetSelectionFn = func(repoSlug, assetPattern, arch string) (*github.ReleaseAssetSelection, error) {
 		if repoSlug != "obsidianmd/obsidian-releases" || assetPattern != "*.AppImage" {
@@ -137,27 +118,20 @@ func TestGitHubBackendResolveUsesRepoMetadataAndRelease(t *testing.T) {
 }
 
 func TestGitHubBackendResolvePreservesAmbiguousAssetCandidates(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"name":"example","full_name":"owner/repo","description":"Example","html_url":"https://github.com/owner/repo"}`))
-	}))
-	defer server.Close()
-
-	originalClient := githubDiscoveryHTTPClient
 	originalResolveSelection := resolveGitHubReleaseAssetSelectionFn
+	originalFetchRepository := fetchGitHubRepositoryFn
 	t.Cleanup(func() {
-		githubDiscoveryHTTPClient = originalClient
 		resolveGitHubReleaseAssetSelectionFn = originalResolveSelection
+		fetchGitHubRepositoryFn = originalFetchRepository
 	})
 
-	baseURL, err := url.Parse(server.URL)
-	if err != nil {
-		t.Fatalf("failed to parse server URL: %v", err)
-	}
-	githubDiscoveryHTTPClient = &http.Client{
-		Transport: &rewriteHostTransport{
-			base: baseURL,
-			next: server.Client().Transport,
-		},
+	fetchGitHubRepositoryFn = func(ctx context.Context, repoSlug string) (*github.Repository, error) {
+		return &github.Repository{
+			Name:        "example",
+			FullName:    "owner/repo",
+			Description: "Example",
+			HTMLURL:     "https://github.com/owner/repo",
+		}, nil
 	}
 	resolveGitHubReleaseAssetSelectionFn = func(repoSlug, assetPattern, arch string) (*github.ReleaseAssetSelection, error) {
 		return &github.ReleaseAssetSelection{

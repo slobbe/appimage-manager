@@ -13,8 +13,8 @@ import (
 	"time"
 
 	core "github.com/slobbe/appimage-manager/internal/app"
+	"github.com/slobbe/appimage-manager/internal/app/discovery"
 	"github.com/slobbe/appimage-manager/internal/cli/config"
-	"github.com/slobbe/appimage-manager/internal/infra/discovery"
 	repo "github.com/slobbe/appimage-manager/internal/infra/repository"
 	"github.com/spf13/cobra"
 )
