@@ -4,8 +4,10 @@ import (
 	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"os"
+	"strings"
 )
 
 func Sha256AndSha1(path string) (string, string, error) {
@@ -49,4 +51,45 @@ func Sha1(path string) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func VerifyHashes(path, expectedSHA256, expectedSHA1 string) error {
+	expectedSHA256 = strings.ToLower(strings.TrimSpace(expectedSHA256))
+	expectedSHA1 = strings.ToLower(strings.TrimSpace(expectedSHA1))
+
+	if expectedSHA256 != "" && expectedSHA1 != "" {
+		sha256sum, sha1sum, err := Sha256AndSha1(path)
+		if err != nil {
+			return err
+		}
+		if strings.ToLower(sha256sum) != expectedSHA256 {
+			return fmt.Errorf("downloaded file sha256 mismatch")
+		}
+		if strings.ToLower(sha1sum) != expectedSHA1 {
+			return fmt.Errorf("downloaded file sha1 mismatch")
+		}
+		return nil
+	}
+
+	if expectedSHA256 != "" {
+		sum, err := Sha256File(path)
+		if err != nil {
+			return err
+		}
+		if strings.ToLower(sum) != expectedSHA256 {
+			return fmt.Errorf("downloaded file sha256 mismatch")
+		}
+	}
+
+	if expectedSHA1 != "" {
+		sum, err := Sha1(path)
+		if err != nil {
+			return err
+		}
+		if strings.ToLower(sum) != expectedSHA1 {
+			return fmt.Errorf("downloaded file sha1 mismatch")
+		}
+	}
+
+	return nil
 }

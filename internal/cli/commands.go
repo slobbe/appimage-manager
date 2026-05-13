@@ -5,12 +5,12 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/url"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
 	core "github.com/slobbe/appimage-manager/internal/app"
 	"github.com/slobbe/appimage-manager/internal/app/discovery"
+	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
 	models "github.com/slobbe/appimage-manager/internal/domain"
 	fsys "github.com/slobbe/appimage-manager/internal/infra/filesystem"
 	"github.com/spf13/cobra"
@@ -1425,19 +1425,7 @@ func resolveUpdateSourceFromSetFlags(cmd *cobra.Command) (*models.UpdateSource, 
 	return nil, usageError(fmt.Errorf("missing update source; set one of --github, --zsync, or --embedded"))
 }
 
-type pendingManagedUpdate struct {
-	App            *models.App
-	URL            string
-	Asset          string
-	Label          string
-	Available      bool
-	Latest         string
-	ExpectedSHA1   string
-	ExpectedSHA256 string
-	Transport      string
-	ZsyncURL       string
-	FromKind       models.UpdateKind
-}
+type pendingManagedUpdate = appupdate.ManagedUpdate
 
 type managedCheckResult struct {
 	app    *models.App
@@ -1460,10 +1448,6 @@ var discoveryBackends = func() []discovery.DiscoveryBackend {
 }
 var resolveGitHubReleaseAsset = core.ResolveGitHubReleaseAsset
 var downloadRemoteAsset = downloadUpdateAsset
-var downloadManagedRemoteAsset = downloadUpdateAssetWithProgress
-var integrateManagedUpdate = core.IntegrateFromLocalFileWithoutCacheRefreshOrPersist
-var zsyncLookPath = exec.LookPath
-var zsyncCommandContext = exec.CommandContext
 var checkAimUpgrade = core.CheckForAimUpgrade
 var runUpgradeViaInstaller = core.UpgradeViaInstaller
 var runManagedApply = applyManagedUpdate
@@ -1503,17 +1487,7 @@ func displayVersion(value string) string {
 }
 
 func updateDownloadFilename(assetName, downloadURL string) string {
-	name := strings.TrimSpace(filepath.Base(assetName))
-	if name == "" || name == "." || name == string(filepath.Separator) {
-		name = strings.TrimSpace(filepath.Base(downloadURL))
-	}
-	if name == "" || name == "." || name == string(filepath.Separator) {
-		name = "update.AppImage"
-	}
-	if !fsys.HasExtension(name, ".AppImage") {
-		name = name + ".AppImage"
-	}
-	return name
+	return appupdate.ManagedUpdateDownloadFilename(assetName, downloadURL)
 }
 
 func isHTTPSURL(value string) bool {

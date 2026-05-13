@@ -5,15 +5,61 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
+	"os/exec"
 	"strconv"
 	"strings"
 
 	core "github.com/slobbe/appimage-manager/internal/app"
+	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
+	"github.com/slobbe/appimage-manager/internal/cli/config"
 	models "github.com/slobbe/appimage-manager/internal/domain"
 	"github.com/slobbe/appimage-manager/internal/infra/download"
-	fsys "github.com/slobbe/appimage-manager/internal/infra/filesystem"
+	"github.com/slobbe/appimage-manager/internal/infra/zsync"
 )
+
+var (
+	downloadManagedRemoteAsset = func(ctx context.Context, assetURL, destination string, interactive bool, onProgress func(int64, int64)) error {
+		return appupdate.Service{
+			TempDir:    config.TempDir,
+			HTTPClient: core.SharedDownloadHTTPClient(),
+			NowISO:     core.NowISO,
+		}.DownloadManagedUpdateAsset(ctx, assetURL, destination, onProgress)
+	}
+	integrateManagedUpdate = core.IntegrateFromLocalFileWithoutCacheRefreshOrPersist
+	zsyncLookPath          = exec.LookPath
+	zsyncCommandContext    = exec.CommandContext
+)
+
+func managedUpdateService() appupdate.Service {
+	return appupdate.Service{
+		TempDir:    config.TempDir,
+		HTTPClient: core.SharedDownloadHTTPClient(),
+		NowISO:     core.NowISO,
+		Zsync: zsync.Runner{
+			LookPath:       zsyncLookPath,
+			CommandContext: zsyncCommandContext,
+		},
+		DownloadAsset: func(ctx context.Context, assetURL, destination string, onProgress func(downloaded, total int64)) error {
+			return downloadManagedRemoteAsset(ctx, assetURL, destination, false, onProgress)
+		},
+		Integrate: func(ctx context.Context, src string, confirm func(existing, incoming *models.UpdateSource) (bool, error)) (*models.App, error) {
+			return integrateManagedUpdate(ctx, src, confirm)
+		},
+	}
+}
+
+func applyManagedUpdate(ctx context.Context, update pendingManagedUpdate, reporter managedApplyReporter) (*models.App, error) {
+	return managedUpdateService().ApplyManagedUpdate(ctx, update, reporter)
+}
+
+func applyZsyncUpdate(ctx context.Context, update pendingManagedUpdate, destination string) error {
+	return rewriteZsyncFailure(appupdate.Service{
+		Zsync: zsync.Runner{
+			LookPath:       zsyncLookPath,
+			CommandContext: zsyncCommandContext,
+		},
+	}.ApplyManagedZsyncUpdate(ctx, update, destination))
+}
 
 func persistManagedAppliedApps(ctx context.Context, apps []*models.App) error {
 	if len(apps) == 0 {
@@ -66,172 +112,8 @@ func cleanupReplacedManagedApps(ctx context.Context, apps []*models.App) error {
 	return nil
 }
 
-func applyManagedUpdate(ctx context.Context, update pendingManagedUpdate, reporter managedApplyReporter) (*models.App, error) {
-	emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageQueued})
-
-	if strings.TrimSpace(update.URL) == "" {
-		err := withUserGuidance(
-			softwareError(fmt.Errorf("missing download URL")),
-			"Can't download an update because the selected source did not provide a download URL.",
-			fmt.Sprintf("Reconfigure %s with 'aim update --set %s ...'.", update.App.ID, update.App.ID),
-		)
-		emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageFailed, Message: err.Error()})
-		return nil, err
-	}
-
-	fileName := updateDownloadFilename(update.Asset, update.URL)
-	downloadPath, err := stableDownloadDestination(update.URL, update.App.ID+"-"+fileName)
-	if err != nil {
-		err = wrapWriteError(err)
-		emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageFailed, Message: err.Error()})
-		return nil, err
-	}
-	usedZsync := false
-	if strings.TrimSpace(update.ZsyncURL) != "" {
-		emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageZsync})
-		logOperationContextf(ctx, "Running zsync for %s", update.App.ID)
-		if err := applyZsyncUpdate(ctx, update, downloadPath); err == nil {
-			usedZsync = true
-		}
-	}
-
-	if !usedZsync {
-		emitManagedApplyEvent(reporter, managedApplyEvent{
-			Stage:        managedApplyStageDownload,
-			DownloadName: fileName,
-		})
-		logOperationContextf(ctx, "Downloading update for %s", update.App.ID)
-		if err := downloadManagedRemoteAsset(ctx, update.URL, downloadPath, false, func(downloaded, total int64) {
-			emitManagedApplyEvent(reporter, managedApplyEvent{
-				Stage:         managedApplyStageDownload,
-				Downloaded:    downloaded,
-				DownloadTotal: total,
-				DownloadName:  fileName,
-			})
-		}); err != nil {
-			emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageFailed, Message: err.Error()})
-			return nil, err
-		}
-	}
-
-	emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageVerify})
-	logOperationContextf(ctx, "Verifying update for %s", update.App.ID)
-	if err := verifyDownloadedUpdate(downloadPath, update); err != nil {
-		emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageFailed, Message: err.Error()})
-		return nil, err
-	}
-
-	emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageIntegrate})
-	logOperationContextf(ctx, "Integrating update for %s", update.App.ID)
-	app, err := integrateManagedUpdate(ctx, downloadPath, func(existing, incoming *models.UpdateSource) (bool, error) {
-		return false, nil
-	})
-	if err != nil {
-		emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageFailed, Message: err.Error()})
-		return nil, err
-	}
-
-	if update.App != nil {
-		app.Source = update.App.Source
-		app.Update = update.App.Update
-		if strings.TrimSpace(update.App.AddedAt) != "" {
-			app.AddedAt = update.App.AddedAt
-		}
-		app.LastCheckedAt = update.App.LastCheckedAt
-		if strings.TrimSpace(update.App.ID) != "" && strings.TrimSpace(update.App.ID) != strings.TrimSpace(app.ID) {
-			app.ReplacesID = update.App.ID
-		}
-	}
-
-	emitManagedApplyEvent(reporter, managedApplyEvent{
-		Stage:   managedApplyStageDone,
-		Version: app.Version,
-	})
-	removeStagedDownload(downloadPath)
-	return app, nil
-}
-
-func applyZsyncUpdate(ctx context.Context, update pendingManagedUpdate, destination string) error {
-	if update.App == nil {
-		return withReportableInternalError(fmt.Errorf("missing app"), "Can't apply an update because the managed app record is incomplete.")
-	}
-	if strings.TrimSpace(update.App.ExecPath) == "" {
-		return withUserGuidance(
-			notFoundError(fmt.Errorf("missing app exec path")),
-			fmt.Sprintf("Can't apply an update for %s because the managed app record is missing its executable path.", update.App.ID),
-			fmt.Sprintf("Reinstall %s.", update.App.ID),
-		)
-	}
-	if strings.TrimSpace(update.ZsyncURL) == "" {
-		return withUserGuidance(
-			softwareError(fmt.Errorf("missing zsync url")),
-			"Can't apply a delta update because the configured source is missing its zsync URL.",
-			fmt.Sprintf("Reconfigure %s with 'aim update --set %s ...'.", update.App.ID, update.App.ID),
-		)
-	}
-
-	binary, err := zsyncLookPath("zsync")
-	if err != nil {
-		return rewriteZsyncFailure(err)
-	}
-
-	cmd := zsyncCommandContext(ctx, binary, "-q", "-i", update.App.ExecPath, "-o", destination, update.ZsyncURL)
-	cmd.Dir = filepath.Dir(destination)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		msg := strings.TrimSpace(string(output))
-		if msg == "" {
-			return rewriteZsyncFailure(err)
-		}
-		return rewriteZsyncFailure(fmt.Errorf("%w: %s", err, msg))
-	}
-
-	if _, err := os.Stat(destination); err != nil {
-		return wrapWriteError(err)
-	}
-
-	return nil
-}
-
 func verifyDownloadedUpdate(downloadPath string, update pendingManagedUpdate) error {
-	expectedSHA256 := strings.ToLower(strings.TrimSpace(update.ExpectedSHA256))
-	expectedSHA1 := strings.ToLower(strings.TrimSpace(update.ExpectedSHA1))
-
-	if expectedSHA256 != "" && expectedSHA1 != "" {
-		sha256sum, sha1sum, err := fsys.Sha256AndSha1(downloadPath)
-		if err != nil {
-			return err
-		}
-		if strings.ToLower(sha256sum) != expectedSHA256 {
-			return rewriteChecksumError(fmt.Errorf("downloaded file sha256 mismatch"))
-		}
-		if strings.ToLower(sha1sum) != expectedSHA1 {
-			return rewriteChecksumError(fmt.Errorf("downloaded file sha1 mismatch"))
-		}
-		return nil
-	}
-
-	if expectedSHA256 != "" {
-		sum, err := fsys.Sha256File(downloadPath)
-		if err != nil {
-			return err
-		}
-		if strings.ToLower(sum) != expectedSHA256 {
-			return rewriteChecksumError(fmt.Errorf("downloaded file sha256 mismatch"))
-		}
-	}
-
-	if expectedSHA1 != "" {
-		sum, err := fsys.Sha1(downloadPath)
-		if err != nil {
-			return err
-		}
-		if strings.ToLower(sum) != expectedSHA1 {
-			return rewriteChecksumError(fmt.Errorf("downloaded file sha1 mismatch"))
-		}
-	}
-
-	return nil
+	return rewriteChecksumError(appupdate.VerifyDownloadedUpdate(downloadPath, update))
 }
 
 type downloadDescriptionContextKey struct{}

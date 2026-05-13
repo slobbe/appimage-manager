@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 
+	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
 	models "github.com/slobbe/appimage-manager/internal/domain"
 	"github.com/spf13/cobra"
 )
@@ -14,41 +15,23 @@ const maxManagedApplyWorkers = 5
 
 var managedApplyRenderInterval = progressThrottleInterval
 
-type managedApplyStage string
+type managedApplyStage = appupdate.ManagedApplyStage
 
 const (
-	managedApplyStageQueued    managedApplyStage = "queued"
-	managedApplyStageZsync     managedApplyStage = "zsync"
-	managedApplyStageDownload  managedApplyStage = "download"
-	managedApplyStageVerify    managedApplyStage = "verify"
-	managedApplyStageIntegrate managedApplyStage = "integrate"
-	managedApplyStageDone      managedApplyStage = "done"
-	managedApplyStageFailed    managedApplyStage = "failed"
+	managedApplyStageQueued    managedApplyStage = appupdate.ManagedApplyStageQueued
+	managedApplyStageZsync     managedApplyStage = appupdate.ManagedApplyStageZsync
+	managedApplyStageDownload  managedApplyStage = appupdate.ManagedApplyStageDownload
+	managedApplyStageVerify    managedApplyStage = appupdate.ManagedApplyStageVerify
+	managedApplyStageIntegrate managedApplyStage = appupdate.ManagedApplyStageIntegrate
+	managedApplyStageDone      managedApplyStage = appupdate.ManagedApplyStageDone
+	managedApplyStageFailed    managedApplyStage = appupdate.ManagedApplyStageFailed
 )
 
-type managedApplyEvent struct {
-	AppID         string
-	Index         int
-	Total         int
-	Stage         managedApplyStage
-	Downloaded    int64
-	DownloadTotal int64
-	DownloadName  string
-	Message       string
-	Version       string
-}
+type managedApplyEvent = appupdate.ManagedApplyEvent
 
-type managedApplyReporter interface {
-	Event(managedApplyEvent)
-}
+type managedApplyReporter = appupdate.ManagedApplyReporter
 
-type managedApplyReporterFunc func(managedApplyEvent)
-
-func (f managedApplyReporterFunc) Event(event managedApplyEvent) {
-	if f != nil {
-		f(event)
-	}
-}
+type managedApplyReporterFunc = appupdate.ManagedApplyReporterFunc
 
 type managedApplyResult struct {
 	index      int
