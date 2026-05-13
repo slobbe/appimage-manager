@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	models "github.com/slobbe/appimage-manager/internal/domain"
+	"github.com/slobbe/appimage-manager/internal/infra/desktop"
 	fsys "github.com/slobbe/appimage-manager/internal/infra/filesystem"
 	util "github.com/slobbe/appimage-manager/internal/infra/helpers"
 )
@@ -303,7 +304,7 @@ func MakeDesktopLink(src, preferredName, fallbackName string) (string, error) {
 		return "", fmt.Errorf("desktop link name cannot be empty")
 	}
 
-	desktopLink, err := util.ResolveDesktopLinkPath(paths.DesktopDir, src, preferredName, fallbackName)
+	desktopLink, err := desktop.ResolveDesktopLinkPath(paths.DesktopDir, src, preferredName, fallbackName)
 	if err != nil {
 		return "", err
 	}

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	appimageinfra "github.com/slobbe/appimage-manager/internal/infra/appimage"
+	"github.com/slobbe/appimage-manager/internal/infra/desktop"
 	fsys "github.com/slobbe/appimage-manager/internal/infra/filesystem"
 	util "github.com/slobbe/appimage-manager/internal/infra/helpers"
 )
@@ -134,7 +135,7 @@ func UpdateDesktopEntry(ctx context.Context, src string, execSrc string, iconSrc
 		return fmt.Errorf("icon source file cannot be empty")
 	}
 
-	if err := util.RewriteDesktopEntryFile(src, execSrc, iconSrc); err != nil {
+	if err := desktop.RewriteDesktopEntryFile(src, execSrc, iconSrc); err != nil {
 		return fmt.Errorf("failed to write desktop file: %w", err)
 	}
 
@@ -152,7 +153,7 @@ func GetAppInfo(ctx context.Context, desktopSrc string) (*AppInfo, error) {
 	}
 
 	appInfo := AppInfo{
-		DesktopStem: util.SanitizeDesktopStem(util.DesktopStemFromPath(desktopSrc)),
+		DesktopStem: desktop.SanitizeDesktopStem(desktop.DesktopStemFromPath(desktopSrc)),
 	}
 	inDesktopEntry := false
 	for line := range strings.SplitSeq(content, "\n") {
