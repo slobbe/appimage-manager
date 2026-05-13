@@ -1,16 +1,12 @@
 package app
 
 import (
-	"bytes"
 	"context"
-	"errors"
 	"fmt"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 
+	appimageinfra "github.com/slobbe/appimage-manager/internal/infra/appimage"
 	fsys "github.com/slobbe/appimage-manager/internal/infra/filesystem"
 	util "github.com/slobbe/appimage-manager/internal/infra/helpers"
 )
@@ -43,36 +39,13 @@ func ReadAppImageInfo(ctx context.Context, src string) (*AppInfo, error) {
 		return nil, fmt.Errorf("failed to make source path absolute: %w", err)
 	}
 
-	tempDir, err := os.MkdirTemp("", "aim-inspect-*")
+	extraction, cleanup, err := appimageinfra.Inspect(ctx, src)
 	if err != nil {
 		return nil, err
 	}
-	defer func() {
-		_ = fsys.RemoveAll(tempDir)
-	}()
+	defer cleanup()
 
-	copyPath := filepath.Join(tempDir, filepath.Base(src))
-	if _, err := fsys.Copy(src, copyPath); err != nil {
-		return nil, err
-	}
-	if err := fsys.MakeExecutable(copyPath); err != nil {
-		return nil, fmt.Errorf("failed to make executable: %w", err)
-	}
-
-	extractCmd := exec.CommandContext(ctx, copyPath, "--appimage-extract")
-	extractCmd.Dir = tempDir
-
-	out, err := extractCmd.CombinedOutput()
-	if err != nil {
-		return nil, fmt.Errorf("extraction failed: %w\nOutput: %s", err, string(out))
-	}
-
-	root := filepath.Join(tempDir, "squashfs-root")
-	if err := fsys.RequireDir(root); err != nil {
-		return nil, fmt.Errorf("extraction verification failed: squashfs-root not found")
-	}
-
-	desktopEntry, err := fsys.LocateDesktopEntry(root)
+	desktopEntry, err := fsys.LocateDesktopEntry(extraction.RootDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to locate desktop file: %w", err)
 	}
@@ -101,66 +74,18 @@ func ExtractAppImage(ctx context.Context, src string) (*ExtractionData, error) {
 		return nil, fmt.Errorf("failed to make source path absolute: %w", err)
 	}
 
-	if err := fsys.MakeExecutable(src); err != nil {
-		return nil, fmt.Errorf("failed to make executable: %w", err)
-	}
-
-	tmpDir := paths.TempDir + "-" + srcFileName
-	if err := fsys.EnsureDir(tmpDir); err != nil {
-		return nil, fmt.Errorf("failed to create temporary directory %s: %w", tmpDir, err)
-	}
-
-	defer func() {
-		_ = fsys.RemoveAll(tmpDir)
-	}()
-
-	extractCmd := exec.CommandContext(ctx, src, "--appimage-extract")
-	extractCmd.Dir = tmpDir
-	extractCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-
-	var out bytes.Buffer
-	extractCmd.Stdout = &out
-	extractCmd.Stderr = &out
-
-	if err := extractCmd.Start(); err != nil {
-		if errors.Is(ctx.Err(), context.Canceled) {
-			return nil, context.Canceled
-		}
-		return nil, fmt.Errorf("extraction failed: %w\nOutput: %s", err, out.String())
-	}
-
-	pid := extractCmd.Process.Pid
-	done := make(chan struct{})
-	if ctx != nil {
-		go func() {
-			select {
-			case <-ctx.Done():
-				_ = syscall.Kill(-pid, syscall.SIGKILL)
-			case <-done:
-			}
-		}()
-	}
-
-	err = extractCmd.Wait()
-	close(done)
+	extraction, cleanup, err := appimageinfra.Extract(ctx, src, paths.TempDir)
 	if err != nil {
-		if errors.Is(ctx.Err(), context.Canceled) {
-			return nil, context.Canceled
-		}
-		return nil, fmt.Errorf("extraction failed: %w\nOutput: %s", err, out.String())
+		return nil, err
 	}
+	defer cleanup()
 
-	root := filepath.Join(tmpDir, "squashfs-root")
-	if err := fsys.RequireDir(root); err != nil {
-		return nil, fmt.Errorf("extraction verification failed: squashfs-root not found")
-	}
-
-	tempDesktopEntry, err := fsys.LocateDesktopEntry(root)
+	tempDesktopEntry, err := fsys.LocateDesktopEntry(extraction.RootDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to locate desktop file: %w", err)
 	}
 
-	tempIconSrc, err := fsys.LocateIcon(root)
+	tempIconSrc, err := fsys.LocateIcon(extraction.RootDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to locate icon file: %w", err)
 	}
