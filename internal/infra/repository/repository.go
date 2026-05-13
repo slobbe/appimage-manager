@@ -163,13 +163,10 @@ func (s *Store) GetAllApps() (map[string]*models.App, error) {
 		return nil, err
 	}
 
-	return db.Apps, nil
-}
-
-func (s *Store) ReplaceApps(apps map[string]*models.App) error {
-	if apps == nil {
-		apps = map[string]*models.App{}
+	apps := make(map[string]*models.App, len(db.Apps))
+	for key, app := range db.Apps {
+		apps[key] = app
 	}
 
-	return s.save(&db{SchemaVersion: 1, Apps: apps})
+	return apps, nil
 }

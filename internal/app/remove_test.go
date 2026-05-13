@@ -35,16 +35,14 @@ func TestRemoveUnlinkPreservesManagedFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := repo.NewStore(config.DbSrc).ReplaceApps(map[string]*models.App{
-		"my-app": {
-			ID:               "my-app",
-			Name:             "My App",
-			ExecPath:         execPath,
-			DesktopEntryPath: desktopPath,
-			DesktopEntryLink: desktopLink,
-			IconPath:         iconPath,
-		},
-	}); err != nil {
+	if err := repo.NewStore(config.DbSrc).AddApp(&models.App{
+		ID:               "my-app",
+		Name:             "My App",
+		ExecPath:         execPath,
+		DesktopEntryPath: desktopPath,
+		DesktopEntryLink: desktopLink,
+		IconPath:         iconPath,
+	}, true); err != nil {
 		t.Fatal(err)
 	}
 
@@ -98,16 +96,14 @@ func TestRemoveDeletesManagedFilesWhenNotUnlinking(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := repo.NewStore(config.DbSrc).ReplaceApps(map[string]*models.App{
-		"my-app": {
-			ID:               "my-app",
-			Name:             "My App",
-			ExecPath:         execPath,
-			DesktopEntryPath: desktopPath,
-			DesktopEntryLink: desktopLink,
-			IconPath:         externalIcon,
-		},
-	}); err != nil {
+	if err := repo.NewStore(config.DbSrc).AddApp(&models.App{
+		ID:               "my-app",
+		Name:             "My App",
+		ExecPath:         execPath,
+		DesktopEntryPath: desktopPath,
+		DesktopEntryLink: desktopLink,
+		IconPath:         externalIcon,
+	}, true); err != nil {
 		t.Fatal(err)
 	}
 

@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/slobbe/appimage-manager/internal/cli/config"
 	models "github.com/slobbe/appimage-manager/internal/domain"
 )
 
@@ -81,12 +80,6 @@ func TestUpdateCheckMetadataBatch(t *testing.T) {
 	tmp := t.TempDir()
 	dbPath := filepath.Join(tmp, "apps.json")
 
-	originalDbSrc := config.DbSrc
-	config.DbSrc = dbPath
-	t.Cleanup(func() {
-		config.DbSrc = originalDbSrc
-	})
-
 	if err := saveDB(dbPath, &db{
 		SchemaVersion: 1,
 		Apps: map[string]*models.App{
@@ -159,12 +152,6 @@ func TestUpdateCheckMetadataBatchMissingApp(t *testing.T) {
 	tmp := t.TempDir()
 	dbPath := filepath.Join(tmp, "apps.json")
 
-	originalDbSrc := config.DbSrc
-	config.DbSrc = dbPath
-	t.Cleanup(func() {
-		config.DbSrc = originalDbSrc
-	})
-
 	if err := saveDB(dbPath, &db{SchemaVersion: 1, Apps: map[string]*models.App{}}); err != nil {
 		t.Fatalf("failed to seed db: %v", err)
 	}
@@ -187,12 +174,6 @@ func TestUpdateCheckMetadataBatchMissingApp(t *testing.T) {
 func TestAddAppsBatch(t *testing.T) {
 	tmp := t.TempDir()
 	dbPath := filepath.Join(tmp, "apps.json")
-
-	originalDbSrc := config.DbSrc
-	config.DbSrc = dbPath
-	t.Cleanup(func() {
-		config.DbSrc = originalDbSrc
-	})
 
 	if err := saveDB(dbPath, &db{SchemaVersion: 1, Apps: map[string]*models.App{}}); err != nil {
 		t.Fatalf("failed to seed db: %v", err)
@@ -222,12 +203,6 @@ func TestStoreUsesExplicitPath(t *testing.T) {
 	tmp := t.TempDir()
 	dbPath := filepath.Join(tmp, "apps.json")
 
-	originalDbSrc := config.DbSrc
-	config.DbSrc = ""
-	t.Cleanup(func() {
-		config.DbSrc = originalDbSrc
-	})
-
 	store := NewStore(dbPath)
 	if err := store.AddApp(&models.App{ID: "app-a", Name: "A"}, false); err != nil {
 		t.Fatalf("Store.AddApp returned error: %v", err)
@@ -245,12 +220,6 @@ func TestStoreUsesExplicitPath(t *testing.T) {
 func TestAddAppsBatchOverwriteBehavior(t *testing.T) {
 	tmp := t.TempDir()
 	dbPath := filepath.Join(tmp, "apps.json")
-
-	originalDbSrc := config.DbSrc
-	config.DbSrc = dbPath
-	t.Cleanup(func() {
-		config.DbSrc = originalDbSrc
-	})
 
 	if err := saveDB(dbPath, &db{
 		SchemaVersion: 1,
