@@ -5,9 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"time"
-
-	"github.com/slobbe/appimage-manager/internal/infra/httpclient"
 )
 
 type Repository struct {
@@ -26,23 +23,7 @@ type repositoryResponse struct {
 	StargazersCount int    `json:"stargazers_count"`
 }
 
-var repositoryHTTPClient = httpclient.New(30 * time.Second)
-
-func SetRepositoryHTTPClientTimeout(timeout time.Duration) {
-	if repositoryHTTPClient == nil {
-		repositoryHTTPClient = httpclient.New(timeout)
-		return
-	}
-	repositoryHTTPClient.Timeout = timeout
-}
-
-func SetRepositoryHTTPClient(client *http.Client) *http.Client {
-	previous := repositoryHTTPClient
-	repositoryHTTPClient = client
-	return previous
-}
-
-func FetchRepository(ctx context.Context, repoSlug string) (*Repository, error) {
+func (c Client) FetchRepository(ctx context.Context, repoSlug string) (*Repository, error) {
 	requestURL := fmt.Sprintf("https://api.github.com/repos/%s", repoSlug)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
 	if err != nil {
@@ -50,7 +31,7 @@ func FetchRepository(ctx context.Context, repoSlug string) (*Repository, error) 
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 
-	resp, err := repositoryHTTPClient.Do(req)
+	resp, err := c.client().Do(req)
 	if err != nil {
 		return nil, err
 	}

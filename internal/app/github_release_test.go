@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	models "github.com/slobbe/appimage-manager/internal/domain"
-	"github.com/slobbe/appimage-manager/internal/infra/github"
 )
 
 type rewriteHostTransport struct {
@@ -71,22 +70,20 @@ func TestGitHubReleaseUpdateCheckNormalizesDecoratedTag(t *testing.T) {
 	}))
 	defer server.Close()
 
-	var releaseClient *http.Client
-	originalClient := github.SetReleaseHTTPClient(releaseClient)
+	originalSharedClient := sharedHTTPClient
 	t.Cleanup(func() {
-		github.SetReleaseHTTPClient(originalClient)
+		sharedHTTPClient = originalSharedClient
 	})
 	baseURL, err := url.Parse(server.URL)
 	if err != nil {
 		t.Fatalf("failed to parse server URL: %v", err)
 	}
-	releaseClient = &http.Client{
+	sharedHTTPClient = &http.Client{
 		Transport: &rewriteHostTransport{
 			base: baseURL,
 			next: server.Client().Transport,
 		},
 	}
-	github.SetReleaseHTTPClient(releaseClient)
 
 	update, err := GitHubReleaseUpdateCheck(&models.UpdateSource{
 		Kind: models.UpdateGitHubRelease,
@@ -117,22 +114,20 @@ func TestGitHubReleaseUpdateCheckDetectsRealUpdateFromDecoratedTag(t *testing.T)
 	}))
 	defer server.Close()
 
-	var releaseClient *http.Client
-	originalClient := github.SetReleaseHTTPClient(releaseClient)
+	originalSharedClient := sharedHTTPClient
 	t.Cleanup(func() {
-		github.SetReleaseHTTPClient(originalClient)
+		sharedHTTPClient = originalSharedClient
 	})
 	baseURL, err := url.Parse(server.URL)
 	if err != nil {
 		t.Fatalf("failed to parse server URL: %v", err)
 	}
-	releaseClient = &http.Client{
+	sharedHTTPClient = &http.Client{
 		Transport: &rewriteHostTransport{
 			base: baseURL,
 			next: server.Client().Transport,
 		},
 	}
-	github.SetReleaseHTTPClient(releaseClient)
 
 	update, err := GitHubReleaseUpdateCheck(&models.UpdateSource{
 		Kind: models.UpdateGitHubRelease,
@@ -163,22 +158,20 @@ func TestGitHubReleaseUpdateCheckIgnoresPackagingSuffixInCurrentVersion(t *testi
 	}))
 	defer server.Close()
 
-	var releaseClient *http.Client
-	originalClient := github.SetReleaseHTTPClient(releaseClient)
+	originalSharedClient := sharedHTTPClient
 	t.Cleanup(func() {
-		github.SetReleaseHTTPClient(originalClient)
+		sharedHTTPClient = originalSharedClient
 	})
 	baseURL, err := url.Parse(server.URL)
 	if err != nil {
 		t.Fatalf("failed to parse server URL: %v", err)
 	}
-	releaseClient = &http.Client{
+	sharedHTTPClient = &http.Client{
 		Transport: &rewriteHostTransport{
 			base: baseURL,
 			next: server.Client().Transport,
 		},
 	}
-	github.SetReleaseHTTPClient(releaseClient)
 
 	update, err := GitHubReleaseUpdateCheck(&models.UpdateSource{
 		Kind: models.UpdateGitHubRelease,
@@ -223,12 +216,9 @@ func TestGitHubReleaseUpdateCheckUsesSiblingZsyncTransport(t *testing.T) {
 	}))
 	defer server.Close()
 
-	var releaseClient *http.Client
-	originalClient := github.SetReleaseHTTPClient(releaseClient)
 	originalSharedClient := sharedHTTPClient
 	originalTransport := http.DefaultTransport
 	t.Cleanup(func() {
-		github.SetReleaseHTTPClient(originalClient)
 		sharedHTTPClient = originalSharedClient
 		http.DefaultTransport = originalTransport
 	})
@@ -237,14 +227,12 @@ func TestGitHubReleaseUpdateCheckUsesSiblingZsyncTransport(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to parse server URL: %v", err)
 	}
-	releaseClient = &http.Client{
+	sharedHTTPClient = &http.Client{
 		Transport: &rewriteHostTransport{
 			base: baseURL,
 			next: server.Client().Transport,
 		},
 	}
-	github.SetReleaseHTTPClient(releaseClient)
-	sharedHTTPClient = releaseClient
 	http.DefaultTransport = &rewriteHostTransport{
 		base: baseURL,
 		next: server.Client().Transport,
@@ -294,12 +282,9 @@ func TestGitHubReleaseUpdateCheckIgnoresMissingSiblingZsync(t *testing.T) {
 	}))
 	defer server.Close()
 
-	var releaseClient *http.Client
-	originalClient := github.SetReleaseHTTPClient(releaseClient)
 	originalSharedClient := sharedHTTPClient
 	originalTransport := http.DefaultTransport
 	t.Cleanup(func() {
-		github.SetReleaseHTTPClient(originalClient)
 		sharedHTTPClient = originalSharedClient
 		http.DefaultTransport = originalTransport
 	})
@@ -308,14 +293,12 @@ func TestGitHubReleaseUpdateCheckIgnoresMissingSiblingZsync(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to parse server URL: %v", err)
 	}
-	releaseClient = &http.Client{
+	sharedHTTPClient = &http.Client{
 		Transport: &rewriteHostTransport{
 			base: baseURL,
 			next: server.Client().Transport,
 		},
 	}
-	github.SetReleaseHTTPClient(releaseClient)
-	sharedHTTPClient = releaseClient
 	http.DefaultTransport = &rewriteHostTransport{
 		base: baseURL,
 		next: server.Client().Transport,
@@ -356,12 +339,9 @@ func TestGitHubReleaseUpdateCheckIgnoresMalformedSiblingZsync(t *testing.T) {
 	}))
 	defer server.Close()
 
-	var releaseClient *http.Client
-	originalClient := github.SetReleaseHTTPClient(releaseClient)
 	originalSharedClient := sharedHTTPClient
 	originalTransport := http.DefaultTransport
 	t.Cleanup(func() {
-		github.SetReleaseHTTPClient(originalClient)
 		sharedHTTPClient = originalSharedClient
 		http.DefaultTransport = originalTransport
 	})
@@ -370,14 +350,12 @@ func TestGitHubReleaseUpdateCheckIgnoresMalformedSiblingZsync(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to parse server URL: %v", err)
 	}
-	releaseClient = &http.Client{
+	sharedHTTPClient = &http.Client{
 		Transport: &rewriteHostTransport{
 			base: baseURL,
 			next: server.Client().Transport,
 		},
 	}
-	github.SetReleaseHTTPClient(releaseClient)
-	sharedHTTPClient = releaseClient
 	http.DefaultTransport = &rewriteHostTransport{
 		base: baseURL,
 		next: server.Client().Transport,
@@ -420,12 +398,9 @@ func TestGitHubReleaseUpdateCheckSkipsSiblingZsyncWhenUpToDate(t *testing.T) {
 	}))
 	defer server.Close()
 
-	var releaseClient *http.Client
-	originalClient := github.SetReleaseHTTPClient(releaseClient)
 	originalSharedClient := sharedHTTPClient
 	originalTransport := http.DefaultTransport
 	t.Cleanup(func() {
-		github.SetReleaseHTTPClient(originalClient)
 		sharedHTTPClient = originalSharedClient
 		http.DefaultTransport = originalTransport
 	})
@@ -434,14 +409,12 @@ func TestGitHubReleaseUpdateCheckSkipsSiblingZsyncWhenUpToDate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to parse server URL: %v", err)
 	}
-	releaseClient = &http.Client{
+	sharedHTTPClient = &http.Client{
 		Transport: &rewriteHostTransport{
 			base: baseURL,
 			next: server.Client().Transport,
 		},
 	}
-	github.SetReleaseHTTPClient(releaseClient)
-	sharedHTTPClient = releaseClient
 	http.DefaultTransport = &rewriteHostTransport{
 		base: baseURL,
 		next: server.Client().Transport,

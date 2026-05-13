@@ -57,9 +57,9 @@ func GitHubReleaseUpdateCheck(update *models.UpdateSource, currentVersion, local
 }
 
 func ResolveGitHubReleaseAsset(repoSlug, assetPattern string) (*GitHubReleaseAsset, error) {
-	return github.ResolveReleaseAsset(repoSlug, assetPattern)
+	return (github.Client{HTTPClient: SharedHTTPClient()}).ResolveReleaseAsset(repoSlug, assetPattern)
 }
 
 func ResolveGitHubReleaseAssetSelection(repoSlug, assetPattern, arch string) (*GitHubReleaseAssetSelection, error) {
-	return github.ResolveReleaseAssetSelection(repoSlug, assetPattern, arch)
+	return (github.Client{HTTPClient: SharedHTTPClient()}).ResolveReleaseAssetSelection(repoSlug, assetPattern, arch)
 }

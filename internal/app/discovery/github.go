@@ -3,19 +3,36 @@ package discovery
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
 	"github.com/slobbe/appimage-manager/internal/infra/github"
+	"github.com/slobbe/appimage-manager/internal/infra/httpclient"
 )
 
 type GitHubBackend struct{}
 
-var resolveGitHubReleaseAssetSelectionFn = github.ResolveReleaseAssetSelection
-var fetchGitHubRepositoryFn = github.FetchRepository
+var discoveryHTTPClient = httpclient.New(coreHTTPTimeout)
+var resolveGitHubReleaseAssetSelectionFn = func(repoSlug, assetPattern, arch string) (*github.ReleaseAssetSelection, error) {
+	return (github.Client{HTTPClient: discoveryHTTPClient}).ResolveReleaseAssetSelection(repoSlug, assetPattern, arch)
+}
+var fetchGitHubRepositoryFn = func(ctx context.Context, repoSlug string) (*github.Repository, error) {
+	return (github.Client{HTTPClient: discoveryHTTPClient}).FetchRepository(ctx, repoSlug)
+}
 
 func SetHTTPClientTimeout(timeout time.Duration) {
-	github.SetRepositoryHTTPClientTimeout(timeout)
+	if discoveryHTTPClient == nil {
+		discoveryHTTPClient = httpclient.New(timeout)
+		return
+	}
+	discoveryHTTPClient.Timeout = timeout
+}
+
+func SetHTTPClient(client *http.Client) *http.Client {
+	previous := discoveryHTTPClient
+	discoveryHTTPClient = client
+	return previous
 }
 
 func (GitHubBackend) Name() string {

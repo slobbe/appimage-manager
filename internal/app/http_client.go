@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/slobbe/appimage-manager/internal/infra/github"
 	"github.com/slobbe/appimage-manager/internal/infra/httpclient"
 )
 
@@ -22,11 +21,9 @@ func NewDownloadHTTPClient(timeout time.Duration) *http.Client {
 func SetHTTPClientTimeout(timeout time.Duration) {
 	if sharedHTTPClient == nil {
 		sharedHTTPClient = NewHTTPClient(timeout)
-		github.SetReleaseHTTPClient(sharedHTTPClient)
 		return
 	}
 	sharedHTTPClient.Timeout = timeout
-	github.SetReleaseHTTPClient(sharedHTTPClient)
 }
 
 func SetDownloadHTTPClientTimeout(timeout time.Duration) {

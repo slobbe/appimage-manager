@@ -33,23 +33,18 @@ func TestFetchRepository(t *testing.T) {
 	}))
 	defer server.Close()
 
-	originalClient := SetRepositoryHTTPClient(nil)
-	t.Cleanup(func() {
-		SetRepositoryHTTPClient(originalClient)
-	})
-
 	baseURL, err := url.Parse(server.URL)
 	if err != nil {
 		t.Fatalf("failed to parse server URL: %v", err)
 	}
-	SetRepositoryHTTPClient(&http.Client{
+	client := &http.Client{
 		Transport: &rewriteHostTransport{
 			base: baseURL,
 			next: server.Client().Transport,
 		},
-	})
+	}
 
-	repository, err := FetchRepository(context.Background(), "owner/repo")
+	repository, err := (Client{HTTPClient: client}).FetchRepository(context.Background(), "owner/repo")
 	if err != nil {
 		t.Fatalf("FetchRepository returned error: %v", err)
 	}
