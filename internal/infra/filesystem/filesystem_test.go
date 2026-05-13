@@ -88,3 +88,74 @@ func TestResolveRegularFileResolvesSymlink(t *testing.T) {
 		t.Fatalf("resolved path = %q, want %q", got, target)
 	}
 }
+
+func TestLocateDesktopEntryFallsBackToRecursiveSearch(t *testing.T) {
+	root := t.TempDir()
+
+	preferred := filepath.Join(root, "usr", "share", "applications", "my-app.desktop")
+	other := filepath.Join(root, "meta", "other.desktop")
+
+	if err := os.MkdirAll(filepath.Dir(preferred), 0o755); err != nil {
+		t.Fatalf("failed to create preferred desktop directory: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(other), 0o755); err != nil {
+		t.Fatalf("failed to create fallback desktop directory: %v", err)
+	}
+	if err := os.WriteFile(preferred, []byte("[Desktop Entry]\nName=Preferred\n"), 0o644); err != nil {
+		t.Fatalf("failed to write preferred desktop file: %v", err)
+	}
+	if err := os.WriteFile(other, []byte("[Desktop Entry]\nName=Other\n"), 0o644); err != nil {
+		t.Fatalf("failed to write fallback desktop file: %v", err)
+	}
+
+	got, err := LocateDesktopEntry(root)
+	if err != nil {
+		t.Fatalf("LocateDesktopEntry returned error: %v", err)
+	}
+	if got.Path != preferred {
+		t.Fatalf("desktop path = %q, want %q", got.Path, preferred)
+	}
+	if got.Stem != "my-app" {
+		t.Fatalf("desktop stem = %q, want %q", got.Stem, "my-app")
+	}
+}
+
+func TestLocateIconResolvesSymlink(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "target.svg")
+	linkPath := filepath.Join(root, "app.svg")
+
+	if err := os.WriteFile(target, []byte("<svg/>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, linkPath); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := LocateIcon(root)
+	if err != nil {
+		t.Fatalf("LocateIcon returned error: %v", err)
+	}
+	if got != linkPath && got != target {
+		t.Fatalf("icon path = %q, want %q or %q", got, linkPath, target)
+	}
+}
+
+func TestWriteAtomicFileCreatesParentDirectory(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "nested", "cache.json")
+
+	if err := WriteAtomicFile(path, []byte(`{"ok":true}`), 0o644); err != nil {
+		t.Fatalf("WriteAtomicFile returned error: %v", err)
+	}
+
+	got, ok, err := ReadFileIfExists(path)
+	if err != nil {
+		t.Fatalf("ReadFileIfExists returned error: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected written file to exist")
+	}
+	if string(got) != `{"ok":true}` {
+		t.Fatalf("file content = %q, want %q", string(got), `{"ok":true}`)
+	}
+}

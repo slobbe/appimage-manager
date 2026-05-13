@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/slobbe/appimage-manager/internal/cli/config"
+	fsys "github.com/slobbe/appimage-manager/internal/infra/filesystem"
 )
 
 func TestUpdateDesktopEntryRewritesExecAndIconInAllowedSections(t *testing.T) {
@@ -363,12 +364,12 @@ func TestLocateDesktopFileFallsBackToRecursiveSearch(t *testing.T) {
 		t.Fatalf("failed to write fallback desktop file: %v", err)
 	}
 
-	got, err := LocateDesktopFile(root)
+	got, err := fsys.LocateDesktopEntry(root)
 	if err != nil {
-		t.Fatalf("LocateDesktopFile returned error: %v", err)
+		t.Fatalf("LocateDesktopEntry returned error: %v", err)
 	}
-	if got != preferred {
-		t.Fatalf("LocateDesktopFile returned %q, want %q", got, preferred)
+	if got.Path != preferred {
+		t.Fatalf("LocateDesktopEntry returned %q, want %q", got.Path, preferred)
 	}
 }
 

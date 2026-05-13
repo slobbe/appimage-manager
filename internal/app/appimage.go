@@ -5,11 +5,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
 	"syscall"
 
@@ -74,17 +72,12 @@ func ReadAppImageInfo(ctx context.Context, src string) (*AppInfo, error) {
 		return nil, fmt.Errorf("extraction verification failed: squashfs-root not found")
 	}
 
-	desktopSrc, err := LocateDesktopFile(root)
+	desktopEntry, err := fsys.LocateDesktopEntry(root)
 	if err != nil {
 		return nil, fmt.Errorf("failed to locate desktop file: %w", err)
 	}
 
-	desktopSrc, err = resolveDesktopFileSource(desktopSrc)
-	if err != nil {
-		return nil, err
-	}
-
-	return GetAppInfo(ctx, desktopSrc)
+	return GetAppInfo(ctx, desktopEntry.Path)
 }
 
 func ExtractAppImage(ctx context.Context, src string) (*ExtractionData, error) {
@@ -162,17 +155,12 @@ func ExtractAppImage(ctx context.Context, src string) (*ExtractionData, error) {
 		return nil, fmt.Errorf("extraction verification failed: squashfs-root not found")
 	}
 
-	tempDesktopSrc, err := LocateDesktopFile(root)
+	tempDesktopEntry, err := fsys.LocateDesktopEntry(root)
 	if err != nil {
 		return nil, fmt.Errorf("failed to locate desktop file: %w", err)
 	}
 
-	tempDesktopSrc, err = resolveDesktopFileSource(tempDesktopSrc)
-	if err != nil {
-		return nil, err
-	}
-
-	tempIconSrc, err := LocateIcon(root)
+	tempIconSrc, err := fsys.LocateIcon(root)
 	if err != nil {
 		return nil, fmt.Errorf("failed to locate icon file: %w", err)
 	}
@@ -188,7 +176,7 @@ func ExtractAppImage(ctx context.Context, src string) (*ExtractionData, error) {
 	}
 
 	desktopSrc := filepath.Join(extractDir, srcFileName+".desktop")
-	if _, err := fsys.Move(tempDesktopSrc, desktopSrc); err != nil {
+	if _, err := fsys.Move(tempDesktopEntry.Path, desktopSrc); err != nil {
 		return nil, err
 	}
 
@@ -201,7 +189,7 @@ func ExtractAppImage(ctx context.Context, src string) (*ExtractionData, error) {
 		Dir:              extractDir,
 		ExecPath:         execSrc,
 		DesktopEntryPath: desktopSrc,
-		DesktopStem:      util.SanitizeDesktopStem(util.DesktopStemFromPath(tempDesktopSrc)),
+		DesktopStem:      tempDesktopEntry.Stem,
 		IconPath:         iconSrc,
 	}
 
@@ -314,150 +302,4 @@ func versionFromFilename(path string) string {
 	}
 
 	return sanitizeAppVersion(base)
-}
-
-func LocateDesktopFile(dir string) (string, error) {
-	if dir == "" {
-		return "", fmt.Errorf("directory cannot be empty")
-	}
-
-	if err := fsys.RequireDir(dir); err != nil {
-		return "", err
-	}
-
-	// Find all .desktop files
-	desktopGlob, err := filepath.Glob(filepath.Join(dir, "*.desktop"))
-	if err != nil {
-		return "", fmt.Errorf("glob pattern error: %w", err)
-	}
-
-	if len(desktopGlob) == 0 {
-		desktopGlob, err = findDesktopFilesRecursive(dir)
-		if err != nil {
-			return "", err
-		}
-		if len(desktopGlob) == 0 {
-			return "", fmt.Errorf("no .desktop file found in: %s", dir)
-		}
-	}
-
-	return selectPreferredDesktopFile(dir, desktopGlob), nil
-}
-
-func findDesktopFilesRecursive(root string) ([]string, error) {
-	var desktopFiles []string
-
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if d.IsDir() {
-			return nil
-		}
-
-		if strings.EqualFold(filepath.Ext(d.Name()), ".desktop") {
-			desktopFiles = append(desktopFiles, path)
-		}
-
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to search .desktop files recursively: %w", err)
-	}
-
-	return desktopFiles, nil
-}
-
-func selectPreferredDesktopFile(root string, candidates []string) string {
-	if len(candidates) == 1 {
-		return candidates[0]
-	}
-
-	sort.Strings(candidates)
-
-	dirName := filepath.Base(root)
-	for _, candidate := range candidates {
-		candidateName := strings.TrimSuffix(filepath.Base(candidate), ".desktop")
-		if candidateName == dirName {
-			return candidate
-		}
-	}
-
-	for _, candidate := range candidates {
-		if strings.HasPrefix(filepath.Base(candidate), dirName) {
-			return candidate
-		}
-	}
-
-	for _, candidate := range candidates {
-		rel, err := filepath.Rel(root, candidate)
-		if err != nil {
-			continue
-		}
-
-		rel = filepath.ToSlash(rel)
-		if strings.HasPrefix(rel, "usr/share/applications/") {
-			return candidate
-		}
-	}
-
-	return candidates[0]
-}
-
-func resolveDesktopFileSource(src string) (string, error) {
-	if strings.TrimSpace(src) == "" {
-		return "", fmt.Errorf("desktop source path cannot be empty")
-	}
-
-	resolved, err := fsys.ResolveRegularFile(src, "desktop file")
-	if err != nil {
-		return "", err
-	}
-
-	return resolved, nil
-}
-
-func LocateIcon(dir string) (string, error) {
-	if dir == "" {
-		return "", fmt.Errorf("directory cannot be empty")
-	}
-
-	if err := fsys.RequireDir(dir); err != nil {
-		return "", err
-	}
-
-	// Icon search order: SVG (vector, best quality) → PNG → ICO → XPM
-	extensions := []string{".svg", ".png", ".ico", ".xpm"}
-
-	var candidates []string
-	for _, ext := range extensions {
-		pattern := filepath.Join(dir, "*"+ext)
-		matches, err := filepath.Glob(pattern)
-		if err != nil {
-			return "", fmt.Errorf("glob pattern error for %s: %w", ext, err)
-		}
-		candidates = append(candidates, matches...)
-	}
-
-	if len(candidates) == 0 {
-		return "", fmt.Errorf("no icon file found in: %s", dir)
-	}
-
-	// Try all candidates, resolving symlinks
-	var lastErr error
-	for _, candidate := range candidates {
-		resolved, err := fsys.ResolveRegularFile(candidate, "icon file")
-		if err != nil {
-			lastErr = err
-			continue
-		}
-
-		return resolved, nil
-	}
-
-	if lastErr != nil {
-		return "", fmt.Errorf("no valid icon found: %w", lastErr)
-	}
-
-	return "", fmt.Errorf("no icon found in: %s", dir)
 }
