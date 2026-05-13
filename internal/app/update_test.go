@@ -8,6 +8,7 @@ import (
 	"time"
 
 	models "github.com/slobbe/appimage-manager/internal/domain"
+	"github.com/slobbe/appimage-manager/internal/infra/zsync"
 )
 
 func zsyncTestSource(url string) *models.UpdateSource {
@@ -266,7 +267,7 @@ func TestZsyncUpdateCheckRejectsPartialMetadataResponse(t *testing.T) {
 
 func TestZsyncUpdateCheckRejectsOversizedMetadata(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(strings.Repeat("a", zsyncMetadataMaxBytes+1)))
+		_, _ = w.Write([]byte(strings.Repeat("a", zsync.MetadataMaxBytes+1)))
 	}))
 	defer server.Close()
 
