@@ -1,17 +1,14 @@
 package app
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/slobbe/appimage-manager/internal/infra/selfupdate"
 )
 
 var (
@@ -25,15 +22,19 @@ var (
 		return fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repoSlug)
 	}
 	upgradeShellCommand       = "/bin/sh"
-	upgradeRunInstallerScript = runInstallerScript
-	upgradeExecutablePath     = os.Executable
-	upgradeEvalSymlinks       = filepath.EvalSymlinks
-	upgradeRunVersionCommand  = runInstalledVersionCommand
+	upgradeRunInstallerScript = func(ctx context.Context, scriptURL string) error {
+		return upgradeInfraClient().RunInstallerScript(ctx, scriptURL, func() (string, error) {
+			paths, err := requirePaths()
+			if err != nil {
+				return "", err
+			}
+			return paths.TempDir, nil
+		})
+	}
+	upgradeExecutablePath    = os.Executable
+	upgradeEvalSymlinks      = filepath.EvalSymlinks
+	upgradeRunVersionCommand = selfupdate.RunVersionCommand
 )
-
-type latestReleaseResponse struct {
-	TagName string `json:"tag_name"`
-}
 
 type AimUpgradeCheckResult struct {
 	CurrentVersion string
@@ -108,135 +109,25 @@ func UpgradeViaInstaller(ctx context.Context, currentVersion string) (*Installer
 }
 
 func fetchLatestReleaseTag(ctx context.Context) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, upgradeLatestReleaseURL(upgradeRepoSlug), nil)
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-
-	resp, err := upgradeHTTPClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return "", fmt.Errorf("latest release request failed with status %s", resp.Status)
-	}
-
-	var payload latestReleaseResponse
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return "", err
-	}
-
-	tag := strings.TrimSpace(payload.TagName)
-	if tag == "" {
-		return "", fmt.Errorf("latest release response did not include a tag_name")
-	}
-
-	return tag, nil
-}
-
-func runInstallerScript(ctx context.Context, scriptURL string) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, scriptURL, nil)
-	if err != nil {
-		return err
-	}
-
-	resp, err := upgradeHTTPClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return fmt.Errorf("installer script download failed with status %s", resp.Status)
-	}
-
-	paths, err := requirePaths()
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(paths.TempDir, 0o755); err != nil {
-		return err
-	}
-
-	scriptPath := filepath.Join(paths.TempDir, "aim-upgrade-installer.sh")
-	scriptFile, err := os.OpenFile(scriptPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o700)
-	if err != nil {
-		return err
-	}
-
-	if _, err := io.Copy(scriptFile, resp.Body); err != nil {
-		_ = scriptFile.Close()
-		return err
-	}
-	if err := scriptFile.Close(); err != nil {
-		return err
-	}
-
-	cmd := exec.CommandContext(ctx, upgradeShellCommand, scriptPath)
-	var output bytes.Buffer
-	cmd.Stdout = &output
-	cmd.Stderr = &output
-
-	if err := cmd.Run(); err != nil {
-		message := strings.TrimSpace(output.String())
-		if message == "" {
-			return fmt.Errorf("upgrade via installer failed: %w", err)
-		}
-		return fmt.Errorf("upgrade via installer failed: %w: %s", err, message)
-	}
-
-	return nil
+	return upgradeInfraClient().FetchLatestReleaseTag(ctx, upgradeLatestReleaseURL(upgradeRepoSlug))
 }
 
 func resolveInstalledAimPath() (string, error) {
-	execPath, err := upgradeExecutablePath()
-	if err != nil {
-		return "", err
-	}
-
-	if resolvedPath, err := upgradeEvalSymlinks(execPath); err == nil && strings.TrimSpace(resolvedPath) != "" {
-		execPath = resolvedPath
-	}
-
-	return execPath, nil
+	return upgradeInfraClient().ResolveInstalledPath()
 }
 
 func readInstalledAimVersion(ctx context.Context, binaryPath string) (string, error) {
-	output, err := upgradeRunVersionCommand(ctx, binaryPath)
-	if err != nil {
-		return "", err
-	}
-
-	version := strings.TrimSpace(output)
-	if version == "" {
-		return "", fmt.Errorf("installed version command returned empty output")
-	}
-
-	return version, nil
+	return upgradeInfraClient().ReadInstalledVersion(ctx, binaryPath)
 }
 
-func runInstalledVersionCommand(ctx context.Context, binaryPath string) (string, error) {
-	cmd := exec.CommandContext(ctx, binaryPath, "--version")
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		message := strings.TrimSpace(stderr.String())
-		if message == "" {
-			message = strings.TrimSpace(stdout.String())
-		}
-		if message == "" {
-			return "", err
-		}
-		return "", fmt.Errorf("%w: %s", err, message)
+func upgradeInfraClient() selfupdate.Client {
+	return selfupdate.Client{
+		HTTPClient:     upgradeHTTPClient,
+		ShellCommand:   upgradeShellCommand,
+		ExecutablePath: upgradeExecutablePath,
+		EvalSymlinks:   upgradeEvalSymlinks,
+		VersionCommand: upgradeRunVersionCommand,
 	}
-
-	return stdout.String(), nil
 }
 
 func normalizeUpgradeVersion(raw string) string {

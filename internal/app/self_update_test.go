@@ -11,13 +11,17 @@ import (
 	"testing"
 )
 
+type testLatestReleaseResponse struct {
+	TagName string `json:"tag_name"`
+}
+
 func TestCheckForAimUpgradeReturnsUpdateWhenLatestIsNewer(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/releases/latest" {
 			http.NotFound(w, r)
 			return
 		}
-		_ = json.NewEncoder(w).Encode(latestReleaseResponse{TagName: "v0.12.5"})
+		_ = json.NewEncoder(w).Encode(testLatestReleaseResponse{TagName: "v0.12.5"})
 	}))
 	defer server.Close()
 
@@ -52,7 +56,7 @@ func TestCheckForAimUpgradeReturnsUpdateWhenLatestIsNewer(t *testing.T) {
 
 func TestCheckForAimUpgradeReturnsNoUpdateWhenVersionsMatch(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(latestReleaseResponse{TagName: "v0.12.5"})
+		_ = json.NewEncoder(w).Encode(testLatestReleaseResponse{TagName: "v0.12.5"})
 	}))
 	defer server.Close()
 
@@ -84,7 +88,7 @@ func TestCheckForAimUpgradeReturnsNoUpdateWhenVersionsMatch(t *testing.T) {
 
 func TestCheckForAimUpgradeTreatsDevAsNonComparable(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(latestReleaseResponse{TagName: "v0.12.5"})
+		_ = json.NewEncoder(w).Encode(testLatestReleaseResponse{TagName: "v0.12.5"})
 	}))
 	defer server.Close()
 
@@ -374,7 +378,7 @@ func TestRunInstallerScriptRejectsBadStatus(t *testing.T) {
 	})
 	upgradeHTTPClient = server.Client()
 
-	err := runInstallerScript(context.Background(), server.URL)
+	err := upgradeRunInstallerScript(context.Background(), server.URL)
 	if err == nil {
 		t.Fatal("expected download status error")
 	}
@@ -401,8 +405,8 @@ func TestRunInstallerScriptExecutesDownloadedScript(t *testing.T) {
 	upgradeHTTPClient = server.Client()
 	upgradeShellCommand = "/bin/sh"
 
-	if err := runInstallerScript(context.Background(), server.URL); err != nil {
-		t.Fatalf("runInstallerScript returned error: %v", err)
+	if err := upgradeRunInstallerScript(context.Background(), server.URL); err != nil {
+		t.Fatalf("upgradeRunInstallerScript returned error: %v", err)
 	}
 }
 
@@ -424,7 +428,7 @@ func TestRunInstallerScriptSurfacesFailureOutput(t *testing.T) {
 	upgradeHTTPClient = server.Client()
 	upgradeShellCommand = "/bin/sh"
 
-	err := runInstallerScript(context.Background(), server.URL)
+	err := upgradeRunInstallerScript(context.Background(), server.URL)
 	if err == nil {
 		t.Fatal("expected execution failure")
 	}
