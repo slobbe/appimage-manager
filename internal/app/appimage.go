@@ -6,10 +6,10 @@ import (
 	"path/filepath"
 	"strings"
 
+	models "github.com/slobbe/appimage-manager/internal/domain"
 	appimageinfra "github.com/slobbe/appimage-manager/internal/infra/appimage"
 	"github.com/slobbe/appimage-manager/internal/infra/desktop"
 	fsys "github.com/slobbe/appimage-manager/internal/infra/filesystem"
-	util "github.com/slobbe/appimage-manager/internal/infra/helpers"
 )
 
 type AppInfo struct {
@@ -31,7 +31,7 @@ func ReadAppImageInfo(ctx context.Context, src string) (*AppInfo, error) {
 	if _, err := fsys.RequireRegularFile(src, "source path"); err != nil {
 		return nil, err
 	}
-	if !util.HasExtension(src, ".AppImage") {
+	if !fsys.HasExtension(src, ".AppImage") {
 		return nil, fmt.Errorf("source file must be an .AppImage: %s", filepath.Ext(src))
 	}
 
@@ -67,7 +67,7 @@ func ExtractAppImage(ctx context.Context, src string) (*ExtractionData, error) {
 	srcFileExt := filepath.Ext(src)
 	srcFileName := strings.TrimSuffix(filepath.Base(src), srcFileExt)
 
-	if !util.HasExtension(src, ".AppImage") {
+	if !fsys.HasExtension(src, ".AppImage") {
 		return nil, fmt.Errorf("source file must be an .AppImage: %s", srcFileExt)
 	}
 
@@ -123,11 +123,11 @@ func ExtractAppImage(ctx context.Context, src string) (*ExtractionData, error) {
 }
 
 func UpdateDesktopEntry(ctx context.Context, src string, execSrc string, iconSrc string) error {
-	if !util.HasExtension(src, ".desktop") {
+	if !fsys.HasExtension(src, ".desktop") {
 		return fmt.Errorf("source file must be a .desktop file")
 	}
 
-	if execSrc == "" || !util.HasExtension(execSrc, ".AppImage") {
+	if execSrc == "" || !fsys.HasExtension(execSrc, ".AppImage") {
 		return fmt.Errorf("exec source file must be a .AppImage file")
 	}
 
@@ -143,7 +143,7 @@ func UpdateDesktopEntry(ctx context.Context, src string, execSrc string, iconSrc
 }
 
 func GetAppInfo(ctx context.Context, desktopSrc string) (*AppInfo, error) {
-	if !util.HasExtension(desktopSrc, ".desktop") {
+	if !fsys.HasExtension(desktopSrc, ".desktop") {
 		return nil, fmt.Errorf("source file must be a .desktop file")
 	}
 
@@ -211,7 +211,7 @@ func GetAppInfo(ctx context.Context, desktopSrc string) (*AppInfo, error) {
 
 	appInfo.ID = appInfo.DesktopStem
 	if appInfo.ID == "" {
-		appInfo.ID = util.Slugify(appInfo.Name)
+		appInfo.ID = models.Slugify(appInfo.Name)
 	}
 
 	return &appInfo, nil

@@ -10,7 +10,6 @@ import (
 	models "github.com/slobbe/appimage-manager/internal/domain"
 	"github.com/slobbe/appimage-manager/internal/infra/desktop"
 	fsys "github.com/slobbe/appimage-manager/internal/infra/filesystem"
-	util "github.com/slobbe/appimage-manager/internal/infra/helpers"
 )
 
 type UpdateOverwritePrompt func(existing, incoming *models.UpdateSource) (bool, error)
@@ -39,7 +38,7 @@ func integrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 		return nil, err
 	}
 
-	if !util.HasExtension(src, ".AppImage") {
+	if !fsys.HasExtension(src, ".AppImage") {
 		return nil, fmt.Errorf("source file must be a .AppImage file")
 	}
 
@@ -78,7 +77,7 @@ func integrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 		}
 	}
 
-	timestampNow := util.NowISO()
+	timestampNow := NowISO()
 	addedAt := timestampNow
 	lastCheckedAt := ""
 	latestVersion := ""
@@ -207,7 +206,7 @@ func integrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 
 	go func() {
 		defer postProcessWG.Done()
-		sha256sum, sha1sum, hashErr = util.Sha256AndSha1(extractionData.ExecPath)
+		sha256sum, sha1sum, hashErr = fsys.Sha256AndSha1(extractionData.ExecPath)
 	}()
 
 	postProcessWG.Wait()

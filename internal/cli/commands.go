@@ -12,7 +12,7 @@ import (
 	core "github.com/slobbe/appimage-manager/internal/app"
 	"github.com/slobbe/appimage-manager/internal/app/discovery"
 	models "github.com/slobbe/appimage-manager/internal/domain"
-	util "github.com/slobbe/appimage-manager/internal/infra/helpers"
+	fsys "github.com/slobbe/appimage-manager/internal/infra/filesystem"
 	"github.com/spf13/cobra"
 )
 
@@ -289,7 +289,7 @@ func resolveIntegrateTarget(input string) (*integrateTarget, error) {
 		return nil, usageError(fmt.Errorf("direct URLs must use https; use 'aim add --url https://...'"))
 	}
 
-	if util.HasExtension(trimmed, ".AppImage") {
+	if fsys.HasExtension(trimmed, ".AppImage") {
 		return &integrateTarget{Kind: integrateTargetLocalFile, LocalPath: trimmed}, nil
 	}
 
@@ -327,7 +327,7 @@ func resolveInstallTarget(input string) (*installTarget, error) {
 		return nil, usageError(fmt.Errorf("managed app IDs are added with 'aim add <id>'"))
 	}
 
-	if util.HasExtension(trimmed, ".AppImage") {
+	if fsys.HasExtension(trimmed, ".AppImage") {
 		return nil, usageError(fmt.Errorf("local AppImages are added with 'aim add <Path/To.AppImage>'"))
 	}
 
@@ -978,7 +978,7 @@ func resolveInspectTarget(input string) (*inspectTarget, error) {
 		return &inspectTarget{Kind: inspectTargetManaged, App: app}, nil
 	}
 
-	if util.HasExtension(trimmed, ".AppImage") {
+	if fsys.HasExtension(trimmed, ".AppImage") {
 		return &inspectTarget{Kind: inspectTargetLocal, Path: trimmed}, nil
 	}
 
@@ -1510,7 +1510,7 @@ func updateDownloadFilename(assetName, downloadURL string) string {
 	if name == "" || name == "." || name == string(filepath.Separator) {
 		name = "update.AppImage"
 	}
-	if !util.HasExtension(name, ".AppImage") {
+	if !fsys.HasExtension(name, ".AppImage") {
 		name = name + ".AppImage"
 	}
 	return name

@@ -8,7 +8,6 @@ import (
 
 	core "github.com/slobbe/appimage-manager/internal/app"
 	models "github.com/slobbe/appimage-manager/internal/domain"
-	util "github.com/slobbe/appimage-manager/internal/infra/helpers"
 	repo "github.com/slobbe/appimage-manager/internal/infra/repository"
 	"github.com/spf13/cobra"
 )
@@ -135,7 +134,7 @@ func collectManagedUpdateRows(cmd *cobra.Command, cfg managedUpdateRunConfig) (m
 
 	metadataUpdates := make([]repo.CheckMetadataUpdate, 0, len(checkResults))
 	collection.rows = make([]updateOutputRow, 0, len(checkResults))
-	checkedAt := util.NowISO()
+	checkedAt := core.NowISO()
 
 	for idx, result := range checkResults {
 		app := result.app

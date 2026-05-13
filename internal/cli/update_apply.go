@@ -12,7 +12,7 @@ import (
 	core "github.com/slobbe/appimage-manager/internal/app"
 	models "github.com/slobbe/appimage-manager/internal/domain"
 	"github.com/slobbe/appimage-manager/internal/infra/download"
-	util "github.com/slobbe/appimage-manager/internal/infra/helpers"
+	fsys "github.com/slobbe/appimage-manager/internal/infra/filesystem"
 )
 
 func persistManagedAppliedApps(ctx context.Context, apps []*models.App) error {
@@ -198,7 +198,7 @@ func verifyDownloadedUpdate(downloadPath string, update pendingManagedUpdate) er
 	expectedSHA1 := strings.ToLower(strings.TrimSpace(update.ExpectedSHA1))
 
 	if expectedSHA256 != "" && expectedSHA1 != "" {
-		sha256sum, sha1sum, err := util.Sha256AndSha1(downloadPath)
+		sha256sum, sha1sum, err := fsys.Sha256AndSha1(downloadPath)
 		if err != nil {
 			return err
 		}
@@ -212,7 +212,7 @@ func verifyDownloadedUpdate(downloadPath string, update pendingManagedUpdate) er
 	}
 
 	if expectedSHA256 != "" {
-		sum, err := util.Sha256File(downloadPath)
+		sum, err := fsys.Sha256File(downloadPath)
 		if err != nil {
 			return err
 		}
@@ -222,7 +222,7 @@ func verifyDownloadedUpdate(downloadPath string, update pendingManagedUpdate) er
 	}
 
 	if expectedSHA1 != "" {
-		sum, err := util.Sha1(downloadPath)
+		sum, err := fsys.Sha1(downloadPath)
 		if err != nil {
 			return err
 		}

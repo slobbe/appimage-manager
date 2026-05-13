@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	models "github.com/slobbe/appimage-manager/internal/domain"
-	util "github.com/slobbe/appimage-manager/internal/infra/helpers"
 )
 
 func ResolveManagedAppID(appName, upstreamID, hashSeed string, incoming *models.App) (string, *models.App, error) {
@@ -67,7 +66,7 @@ func resolveManagedAppID(store AppStore, appName, upstreamID, hashSeed string, i
 
 func managedIDCandidates(appName, upstreamID, hashSeed string) []string {
 	upstreamID = strings.TrimSpace(upstreamID)
-	base := util.Slugify(appName)
+	base := models.Slugify(appName)
 	if base == "" {
 		base = upstreamID
 	}

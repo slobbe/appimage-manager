@@ -5,8 +5,8 @@ import (
 	"strings"
 	"sync"
 
+	core "github.com/slobbe/appimage-manager/internal/app"
 	models "github.com/slobbe/appimage-manager/internal/domain"
-	util "github.com/slobbe/appimage-manager/internal/infra/helpers"
 	repo "github.com/slobbe/appimage-manager/internal/infra/repository"
 	"github.com/spf13/cobra"
 )
@@ -174,7 +174,7 @@ func updateCheckMetadata(app *models.App, checked, available bool, latest string
 		return nil
 	}
 
-	lastCheckedAt := util.NowISO()
+	lastCheckedAt := core.NowISO()
 
 	if err := updateCheckMetadataBatch([]repo.CheckMetadataUpdate{{
 		ID:            app.ID,

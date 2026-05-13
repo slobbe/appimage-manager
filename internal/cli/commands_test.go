@@ -23,7 +23,7 @@ import (
 	"github.com/slobbe/appimage-manager/internal/app/discovery"
 	"github.com/slobbe/appimage-manager/internal/cli/config"
 	models "github.com/slobbe/appimage-manager/internal/domain"
-	util "github.com/slobbe/appimage-manager/internal/infra/helpers"
+	fsys "github.com/slobbe/appimage-manager/internal/infra/filesystem"
 	repo "github.com/slobbe/appimage-manager/internal/infra/repository"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -6600,7 +6600,7 @@ func TestVerifyDownloadedUpdateWithBothHashes(t *testing.T) {
 		t.Fatalf("failed to write file: %v", err)
 	}
 
-	sha256sum, sha1sum, err := util.Sha256AndSha1(path)
+	sha256sum, sha1sum, err := fsys.Sha256AndSha1(path)
 	if err != nil {
 		t.Fatalf("failed to compute hashes: %v", err)
 	}

@@ -11,7 +11,6 @@ import (
 
 	models "github.com/slobbe/appimage-manager/internal/domain"
 	fsys "github.com/slobbe/appimage-manager/internal/infra/filesystem"
-	util "github.com/slobbe/appimage-manager/internal/infra/helpers"
 	"github.com/slobbe/appimage-manager/internal/infra/zsync"
 )
 
@@ -197,7 +196,7 @@ func githubLatestVersionTag(owner, repo string) (string, error) {
 }
 
 func extractUpdateInfo(src string) (string, error) {
-	if !util.HasExtension(src, ".AppImage") {
+	if !fsys.HasExtension(src, ".AppImage") {
 		return "", fmt.Errorf("source must be .AppImage file")
 	}
 
