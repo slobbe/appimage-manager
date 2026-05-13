@@ -14,6 +14,7 @@ import (
 	appintegrate "github.com/slobbe/appimage-manager/internal/app/integrate"
 	appremove "github.com/slobbe/appimage-manager/internal/app/remove"
 	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
+	appupgrade "github.com/slobbe/appimage-manager/internal/app/upgrade"
 	models "github.com/slobbe/appimage-manager/internal/domain"
 	fsys "github.com/slobbe/appimage-manager/internal/infra/filesystem"
 	"github.com/spf13/cobra"
@@ -44,7 +45,7 @@ func runUpgrade(ctx context.Context, cmd *cobra.Command) error {
 	}
 
 	logOperationf(cmd, "Checking for aim updates")
-	checkResult, err := runWithBusyIndicator(cmd, progressCheckAimUpdates(), func() (*core.AimUpgradeCheckResult, error) {
+	checkResult, err := runWithBusyIndicator(cmd, progressCheckAimUpdates(), func() (*appupgrade.AimUpgradeCheckResult, error) {
 		return checkAimUpgrade(ctx, version)
 	})
 	if err != nil {
@@ -60,7 +61,7 @@ func runUpgrade(ctx context.Context, cmd *cobra.Command) error {
 	}
 
 	logOperationf(cmd, "Downloading and running the aim installer")
-	result, err := runWithBusyIndicator(cmd, progressUpgradeAim(), func() (*core.InstallerUpgradeResult, error) {
+	result, err := runWithBusyIndicator(cmd, progressUpgradeAim(), func() (*appupgrade.InstallerUpgradeResult, error) {
 		return runUpgradeViaInstaller(ctx, version)
 	})
 	if err != nil {
@@ -1451,8 +1452,8 @@ var discoveryBackends = func() []discovery.DiscoveryBackend {
 }
 var resolveGitHubReleaseAsset = appupdate.ResolveGitHubReleaseAsset
 var downloadRemoteAsset = downloadUpdateAsset
-var checkAimUpgrade = core.CheckForAimUpgrade
-var runUpgradeViaInstaller = core.UpgradeViaInstaller
+var checkAimUpgrade = appupgrade.CheckForAimUpgrade
+var runUpgradeViaInstaller = appupgrade.UpgradeViaInstaller
 var runManagedApply = applyManagedUpdate
 var integrateExistingApp = appintegrate.IntegrateExisting
 var integrateLocalApp = appintegrate.IntegrateFromLocalFile

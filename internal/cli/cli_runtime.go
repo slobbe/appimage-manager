@@ -17,6 +17,7 @@ import (
 	appintegrate "github.com/slobbe/appimage-manager/internal/app/integrate"
 	appremove "github.com/slobbe/appimage-manager/internal/app/remove"
 	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
+	appupgrade "github.com/slobbe/appimage-manager/internal/app/upgrade"
 	"github.com/slobbe/appimage-manager/internal/cli/config"
 	repo "github.com/slobbe/appimage-manager/internal/infra/repository"
 	"github.com/spf13/cobra"
@@ -64,8 +65,8 @@ func prepareRuntime(cmd *cobra.Command) error {
 	if err != nil {
 		return err
 	}
-	core.SetHTTPClientTimeout(settings.NetworkTimeout)
 	appupdate.SetHTTPClientTimeout(settings.NetworkTimeout)
+	appupgrade.SetHTTPClientTimeout(settings.NetworkTimeout)
 	core.SetDownloadHTTPClientTimeout(settings.NetworkTimeout)
 	core.SetPaths(appPathsFromConfig(config.CurrentPaths()))
 	core.SetStore(repo.NewStore(config.DbSrc))
@@ -73,6 +74,7 @@ func prepareRuntime(cmd *cobra.Command) error {
 	appintegrate.SetStore(repo.NewStore(config.DbSrc))
 	appremove.SetPaths(removePathsFromConfig(config.CurrentPaths()))
 	appremove.SetStore(repo.NewStore(config.DbSrc))
+	appupgrade.SetPaths(upgradePathsFromConfig(config.CurrentPaths()))
 	discovery.SetHTTPClientTimeout(settings.NetworkTimeout)
 
 	if opts.Debug {
@@ -104,6 +106,12 @@ func removePathsFromConfig(paths config.Paths) appremove.Paths {
 		AimDir:       paths.AimDir,
 		DesktopDir:   paths.DesktopDir,
 		IconThemeDir: paths.IconThemeDir,
+	}
+}
+
+func upgradePathsFromConfig(paths config.Paths) appupgrade.Paths {
+	return appupgrade.Paths{
+		TempDir: paths.TempDir,
 	}
 }
 

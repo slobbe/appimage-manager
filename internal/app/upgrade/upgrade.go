@@ -1,4 +1,4 @@
-package app
+package upgrade
 
 import (
 	"context"
@@ -8,12 +8,13 @@ import (
 	"strconv"
 	"strings"
 
+	models "github.com/slobbe/appimage-manager/internal/domain"
 	"github.com/slobbe/appimage-manager/internal/infra/selfupdate"
 )
 
 var (
 	upgradeRepoSlug   = "slobbe/appimage-manager"
-	upgradeHTTPClient = sharedHTTPClient
+	upgradeHTTPClient = SharedHTTPClient()
 
 	upgradeInstallScriptURL = func(repoSlug string) string {
 		return fmt.Sprintf("https://raw.githubusercontent.com/%s/main/scripts/install.sh", repoSlug)
@@ -135,7 +136,7 @@ func normalizeUpgradeVersion(raw string) string {
 	if value == "" || strings.EqualFold(value, "dev") {
 		return ""
 	}
-	return NormalizeComparableVersion(value)
+	return models.NormalizeComparableVersion(value)
 }
 
 func compareUpgradeVersions(left, right string) (int, error) {

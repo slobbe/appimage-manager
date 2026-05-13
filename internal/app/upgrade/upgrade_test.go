@@ -1,4 +1,4 @@
-package app
+package upgrade
 
 import (
 	"context"
@@ -450,9 +450,6 @@ func setupSelfUpdatePathsForTest(t *testing.T) {
 
 	tmp := t.TempDir()
 	SetPaths(Paths{
-		AimDir:       filepath.Join(tmp, "aim"),
-		DesktopDir:   filepath.Join(tmp, "applications"),
-		TempDir:      filepath.Join(tmp, "cache", "tmp"),
-		IconThemeDir: filepath.Join(tmp, "icons", "hicolor"),
+		TempDir: filepath.Join(tmp, "cache", "tmp"),
 	})
 }

@@ -24,6 +24,7 @@ import (
 	"github.com/slobbe/appimage-manager/internal/app/discovery"
 	appintegrate "github.com/slobbe/appimage-manager/internal/app/integrate"
 	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
+	appupgrade "github.com/slobbe/appimage-manager/internal/app/upgrade"
 	"github.com/slobbe/appimage-manager/internal/cli/config"
 	models "github.com/slobbe/appimage-manager/internal/domain"
 	fsys "github.com/slobbe/appimage-manager/internal/infra/filesystem"
@@ -200,10 +201,10 @@ func TestUpgradeCmdRunsInstallerUpgrade(t *testing.T) {
 		checkAimUpgrade = originalCheck
 		runUpgradeViaInstaller = original
 	})
-	checkAimUpgrade = func(context.Context, string) (*core.AimUpgradeCheckResult, error) {
-		return &core.AimUpgradeCheckResult{CurrentVersion: "0.12.4", LatestVersion: "0.12.5", HasUpdate: true, Comparable: true}, nil
+	checkAimUpgrade = func(context.Context, string) (*appupgrade.AimUpgradeCheckResult, error) {
+		return &appupgrade.AimUpgradeCheckResult{CurrentVersion: "0.12.4", LatestVersion: "0.12.5", HasUpdate: true, Comparable: true}, nil
 	}
-	runUpgradeViaInstaller = func(context.Context, string) (*core.InstallerUpgradeResult, error) {
+	runUpgradeViaInstaller = func(context.Context, string) (*appupgrade.InstallerUpgradeResult, error) {
 		return nil, fmt.Errorf("installer failed")
 	}
 
@@ -225,11 +226,11 @@ func TestUpgradeCmdOutputsVersionTransitionMessage(t *testing.T) {
 		checkAimUpgrade = originalCheck
 		runUpgradeViaInstaller = original
 	})
-	checkAimUpgrade = func(context.Context, string) (*core.AimUpgradeCheckResult, error) {
-		return &core.AimUpgradeCheckResult{CurrentVersion: "0.12.4", LatestVersion: "0.12.5", HasUpdate: true, Comparable: true}, nil
+	checkAimUpgrade = func(context.Context, string) (*appupgrade.AimUpgradeCheckResult, error) {
+		return &appupgrade.AimUpgradeCheckResult{CurrentVersion: "0.12.4", LatestVersion: "0.12.5", HasUpdate: true, Comparable: true}, nil
 	}
-	runUpgradeViaInstaller = func(context.Context, string) (*core.InstallerUpgradeResult, error) {
-		return &core.InstallerUpgradeResult{
+	runUpgradeViaInstaller = func(context.Context, string) (*appupgrade.InstallerUpgradeResult, error) {
+		return &appupgrade.InstallerUpgradeResult{
 			PreviousVersion:  "0.12.4",
 			InstalledVersion: "0.12.5",
 		}, nil
@@ -271,11 +272,11 @@ func TestUpgradeCmdFallsBackWhenInstalledVersionUnknown(t *testing.T) {
 		checkAimUpgrade = originalCheck
 		runUpgradeViaInstaller = original
 	})
-	checkAimUpgrade = func(context.Context, string) (*core.AimUpgradeCheckResult, error) {
-		return &core.AimUpgradeCheckResult{CurrentVersion: "0.12.4", LatestVersion: "0.12.5", HasUpdate: true, Comparable: true}, nil
+	checkAimUpgrade = func(context.Context, string) (*appupgrade.AimUpgradeCheckResult, error) {
+		return &appupgrade.AimUpgradeCheckResult{CurrentVersion: "0.12.4", LatestVersion: "0.12.5", HasUpdate: true, Comparable: true}, nil
 	}
-	runUpgradeViaInstaller = func(context.Context, string) (*core.InstallerUpgradeResult, error) {
-		return &core.InstallerUpgradeResult{
+	runUpgradeViaInstaller = func(context.Context, string) (*appupgrade.InstallerUpgradeResult, error) {
+		return &appupgrade.InstallerUpgradeResult{
 			PreviousVersion:  "0.12.4",
 			InstalledVersion: "",
 		}, nil
@@ -301,15 +302,15 @@ func TestUpgradeCmdReportsUpToDateWhenNoNewReleaseExists(t *testing.T) {
 		runUpgradeViaInstaller = originalRun
 	})
 
-	checkAimUpgrade = func(context.Context, string) (*core.AimUpgradeCheckResult, error) {
-		return &core.AimUpgradeCheckResult{
+	checkAimUpgrade = func(context.Context, string) (*appupgrade.AimUpgradeCheckResult, error) {
+		return &appupgrade.AimUpgradeCheckResult{
 			CurrentVersion: "0.12.5",
 			LatestVersion:  "0.12.5",
 			HasUpdate:      false,
 			Comparable:     true,
 		}, nil
 	}
-	runUpgradeViaInstaller = func(context.Context, string) (*core.InstallerUpgradeResult, error) {
+	runUpgradeViaInstaller = func(context.Context, string) (*appupgrade.InstallerUpgradeResult, error) {
 		t.Fatal("installer should not run when already up to date")
 		return nil, nil
 	}
@@ -341,17 +342,17 @@ func TestUpgradeCmdDevBuildSkipsNoUpdateOptimization(t *testing.T) {
 
 	version = "dev"
 	called := false
-	checkAimUpgrade = func(context.Context, string) (*core.AimUpgradeCheckResult, error) {
-		return &core.AimUpgradeCheckResult{
+	checkAimUpgrade = func(context.Context, string) (*appupgrade.AimUpgradeCheckResult, error) {
+		return &appupgrade.AimUpgradeCheckResult{
 			CurrentVersion: "dev",
 			LatestVersion:  "0.12.5",
 			HasUpdate:      true,
 			Comparable:     false,
 		}, nil
 	}
-	runUpgradeViaInstaller = func(context.Context, string) (*core.InstallerUpgradeResult, error) {
+	runUpgradeViaInstaller = func(context.Context, string) (*appupgrade.InstallerUpgradeResult, error) {
 		called = true
-		return &core.InstallerUpgradeResult{
+		return &appupgrade.InstallerUpgradeResult{
 			PreviousVersion:  "dev",
 			InstalledVersion: "0.12.5",
 		}, nil
@@ -424,12 +425,12 @@ func TestRootUpgradeFlagInvokesInstallerUpgrade(t *testing.T) {
 		runUpgradeViaInstaller = original
 	})
 	called := false
-	checkAimUpgrade = func(context.Context, string) (*core.AimUpgradeCheckResult, error) {
-		return &core.AimUpgradeCheckResult{CurrentVersion: "0.12.4", LatestVersion: "0.12.5", HasUpdate: true, Comparable: true}, nil
+	checkAimUpgrade = func(context.Context, string) (*appupgrade.AimUpgradeCheckResult, error) {
+		return &appupgrade.AimUpgradeCheckResult{CurrentVersion: "0.12.4", LatestVersion: "0.12.5", HasUpdate: true, Comparable: true}, nil
 	}
-	runUpgradeViaInstaller = func(context.Context, string) (*core.InstallerUpgradeResult, error) {
+	runUpgradeViaInstaller = func(context.Context, string) (*appupgrade.InstallerUpgradeResult, error) {
 		called = true
-		return &core.InstallerUpgradeResult{
+		return &appupgrade.InstallerUpgradeResult{
 			PreviousVersion:  "0.12.4",
 			InstalledVersion: "0.12.5",
 		}, nil
@@ -457,11 +458,11 @@ func TestRootUpgradeFlagPassesNonNilContext(t *testing.T) {
 		checkAimUpgrade = originalCheck
 		runUpgradeViaInstaller = original
 	})
-	checkAimUpgrade = func(context.Context, string) (*core.AimUpgradeCheckResult, error) {
-		return &core.AimUpgradeCheckResult{CurrentVersion: "dev", LatestVersion: "0.12.5", HasUpdate: true, Comparable: false}, nil
+	checkAimUpgrade = func(context.Context, string) (*appupgrade.AimUpgradeCheckResult, error) {
+		return &appupgrade.AimUpgradeCheckResult{CurrentVersion: "dev", LatestVersion: "0.12.5", HasUpdate: true, Comparable: false}, nil
 	}
 
-	runUpgradeViaInstaller = func(ctx context.Context, currentVersion string) (*core.InstallerUpgradeResult, error) {
+	runUpgradeViaInstaller = func(ctx context.Context, currentVersion string) (*appupgrade.InstallerUpgradeResult, error) {
 		if ctx == nil {
 			t.Fatal("expected non-nil context")
 		}
@@ -471,7 +472,7 @@ func TestRootUpgradeFlagPassesNonNilContext(t *testing.T) {
 		if currentVersion != version {
 			t.Fatalf("currentVersion = %q, want %q", currentVersion, version)
 		}
-		return &core.InstallerUpgradeResult{
+		return &appupgrade.InstallerUpgradeResult{
 			PreviousVersion:  currentVersion,
 			InstalledVersion: "0.12.5",
 		}, nil
@@ -3830,10 +3831,12 @@ func TestPrepareRuntimeLoadsSettingsTimeout(t *testing.T) {
 	rootDir := t.TempDir()
 	originalPaths := config.CurrentPaths()
 	originalTimeout := appupdate.SharedHTTPClient().Timeout
+	originalUpgradeTimeout := appupgrade.SharedHTTPClient().Timeout
 	originalDownloadHeaderTimeout := sharedDownloadHTTPTransport(t).ResponseHeaderTimeout
 	t.Cleanup(func() {
 		config.ApplyPaths(originalPaths)
 		appupdate.SetHTTPClientTimeout(originalTimeout)
+		appupgrade.SetHTTPClientTimeout(originalUpgradeTimeout)
 		core.SetDownloadHTTPClientTimeout(originalDownloadHeaderTimeout)
 		discovery.SetHTTPClientTimeout(originalTimeout)
 	})
@@ -3856,6 +3859,9 @@ func TestPrepareRuntimeLoadsSettingsTimeout(t *testing.T) {
 	}
 	if got := appupdate.SharedHTTPClient().Timeout; got != 45*time.Second {
 		t.Fatalf("shared HTTP timeout = %s, want 45s", got)
+	}
+	if got := appupgrade.SharedHTTPClient().Timeout; got != 45*time.Second {
+		t.Fatalf("shared upgrade HTTP timeout = %s, want 45s", got)
 	}
 	if got := core.SharedDownloadHTTPClient().Timeout; got != 0 {
 		t.Fatalf("shared download HTTP timeout = %s, want 0", got)
@@ -4162,16 +4168,16 @@ func TestUpgradeMessagingUsesStderr(t *testing.T) {
 		checkAimUpgrade = originalCheck
 		runUpgradeViaInstaller = originalUpgrade
 	})
-	checkAimUpgrade = func(context.Context, string) (*core.AimUpgradeCheckResult, error) {
-		return &core.AimUpgradeCheckResult{
+	checkAimUpgrade = func(context.Context, string) (*appupgrade.AimUpgradeCheckResult, error) {
+		return &appupgrade.AimUpgradeCheckResult{
 			CurrentVersion: "0.12.4",
 			LatestVersion:  "0.12.5",
 			HasUpdate:      true,
 			Comparable:     true,
 		}, nil
 	}
-	runUpgradeViaInstaller = func(context.Context, string) (*core.InstallerUpgradeResult, error) {
-		return &core.InstallerUpgradeResult{
+	runUpgradeViaInstaller = func(context.Context, string) (*appupgrade.InstallerUpgradeResult, error) {
+		return &appupgrade.InstallerUpgradeResult{
 			PreviousVersion:  "0.12.4",
 			InstalledVersion: "0.12.5",
 		}, nil
