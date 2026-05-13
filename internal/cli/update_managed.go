@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	core "github.com/slobbe/appimage-manager/internal/app"
+	"github.com/slobbe/appimage-manager/internal/app/clock"
 	appintegrate "github.com/slobbe/appimage-manager/internal/app/integrate"
 	models "github.com/slobbe/appimage-manager/internal/domain"
 	repo "github.com/slobbe/appimage-manager/internal/infra/repository"
@@ -135,7 +135,7 @@ func collectManagedUpdateRows(cmd *cobra.Command, cfg managedUpdateRunConfig) (m
 
 	metadataUpdates := make([]repo.CheckMetadataUpdate, 0, len(checkResults))
 	collection.rows = make([]updateOutputRow, 0, len(checkResults))
-	checkedAt := core.NowISO()
+	checkedAt := clock.NowISO()
 
 	for idx, result := range checkResults {
 		app := result.app

@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	core "github.com/slobbe/appimage-manager/internal/app"
+	"github.com/slobbe/appimage-manager/internal/app/clock"
 	appintegrate "github.com/slobbe/appimage-manager/internal/app/integrate"
 	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
 	"github.com/slobbe/appimage-manager/internal/cli/config"
@@ -22,8 +22,8 @@ var (
 	downloadManagedRemoteAsset = func(ctx context.Context, assetURL, destination string, interactive bool, onProgress func(int64, int64)) error {
 		return appupdate.Service{
 			TempDir:    config.TempDir,
-			HTTPClient: core.SharedDownloadHTTPClient(),
-			NowISO:     core.NowISO,
+			HTTPClient: download.SharedHTTPClient(),
+			NowISO:     clock.NowISO,
 		}.DownloadManagedUpdateAsset(ctx, assetURL, destination, onProgress)
 	}
 	integrateManagedUpdate = appintegrate.IntegrateFromLocalFileWithoutCacheRefreshOrPersist
@@ -34,8 +34,8 @@ var (
 func managedUpdateService() appupdate.Service {
 	return appupdate.Service{
 		TempDir:    config.TempDir,
-		HTTPClient: core.SharedDownloadHTTPClient(),
-		NowISO:     core.NowISO,
+		HTTPClient: download.SharedHTTPClient(),
+		NowISO:     clock.NowISO,
 		Zsync: zsync.Runner{
 			LookPath:       zsyncLookPath,
 			CommandContext: zsyncCommandContext,
@@ -190,7 +190,7 @@ func downloadUpdateAssetWithDescription(ctx context.Context, assetURL, destinati
 	)
 
 	logOperationContextf(ctx, "HTTP GET %s", assetURL)
-	downloader := download.Downloader{Client: core.SharedDownloadHTTPClient()}
+	downloader := download.Downloader{Client: download.SharedHTTPClient()}
 	resultMeta, err := downloader.Download(ctx, download.Request{
 		URL:         assetURL,
 		Destination: destination,

@@ -19,7 +19,6 @@ import (
 	"testing"
 	"time"
 
-	core "github.com/slobbe/appimage-manager/internal/app"
 	appimage "github.com/slobbe/appimage-manager/internal/app/appimage"
 	"github.com/slobbe/appimage-manager/internal/app/discovery"
 	appintegrate "github.com/slobbe/appimage-manager/internal/app/integrate"
@@ -27,6 +26,7 @@ import (
 	appupgrade "github.com/slobbe/appimage-manager/internal/app/upgrade"
 	"github.com/slobbe/appimage-manager/internal/cli/config"
 	models "github.com/slobbe/appimage-manager/internal/domain"
+	"github.com/slobbe/appimage-manager/internal/infra/download"
 	fsys "github.com/slobbe/appimage-manager/internal/infra/filesystem"
 	repo "github.com/slobbe/appimage-manager/internal/infra/repository"
 	"github.com/spf13/cobra"
@@ -3837,7 +3837,7 @@ func TestPrepareRuntimeLoadsSettingsTimeout(t *testing.T) {
 		config.ApplyPaths(originalPaths)
 		appupdate.SetHTTPClientTimeout(originalTimeout)
 		appupgrade.SetHTTPClientTimeout(originalUpgradeTimeout)
-		core.SetDownloadHTTPClientTimeout(originalDownloadHeaderTimeout)
+		download.SetHTTPClientTimeout(originalDownloadHeaderTimeout)
 		discovery.SetHTTPClientTimeout(originalTimeout)
 	})
 
@@ -3863,7 +3863,7 @@ func TestPrepareRuntimeLoadsSettingsTimeout(t *testing.T) {
 	if got := appupgrade.SharedHTTPClient().Timeout; got != 45*time.Second {
 		t.Fatalf("shared upgrade HTTP timeout = %s, want 45s", got)
 	}
-	if got := core.SharedDownloadHTTPClient().Timeout; got != 0 {
+	if got := download.SharedHTTPClient().Timeout; got != 0 {
 		t.Fatalf("shared download HTTP timeout = %s, want 0", got)
 	}
 	if got := sharedDownloadHTTPTransport(t).ResponseHeaderTimeout; got != 45*time.Second {
@@ -3874,9 +3874,9 @@ func TestPrepareRuntimeLoadsSettingsTimeout(t *testing.T) {
 func TestDownloadUpdateAssetAllowsSlowStreamingBody(t *testing.T) {
 	originalTimeout := sharedDownloadHTTPTransport(t).ResponseHeaderTimeout
 	t.Cleanup(func() {
-		core.SetDownloadHTTPClientTimeout(originalTimeout)
+		download.SetHTTPClientTimeout(originalTimeout)
 	})
-	core.SetDownloadHTTPClientTimeout(50 * time.Millisecond)
+	download.SetHTTPClientTimeout(50 * time.Millisecond)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		flusher, _ := w.(http.Flusher)
@@ -3911,9 +3911,9 @@ func TestDownloadUpdateAssetAllowsSlowStreamingBody(t *testing.T) {
 func TestDownloadUpdateAssetTimesOutWaitingForHeaders(t *testing.T) {
 	originalTimeout := sharedDownloadHTTPTransport(t).ResponseHeaderTimeout
 	t.Cleanup(func() {
-		core.SetDownloadHTTPClientTimeout(originalTimeout)
+		download.SetHTTPClientTimeout(originalTimeout)
 	})
-	core.SetDownloadHTTPClientTimeout(50 * time.Millisecond)
+	download.SetHTTPClientTimeout(50 * time.Millisecond)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(100 * time.Millisecond)
@@ -3933,7 +3933,7 @@ func TestDownloadUpdateAssetTimesOutWaitingForHeaders(t *testing.T) {
 func sharedDownloadHTTPTransport(t *testing.T) *http.Transport {
 	t.Helper()
 
-	transport, ok := core.SharedDownloadHTTPClient().Transport.(*http.Transport)
+	transport, ok := download.SharedHTTPClient().Transport.(*http.Transport)
 	if !ok || transport == nil {
 		t.Fatal("shared download HTTP transport is not an *http.Transport")
 	}

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"sync"
 
-	core "github.com/slobbe/appimage-manager/internal/app"
 	appimage "github.com/slobbe/appimage-manager/internal/app/appimage"
+	"github.com/slobbe/appimage-manager/internal/app/clock"
 	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
 	models "github.com/slobbe/appimage-manager/internal/domain"
 	"github.com/slobbe/appimage-manager/internal/infra/desktop"
@@ -80,7 +80,7 @@ func integrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 		}
 	}
 
-	timestampNow := core.NowISO()
+	timestampNow := clock.NowISO()
 	addedAt := timestampNow
 	lastCheckedAt := ""
 	latestVersion := ""

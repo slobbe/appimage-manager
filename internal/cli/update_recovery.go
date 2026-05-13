@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	core "github.com/slobbe/appimage-manager/internal/app"
+	"github.com/slobbe/appimage-manager/internal/app/clock"
 	"github.com/slobbe/appimage-manager/internal/cli/config"
 	models "github.com/slobbe/appimage-manager/internal/domain"
 	"github.com/slobbe/appimage-manager/internal/infra/download"
@@ -119,7 +119,7 @@ func loadStagedDownloadMetadata(downloadPath string) (*stagedDownloadMetadata, e
 }
 
 func saveStagedDownloadMetadata(downloadPath string, meta stagedDownloadMetadata) error {
-	meta.UpdatedAt = core.NowISO()
+	meta.UpdatedAt = clock.NowISO()
 	data, err := json.MarshalIndent(meta, "", "  ")
 	if err != nil {
 		return err
@@ -226,7 +226,7 @@ func setCachedManagedUpdate(cache *updateCheckCacheFile, app *models.App, source
 	}
 	cache.Entries[strings.TrimSpace(app.ID)] = updateCheckCacheEntry{
 		SourceKey: strings.TrimSpace(sourceKey),
-		CheckedAt: core.NowISO(),
+		CheckedAt: clock.NowISO(),
 		Update:    newCachedPendingUpdate(update),
 	}
 }

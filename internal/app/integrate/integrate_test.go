@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	core "github.com/slobbe/appimage-manager/internal/app"
 	appimage "github.com/slobbe/appimage-manager/internal/app/appimage"
 	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
 	"github.com/slobbe/appimage-manager/internal/cli/config"
@@ -509,8 +508,6 @@ func setupIntegrationConfigForTest(t *testing.T, tmp string) {
 		defaultStore = originalStore
 		defaultPaths = originalPaths
 		appimage.SetPaths(originalAppImagePaths)
-		core.SetStore(nil)
-		core.SetPaths(core.Paths{})
 	})
 
 	config.AimDir = filepath.Join(tmp, "aim")
@@ -525,13 +522,6 @@ func setupIntegrationConfigForTest(t *testing.T, tmp string) {
 		IconThemeDir: config.IconThemeDir,
 	})
 	SetStore(repo.NewStore(config.DbSrc))
-	core.SetPaths(core.Paths{
-		AimDir:       config.AimDir,
-		DesktopDir:   config.DesktopDir,
-		TempDir:      config.TempDir,
-		IconThemeDir: config.IconThemeDir,
-	})
-	core.SetStore(repo.NewStore(config.DbSrc))
 
 	dirs := []string{
 		config.AimDir,

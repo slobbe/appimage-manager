@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	core "github.com/slobbe/appimage-manager/internal/app"
 	appimage "github.com/slobbe/appimage-manager/internal/app/appimage"
 	"github.com/slobbe/appimage-manager/internal/app/discovery"
 	appintegrate "github.com/slobbe/appimage-manager/internal/app/integrate"
@@ -1475,7 +1474,7 @@ func displayVersion(value string) string {
 		return "dev"
 	}
 
-	if normalized := core.NormalizeComparableVersion(v); normalized != "" {
+	if normalized := models.NormalizeComparableVersion(v); normalized != "" {
 		v = normalized
 	}
 
