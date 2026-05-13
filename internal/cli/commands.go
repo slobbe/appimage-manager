@@ -10,6 +10,7 @@ import (
 
 	core "github.com/slobbe/appimage-manager/internal/app"
 	"github.com/slobbe/appimage-manager/internal/app/discovery"
+	appintegrate "github.com/slobbe/appimage-manager/internal/app/integrate"
 	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
 	models "github.com/slobbe/appimage-manager/internal/domain"
 	fsys "github.com/slobbe/appimage-manager/internal/infra/filesystem"
@@ -472,7 +473,7 @@ func integrateRemoteInstall(ctx context.Context, cmd *cobra.Command, req remoteI
 	app.Source = req.BuildSource(app)
 	app.Update = finalUpdate
 
-	equivalentApp, err := core.FindEquivalentManagedApp(app)
+	equivalentApp, err := appintegrate.FindEquivalentManagedApp(app)
 	if err != nil {
 		return nil, wrapWriteError(err)
 	}
@@ -1451,8 +1452,8 @@ var downloadRemoteAsset = downloadUpdateAsset
 var checkAimUpgrade = core.CheckForAimUpgrade
 var runUpgradeViaInstaller = core.UpgradeViaInstaller
 var runManagedApply = applyManagedUpdate
-var integrateExistingApp = core.IntegrateExisting
-var integrateLocalApp = core.IntegrateFromLocalFile
+var integrateExistingApp = appintegrate.IntegrateExisting
+var integrateLocalApp = appintegrate.IntegrateFromLocalFile
 var readAppImageInfo = core.ReadAppImageInfo
 var getAppImageUpdateInfo = core.GetUpdateInfo
 var removeManagedApp = core.Remove

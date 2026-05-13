@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	core "github.com/slobbe/appimage-manager/internal/app"
+	appintegrate "github.com/slobbe/appimage-manager/internal/app/integrate"
 	models "github.com/slobbe/appimage-manager/internal/domain"
 	repo "github.com/slobbe/appimage-manager/internal/infra/repository"
 	"github.com/spf13/cobra"
@@ -352,7 +353,7 @@ func applyManagedUpdates(ctx context.Context, cmd *cobra.Command, cfg managedUpd
 		}
 
 		if len(appliedApps) > 0 {
-			core.RefreshDesktopIntegrationCaches(ctx)
+			appintegrate.RefreshDesktopIntegrationCaches(ctx)
 		}
 
 		logOperationf(cmd, "Persisting applied updates")

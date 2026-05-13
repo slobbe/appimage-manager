@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	models "github.com/slobbe/appimage-manager/internal/domain"
+	"github.com/slobbe/appimage-manager/internal/infra/desktop"
 	fsys "github.com/slobbe/appimage-manager/internal/infra/filesystem"
 )
 
@@ -57,7 +58,10 @@ func remove(ctx context.Context, store AppStore, id string, unlink bool) (*model
 		}
 	}
 
-	refreshDesktopIntegrationCaches(ctx)
+	desktop.RefreshIntegrationCaches(ctx, desktop.CachePaths{
+		DesktopDir:   paths.DesktopDir,
+		IconThemeDir: paths.IconThemeDir,
+	})
 
 	return appData, nil
 }

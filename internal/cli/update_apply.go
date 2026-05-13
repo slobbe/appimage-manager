@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	core "github.com/slobbe/appimage-manager/internal/app"
+	appintegrate "github.com/slobbe/appimage-manager/internal/app/integrate"
 	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
 	"github.com/slobbe/appimage-manager/internal/cli/config"
 	models "github.com/slobbe/appimage-manager/internal/domain"
@@ -25,7 +26,7 @@ var (
 			NowISO:     core.NowISO,
 		}.DownloadManagedUpdateAsset(ctx, assetURL, destination, onProgress)
 	}
-	integrateManagedUpdate = core.IntegrateFromLocalFileWithoutCacheRefreshOrPersist
+	integrateManagedUpdate = appintegrate.IntegrateFromLocalFileWithoutCacheRefreshOrPersist
 	zsyncLookPath          = exec.LookPath
 	zsyncCommandContext    = exec.CommandContext
 )

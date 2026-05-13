@@ -14,6 +14,7 @@ import (
 
 	core "github.com/slobbe/appimage-manager/internal/app"
 	"github.com/slobbe/appimage-manager/internal/app/discovery"
+	appintegrate "github.com/slobbe/appimage-manager/internal/app/integrate"
 	"github.com/slobbe/appimage-manager/internal/cli/config"
 	repo "github.com/slobbe/appimage-manager/internal/infra/repository"
 	"github.com/spf13/cobra"
@@ -65,6 +66,8 @@ func prepareRuntime(cmd *cobra.Command) error {
 	core.SetDownloadHTTPClientTimeout(settings.NetworkTimeout)
 	core.SetPaths(appPathsFromConfig(config.CurrentPaths()))
 	core.SetStore(repo.NewStore(config.DbSrc))
+	appintegrate.SetPaths(integratePathsFromConfig(config.CurrentPaths()))
+	appintegrate.SetStore(repo.NewStore(config.DbSrc))
 	discovery.SetHTTPClientTimeout(settings.NetworkTimeout)
 
 	if opts.Debug {
@@ -80,6 +83,15 @@ func prepareRuntime(cmd *cobra.Command) error {
 	ctx = context.WithValue(ctx, runtimeSettingsContextKey{}, settings)
 	cmd.SetContext(ctx)
 	return nil
+}
+
+func integratePathsFromConfig(paths config.Paths) appintegrate.Paths {
+	return appintegrate.Paths{
+		AimDir:       paths.AimDir,
+		DesktopDir:   paths.DesktopDir,
+		TempDir:      paths.TempDir,
+		IconThemeDir: paths.IconThemeDir,
+	}
 }
 
 func appPathsFromConfig(paths config.Paths) core.Paths {

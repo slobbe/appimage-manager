@@ -1,4 +1,4 @@
-package app
+package integrate
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	core "github.com/slobbe/appimage-manager/internal/app"
 	"github.com/slobbe/appimage-manager/internal/cli/config"
 	models "github.com/slobbe/appimage-manager/internal/domain"
 	repo "github.com/slobbe/appimage-manager/internal/infra/repository"
@@ -353,8 +354,8 @@ func TestIntegrateFromLocalFileReplacesEquivalentManagedAppWhenDesktopIDChanges(
 	t.Cleanup(func() {
 		getEmbeddedUpdateInfo = originalGetEmbeddedUpdateInfo
 	})
-	getEmbeddedUpdateInfo = func(string) (*UpdateInfo, error) {
-		return &UpdateInfo{
+	getEmbeddedUpdateInfo = func(string) (*core.UpdateInfo, error) {
+		return &core.UpdateInfo{
 			Kind:       models.UpdateZsync,
 			UpdateInfo: "zsync|https://example.com/t3-code.AppImage.zsync",
 			Transport:  "zsync",
@@ -504,6 +505,8 @@ func setupIntegrationConfigForTest(t *testing.T, tmp string) {
 		config.DbSrc = originalDbSrc
 		defaultStore = originalStore
 		defaultPaths = originalPaths
+		core.SetStore(nil)
+		core.SetPaths(core.Paths{})
 	})
 
 	config.AimDir = filepath.Join(tmp, "aim")
@@ -518,6 +521,13 @@ func setupIntegrationConfigForTest(t *testing.T, tmp string) {
 		IconThemeDir: config.IconThemeDir,
 	})
 	SetStore(repo.NewStore(config.DbSrc))
+	core.SetPaths(core.Paths{
+		AimDir:       config.AimDir,
+		DesktopDir:   config.DesktopDir,
+		TempDir:      config.TempDir,
+		IconThemeDir: config.IconThemeDir,
+	})
+	core.SetStore(repo.NewStore(config.DbSrc))
 
 	dirs := []string{
 		config.AimDir,

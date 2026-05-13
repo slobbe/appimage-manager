@@ -21,6 +21,7 @@ import (
 
 	core "github.com/slobbe/appimage-manager/internal/app"
 	"github.com/slobbe/appimage-manager/internal/app/discovery"
+	appintegrate "github.com/slobbe/appimage-manager/internal/app/integrate"
 	"github.com/slobbe/appimage-manager/internal/cli/config"
 	models "github.com/slobbe/appimage-manager/internal/domain"
 	fsys "github.com/slobbe/appimage-manager/internal/infra/filesystem"
@@ -1001,7 +1002,7 @@ func TestAddCmdLocalAppImageIntegratedMessage(t *testing.T) {
 	t.Cleanup(func() {
 		integrateLocalApp = original
 	})
-	integrateLocalApp = func(context.Context, string, core.UpdateOverwritePrompt) (*models.App, error) {
+	integrateLocalApp = func(context.Context, string, appintegrate.UpdateOverwritePrompt) (*models.App, error) {
 		return &models.App{
 			ID:      "my-app",
 			Name:    "My App",
@@ -1075,7 +1076,7 @@ func TestAddCmdRoutesLocalPathToIntegrateFlow(t *testing.T) {
 	t.Cleanup(func() {
 		integrateLocalApp = original
 	})
-	integrateLocalApp = func(context.Context, string, core.UpdateOverwritePrompt) (*models.App, error) {
+	integrateLocalApp = func(context.Context, string, appintegrate.UpdateOverwritePrompt) (*models.App, error) {
 		return &models.App{
 			ID:      "my-app",
 			Name:    "My App",
@@ -1252,7 +1253,7 @@ func TestAddCmdDirectURLWithChecksum(t *testing.T) {
 		}
 		return os.WriteFile(destination, payload, 0o644)
 	}
-	integrateLocalApp = func(context.Context, string, core.UpdateOverwritePrompt) (*models.App, error) {
+	integrateLocalApp = func(context.Context, string, appintegrate.UpdateOverwritePrompt) (*models.App, error) {
 		return &models.App{
 			ID:        "my-app",
 			Name:      "My App",
@@ -1309,7 +1310,7 @@ func TestAddCmdDirectURLWithoutChecksumWarns(t *testing.T) {
 	downloadRemoteAsset = func(context.Context, string, string, bool) error {
 		return nil
 	}
-	integrateLocalApp = func(context.Context, string, core.UpdateOverwritePrompt) (*models.App, error) {
+	integrateLocalApp = func(context.Context, string, appintegrate.UpdateOverwritePrompt) (*models.App, error) {
 		return &models.App{
 			ID:        "my-app",
 			Name:      "My App",
@@ -1349,7 +1350,7 @@ func TestAddCmdDirectURLChecksumMismatch(t *testing.T) {
 	}
 
 	var calls int32
-	integrateLocalApp = func(context.Context, string, core.UpdateOverwritePrompt) (*models.App, error) {
+	integrateLocalApp = func(context.Context, string, appintegrate.UpdateOverwritePrompt) (*models.App, error) {
 		atomic.AddInt32(&calls, 1)
 		return &models.App{ID: "my-app"}, nil
 	}
@@ -1416,7 +1417,7 @@ func TestAddCmdGitHubSetsDefaultAssetSourceAndUpdate(t *testing.T) {
 	downloadRemoteAsset = func(context.Context, string, string, bool) error {
 		return nil
 	}
-	integrateLocalApp = func(context.Context, string, core.UpdateOverwritePrompt) (*models.App, error) {
+	integrateLocalApp = func(context.Context, string, appintegrate.UpdateOverwritePrompt) (*models.App, error) {
 		return &models.App{
 			ID:        "my-app",
 			Name:      "My App",
@@ -1496,7 +1497,7 @@ func TestAddCmdGitHubPersistsCustomAsset(t *testing.T) {
 		}, nil
 	}
 	downloadRemoteAsset = func(context.Context, string, string, bool) error { return nil }
-	integrateLocalApp = func(context.Context, string, core.UpdateOverwritePrompt) (*models.App, error) {
+	integrateLocalApp = func(context.Context, string, appintegrate.UpdateOverwritePrompt) (*models.App, error) {
 		return &models.App{ID: "my-app", Name: "My App", Version: "1.2.3", UpdatedAt: "2026-03-08T12:00:00Z"}, nil
 	}
 	addSingleApp = defaultAddSingleApp
@@ -1562,7 +1563,7 @@ func TestAddCmdGitHubUsesCustomAsset(t *testing.T) {
 		}, nil
 	}
 	downloadRemoteAsset = func(context.Context, string, string, bool) error { return nil }
-	integrateLocalApp = func(context.Context, string, core.UpdateOverwritePrompt) (*models.App, error) {
+	integrateLocalApp = func(context.Context, string, appintegrate.UpdateOverwritePrompt) (*models.App, error) {
 		return &models.App{ID: "my-app", Name: "My App", Version: "1.2.3", UpdatedAt: "2026-03-08T12:00:00Z"}, nil
 	}
 	addSingleApp = defaultAddSingleApp
@@ -1669,7 +1670,7 @@ func TestAddCmdGitHubPromptsForAmbiguousAsset(t *testing.T) {
 		downloadedURL = url
 		return nil
 	}
-	integrateLocalApp = func(context.Context, string, core.UpdateOverwritePrompt) (*models.App, error) {
+	integrateLocalApp = func(context.Context, string, appintegrate.UpdateOverwritePrompt) (*models.App, error) {
 		return &models.App{ID: "my-app", Name: "My App", Version: "1.2.3", UpdatedAt: "2026-03-08T12:00:00Z"}, nil
 	}
 	addSingleApp = defaultAddSingleApp
@@ -1724,7 +1725,7 @@ func TestAddCmdGitHubShowsProgressStages(t *testing.T) {
 		}
 	}
 	downloadRemoteAsset = func(context.Context, string, string, bool) error { return nil }
-	integrateLocalApp = func(context.Context, string, core.UpdateOverwritePrompt) (*models.App, error) {
+	integrateLocalApp = func(context.Context, string, appintegrate.UpdateOverwritePrompt) (*models.App, error) {
 		return &models.App{ID: "my-app", Name: "My App", Version: "1.2.3", UpdatedAt: "2026-03-08T12:00:00Z"}, nil
 	}
 	addSingleApp = defaultAddSingleApp
@@ -1955,7 +1956,7 @@ func TestAddCmdDirectProviderRefDelegatesToExistingAddFlow(t *testing.T) {
 		}, nil
 	}
 	downloadRemoteAsset = func(context.Context, string, string, bool) error { return nil }
-	integrateLocalApp = func(context.Context, string, core.UpdateOverwritePrompt) (*models.App, error) {
+	integrateLocalApp = func(context.Context, string, appintegrate.UpdateOverwritePrompt) (*models.App, error) {
 		return &models.App{ID: "my-app", Name: "My App", Version: "1.2.3", UpdatedAt: "2026-03-08T12:00:00Z"}, nil
 	}
 	addSingleApp = defaultAddSingleApp
@@ -2021,7 +2022,7 @@ func TestAddCmdRejectsPositionalGitHubURL(t *testing.T) {
 		}, nil
 	}
 	downloadRemoteAsset = func(context.Context, string, string, bool) error { return nil }
-	integrateLocalApp = func(context.Context, string, core.UpdateOverwritePrompt) (*models.App, error) {
+	integrateLocalApp = func(context.Context, string, appintegrate.UpdateOverwritePrompt) (*models.App, error) {
 		return &models.App{ID: "my-app", Name: "My App", Version: "1.2.3", UpdatedAt: "2026-03-08T12:00:00Z"}, nil
 	}
 	addSingleApp = defaultAddSingleApp
@@ -4053,7 +4054,7 @@ func TestApplyManagedUpdateMissingZsyncRewritesError(t *testing.T) {
 		t.Fatal("download should not run when testing zsync lookup failure directly")
 		return nil
 	}
-	integrateManagedUpdate = func(context.Context, string, core.UpdateOverwritePrompt) (*models.App, error) {
+	integrateManagedUpdate = func(context.Context, string, appintegrate.UpdateOverwritePrompt) (*models.App, error) {
 		t.Fatal("integrate should not run when zsync lookup fails")
 		return nil, nil
 	}
@@ -6357,7 +6358,7 @@ func TestApplyManagedUpdateUsesZsyncWhenAvailable(t *testing.T) {
 		return nil
 	}
 
-	integrateManagedUpdate = func(ctx context.Context, src string, confirm core.UpdateOverwritePrompt) (*models.App, error) {
+	integrateManagedUpdate = func(ctx context.Context, src string, confirm appintegrate.UpdateOverwritePrompt) (*models.App, error) {
 		if _, err := os.Stat(src); err != nil {
 			t.Fatalf("expected zsync output file: %v", err)
 		}
@@ -6430,7 +6431,7 @@ func TestApplyManagedUpdateFallsBackWhenZsyncMissing(t *testing.T) {
 		return os.WriteFile(destination, payload, 0o644)
 	}
 
-	integrateManagedUpdate = func(context.Context, string, core.UpdateOverwritePrompt) (*models.App, error) {
+	integrateManagedUpdate = func(context.Context, string, appintegrate.UpdateOverwritePrompt) (*models.App, error) {
 		return &models.App{ID: "my-app", Version: "2.0.0"}, nil
 	}
 
@@ -6490,7 +6491,7 @@ func TestApplyManagedUpdateFallsBackWhenZsyncFails(t *testing.T) {
 		return os.WriteFile(destination, payload, 0o644)
 	}
 
-	integrateManagedUpdate = func(context.Context, string, core.UpdateOverwritePrompt) (*models.App, error) {
+	integrateManagedUpdate = func(context.Context, string, appintegrate.UpdateOverwritePrompt) (*models.App, error) {
 		return &models.App{ID: "my-app", Version: "2.0.0"}, nil
 	}
 
@@ -6543,7 +6544,7 @@ func TestApplyManagedUpdateWithoutZsyncUsesFullDownload(t *testing.T) {
 		return os.WriteFile(destination, []byte("downloaded"), 0o644)
 	}
 
-	integrateManagedUpdate = func(context.Context, string, core.UpdateOverwritePrompt) (*models.App, error) {
+	integrateManagedUpdate = func(context.Context, string, appintegrate.UpdateOverwritePrompt) (*models.App, error) {
 		return &models.App{ID: "my-app", Version: "2.0.0"}, nil
 	}
 
