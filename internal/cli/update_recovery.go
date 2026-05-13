@@ -11,6 +11,7 @@ import (
 
 	"github.com/slobbe/appimage-manager/internal/cli/config"
 	models "github.com/slobbe/appimage-manager/internal/domain"
+	"github.com/slobbe/appimage-manager/internal/infra/download"
 	fsys "github.com/slobbe/appimage-manager/internal/infra/filesystem"
 	util "github.com/slobbe/appimage-manager/internal/infra/helpers"
 )
@@ -26,6 +27,30 @@ type stagedDownloadMetadata struct {
 	LastModified string `json:"last_modified,omitempty"`
 	TotalBytes   int64  `json:"total_bytes,omitempty"`
 	UpdatedAt    string `json:"updated_at"`
+}
+
+func downloadMetadataFromStaged(meta *stagedDownloadMetadata) *download.Metadata {
+	if meta == nil {
+		return nil
+	}
+	return &download.Metadata{
+		URL:          meta.URL,
+		ETag:         meta.ETag,
+		LastModified: meta.LastModified,
+		TotalBytes:   meta.TotalBytes,
+	}
+}
+
+func stagedMetadataFromDownload(meta *download.Metadata) stagedDownloadMetadata {
+	if meta == nil {
+		return stagedDownloadMetadata{}
+	}
+	return stagedDownloadMetadata{
+		URL:          meta.URL,
+		ETag:         meta.ETag,
+		LastModified: meta.LastModified,
+		TotalBytes:   meta.TotalBytes,
+	}
 }
 
 type updateCheckCacheFile struct {

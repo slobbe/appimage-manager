@@ -2,9 +2,8 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -12,6 +11,7 @@ import (
 
 	core "github.com/slobbe/appimage-manager/internal/app"
 	models "github.com/slobbe/appimage-manager/internal/domain"
+	"github.com/slobbe/appimage-manager/internal/infra/download"
 	util "github.com/slobbe/appimage-manager/internal/infra/helpers"
 )
 
@@ -289,129 +289,75 @@ func downloadUpdateAssetWithDescription(ctx context.Context, assetURL, destinati
 		}
 	}()
 
-	meta, err := loadStagedDownloadMetadata(destination)
+	stagedMeta, err := loadStagedDownloadMetadata(destination)
 	if err != nil {
 		return wrapWriteError(err)
 	}
 
-	var existingSize int64
-	if info, statErr := os.Stat(destination); statErr == nil {
-		existingSize = info.Size()
-	} else if !os.IsNotExist(statErr) {
-		return wrapWriteError(statErr)
-	}
+	meta := downloadMetadataFromStaged(stagedMeta)
 	if meta != nil && strings.TrimSpace(meta.URL) != "" && strings.TrimSpace(meta.URL) != strings.TrimSpace(assetURL) {
 		removeStagedDownload(destination)
 		meta = nil
-		existingSize = 0
-	}
-
-	doRequest := func(rangeStart int64) (*http.Response, error) {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, assetURL, nil)
-		if err != nil {
-			return nil, err
-		}
-		if rangeStart > 0 {
-			req.Header.Set("Range", fmt.Sprintf("bytes=%d-", rangeStart))
-		}
-		logOperationContextf(ctx, "HTTP GET %s", assetURL)
-		return core.SharedDownloadHTTPClient().Do(req)
-	}
-
-	resp, err := doRequest(existingSize)
-	if err != nil {
-		return rewriteNetworkDownloadError(err)
-	}
-	if existingSize > 0 && resp.StatusCode != http.StatusPartialContent {
-		resp.Body.Close()
-		removeStagedDownload(destination)
-		existingSize = 0
-		meta = nil
-		resp, err = doRequest(0)
-		if err != nil {
-			return rewriteNetworkDownloadError(err)
-		}
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return withUserGuidance(
-			unavailableError(fmt.Errorf("download failed with status %s", resp.Status)),
-			fmt.Sprintf("Can't download update: server returned %s.", resp.Status),
-			"Try again later or check whether the upstream release is available.",
-		)
-	}
-
-	openFlags := os.O_CREATE | os.O_WRONLY
-	if existingSize > 0 && resp.StatusCode == http.StatusPartialContent {
-		openFlags |= os.O_APPEND
-	} else {
-		openFlags |= os.O_TRUNC
-		existingSize = 0
-	}
-
-	f, err := os.OpenFile(destination, openFlags, 0o644)
-	if err != nil {
-		return wrapWriteError(err)
-	}
-	defer f.Close()
-
-	total := resp.ContentLength
-	if existingSize > 0 && resp.ContentLength > 0 {
-		total = existingSize + resp.ContentLength
-	}
-	if meta == nil {
-		meta = &stagedDownloadMetadata{URL: assetURL}
-	}
-	meta.URL = assetURL
-	meta.ETag = strings.TrimSpace(resp.Header.Get("ETag"))
-	meta.LastModified = strings.TrimSpace(resp.Header.Get("Last-Modified"))
-	meta.TotalBytes = total
-	if err := saveStagedDownloadMetadata(destination, *meta); err != nil {
-		return wrapWriteError(err)
 	}
 
 	var (
-		downloaded   = existingSize
-		buffer       = make([]byte, 32*1024)
+		downloaded   int64
+		total        int64
 		progressMode = progressModeSpinner
 	)
-	if ownsProgress && interactive && progress != nil {
-		progress.Clear()
-		progress = newProcessByteProgress(description, total, true)
-		if total > 0 {
-			progressMode = progressModeBytes
+
+	logOperationContextf(ctx, "HTTP GET %s", assetURL)
+	downloader := download.Downloader{Client: core.SharedDownloadHTTPClient()}
+	resultMeta, err := downloader.Download(ctx, download.Request{
+		URL:         assetURL,
+		Destination: destination,
+		Metadata:    meta,
+	}, func(event download.Progress) {
+		delta := event.Downloaded - downloaded
+		downloaded = event.Downloaded
+		total = event.Total
+
+		if ownsProgress && interactive && progress != nil && progressMode == progressModeSpinner {
+			progress.Clear()
+			progress = newProcessByteProgress(description, total, true)
+			if total > 0 {
+				progressMode = progressModeBytes
+			}
+			if downloaded > 0 {
+				progress.Add(downloaded)
+			}
+			delta = 0
 		}
-		if existingSize > 0 {
-			progress.Add(existingSize)
+
+		if onProgress != nil {
+			onProgress(downloaded, total)
+		}
+		if ownsProgress && interactive && progress != nil && delta > 0 {
+			progress.Add(delta)
+		}
+		if err := saveStagedDownloadMetadata(destination, stagedMetadataFromDownload(&event.Metadata)); err != nil {
+			logOperationContextf(ctx, "failed to save staged download metadata: %v", err)
+		}
+	})
+	if resultMeta != nil {
+		if err := saveStagedDownloadMetadata(destination, stagedMetadataFromDownload(resultMeta)); err != nil {
+			return wrapWriteError(err)
 		}
 	}
-
-	for {
-		n, readErr := resp.Body.Read(buffer)
-		if n > 0 {
-			if _, err := f.Write(buffer[:n]); err != nil {
-				return wrapWriteError(err)
-			}
-			downloaded += int64(n)
-			if onProgress != nil {
-				onProgress(downloaded, total)
-			}
-			if ownsProgress && interactive && progress != nil {
-				progress.Add(int64(n))
-			}
-			meta.TotalBytes = total
-			if err := saveStagedDownloadMetadata(destination, *meta); err != nil {
-				return wrapWriteError(err)
-			}
+	if err != nil {
+		var statusErr *download.StatusError
+		if errors.As(err, &statusErr) {
+			return withUserGuidance(
+				unavailableError(statusErr),
+				fmt.Sprintf("Can't download update: server returned %s.", statusErr.Status),
+				"Try again later or check whether the upstream release is available.",
+			)
 		}
-
-		if readErr != nil {
-			if readErr == io.EOF {
-				break
-			}
-			return rewriteNetworkDownloadError(readErr)
+		var pathErr *os.PathError
+		if errors.As(err, &pathErr) {
+			return wrapWriteError(pathErr)
 		}
+		return rewriteNetworkDownloadError(err)
 	}
 
 	if ownsProgress && interactive {
