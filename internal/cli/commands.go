@@ -393,7 +393,7 @@ func integrateFromDirectURL(ctx context.Context, cmd *cobra.Command, target *ins
 	})
 }
 
-func integrateGitHubReleaseAsset(ctx context.Context, cmd *cobra.Command, target *installTarget, assetPattern string, release *core.GitHubReleaseAsset) (*models.App, error) {
+func integrateGitHubReleaseAsset(ctx context.Context, cmd *cobra.Command, target *installTarget, assetPattern string, release *appupdate.GitHubReleaseAsset) (*models.App, error) {
 	return integrateRemoteInstall(ctx, cmd, remoteInstallRequest{
 		DisplayLabel: target.Repo,
 		DownloadURL:  release.DownloadURL,
@@ -1082,7 +1082,7 @@ func updateSummaryOrNone(update *models.UpdateSource) string {
 	return updateSummary(update)
 }
 
-func updateSourceFromEmbeddedInfo(info *core.UpdateInfo) (*models.UpdateSource, error) {
+func updateSourceFromEmbeddedInfo(info *appupdate.UpdateInfo) (*models.UpdateSource, error) {
 	if info == nil {
 		return nil, softwareError(fmt.Errorf("missing embedded update info"))
 	}
@@ -1440,14 +1440,14 @@ type managedCheckFailure struct {
 }
 
 var runAppUpdateCheck = checkAppUpdate
-var runZsyncUpdateCheck = core.ZsyncUpdateCheck
-var runGitHubReleaseUpdateCheck = core.GitHubReleaseUpdateCheck
+var runZsyncUpdateCheck = appupdate.ZsyncUpdateCheck
+var runGitHubReleaseUpdateCheck = appupdate.GitHubReleaseUpdateCheck
 var discoveryBackends = func() []discovery.DiscoveryBackend {
 	return []discovery.DiscoveryBackend{
 		discovery.GitHubBackend{},
 	}
 }
-var resolveGitHubReleaseAsset = core.ResolveGitHubReleaseAsset
+var resolveGitHubReleaseAsset = appupdate.ResolveGitHubReleaseAsset
 var downloadRemoteAsset = downloadUpdateAsset
 var checkAimUpgrade = core.CheckForAimUpgrade
 var runUpgradeViaInstaller = core.UpgradeViaInstaller
@@ -1455,7 +1455,7 @@ var runManagedApply = applyManagedUpdate
 var integrateExistingApp = appintegrate.IntegrateExisting
 var integrateLocalApp = appintegrate.IntegrateFromLocalFile
 var readAppImageInfo = core.ReadAppImageInfo
-var getAppImageUpdateInfo = core.GetUpdateInfo
+var getAppImageUpdateInfo = appupdate.GetUpdateInfo
 var removeManagedApp = core.Remove
 var addAppsBatch = defaultAddAppsBatch
 var addSingleApp = defaultAddSingleApp

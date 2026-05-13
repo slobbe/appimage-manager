@@ -12,6 +12,7 @@ import (
 	"time"
 
 	core "github.com/slobbe/appimage-manager/internal/app"
+	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
 	"github.com/slobbe/appimage-manager/internal/cli/config"
 	models "github.com/slobbe/appimage-manager/internal/domain"
 	repo "github.com/slobbe/appimage-manager/internal/infra/repository"
@@ -354,8 +355,8 @@ func TestIntegrateFromLocalFileReplacesEquivalentManagedAppWhenDesktopIDChanges(
 	t.Cleanup(func() {
 		getEmbeddedUpdateInfo = originalGetEmbeddedUpdateInfo
 	})
-	getEmbeddedUpdateInfo = func(string) (*core.UpdateInfo, error) {
-		return &core.UpdateInfo{
+	getEmbeddedUpdateInfo = func(string) (*appupdate.UpdateInfo, error) {
+		return &appupdate.UpdateInfo{
 			Kind:       models.UpdateZsync,
 			UpdateInfo: "zsync|https://example.com/t3-code.AppImage.zsync",
 			Transport:  "zsync",

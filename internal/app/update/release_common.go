@@ -1,4 +1,6 @@
-package app
+package update
+
+import models "github.com/slobbe/appimage-manager/internal/domain"
 
 type releaseTransportDetails struct {
 	Transport    string
@@ -7,7 +9,7 @@ type releaseTransportDetails struct {
 }
 
 func normalizeVersion(version string) string {
-	return normalizeComparableVersion(version)
+	return models.NormalizeComparableVersion(version)
 }
 
 func releaseAvailability(currentVersion, tagName string) (string, bool) {

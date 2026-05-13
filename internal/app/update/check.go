@@ -1,4 +1,4 @@
-package app
+package update
 
 import (
 	"bufio"
@@ -90,7 +90,7 @@ func ZsyncUpdateCheck(upd *models.UpdateSource, localSHA1 string) (*UpdateData, 
 	if update.RemoteFilename != "" {
 		update.RemoteFilename = strings.TrimSuffix(update.RemoteFilename, ".zsync")
 	}
-	update.NormalizedVersion = normalizeComparableVersion(update.RemoteFilename)
+	update.NormalizedVersion = models.NormalizeComparableVersion(update.RemoteFilename)
 
 	if update.RemoteFilename == "" || update.RemoteSHA1 == "" {
 		return nil, fmt.Errorf("invalid zsync metadata")

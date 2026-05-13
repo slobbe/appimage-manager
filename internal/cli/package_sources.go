@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"strings"
 
-	core "github.com/slobbe/appimage-manager/internal/app"
 	"github.com/slobbe/appimage-manager/internal/app/discovery"
+	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
 	models "github.com/slobbe/appimage-manager/internal/domain"
 	"github.com/spf13/cobra"
 )
@@ -258,7 +258,7 @@ func installPackageMetadata(ctx context.Context, cmd *cobra.Command, metadata *d
 }
 
 func installResolvedGitHubPackage(ctx context.Context, cmd *cobra.Command, metadata *discovery.PackageMetadata) (*models.App, error) {
-	release := &core.GitHubReleaseAsset{
+	release := &appupdate.GitHubReleaseAsset{
 		DownloadURL:       strings.TrimSpace(metadata.DownloadURL),
 		TagName:           strings.TrimSpace(metadata.ReleaseTag),
 		NormalizedVersion: strings.TrimSpace(strings.TrimPrefix(metadata.LatestVersion, "v")),

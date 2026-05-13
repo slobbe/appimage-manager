@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	core "github.com/slobbe/appimage-manager/internal/app"
+	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
 	models "github.com/slobbe/appimage-manager/internal/domain"
 	"github.com/slobbe/appimage-manager/internal/infra/desktop"
 	fsys "github.com/slobbe/appimage-manager/internal/infra/filesystem"
@@ -15,7 +16,7 @@ import (
 
 type UpdateOverwritePrompt func(existing, incoming *models.UpdateSource) (bool, error)
 
-var getEmbeddedUpdateInfo = core.GetUpdateInfo
+var getEmbeddedUpdateInfo = appupdate.GetUpdateInfo
 
 func IntegrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwrite UpdateOverwritePrompt) (*models.App, error) {
 	return integrateFromLocalFile(ctx, src, confirmUpdateOverwrite, true, true)

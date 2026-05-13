@@ -22,6 +22,7 @@ import (
 	core "github.com/slobbe/appimage-manager/internal/app"
 	"github.com/slobbe/appimage-manager/internal/app/discovery"
 	appintegrate "github.com/slobbe/appimage-manager/internal/app/integrate"
+	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
 	"github.com/slobbe/appimage-manager/internal/cli/config"
 	models "github.com/slobbe/appimage-manager/internal/domain"
 	fsys "github.com/slobbe/appimage-manager/internal/infra/filesystem"
@@ -1401,14 +1402,14 @@ func TestAddCmdGitHubSetsDefaultAssetSourceAndUpdate(t *testing.T) {
 			},
 		}
 	}
-	resolveGitHubReleaseAsset = func(repoSlug, assetPattern string) (*core.GitHubReleaseAsset, error) {
+	resolveGitHubReleaseAsset = func(repoSlug, assetPattern string) (*appupdate.GitHubReleaseAsset, error) {
 		if repoSlug != "owner/repo" {
 			t.Fatalf("repoSlug = %q", repoSlug)
 		}
 		if assetPattern != "*.AppImage" {
 			t.Fatalf("assetPattern = %q", assetPattern)
 		}
-		return &core.GitHubReleaseAsset{
+		return &appupdate.GitHubReleaseAsset{
 			DownloadURL: "https://example.com/MyApp-x86_64.AppImage",
 			TagName:     "v1.2.3",
 			AssetName:   "MyApp-x86_64.AppImage",
@@ -1486,11 +1487,11 @@ func TestAddCmdGitHubPersistsCustomAsset(t *testing.T) {
 			},
 		}
 	}
-	resolveGitHubReleaseAsset = func(repoSlug, assetPattern string) (*core.GitHubReleaseAsset, error) {
+	resolveGitHubReleaseAsset = func(repoSlug, assetPattern string) (*appupdate.GitHubReleaseAsset, error) {
 		if assetPattern != "MyApp-*-x86_64.AppImage" {
 			t.Fatalf("assetPattern = %q", assetPattern)
 		}
-		return &core.GitHubReleaseAsset{
+		return &appupdate.GitHubReleaseAsset{
 			DownloadURL: "https://example.com/MyApp-x86_64.AppImage",
 			TagName:     "v1.2.3",
 			AssetName:   "MyApp-x86_64.AppImage",
@@ -1552,11 +1553,11 @@ func TestAddCmdGitHubUsesCustomAsset(t *testing.T) {
 			},
 		}
 	}
-	resolveGitHubReleaseAsset = func(repoSlug, assetPattern string) (*core.GitHubReleaseAsset, error) {
+	resolveGitHubReleaseAsset = func(repoSlug, assetPattern string) (*appupdate.GitHubReleaseAsset, error) {
 		if assetPattern != "MyApp-*-x86_64.AppImage" {
 			t.Fatalf("assetPattern = %q", assetPattern)
 		}
-		return &core.GitHubReleaseAsset{
+		return &appupdate.GitHubReleaseAsset{
 			DownloadURL: "https://example.com/MyApp-x86_64.AppImage",
 			TagName:     "v1.2.3",
 			AssetName:   "MyApp-x86_64.AppImage",
@@ -1945,11 +1946,11 @@ func TestAddCmdDirectProviderRefDelegatesToExistingAddFlow(t *testing.T) {
 			},
 		}
 	}
-	resolveGitHubReleaseAsset = func(repoSlug, assetPattern string) (*core.GitHubReleaseAsset, error) {
+	resolveGitHubReleaseAsset = func(repoSlug, assetPattern string) (*appupdate.GitHubReleaseAsset, error) {
 		if repoSlug != "owner/repo" || assetPattern != "*.AppImage" {
 			t.Fatalf("unexpected install resolution: %s %s", repoSlug, assetPattern)
 		}
-		return &core.GitHubReleaseAsset{
+		return &appupdate.GitHubReleaseAsset{
 			DownloadURL: "https://example.com/MyApp-x86_64.AppImage",
 			TagName:     "v1.2.3",
 			AssetName:   "MyApp-x86_64.AppImage",
@@ -2011,11 +2012,11 @@ func TestAddCmdRejectsPositionalGitHubURL(t *testing.T) {
 			},
 		}
 	}
-	resolveGitHubReleaseAsset = func(repoSlug, assetPattern string) (*core.GitHubReleaseAsset, error) {
+	resolveGitHubReleaseAsset = func(repoSlug, assetPattern string) (*appupdate.GitHubReleaseAsset, error) {
 		if repoSlug != "owner/repo" || assetPattern != "*.AppImage" {
 			t.Fatalf("unexpected install resolution: %s %s", repoSlug, assetPattern)
 		}
-		return &core.GitHubReleaseAsset{
+		return &appupdate.GitHubReleaseAsset{
 			DownloadURL: "https://example.com/MyApp-x86_64.AppImage",
 			TagName:     "v1.2.3",
 			AssetName:   "MyApp-x86_64.AppImage",
@@ -2446,11 +2447,11 @@ func TestInfoCmdManagedShowsEmbeddedSource(t *testing.T) {
 	t.Cleanup(func() {
 		getAppImageUpdateInfo = originalUpdateInfo
 	})
-	getAppImageUpdateInfo = func(path string) (*core.UpdateInfo, error) {
+	getAppImageUpdateInfo = func(path string) (*appupdate.UpdateInfo, error) {
 		if path != "/tmp/MyApp.AppImage" {
 			t.Fatalf("path = %q", path)
 		}
-		return &core.UpdateInfo{
+		return &appupdate.UpdateInfo{
 			Kind:       models.UpdateZsync,
 			UpdateInfo: "zsync|https://example.com/MyApp.AppImage.zsync",
 			Transport:  "zsync",
@@ -2518,7 +2519,7 @@ func TestInfoCmdManagedShowsMissingEmbeddedSource(t *testing.T) {
 	t.Cleanup(func() {
 		getAppImageUpdateInfo = originalUpdateInfo
 	})
-	getAppImageUpdateInfo = func(string) (*core.UpdateInfo, error) {
+	getAppImageUpdateInfo = func(string) (*appupdate.UpdateInfo, error) {
 		return nil, fmt.Errorf("no update information found in ELF headers")
 	}
 
@@ -2550,11 +2551,11 @@ func TestInfoCmdLocalAppImageEmbeddedSource(t *testing.T) {
 	readAppImageInfo = func(context.Context, string) (*core.AppInfo, error) {
 		return &core.AppInfo{Name: "My App", ID: "my-app", Version: "1.2.3"}, nil
 	}
-	getAppImageUpdateInfo = func(path string) (*core.UpdateInfo, error) {
+	getAppImageUpdateInfo = func(path string) (*appupdate.UpdateInfo, error) {
 		if path != "./MyApp.AppImage" {
 			t.Fatalf("path = %q", path)
 		}
-		return &core.UpdateInfo{
+		return &appupdate.UpdateInfo{
 			Kind:       models.UpdateZsync,
 			UpdateInfo: "gh-releases-zsync|owner|repo|latest|MyApp-*.AppImage.zsync",
 			Transport:  "gh-releases",
@@ -2619,11 +2620,11 @@ func TestInfoCmdManagedApp(t *testing.T) {
 	t.Cleanup(func() {
 		getAppImageUpdateInfo = originalUpdateInfo
 	})
-	getAppImageUpdateInfo = func(path string) (*core.UpdateInfo, error) {
+	getAppImageUpdateInfo = func(path string) (*appupdate.UpdateInfo, error) {
 		if path != "/tmp/MyApp.AppImage" {
 			t.Fatalf("path = %q", path)
 		}
-		return &core.UpdateInfo{
+		return &appupdate.UpdateInfo{
 			Kind:       models.UpdateZsync,
 			UpdateInfo: "zsync|https://example.com/MyApp.AppImage.zsync",
 			Transport:  "zsync",
@@ -2658,11 +2659,11 @@ func TestInfoCmdLocalAppImage(t *testing.T) {
 	readAppImageInfo = func(context.Context, string) (*core.AppInfo, error) {
 		return &core.AppInfo{Name: "My App", ID: "my-app", Version: "1.2.3"}, nil
 	}
-	getAppImageUpdateInfo = func(path string) (*core.UpdateInfo, error) {
+	getAppImageUpdateInfo = func(path string) (*appupdate.UpdateInfo, error) {
 		if path != "./MyApp.AppImage" {
 			t.Fatalf("path = %q", path)
 		}
-		return &core.UpdateInfo{
+		return &appupdate.UpdateInfo{
 			Kind:       models.UpdateZsync,
 			UpdateInfo: "gh-releases-zsync|owner|repo|latest|MyApp-*.AppImage.zsync",
 			Transport:  "gh-releases",
@@ -2906,8 +2907,8 @@ func TestUpdateSetEmbeddedSetsEmbeddedSource(t *testing.T) {
 	t.Cleanup(func() {
 		getAppImageUpdateInfo = originalUpdateInfo
 	})
-	getAppImageUpdateInfo = func(string) (*core.UpdateInfo, error) {
-		return &core.UpdateInfo{
+	getAppImageUpdateInfo = func(string) (*appupdate.UpdateInfo, error) {
+		return &appupdate.UpdateInfo{
 			Kind:       models.UpdateZsync,
 			UpdateInfo: "zsync|https://example.com/MyApp.AppImage.zsync",
 			Transport:  "zsync",
@@ -2946,7 +2947,7 @@ func TestUpdateSetEmbeddedMissingPromptsToUnsetOrKeep(t *testing.T) {
 	t.Cleanup(func() {
 		getAppImageUpdateInfo = originalUpdateInfo
 	})
-	getAppImageUpdateInfo = func(string) (*core.UpdateInfo, error) {
+	getAppImageUpdateInfo = func(string) (*appupdate.UpdateInfo, error) {
 		return nil, fmt.Errorf("no update information found in ELF headers")
 	}
 
@@ -3049,7 +3050,7 @@ func TestUpdateSetEmbeddedMissingWithoutConfiguredSource(t *testing.T) {
 	t.Cleanup(func() {
 		getAppImageUpdateInfo = originalUpdateInfo
 	})
-	getAppImageUpdateInfo = func(string) (*core.UpdateInfo, error) {
+	getAppImageUpdateInfo = func(string) (*appupdate.UpdateInfo, error) {
 		return nil, fmt.Errorf("no update information found in ELF headers")
 	}
 
@@ -3827,11 +3828,11 @@ func TestRenderCommandErrorIncludesOperationLog(t *testing.T) {
 func TestPrepareRuntimeLoadsSettingsTimeout(t *testing.T) {
 	rootDir := t.TempDir()
 	originalPaths := config.CurrentPaths()
-	originalTimeout := core.SharedHTTPClient().Timeout
+	originalTimeout := appupdate.SharedHTTPClient().Timeout
 	originalDownloadHeaderTimeout := sharedDownloadHTTPTransport(t).ResponseHeaderTimeout
 	t.Cleanup(func() {
 		config.ApplyPaths(originalPaths)
-		core.SetHTTPClientTimeout(originalTimeout)
+		appupdate.SetHTTPClientTimeout(originalTimeout)
 		core.SetDownloadHTTPClientTimeout(originalDownloadHeaderTimeout)
 		discovery.SetHTTPClientTimeout(originalTimeout)
 	})
@@ -3852,7 +3853,7 @@ func TestPrepareRuntimeLoadsSettingsTimeout(t *testing.T) {
 	if got := runtimeSettingsFrom(cmd).NetworkTimeout; got != 45*time.Second {
 		t.Fatalf("runtime timeout = %s, want 45s", got)
 	}
-	if got := core.SharedHTTPClient().Timeout; got != 45*time.Second {
+	if got := appupdate.SharedHTTPClient().Timeout; got != 45*time.Second {
 		t.Fatalf("shared HTTP timeout = %s, want 45s", got)
 	}
 	if got := core.SharedDownloadHTTPClient().Timeout; got != 0 {
@@ -5101,8 +5102,8 @@ func TestCheckAppUpdateGitHubUsesNormalizedVersion(t *testing.T) {
 		runGitHubReleaseUpdateCheck = originalCheck
 	})
 
-	runGitHubReleaseUpdateCheck = func(update *models.UpdateSource, currentVersion, localSHA1 string) (*core.GitHubReleaseUpdate, error) {
-		return &core.GitHubReleaseUpdate{
+	runGitHubReleaseUpdateCheck = func(update *models.UpdateSource, currentVersion, localSHA1 string) (*appupdate.GitHubReleaseUpdate, error) {
+		return &appupdate.GitHubReleaseUpdate{
 			Available:         false,
 			TagName:           "@standardnotes/desktop@3.201.19",
 			NormalizedVersion: "3.201.19",
@@ -5140,8 +5141,8 @@ func TestCheckAppUpdateZsyncUsesNormalizedVersionWhenAvailable(t *testing.T) {
 		runZsyncUpdateCheck = originalCheck
 	})
 
-	runZsyncUpdateCheck = func(update *models.UpdateSource, localSHA1 string) (*core.UpdateData, error) {
-		return &core.UpdateData{
+	runZsyncUpdateCheck = func(update *models.UpdateSource, localSHA1 string) (*appupdate.UpdateData, error) {
+		return &appupdate.UpdateData{
 			Available:         true,
 			DownloadUrl:       "https://example.com/helium-v0.10.6.1-x86_64.AppImage",
 			RemoteSHA1:        strings.Repeat("b", 40),
@@ -5184,8 +5185,8 @@ func TestCheckAppUpdateZsyncKeepsNormalizedVersionWhenUpToDate(t *testing.T) {
 		runZsyncUpdateCheck = originalCheck
 	})
 
-	runZsyncUpdateCheck = func(update *models.UpdateSource, localSHA1 string) (*core.UpdateData, error) {
-		return &core.UpdateData{
+	runZsyncUpdateCheck = func(update *models.UpdateSource, localSHA1 string) (*appupdate.UpdateData, error) {
+		return &appupdate.UpdateData{
 			Available:         false,
 			RemoteSHA1:        strings.Repeat("a", 40),
 			AssetName:         "helium-v0.10.6.1-x86_64.AppImage",
@@ -5225,8 +5226,8 @@ func TestCheckAppUpdateZsyncFallsBackToUnknownWithoutNormalizedVersion(t *testin
 		runZsyncUpdateCheck = originalCheck
 	})
 
-	runZsyncUpdateCheck = func(update *models.UpdateSource, localSHA1 string) (*core.UpdateData, error) {
-		return &core.UpdateData{
+	runZsyncUpdateCheck = func(update *models.UpdateSource, localSHA1 string) (*appupdate.UpdateData, error) {
+		return &appupdate.UpdateData{
 			Available:   true,
 			DownloadUrl: "https://example.com/helium.AppImage",
 			RemoteSHA1:  strings.Repeat("b", 40),
@@ -5268,8 +5269,8 @@ func TestCheckAppUpdateGitHubDisplaysNormalizedLatest(t *testing.T) {
 		runGitHubReleaseUpdateCheck = originalCheck
 	})
 
-	runGitHubReleaseUpdateCheck = func(update *models.UpdateSource, currentVersion, localSHA1 string) (*core.GitHubReleaseUpdate, error) {
-		return &core.GitHubReleaseUpdate{
+	runGitHubReleaseUpdateCheck = func(update *models.UpdateSource, currentVersion, localSHA1 string) (*appupdate.GitHubReleaseUpdate, error) {
+		return &appupdate.GitHubReleaseUpdate{
 			Available:         true,
 			DownloadUrl:       "https://example.com/StandardNotes-x86_64.AppImage",
 			TagName:           "@standardnotes/desktop@3.202.0",
@@ -5314,7 +5315,7 @@ func TestCheckAppUpdateGitHubPropagatesZsyncTransport(t *testing.T) {
 		runGitHubReleaseUpdateCheck = originalCheck
 	})
 
-	runGitHubReleaseUpdateCheck = func(update *models.UpdateSource, currentVersion, localSHA1 string) (*core.GitHubReleaseUpdate, error) {
+	runGitHubReleaseUpdateCheck = func(update *models.UpdateSource, currentVersion, localSHA1 string) (*appupdate.GitHubReleaseUpdate, error) {
 		if currentVersion != "3.201.19" {
 			t.Fatalf("currentVersion = %q", currentVersion)
 		}
@@ -5322,7 +5323,7 @@ func TestCheckAppUpdateGitHubPropagatesZsyncTransport(t *testing.T) {
 			t.Fatalf("localSHA1 = %q", localSHA1)
 		}
 
-		return &core.GitHubReleaseUpdate{
+		return &appupdate.GitHubReleaseUpdate{
 			Available:         true,
 			DownloadUrl:       "https://example.com/StandardNotes-x86_64.AppImage",
 			TagName:           "@standardnotes/desktop@3.202.0",
