@@ -8,7 +8,8 @@ import (
 	"strings"
 	"time"
 
-	core "github.com/slobbe/appimage-manager/internal/app"
+	"github.com/slobbe/appimage-manager/internal/infra/github"
+	"github.com/slobbe/appimage-manager/internal/infra/httpclient"
 )
 
 type GitHubBackend struct{}
@@ -21,13 +22,12 @@ type gitHubRepoResponse struct {
 	StargazersCount int    `json:"stargazers_count"`
 }
 
-var githubDiscoveryHTTPClient = core.NewHTTPClient(coreHTTPTimeout)
-var resolveGitHubReleaseAssetFn = core.ResolveGitHubReleaseAsset
-var resolveGitHubReleaseAssetSelectionFn = core.ResolveGitHubReleaseAssetSelection
+var githubDiscoveryHTTPClient = httpclient.New(coreHTTPTimeout)
+var resolveGitHubReleaseAssetSelectionFn = github.ResolveReleaseAssetSelection
 
 func SetHTTPClientTimeout(timeout time.Duration) {
 	if githubDiscoveryHTTPClient == nil {
-		githubDiscoveryHTTPClient = core.NewHTTPClient(timeout)
+		githubDiscoveryHTTPClient = httpclient.New(timeout)
 	} else {
 		githubDiscoveryHTTPClient.Timeout = timeout
 	}
@@ -58,7 +58,7 @@ func (GitHubBackend) Resolve(ctx context.Context, ref PackageRef, assetOverride 
 
 	release := selection.Release
 	if release == nil {
-		release = &core.GitHubReleaseAsset{}
+		release = &github.ReleaseAsset{}
 	}
 
 	return newInstallablePackageMetadata(
@@ -80,7 +80,7 @@ func (GitHubBackend) Resolve(ctx context.Context, ref PackageRef, assetOverride 
 	), nil
 }
 
-func discoveryAssetCandidates(candidates []core.GitHubReleaseAssetCandidate) []AssetCandidate {
+func discoveryAssetCandidates(candidates []github.ReleaseAssetCandidate) []AssetCandidate {
 	result := make([]AssetCandidate, 0, len(candidates))
 	for _, candidate := range candidates {
 		result = append(result, AssetCandidate{

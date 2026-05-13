@@ -1,34 +1,32 @@
 package app
 
 import (
-	"net"
 	"net/http"
 	"time"
+
+	"github.com/slobbe/appimage-manager/internal/infra/github"
+	"github.com/slobbe/appimage-manager/internal/infra/httpclient"
 )
 
 var sharedHTTPClient = NewHTTPClient(30 * time.Second)
 var sharedDownloadHTTPClient = NewDownloadHTTPClient(30 * time.Second)
 
 func NewHTTPClient(timeout time.Duration) *http.Client {
-	return &http.Client{
-		Timeout:   timeout,
-		Transport: newHTTPTransport(10*time.Second, 10*time.Second, 0),
-	}
+	return httpclient.New(timeout)
 }
 
 func NewDownloadHTTPClient(timeout time.Duration) *http.Client {
-	return &http.Client{
-		Timeout:   0,
-		Transport: newHTTPTransport(timeout, timeout, timeout),
-	}
+	return httpclient.NewDownload(timeout)
 }
 
 func SetHTTPClientTimeout(timeout time.Duration) {
 	if sharedHTTPClient == nil {
 		sharedHTTPClient = NewHTTPClient(timeout)
+		github.SetReleaseHTTPClient(sharedHTTPClient)
 		return
 	}
 	sharedHTTPClient.Timeout = timeout
+	github.SetReleaseHTTPClient(sharedHTTPClient)
 }
 
 func SetDownloadHTTPClientTimeout(timeout time.Duration) {
@@ -37,7 +35,7 @@ func SetDownloadHTTPClientTimeout(timeout time.Duration) {
 		return
 	}
 	sharedDownloadHTTPClient.Timeout = 0
-	sharedDownloadHTTPClient.Transport = newHTTPTransport(timeout, timeout, timeout)
+	sharedDownloadHTTPClient.Transport = httpclient.NewTransport(timeout, timeout, timeout)
 }
 
 func SharedHTTPClient() *http.Client {
@@ -52,21 +50,4 @@ func SharedDownloadHTTPClient() *http.Client {
 		sharedDownloadHTTPClient = NewDownloadHTTPClient(30 * time.Second)
 	}
 	return sharedDownloadHTTPClient
-}
-
-func newHTTPTransport(dialTimeout, tlsHandshakeTimeout, responseHeaderTimeout time.Duration) *http.Transport {
-	return &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
-		DialContext: (&net.Dialer{
-			Timeout:   dialTimeout,
-			KeepAlive: 30 * time.Second,
-		}).DialContext,
-		ForceAttemptHTTP2:     true,
-		MaxIdleConns:          100,
-		MaxIdleConnsPerHost:   20,
-		IdleConnTimeout:       90 * time.Second,
-		TLSHandshakeTimeout:   tlsHandshakeTimeout,
-		ResponseHeaderTimeout: responseHeaderTimeout,
-		ExpectContinueTimeout: 1 * time.Second,
-	}
 }

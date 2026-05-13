@@ -7,7 +7,7 @@ import (
 	"net/url"
 	"testing"
 
-	core "github.com/slobbe/appimage-manager/internal/app"
+	"github.com/slobbe/appimage-manager/internal/infra/github"
 )
 
 type rewriteHostTransport struct {
@@ -92,11 +92,9 @@ func TestGitHubBackendResolveUsesRepoMetadataAndRelease(t *testing.T) {
 	defer server.Close()
 
 	originalClient := githubDiscoveryHTTPClient
-	originalResolve := resolveGitHubReleaseAssetFn
 	originalResolveSelection := resolveGitHubReleaseAssetSelectionFn
 	t.Cleanup(func() {
 		githubDiscoveryHTTPClient = originalClient
-		resolveGitHubReleaseAssetFn = originalResolve
 		resolveGitHubReleaseAssetSelectionFn = originalResolveSelection
 	})
 
@@ -110,16 +108,12 @@ func TestGitHubBackendResolveUsesRepoMetadataAndRelease(t *testing.T) {
 			next: server.Client().Transport,
 		},
 	}
-	resolveGitHubReleaseAssetFn = func(repoSlug, assetPattern string) (*core.GitHubReleaseAsset, error) {
-		t.Fatal("legacy resolver should not be called")
-		return nil, nil
-	}
-	resolveGitHubReleaseAssetSelectionFn = func(repoSlug, assetPattern, arch string) (*core.GitHubReleaseAssetSelection, error) {
+	resolveGitHubReleaseAssetSelectionFn = func(repoSlug, assetPattern, arch string) (*github.ReleaseAssetSelection, error) {
 		if repoSlug != "obsidianmd/obsidian-releases" || assetPattern != "*.AppImage" {
 			t.Fatalf("unexpected resolve input: %s %s", repoSlug, assetPattern)
 		}
-		return &core.GitHubReleaseAssetSelection{
-			Release: &core.GitHubReleaseAsset{
+		return &github.ReleaseAssetSelection{
+			Release: &github.ReleaseAsset{
 				DownloadURL: "https://example.com/Obsidian.AppImage",
 				TagName:     "v1.12.4",
 				AssetName:   "Obsidian-1.12.4.AppImage",
@@ -165,11 +159,11 @@ func TestGitHubBackendResolvePreservesAmbiguousAssetCandidates(t *testing.T) {
 			next: server.Client().Transport,
 		},
 	}
-	resolveGitHubReleaseAssetSelectionFn = func(repoSlug, assetPattern, arch string) (*core.GitHubReleaseAssetSelection, error) {
-		return &core.GitHubReleaseAssetSelection{
+	resolveGitHubReleaseAssetSelectionFn = func(repoSlug, assetPattern, arch string) (*github.ReleaseAssetSelection, error) {
+		return &github.ReleaseAssetSelection{
 			Ambiguous: true,
 			Reason:    "multiple generic assets match",
-			Candidates: []core.GitHubReleaseAssetCandidate{
+			Candidates: []github.ReleaseAssetCandidate{
 				{Name: "Example.AppImage", DownloadURL: "https://example.com/one", ArchLabel: "generic"},
 				{Name: "Example-portable.AppImage", DownloadURL: "https://example.com/two", ArchLabel: "generic"},
 			},
