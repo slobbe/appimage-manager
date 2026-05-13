@@ -13,6 +13,7 @@ import (
 	"strings"
 	"syscall"
 
+	fsys "github.com/slobbe/appimage-manager/internal/infra/filesystem"
 	util "github.com/slobbe/appimage-manager/internal/infra/helpers"
 )
 
@@ -32,18 +33,14 @@ type ExtractionData struct {
 }
 
 func ReadAppImageInfo(ctx context.Context, src string) (*AppInfo, error) {
-	srcInfo, err := os.Stat(src)
-	if err != nil {
-		return nil, fmt.Errorf("failed to access source file: %w", err)
-	}
-	if srcInfo.IsDir() {
-		return nil, fmt.Errorf("source path is a directory, not a file: %s", src)
+	if _, err := fsys.RequireRegularFile(src, "source path"); err != nil {
+		return nil, err
 	}
 	if !util.HasExtension(src, ".AppImage") {
 		return nil, fmt.Errorf("source file must be an .AppImage: %s", filepath.Ext(src))
 	}
 
-	src, err = util.MakeAbsolute(src)
+	src, err := fsys.MakeAbsolute(src)
 	if err != nil {
 		return nil, fmt.Errorf("failed to make source path absolute: %w", err)
 	}
@@ -53,14 +50,14 @@ func ReadAppImageInfo(ctx context.Context, src string) (*AppInfo, error) {
 		return nil, err
 	}
 	defer func() {
-		_ = os.RemoveAll(tempDir)
+		_ = fsys.RemoveAll(tempDir)
 	}()
 
 	copyPath := filepath.Join(tempDir, filepath.Base(src))
-	if _, err := util.Copy(src, copyPath); err != nil {
+	if _, err := fsys.Copy(src, copyPath); err != nil {
 		return nil, err
 	}
-	if err := util.MakeExecutable(copyPath); err != nil {
+	if err := fsys.MakeExecutable(copyPath); err != nil {
 		return nil, fmt.Errorf("failed to make executable: %w", err)
 	}
 
@@ -73,7 +70,7 @@ func ReadAppImageInfo(ctx context.Context, src string) (*AppInfo, error) {
 	}
 
 	root := filepath.Join(tempDir, "squashfs-root")
-	if _, err := os.Stat(root); err != nil {
+	if err := fsys.RequireDir(root); err != nil {
 		return nil, fmt.Errorf("extraction verification failed: squashfs-root not found")
 	}
 
@@ -96,12 +93,8 @@ func ExtractAppImage(ctx context.Context, src string) (*ExtractionData, error) {
 		return nil, err
 	}
 
-	srcInfo, err := os.Stat(src)
-	if err != nil {
-		return nil, fmt.Errorf("failed to access source file: %w", err)
-	}
-	if srcInfo.IsDir() {
-		return nil, fmt.Errorf("source path is a directory, not a file: %s", src)
+	if _, err := fsys.RequireRegularFile(src, "source path"); err != nil {
+		return nil, err
 	}
 
 	srcFileExt := filepath.Ext(src)
@@ -111,21 +104,21 @@ func ExtractAppImage(ctx context.Context, src string) (*ExtractionData, error) {
 		return nil, fmt.Errorf("source file must be an .AppImage: %s", srcFileExt)
 	}
 
-	if src, err = util.MakeAbsolute(src); err != nil {
+	if src, err = fsys.MakeAbsolute(src); err != nil {
 		return nil, fmt.Errorf("failed to make source path absolute: %w", err)
 	}
 
-	if err := util.MakeExecutable(src); err != nil {
+	if err := fsys.MakeExecutable(src); err != nil {
 		return nil, fmt.Errorf("failed to make executable: %w", err)
 	}
 
 	tmpDir := paths.TempDir + "-" + srcFileName
-	if err := os.MkdirAll(tmpDir, 0o755); err != nil {
+	if err := fsys.EnsureDir(tmpDir); err != nil {
 		return nil, fmt.Errorf("failed to create temporary directory %s: %w", tmpDir, err)
 	}
 
 	defer func() {
-		_ = os.RemoveAll(tmpDir)
+		_ = fsys.RemoveAll(tmpDir)
 	}()
 
 	extractCmd := exec.CommandContext(ctx, src, "--appimage-extract")
@@ -165,7 +158,7 @@ func ExtractAppImage(ctx context.Context, src string) (*ExtractionData, error) {
 	}
 
 	root := filepath.Join(tmpDir, "squashfs-root")
-	if _, err := os.Stat(root); err != nil {
+	if err := fsys.RequireDir(root); err != nil {
 		return nil, fmt.Errorf("extraction verification failed: squashfs-root not found")
 	}
 
@@ -185,22 +178,22 @@ func ExtractAppImage(ctx context.Context, src string) (*ExtractionData, error) {
 	}
 
 	extractDir := filepath.Join(paths.AimDir, "."+srcFileName)
-	if err := os.MkdirAll(extractDir, 0o755); err != nil {
+	if err := fsys.EnsureDir(extractDir); err != nil {
 		return nil, fmt.Errorf("failed to create temporary extracttion directory %s: %w", extractDir, err)
 	}
 
 	execSrc := filepath.Join(extractDir, srcFileName+".AppImage")
-	if _, err = util.Copy(src, execSrc); err != nil {
+	if _, err = fsys.Copy(src, execSrc); err != nil {
 		return nil, err
 	}
 
 	desktopSrc := filepath.Join(extractDir, srcFileName+".desktop")
-	if _, err := util.Move(tempDesktopSrc, desktopSrc); err != nil {
+	if _, err := fsys.Move(tempDesktopSrc, desktopSrc); err != nil {
 		return nil, err
 	}
 
 	iconSrc := filepath.Join(extractDir, srcFileName+filepath.Ext(tempIconSrc))
-	if _, err := util.Move(tempIconSrc, iconSrc); err != nil {
+	if _, err := fsys.Move(tempIconSrc, iconSrc); err != nil {
 		return nil, err
 	}
 
@@ -240,7 +233,7 @@ func GetAppInfo(ctx context.Context, desktopSrc string) (*AppInfo, error) {
 		return nil, fmt.Errorf("source file must be a .desktop file")
 	}
 
-	content, err := util.ReadFileContents(desktopSrc)
+	content, err := fsys.ReadTextFile(desktopSrc)
 	if err != nil {
 		return nil, err
 	}
@@ -328,13 +321,8 @@ func LocateDesktopFile(dir string) (string, error) {
 		return "", fmt.Errorf("directory cannot be empty")
 	}
 
-	// Ensure directory exists
-	info, err := os.Stat(dir)
-	if err != nil {
-		return "", fmt.Errorf("failed to access directory: %w", err)
-	}
-	if !info.IsDir() {
-		return "", fmt.Errorf("path is not a directory: %s", dir)
+	if err := fsys.RequireDir(dir); err != nil {
+		return "", err
 	}
 
 	// Find all .desktop files
@@ -421,17 +409,9 @@ func resolveDesktopFileSource(src string) (string, error) {
 		return "", fmt.Errorf("desktop source path cannot be empty")
 	}
 
-	resolved, err := filepath.EvalSymlinks(src)
+	resolved, err := fsys.ResolveRegularFile(src, "desktop file")
 	if err != nil {
-		return "", fmt.Errorf("failed to resolve desktop file path %s: %w", src, err)
-	}
-
-	info, err := os.Stat(resolved)
-	if err != nil {
-		return "", fmt.Errorf("failed to access desktop file %s: %w", resolved, err)
-	}
-	if info.IsDir() {
-		return "", fmt.Errorf("desktop source path is a directory, not a file: %s", resolved)
+		return "", err
 	}
 
 	return resolved, nil
@@ -442,13 +422,8 @@ func LocateIcon(dir string) (string, error) {
 		return "", fmt.Errorf("directory cannot be empty")
 	}
 
-	// Ensure directory exists
-	info, err := os.Stat(dir)
-	if err != nil {
-		return "", fmt.Errorf("failed to access directory: %w", err)
-	}
-	if !info.IsDir() {
-		return "", fmt.Errorf("path is not a directory: %s", dir)
+	if err := fsys.RequireDir(dir); err != nil {
+		return "", err
 	}
 
 	// Icon search order: SVG (vector, best quality) → PNG → ICO → XPM
@@ -471,17 +446,13 @@ func LocateIcon(dir string) (string, error) {
 	// Try all candidates, resolving symlinks
 	var lastErr error
 	for _, candidate := range candidates {
-		resolved, err := filepath.EvalSymlinks(candidate)
+		resolved, err := fsys.ResolveRegularFile(candidate, "icon file")
 		if err != nil {
 			lastErr = err
 			continue
 		}
 
-		// Verify the resolved file exists
-		if _, err := os.Stat(resolved); err == nil {
-			return resolved, nil
-		}
-		lastErr = fmt.Errorf("icon target does not exist: %s", resolved)
+		return resolved, nil
 	}
 
 	if lastErr != nil {

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	models "github.com/slobbe/appimage-manager/internal/domain"
+	fsys "github.com/slobbe/appimage-manager/internal/infra/filesystem"
 	util "github.com/slobbe/appimage-manager/internal/infra/helpers"
 )
 
@@ -220,7 +221,7 @@ func extractUpdateInfo(src string) (string, error) {
 		return "", fmt.Errorf("source must be .AppImage file")
 	}
 
-	src, err := util.MakeAbsolute(src)
+	src, err := fsys.MakeAbsolute(src)
 	if err != nil {
 		return "", err
 	}

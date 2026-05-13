@@ -2,11 +2,10 @@ package app
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
-	util "github.com/slobbe/appimage-manager/internal/infra/helpers"
+	fsys "github.com/slobbe/appimage-manager/internal/infra/filesystem"
 )
 
 func InstallDesktopIcon(iconID, iconSrc string) (string, string, error) {
@@ -35,11 +34,11 @@ func InstallDesktopIcon(iconID, iconSrc string) (string, string, error) {
 		return destPath, desktopIconValue, nil
 	}
 
-	if err := ensureDir(destDir); err != nil {
+	if err := fsys.EnsureDir(destDir); err != nil {
 		return "", "", err
 	}
 
-	if _, err := util.Move(iconSrc, destPath); err != nil {
+	if _, err := fsys.Move(iconSrc, destPath); err != nil {
 		return "", "", err
 	}
 
@@ -56,11 +55,4 @@ func iconInstallDir(ext string) string {
 	}
 
 	return filepath.Join(paths.IconThemeDir, "256x256", "apps")
-}
-
-func ensureDir(dir string) error {
-	if dir == "" {
-		return fmt.Errorf("directory cannot be empty")
-	}
-	return os.MkdirAll(dir, 0o755)
 }

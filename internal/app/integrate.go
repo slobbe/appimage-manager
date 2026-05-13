@@ -3,12 +3,12 @@ package app
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 
 	models "github.com/slobbe/appimage-manager/internal/domain"
+	fsys "github.com/slobbe/appimage-manager/internal/infra/filesystem"
 	util "github.com/slobbe/appimage-manager/internal/infra/helpers"
 )
 
@@ -42,7 +42,7 @@ func integrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 		return nil, fmt.Errorf("source file must be a .AppImage file")
 	}
 
-	src, err = util.MakeAbsolute(src)
+	src, err = fsys.MakeAbsolute(src)
 	if err != nil {
 		return nil, err
 	}
@@ -63,7 +63,7 @@ func integrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 
 	tmpDir := (*extractionData).Dir
 	defer func() {
-		_ = os.RemoveAll(tmpDir)
+		_ = fsys.RemoveAll(tmpDir)
 	}()
 
 	var updateFromAppImage *models.UpdateSource
@@ -141,19 +141,19 @@ func integrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 	}
 
 	outDir := filepath.Join(paths.AimDir, appID)
-	if err := os.MkdirAll(outDir, 0o755); err != nil {
+	if err := fsys.EnsureDir(outDir); err != nil {
 		return nil, err
 	}
 
 	extractionData.Dir = outDir
 
-	if extractionData.ExecPath, err = util.Move(extractionData.ExecPath, filepath.Join(extractionData.Dir, appID+filepath.Ext(extractionData.ExecPath))); err != nil {
+	if extractionData.ExecPath, err = fsys.Move(extractionData.ExecPath, filepath.Join(extractionData.Dir, appID+filepath.Ext(extractionData.ExecPath))); err != nil {
 		return nil, err
 	}
-	if extractionData.DesktopEntryPath, err = util.Move(extractionData.DesktopEntryPath, filepath.Join(extractionData.Dir, appID+filepath.Ext(extractionData.DesktopEntryPath))); err != nil {
+	if extractionData.DesktopEntryPath, err = fsys.Move(extractionData.DesktopEntryPath, filepath.Join(extractionData.Dir, appID+filepath.Ext(extractionData.DesktopEntryPath))); err != nil {
 		return nil, err
 	}
-	if extractionData.IconPath, err = util.Move(extractionData.IconPath, filepath.Join(extractionData.Dir, appID+filepath.Ext(extractionData.IconPath))); err != nil {
+	if extractionData.IconPath, err = fsys.Move(extractionData.IconPath, filepath.Join(extractionData.Dir, appID+filepath.Ext(extractionData.IconPath))); err != nil {
 		return nil, err
 	}
 
@@ -175,7 +175,7 @@ func integrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 		return nil, err
 	}
 
-	if err := util.MakeExecutable(extractionData.ExecPath); err != nil {
+	if err := fsys.MakeExecutable(extractionData.ExecPath); err != nil {
 		return nil, err
 	}
 
@@ -267,7 +267,7 @@ func IntegrateExisting(ctx context.Context, id string) (*models.App, error) {
 		return app, err
 	}
 
-	if err := util.MakeExecutable(app.ExecPath); err != nil {
+	if err := fsys.MakeExecutable(app.ExecPath); err != nil {
 		return nil, err
 	}
 
@@ -308,9 +308,7 @@ func MakeDesktopLink(src, preferredName, fallbackName string) (string, error) {
 		return "", err
 	}
 
-	_ = os.Remove(desktopLink)
-
-	if err := os.Symlink(src, desktopLink); err != nil {
+	if err := fsys.ReplaceSymlink(src, desktopLink); err != nil {
 		return "", err
 	}
 
@@ -347,5 +345,5 @@ func removeStaleInstalledIcon(store AppStore, oldPath, newPath, appID string) {
 		}
 	}
 
-	_ = os.Remove(oldPath)
+	_ = fsys.RemoveFileIfExists(oldPath)
 }

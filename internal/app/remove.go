@@ -3,11 +3,11 @@ package app
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
 	models "github.com/slobbe/appimage-manager/internal/domain"
+	fsys "github.com/slobbe/appimage-manager/internal/infra/filesystem"
 )
 
 func Remove(ctx context.Context, id string, unlink bool) (*models.App, error) {
@@ -30,7 +30,7 @@ func remove(ctx context.Context, store AppStore, id string, unlink bool) (*model
 		return nil, fmt.Errorf("no app with id %s exists", id)
 	}
 
-	if err := os.Remove(appData.DesktopEntryLink); err != nil {
+	if err := fsys.RemoveFileIfExists(appData.DesktopEntryLink); err != nil {
 		return nil, fmt.Errorf("failed to remove desktop link: %w", err)
 	}
 
@@ -48,11 +48,11 @@ func remove(ctx context.Context, store AppStore, id string, unlink bool) (*model
 		if appData.IconPath != "" {
 			iconPath := filepath.Clean(appData.IconPath)
 			if iconPath != appDir && !strings.HasPrefix(iconPath, appDir+string(filepath.Separator)) {
-				_ = os.Remove(iconPath)
+				_ = fsys.RemoveFileIfExists(iconPath)
 			}
 		}
 
-		if err := os.RemoveAll(appDir); err != nil {
+		if err := fsys.RemoveAll(appDir); err != nil {
 			return appData, fmt.Errorf("failed to remove app dir: %w", err)
 		}
 	}
