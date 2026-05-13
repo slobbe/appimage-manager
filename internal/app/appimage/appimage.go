@@ -1,4 +1,4 @@
-package app
+package appimage
 
 import (
 	"context"
@@ -218,7 +218,7 @@ func GetAppInfo(ctx context.Context, desktopSrc string) (*AppInfo, error) {
 }
 
 func sanitizeAppVersion(raw string) string {
-	return normalizeComparableVersion(raw)
+	return models.NormalizeComparableVersion(raw)
 }
 
 func versionFromFilename(path string) string {

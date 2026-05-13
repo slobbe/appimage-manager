@@ -20,6 +20,7 @@ import (
 	"time"
 
 	core "github.com/slobbe/appimage-manager/internal/app"
+	appimage "github.com/slobbe/appimage-manager/internal/app/appimage"
 	"github.com/slobbe/appimage-manager/internal/app/discovery"
 	appintegrate "github.com/slobbe/appimage-manager/internal/app/integrate"
 	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
@@ -2548,8 +2549,8 @@ func TestInfoCmdLocalAppImageEmbeddedSource(t *testing.T) {
 		getAppImageUpdateInfo = originalUpdateInfo
 	})
 
-	readAppImageInfo = func(context.Context, string) (*core.AppInfo, error) {
-		return &core.AppInfo{Name: "My App", ID: "my-app", Version: "1.2.3"}, nil
+	readAppImageInfo = func(context.Context, string) (*appimage.AppInfo, error) {
+		return &appimage.AppInfo{Name: "My App", ID: "my-app", Version: "1.2.3"}, nil
 	}
 	getAppImageUpdateInfo = func(path string) (*appupdate.UpdateInfo, error) {
 		if path != "./MyApp.AppImage" {
@@ -2656,8 +2657,8 @@ func TestInfoCmdLocalAppImage(t *testing.T) {
 		getAppImageUpdateInfo = originalUpdateInfo
 	})
 
-	readAppImageInfo = func(context.Context, string) (*core.AppInfo, error) {
-		return &core.AppInfo{Name: "My App", ID: "my-app", Version: "1.2.3"}, nil
+	readAppImageInfo = func(context.Context, string) (*appimage.AppInfo, error) {
+		return &appimage.AppInfo{Name: "My App", ID: "my-app", Version: "1.2.3"}, nil
 	}
 	getAppImageUpdateInfo = func(path string) (*appupdate.UpdateInfo, error) {
 		if path != "./MyApp.AppImage" {

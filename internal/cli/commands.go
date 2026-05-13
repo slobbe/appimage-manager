@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	core "github.com/slobbe/appimage-manager/internal/app"
+	appimage "github.com/slobbe/appimage-manager/internal/app/appimage"
 	"github.com/slobbe/appimage-manager/internal/app/discovery"
 	appintegrate "github.com/slobbe/appimage-manager/internal/app/integrate"
 	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
@@ -1031,7 +1032,7 @@ func inspectLocalAppImage(ctx context.Context, cmd *cobra.Command, src string) e
 	}
 
 	result, err := runWithBusyIndicator(cmd, fmt.Sprintf("Inspecting %s", label), func() (*struct {
-		info           *core.AppInfo
+		info           *appimage.AppInfo
 		embeddedSource *models.UpdateSource
 	}, error) {
 		info, err := readAppImageInfo(ctx, src)
@@ -1041,7 +1042,7 @@ func inspectLocalAppImage(ctx context.Context, cmd *cobra.Command, src string) e
 
 		embeddedSource, _ := embeddedUpdateSourceForPath(src)
 		return &struct {
-			info           *core.AppInfo
+			info           *appimage.AppInfo
 			embeddedSource *models.UpdateSource
 		}{
 			info:           info,
@@ -1454,7 +1455,7 @@ var runUpgradeViaInstaller = core.UpgradeViaInstaller
 var runManagedApply = applyManagedUpdate
 var integrateExistingApp = appintegrate.IntegrateExisting
 var integrateLocalApp = appintegrate.IntegrateFromLocalFile
-var readAppImageInfo = core.ReadAppImageInfo
+var readAppImageInfo = appimage.ReadAppImageInfo
 var getAppImageUpdateInfo = appupdate.GetUpdateInfo
 var removeManagedApp = core.Remove
 var addAppsBatch = defaultAddAppsBatch

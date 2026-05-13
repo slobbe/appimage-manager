@@ -12,6 +12,7 @@ import (
 	"time"
 
 	core "github.com/slobbe/appimage-manager/internal/app"
+	appimage "github.com/slobbe/appimage-manager/internal/app/appimage"
 	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
 	"github.com/slobbe/appimage-manager/internal/cli/config"
 	models "github.com/slobbe/appimage-manager/internal/domain"
@@ -498,6 +499,7 @@ func setupIntegrationConfigForTest(t *testing.T, tmp string) {
 	originalDbSrc := config.DbSrc
 	originalStore := defaultStore
 	originalPaths := defaultPaths
+	originalAppImagePaths := appimage.Paths{}
 	t.Cleanup(func() {
 		config.AimDir = originalAimDir
 		config.TempDir = originalTempDir
@@ -506,6 +508,7 @@ func setupIntegrationConfigForTest(t *testing.T, tmp string) {
 		config.DbSrc = originalDbSrc
 		defaultStore = originalStore
 		defaultPaths = originalPaths
+		appimage.SetPaths(originalAppImagePaths)
 		core.SetStore(nil)
 		core.SetPaths(core.Paths{})
 	})

@@ -1,4 +1,4 @@
-package app
+package appimage
 
 import (
 	"context"
@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/slobbe/appimage-manager/internal/cli/config"
 	fsys "github.com/slobbe/appimage-manager/internal/infra/filesystem"
 )
 
@@ -376,22 +375,14 @@ func TestLocateDesktopFileFallsBackToRecursiveSearch(t *testing.T) {
 func setupExtractionConfigForTest(t *testing.T, tmp string) {
 	t.Helper()
 
-	originalAimDir := config.AimDir
-	originalTempDir := config.TempDir
 	originalPaths := defaultPaths
 	t.Cleanup(func() {
-		config.AimDir = originalAimDir
-		config.TempDir = originalTempDir
 		defaultPaths = originalPaths
 	})
 
-	config.AimDir = filepath.Join(tmp, "aim")
-	config.TempDir = filepath.Join(tmp, "cache", "tmp")
 	SetPaths(Paths{
-		AimDir:       config.AimDir,
-		DesktopDir:   filepath.Join(tmp, "applications"),
-		TempDir:      config.TempDir,
-		IconThemeDir: filepath.Join(tmp, "icons", "hicolor"),
+		AimDir:  filepath.Join(tmp, "aim"),
+		TempDir: filepath.Join(tmp, "cache", "tmp"),
 	})
 }
 

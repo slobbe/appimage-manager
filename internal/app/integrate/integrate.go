@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	core "github.com/slobbe/appimage-manager/internal/app"
+	appimage "github.com/slobbe/appimage-manager/internal/app/appimage"
 	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
 	models "github.com/slobbe/appimage-manager/internal/domain"
 	"github.com/slobbe/appimage-manager/internal/infra/desktop"
@@ -49,12 +50,12 @@ func integrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 		return nil, err
 	}
 
-	extractionData, err := core.ExtractAppImage(ctx, src)
+	extractionData, err := appimage.ExtractAppImage(ctx, src)
 	if err != nil {
 		return nil, err
 	}
 
-	appInfo, err := core.GetAppInfo(ctx, extractionData.DesktopEntryPath)
+	appInfo, err := appimage.GetAppInfo(ctx, extractionData.DesktopEntryPath)
 	if err != nil {
 		return nil, err
 	}
@@ -169,7 +170,7 @@ func integrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 		removeStaleInstalledIcon(store, existingApp.IconPath, installedIconPath, appID)
 	}
 
-	if err := core.UpdateDesktopEntry(ctx, extractionData.DesktopEntryPath, extractionData.ExecPath, desktopIconValue); err != nil {
+	if err := appimage.UpdateDesktopEntry(ctx, extractionData.DesktopEntryPath, extractionData.ExecPath, desktopIconValue); err != nil {
 		return nil, err
 	}
 

@@ -3,6 +3,7 @@ package integrate
 import (
 	"fmt"
 
+	appimage "github.com/slobbe/appimage-manager/internal/app/appimage"
 	models "github.com/slobbe/appimage-manager/internal/domain"
 )
 
@@ -37,6 +38,10 @@ var defaultPaths Paths
 
 func SetPaths(paths Paths) {
 	defaultPaths = paths
+	appimage.SetPaths(appimage.Paths{
+		AimDir:  paths.AimDir,
+		TempDir: paths.TempDir,
+	})
 }
 
 func requirePaths() (Paths, error) {
