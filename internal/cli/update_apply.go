@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 
@@ -14,32 +13,25 @@ import (
 	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
 	"github.com/slobbe/appimage-manager/internal/cli/config"
 	models "github.com/slobbe/appimage-manager/internal/domain"
-	"github.com/slobbe/appimage-manager/internal/infra/download"
-	"github.com/slobbe/appimage-manager/internal/infra/zsync"
 )
 
 var (
 	downloadManagedRemoteAsset = func(ctx context.Context, assetURL, destination string, interactive bool, onProgress func(int64, int64)) error {
 		return appupdate.Service{
 			TempDir:    config.TempDir,
-			HTTPClient: download.SharedHTTPClient(),
+			HTTPClient: runtimeDownloadHTTPClient(),
 			NowISO:     clock.NowISO,
 		}.DownloadManagedUpdateAsset(ctx, assetURL, destination, onProgress)
 	}
 	integrateManagedUpdate = appintegrate.IntegrateFromLocalFileWithoutCacheRefreshOrPersist
-	zsyncLookPath          = exec.LookPath
-	zsyncCommandContext    = exec.CommandContext
 )
 
 func managedUpdateService() appupdate.Service {
 	return appupdate.Service{
 		TempDir:    config.TempDir,
-		HTTPClient: download.SharedHTTPClient(),
+		HTTPClient: runtimeDownloadHTTPClient(),
 		NowISO:     clock.NowISO,
-		Zsync: zsync.Runner{
-			LookPath:       zsyncLookPath,
-			CommandContext: zsyncCommandContext,
-		},
+		Zsync:      runtimeZsyncRunner(),
 		DownloadAsset: func(ctx context.Context, assetURL, destination string, onProgress func(downloaded, total int64)) error {
 			return downloadManagedRemoteAsset(ctx, assetURL, destination, false, onProgress)
 		},
@@ -55,10 +47,7 @@ func applyManagedUpdate(ctx context.Context, update pendingManagedUpdate, report
 
 func applyZsyncUpdate(ctx context.Context, update pendingManagedUpdate, destination string) error {
 	return rewriteZsyncFailure(appupdate.Service{
-		Zsync: zsync.Runner{
-			LookPath:       zsyncLookPath,
-			CommandContext: zsyncCommandContext,
-		},
+		Zsync: runtimeZsyncRunner(),
 	}.ApplyManagedZsyncUpdate(ctx, update, destination))
 }
 
@@ -190,12 +179,11 @@ func downloadUpdateAssetWithDescription(ctx context.Context, assetURL, destinati
 	)
 
 	logOperationContextf(ctx, "HTTP GET %s", assetURL)
-	downloader := download.Downloader{Client: download.SharedHTTPClient()}
-	resultMeta, err := downloader.Download(ctx, download.Request{
+	resultMeta, err := runtimeDownload(ctx, runtimeDownloadRequest{
 		URL:         assetURL,
 		Destination: destination,
 		Metadata:    meta,
-	}, func(event download.Progress) {
+	}, func(event runtimeDownloadProgress) {
 		delta := event.Downloaded - downloaded
 		downloaded = event.Downloaded
 		total = event.Total
@@ -228,7 +216,7 @@ func downloadUpdateAssetWithDescription(ctx context.Context, assetURL, destinati
 		}
 	}
 	if err != nil {
-		var statusErr *download.StatusError
+		var statusErr *runtimeDownloadStatusError
 		if errors.As(err, &statusErr) {
 			return withUserGuidance(
 				unavailableError(statusErr),

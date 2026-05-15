@@ -12,8 +12,6 @@ import (
 	"github.com/slobbe/appimage-manager/internal/app/clock"
 	"github.com/slobbe/appimage-manager/internal/cli/config"
 	models "github.com/slobbe/appimage-manager/internal/domain"
-	"github.com/slobbe/appimage-manager/internal/infra/download"
-	fsys "github.com/slobbe/appimage-manager/internal/infra/filesystem"
 )
 
 const (
@@ -29,11 +27,11 @@ type stagedDownloadMetadata struct {
 	UpdatedAt    string `json:"updated_at"`
 }
 
-func downloadMetadataFromStaged(meta *stagedDownloadMetadata) *download.Metadata {
+func downloadMetadataFromStaged(meta *stagedDownloadMetadata) *runtimeDownloadMetadata {
 	if meta == nil {
 		return nil
 	}
-	return &download.Metadata{
+	return &runtimeDownloadMetadata{
 		URL:          meta.URL,
 		ETag:         meta.ETag,
 		LastModified: meta.LastModified,
@@ -41,7 +39,7 @@ func downloadMetadataFromStaged(meta *stagedDownloadMetadata) *download.Metadata
 	}
 }
 
-func stagedMetadataFromDownload(meta *download.Metadata) stagedDownloadMetadata {
+func stagedMetadataFromDownload(meta *runtimeDownloadMetadata) stagedDownloadMetadata {
 	if meta == nil {
 		return stagedDownloadMetadata{}
 	}
@@ -86,7 +84,7 @@ func updateCheckCacheFilePath() string {
 }
 
 func stableDownloadDestination(assetURL, nameHint string) (string, error) {
-	if err := fsys.EnsureDir(stagedDownloadDir()); err != nil {
+	if err := runtimeEnsureDir(stagedDownloadDir()); err != nil {
 		return "", wrapWriteError(err)
 	}
 
@@ -103,7 +101,7 @@ func stagedDownloadMetadataPath(downloadPath string) string {
 }
 
 func loadStagedDownloadMetadata(downloadPath string) (*stagedDownloadMetadata, error) {
-	data, ok, err := fsys.ReadFileIfExists(stagedDownloadMetadataPath(downloadPath))
+	data, ok, err := runtimeReadFileIfExists(stagedDownloadMetadataPath(downloadPath))
 	if err != nil {
 		return nil, err
 	}
@@ -124,17 +122,17 @@ func saveStagedDownloadMetadata(downloadPath string, meta stagedDownloadMetadata
 	if err != nil {
 		return err
 	}
-	return fsys.WriteAtomicFile(stagedDownloadMetadataPath(downloadPath), data, 0o644)
+	return runtimeWriteAtomicFile(stagedDownloadMetadataPath(downloadPath), data, 0o644)
 }
 
 func removeStagedDownload(downloadPath string) {
-	_ = fsys.RemoveFileIfExists(downloadPath)
-	_ = fsys.RemoveFileIfExists(stagedDownloadMetadataPath(downloadPath))
+	_ = runtimeRemoveFileIfExists(downloadPath)
+	_ = runtimeRemoveFileIfExists(stagedDownloadMetadataPath(downloadPath))
 }
 
 func loadUpdateCheckCache() (*updateCheckCacheFile, error) {
 	path := updateCheckCacheFilePath()
-	data, ok, err := fsys.ReadFileIfExists(path)
+	data, ok, err := runtimeReadFileIfExists(path)
 	if err != nil {
 		return nil, err
 	}
@@ -162,7 +160,7 @@ func saveUpdateCheckCache(cache *updateCheckCacheFile) error {
 	if cache == nil {
 		return nil
 	}
-	if err := fsys.EnsureDir(config.TempDir); err != nil {
+	if err := runtimeEnsureDir(config.TempDir); err != nil {
 		return err
 	}
 	cache.Version = updateCheckCacheVersion
@@ -174,7 +172,7 @@ func saveUpdateCheckCache(cache *updateCheckCacheFile) error {
 	if err != nil {
 		return err
 	}
-	return fsys.WriteAtomicFile(updateCheckCacheFilePath(), data, 0o644)
+	return runtimeWriteAtomicFile(updateCheckCacheFilePath(), data, 0o644)
 }
 
 func cachedManagedUpdateForApp(cache *updateCheckCacheFile, app *models.App, sourceKey string) (*pendingManagedUpdate, bool) {

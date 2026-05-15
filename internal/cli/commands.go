@@ -15,7 +15,6 @@ import (
 	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
 	appupgrade "github.com/slobbe/appimage-manager/internal/app/upgrade"
 	models "github.com/slobbe/appimage-manager/internal/domain"
-	fsys "github.com/slobbe/appimage-manager/internal/infra/filesystem"
 	"github.com/spf13/cobra"
 )
 
@@ -292,7 +291,7 @@ func resolveIntegrateTarget(input string) (*integrateTarget, error) {
 		return nil, usageError(fmt.Errorf("direct URLs must use https; use 'aim add --url https://...'"))
 	}
 
-	if fsys.HasExtension(trimmed, ".AppImage") {
+	if runtimeHasExtension(trimmed, ".AppImage") {
 		return &integrateTarget{Kind: integrateTargetLocalFile, LocalPath: trimmed}, nil
 	}
 
@@ -330,7 +329,7 @@ func resolveInstallTarget(input string) (*installTarget, error) {
 		return nil, usageError(fmt.Errorf("managed app IDs are added with 'aim add <id>'"))
 	}
 
-	if fsys.HasExtension(trimmed, ".AppImage") {
+	if runtimeHasExtension(trimmed, ".AppImage") {
 		return nil, usageError(fmt.Errorf("local AppImages are added with 'aim add <Path/To.AppImage>'"))
 	}
 
@@ -954,7 +953,7 @@ func resolveInspectTarget(input string) (*inspectTarget, error) {
 		return &inspectTarget{Kind: inspectTargetManaged, App: app}, nil
 	}
 
-	if fsys.HasExtension(trimmed, ".AppImage") {
+	if runtimeHasExtension(trimmed, ".AppImage") {
 		return &inspectTarget{Kind: inspectTargetLocal, Path: trimmed}, nil
 	}
 

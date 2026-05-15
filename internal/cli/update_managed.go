@@ -9,7 +9,6 @@ import (
 	"github.com/slobbe/appimage-manager/internal/app/clock"
 	appintegrate "github.com/slobbe/appimage-manager/internal/app/integrate"
 	models "github.com/slobbe/appimage-manager/internal/domain"
-	repo "github.com/slobbe/appimage-manager/internal/infra/repository"
 	"github.com/spf13/cobra"
 )
 
@@ -133,7 +132,7 @@ func collectManagedUpdateRows(cmd *cobra.Command, cfg managedUpdateRunConfig) (m
 		return collection, wrapWriteError(err)
 	}
 
-	metadataUpdates := make([]repo.CheckMetadataUpdate, 0, len(checkResults))
+	metadataUpdates := make([]checkMetadataUpdate, 0, len(checkResults))
 	collection.rows = make([]updateOutputRow, 0, len(checkResults))
 	checkedAt := clock.NowISO()
 
@@ -143,7 +142,7 @@ func collectManagedUpdateRows(cmd *cobra.Command, cfg managedUpdateRunConfig) (m
 		err := result.err
 		if err != nil {
 			if !cfg.opts.DryRun {
-				metadataUpdates = append(metadataUpdates, repo.CheckMetadataUpdate{
+				metadataUpdates = append(metadataUpdates, checkMetadataUpdate{
 					ID:            app.ID,
 					Checked:       false,
 					Available:     app.UpdateAvailable,
@@ -203,7 +202,7 @@ func collectManagedUpdateRows(cmd *cobra.Command, cfg managedUpdateRunConfig) (m
 		}
 
 		if !cfg.opts.DryRun {
-			metadataUpdates = append(metadataUpdates, repo.CheckMetadataUpdate{
+			metadataUpdates = append(metadataUpdates, checkMetadataUpdate{
 				ID:            app.ID,
 				Checked:       true,
 				Available:     update.Available,

@@ -18,8 +18,6 @@ import (
 	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
 	appupgrade "github.com/slobbe/appimage-manager/internal/app/upgrade"
 	"github.com/slobbe/appimage-manager/internal/cli/config"
-	"github.com/slobbe/appimage-manager/internal/infra/download"
-	repo "github.com/slobbe/appimage-manager/internal/infra/repository"
 	"github.com/spf13/cobra"
 )
 
@@ -67,13 +65,12 @@ func prepareRuntime(cmd *cobra.Command) error {
 	}
 	appupdate.SetHTTPClientTimeout(settings.NetworkTimeout)
 	appupgrade.SetHTTPClientTimeout(settings.NetworkTimeout)
-	download.SetHTTPClientTimeout(settings.NetworkTimeout)
+	setRuntimeDownloadTimeout(settings.NetworkTimeout)
 	configureAppPorts(settings.NetworkTimeout)
 	appintegrate.SetPaths(integratePathsFromConfig(config.CurrentPaths()))
-	appintegrate.SetStore(repo.NewStore(config.DbSrc))
 	appremove.SetPaths(removePathsFromConfig(config.CurrentPaths()))
-	appremove.SetStore(repo.NewStore(config.DbSrc))
 	appupgrade.SetPaths(upgradePathsFromConfig(config.CurrentPaths()))
+	configureRepositoryStores()
 	discovery.SetHTTPClientTimeout(settings.NetworkTimeout)
 
 	if opts.Debug {

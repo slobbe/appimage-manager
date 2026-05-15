@@ -7,7 +7,6 @@ import (
 
 	"github.com/slobbe/appimage-manager/internal/app/clock"
 	models "github.com/slobbe/appimage-manager/internal/domain"
-	repo "github.com/slobbe/appimage-manager/internal/infra/repository"
 	"github.com/spf13/cobra"
 )
 
@@ -161,7 +160,7 @@ func managedCheckWorkerCount(total int) int {
 	return maxWorkers
 }
 
-func flushManagedCheckMetadata(updates []repo.CheckMetadataUpdate) error {
+func flushManagedCheckMetadata(updates []checkMetadataUpdate) error {
 	if len(updates) == 0 {
 		return nil
 	}
@@ -176,7 +175,7 @@ func updateCheckMetadata(app *models.App, checked, available bool, latest string
 
 	lastCheckedAt := clock.NowISO()
 
-	if err := updateCheckMetadataBatch([]repo.CheckMetadataUpdate{{
+	if err := updateCheckMetadataBatch([]checkMetadataUpdate{{
 		ID:            app.ID,
 		Checked:       checked,
 		Available:     available,
