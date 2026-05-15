@@ -1,14 +1,18 @@
-package domain
+package discovery
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/slobbe/appimage-manager/internal/domain"
+)
 
 func TestParseGitHubRepoValue(t *testing.T) {
 	tests := []struct {
 		input     string
-		expect    PackageRef
+		expect    domain.PackageRef
 		wantError bool
 	}{
-		{input: "owner/repo", expect: PackageRef{Kind: ProviderGitHub, ProviderRef: "owner/repo"}},
+		{input: "owner/repo", expect: domain.PackageRef{Kind: domain.ProviderGitHub, ProviderRef: "owner/repo"}},
 		{input: "owner", wantError: true},
 		{input: "/owner/repo", wantError: true},
 	}
@@ -33,13 +37,13 @@ func TestParseGitHubRepoValue(t *testing.T) {
 func TestParsePackageRefURL(t *testing.T) {
 	tests := []struct {
 		input     string
-		expect    PackageRef
+		expect    domain.PackageRef
 		wantError bool
 	}{
-		{input: "https://github.com/owner/repo", expect: PackageRef{Kind: ProviderGitHub, ProviderRef: "owner/repo"}},
-		{input: "https://www.github.com/owner/repo/releases", expect: PackageRef{Kind: ProviderGitHub, ProviderRef: "owner/repo"}},
-		{input: "https://github.com/owner/repo/releases/tag/v1.2.3?tab=readme#fragment", expect: PackageRef{Kind: ProviderGitHub, ProviderRef: "owner/repo"}},
-		{input: "https://github.com/owner/repo/blob/main/README.md", expect: PackageRef{Kind: ProviderGitHub, ProviderRef: "owner/repo"}},
+		{input: "https://github.com/owner/repo", expect: domain.PackageRef{Kind: domain.ProviderGitHub, ProviderRef: "owner/repo"}},
+		{input: "https://www.github.com/owner/repo/releases", expect: domain.PackageRef{Kind: domain.ProviderGitHub, ProviderRef: "owner/repo"}},
+		{input: "https://github.com/owner/repo/releases/tag/v1.2.3?tab=readme#fragment", expect: domain.PackageRef{Kind: domain.ProviderGitHub, ProviderRef: "owner/repo"}},
+		{input: "https://github.com/owner/repo/blob/main/README.md", expect: domain.PackageRef{Kind: domain.ProviderGitHub, ProviderRef: "owner/repo"}},
 		{input: "https://github.com/owner", wantError: true},
 		{input: "https://github.com/owner/repo/issues/1", wantError: true},
 		{input: "https://github.com/owner/repo/releases/download/v1/App.AppImage", wantError: true},

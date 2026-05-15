@@ -1,9 +1,6 @@
 package domain
 
-import (
-	"path/filepath"
-	"strings"
-)
+import "strings"
 
 type AppInfo struct {
 	Name        string
@@ -62,7 +59,7 @@ func ParseDesktopEntryAppInfo(desktopPath, content, desktopStem string) *AppInfo
 	}
 
 	if appInfo.Name == "" {
-		appInfo.Name = strings.TrimSuffix(filepath.Base(desktopPath), filepath.Ext(desktopPath))
+		appInfo.Name = trimFileExtension(fileBase(desktopPath))
 	}
 	if appInfo.Version == "" {
 		appInfo.Version = AppVersionFromFilename(desktopPath)
@@ -80,10 +77,31 @@ func ParseDesktopEntryAppInfo(desktopPath, content, desktopStem string) *AppInfo
 }
 
 func AppVersionFromFilename(path string) string {
-	base := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+	base := trimFileExtension(fileBase(path))
 	if base == "" {
 		return ""
 	}
 
 	return NormalizeComparableVersion(base)
+}
+
+func fileBase(path string) string {
+	normalized := strings.ReplaceAll(strings.TrimSpace(path), "\\", "/")
+	if normalized == "" {
+		return ""
+	}
+
+	index := strings.LastIndex(normalized, "/")
+	if index >= 0 {
+		return normalized[index+1:]
+	}
+	return normalized
+}
+
+func trimFileExtension(name string) string {
+	index := strings.LastIndex(name, ".")
+	if index <= 0 {
+		return name
+	}
+	return name[:index]
 }

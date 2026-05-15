@@ -13,7 +13,7 @@ import (
 )
 
 func validateGitHubRepoFlag(value string) (models.PackageRef, error) {
-	ref, err := models.ParseGitHubRepoValue(value)
+	ref, err := discovery.ParseGitHubRepoValue(value)
 	if err != nil {
 		return models.PackageRef{}, usageError(fmt.Errorf("--github must be in owner/repo form"))
 	}
@@ -45,7 +45,7 @@ func looksLikeGitHubPackageURL(input string) bool {
 }
 
 func providerURLGuidance(cmdName, providerFlag, subject, input string) error {
-	ref, err := models.ParsePackageRefURL(input)
+	ref, err := discovery.ParsePackageRefURL(input)
 	if err != nil {
 		return nil
 	}
@@ -109,7 +109,7 @@ func resolvePackageRefInput(input string) (models.PackageRef, error) {
 		return models.PackageRef{}, usageError(fmt.Errorf("missing package ref"))
 	}
 
-	return models.ParsePackageRefURL(trimmed)
+	return discovery.ParsePackageRefURL(trimmed)
 }
 
 func backendForRef(ref models.PackageRef) (discovery.DiscoveryBackend, error) {

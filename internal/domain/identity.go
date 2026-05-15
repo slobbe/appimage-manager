@@ -3,7 +3,6 @@ package domain
 import (
 	"crypto/sha1"
 	"encoding/hex"
-	"path/filepath"
 	"strings"
 )
 
@@ -116,5 +115,41 @@ func normalizeLocalSourcePath(path string) string {
 	if trimmed == "" {
 		return ""
 	}
-	return filepath.Clean(trimmed)
+	return cleanLocalSourcePath(trimmed)
+}
+
+func cleanLocalSourcePath(path string) string {
+	normalized := strings.ReplaceAll(path, "\\", "/")
+	absolute := strings.HasPrefix(normalized, "/")
+	parts := strings.Split(normalized, "/")
+	stack := make([]string, 0, len(parts))
+
+	for _, part := range parts {
+		switch part {
+		case "", ".":
+			continue
+		case "..":
+			if len(stack) > 0 && stack[len(stack)-1] != ".." {
+				stack = stack[:len(stack)-1]
+				continue
+			}
+			if !absolute {
+				stack = append(stack, part)
+			}
+		default:
+			stack = append(stack, part)
+		}
+	}
+
+	cleaned := strings.Join(stack, "/")
+	if absolute {
+		if cleaned == "" {
+			return "/"
+		}
+		return "/" + cleaned
+	}
+	if cleaned == "" {
+		return "."
+	}
+	return cleaned
 }
