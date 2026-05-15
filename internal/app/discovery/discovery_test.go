@@ -2,6 +2,7 @@ package discovery
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/slobbe/appimage-manager/internal/domain"
@@ -91,6 +92,36 @@ func TestGitHubBackendResolvePreservesAmbiguousAssetCandidates(t *testing.T) {
 	}
 	if len(metadata.AssetCandidates) != 2 || metadata.AssetCandidates[1].Name != "Example-portable.AppImage" {
 		t.Fatalf("unexpected candidates: %#v", metadata.AssetCandidates)
+	}
+}
+
+func TestGitHubBackendResolveReturnsUnavailableMetadataForReleaseErrors(t *testing.T) {
+	originalResolver := defaultGitHubResolver
+	t.Cleanup(func() {
+		defaultGitHubResolver = originalResolver
+	})
+
+	defaultGitHubResolver = fakeGitHubResolver{
+		resolveSelection: func(repoSlug, assetPattern, arch string) (*ReleaseAssetSelection, error) {
+			return nil, fmt.Errorf("no assets match pattern")
+		},
+	}
+
+	metadata, err := (GitHubBackend{}).Resolve(context.Background(), domain.PackageRef{Kind: domain.ProviderGitHub, ProviderRef: "owner/repo"}, "")
+	if err != nil {
+		t.Fatalf("Resolve returned error: %v", err)
+	}
+	if metadata.Installable {
+		t.Fatal("expected unavailable metadata")
+	}
+	if metadata.Provider != "GitHub" {
+		t.Fatalf("Provider = %q", metadata.Provider)
+	}
+	if metadata.InstallReason != "no assets match pattern" {
+		t.Fatalf("InstallReason = %q", metadata.InstallReason)
+	}
+	if metadata.RepoURL != "https://github.com/owner/repo" {
+		t.Fatalf("RepoURL = %q", metadata.RepoURL)
 	}
 }
 

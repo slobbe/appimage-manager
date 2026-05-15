@@ -348,51 +348,6 @@ func (selfUpdaterAdapter) RunInstallerScript(ctx context.Context, scriptURL stri
 	return (selfupdate.Client{HTTPClient: appupgrade.SharedHTTPClient()}).RunInstallerScript(ctx, scriptURL, tempDir)
 }
 
-type gitHubDiscoveryAdapter struct {
-	client github.Client
-}
-
-func (adapter gitHubDiscoveryAdapter) ResolveReleaseAssetSelection(repoSlug, assetPattern, arch string) (*discovery.ReleaseAssetSelection, error) {
-	selection, err := adapter.client.ResolveReleaseAssetSelection(repoSlug, assetPattern, arch)
-	if err != nil {
-		return nil, err
-	}
-	result := &discovery.ReleaseAssetSelection{
-		Ambiguous: selection.Ambiguous,
-		Reason:    selection.Reason,
-	}
-	if selection.Release != nil {
-		result.Release = &discovery.ReleaseAsset{
-			DownloadURL:       selection.Release.DownloadURL,
-			TagName:           selection.Release.TagName,
-			NormalizedVersion: selection.Release.NormalizedVersion,
-			AssetName:         selection.Release.AssetName,
-			PreRelease:        selection.Release.PreRelease,
-		}
-	}
-	for _, candidate := range selection.Candidates {
-		result.Candidates = append(result.Candidates, discovery.ReleaseAssetCandidate{
-			Name:        candidate.Name,
-			DownloadURL: candidate.DownloadURL,
-			Arch:        candidate.Arch,
-			ArchLabel:   candidate.ArchLabel,
-		})
-	}
-	return result, nil
-}
-
-func (adapter gitHubDiscoveryAdapter) FetchRepository(ctx context.Context, repoSlug string) (*discovery.Repository, error) {
-	repository, err := adapter.client.FetchRepository(ctx, repoSlug)
-	if err != nil {
-		return nil, err
-	}
-	return &discovery.Repository{
-		Name:        repository.Name,
-		Description: repository.Description,
-		HTMLURL:     repository.HTMLURL,
-	}, nil
-}
-
 type gitHubReleaseAdapter struct {
 	client github.Client
 }
@@ -459,8 +414,8 @@ func configureAppPorts(networkTimeout time.Duration) {
 	appupdate.SetHashVerifier(hashVerifierAdapter{})
 	appupdate.SetPathResolver(pathResolverAdapter{})
 	appupgrade.SetSelfUpdater(selfUpdaterAdapter{})
-	discovery.SetGitHubResolver(gitHubDiscoveryAdapter{
-		client: github.Client{HTTPClient: httpclient.New(networkTimeout)},
+	discovery.SetGitHubResolver(github.DiscoveryResolver{
+		Client: github.Client{HTTPClient: httpclient.New(networkTimeout)},
 	})
 	appupdate.SetGitHubReleaseResolver(gitHubReleaseAdapter{
 		client: github.Client{HTTPClient: appupdate.SharedHTTPClient()},
