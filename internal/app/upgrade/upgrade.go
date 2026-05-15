@@ -3,9 +3,6 @@ package upgrade
 import (
 	"context"
 	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 
 	models "github.com/slobbe/appimage-manager/internal/domain"
@@ -21,7 +18,6 @@ var (
 	upgradeLatestReleaseURL = func(repoSlug string) string {
 		return fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repoSlug)
 	}
-	upgradeShellCommand       = "/bin/sh"
 	upgradeRunInstallerScript = func(ctx context.Context, scriptURL string) error {
 		updater, err := requireSelfUpdater()
 		if err != nil {
@@ -34,26 +30,6 @@ var (
 			}
 			return paths.TempDir, nil
 		})
-	}
-	upgradeExecutablePath    = os.Executable
-	upgradeEvalSymlinks      = filepath.EvalSymlinks
-	upgradeRunVersionCommand = func(ctx context.Context, binaryPath string) (string, error) {
-		cmd := exec.CommandContext(ctx, binaryPath, "--version")
-		var stdout strings.Builder
-		var stderr strings.Builder
-		cmd.Stdout = &stdout
-		cmd.Stderr = &stderr
-		if err := cmd.Run(); err != nil {
-			message := strings.TrimSpace(stderr.String())
-			if message == "" {
-				message = strings.TrimSpace(stdout.String())
-			}
-			if message == "" {
-				return "", err
-			}
-			return "", fmt.Errorf("%w: %s", err, message)
-		}
-		return stdout.String(), nil
 	}
 )
 

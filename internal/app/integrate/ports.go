@@ -1,5 +1,7 @@
 package integrate
 
+import "context"
+
 type Filesystem interface {
 	EnsureDir(path string) error
 	HasExtension(src string, ext string) bool
@@ -16,9 +18,19 @@ type DesktopLinkResolver interface {
 	ResolveDesktopLinkPath(desktopDir, src, preferredName, fallbackName string) (string, error)
 }
 
+type DesktopEntryValidator interface {
+	ValidateDesktopEntry(ctx context.Context, desktopPath string) error
+}
+
+type DesktopIntegrationCacheRefresher interface {
+	RefreshDesktopIntegrationCaches(ctx context.Context, desktopDir, iconThemeDir string)
+}
+
 var (
-	defaultFilesystem          Filesystem
-	defaultDesktopLinkResolver DesktopLinkResolver
+	defaultFilesystem                       Filesystem
+	defaultDesktopLinkResolver              DesktopLinkResolver
+	defaultDesktopEntryValidator            DesktopEntryValidator
+	defaultDesktopIntegrationCacheRefresher DesktopIntegrationCacheRefresher
 )
 
 func SetFilesystem(filesystem Filesystem) {
@@ -27,6 +39,14 @@ func SetFilesystem(filesystem Filesystem) {
 
 func SetDesktopLinkResolver(resolver DesktopLinkResolver) {
 	defaultDesktopLinkResolver = resolver
+}
+
+func SetDesktopEntryValidator(validator DesktopEntryValidator) {
+	defaultDesktopEntryValidator = validator
+}
+
+func SetDesktopIntegrationCacheRefresher(refresher DesktopIntegrationCacheRefresher) {
+	defaultDesktopIntegrationCacheRefresher = refresher
 }
 
 func requireFilesystem() (Filesystem, error) {
@@ -41,4 +61,18 @@ func requireDesktopLinkResolver() (DesktopLinkResolver, error) {
 		return nil, errNotConfigured("desktop link resolver")
 	}
 	return defaultDesktopLinkResolver, nil
+}
+
+func requireDesktopEntryValidator() (DesktopEntryValidator, error) {
+	if defaultDesktopEntryValidator == nil {
+		return nil, errNotConfigured("desktop entry validator")
+	}
+	return defaultDesktopEntryValidator, nil
+}
+
+func requireDesktopIntegrationCacheRefresher() (DesktopIntegrationCacheRefresher, error) {
+	if defaultDesktopIntegrationCacheRefresher == nil {
+		return nil, errNotConfigured("desktop integration cache refresher")
+	}
+	return defaultDesktopIntegrationCacheRefresher, nil
 }

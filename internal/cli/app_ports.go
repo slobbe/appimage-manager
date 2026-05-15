@@ -2,8 +2,12 @@ package cli
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
+	"strings"
 	"time"
 
 	appimageapp "github.com/slobbe/appimage-manager/internal/app/appimage"
@@ -122,6 +126,38 @@ func (desktopLinkResolverAdapter) ResolveDesktopLinkPath(desktopDir, src, prefer
 	return desktop.ResolveDesktopLinkPath(desktopDir, src, preferredName, fallbackName)
 }
 
+type desktopEntryValidatorAdapter struct{}
+
+func (desktopEntryValidatorAdapter) ValidateDesktopEntry(ctx context.Context, desktopPath string) error {
+	binary, err := exec.LookPath("desktop-file-validate")
+	if err != nil {
+		if errors.Is(err, exec.ErrNotFound) {
+			fmt.Fprintf(os.Stderr, "Warning: desktop-file-validate not found; skipping desktop entry validation for %s\n", desktopPath)
+			return nil
+		}
+		return fmt.Errorf("failed to find desktop-file-validate: %w", err)
+	}
+
+	out, err := exec.CommandContext(ctx, binary, desktopPath).CombinedOutput()
+	if err != nil {
+		message := strings.TrimSpace(string(out))
+		if message == "" {
+			return fmt.Errorf("desktop entry validation failed for %s: %w", desktopPath, err)
+		}
+		return fmt.Errorf("desktop entry validation failed for %s: %s", desktopPath, message)
+	}
+	return nil
+}
+
+type desktopIntegrationCacheRefresherAdapter struct{}
+
+func (desktopIntegrationCacheRefresherAdapter) RefreshDesktopIntegrationCaches(ctx context.Context, desktopDir, iconThemeDir string) {
+	desktop.RefreshIntegrationCaches(ctx, desktop.CachePaths{
+		DesktopDir:   desktopDir,
+		IconThemeDir: iconThemeDir,
+	})
+}
+
 type integrationCacheRefresherAdapter struct{}
 
 func (integrationCacheRefresherAdapter) RefreshIntegrationCaches(ctx context.Context, desktopDir, iconThemeDir string) {
@@ -169,6 +205,12 @@ type hashVerifierAdapter struct{}
 
 func (hashVerifierAdapter) VerifyHashes(path, expectedSHA256, expectedSHA1 string) error {
 	return fsys.VerifyHashes(path, expectedSHA256, expectedSHA1)
+}
+
+type pathResolverAdapter struct{}
+
+func (pathResolverAdapter) MakeAbsolute(path string) (string, error) {
+	return fsys.MakeAbsolute(path)
 }
 
 type selfUpdaterAdapter struct{}
@@ -287,11 +329,14 @@ func configureAppPorts(networkTimeout time.Duration) {
 	appimageapp.SetDesktopEntryRewriter(desktopEntryRewriterAdapter{})
 	appintegrate.SetFilesystem(filesystemAdapter{})
 	appintegrate.SetDesktopLinkResolver(desktopLinkResolverAdapter{})
+	appintegrate.SetDesktopEntryValidator(desktopEntryValidatorAdapter{})
+	appintegrate.SetDesktopIntegrationCacheRefresher(desktopIntegrationCacheRefresherAdapter{})
 	appremove.SetFilesystem(filesystemAdapter{})
 	appremove.SetIntegrationCacheRefresher(integrationCacheRefresherAdapter{})
 	appupdate.SetZsyncMetadataFetcher(zsyncMetadataFetcherAdapter{})
 	appupdate.SetStagedDownloadService(stagedDownloadAdapter{client: appupdate.SharedHTTPClient})
 	appupdate.SetHashVerifier(hashVerifierAdapter{})
+	appupdate.SetPathResolver(pathResolverAdapter{})
 	appupgrade.SetSelfUpdater(selfUpdaterAdapter{})
 	discovery.SetGitHubResolver(gitHubDiscoveryAdapter{
 		client: github.Client{HTTPClient: httpclient.New(networkTimeout)},

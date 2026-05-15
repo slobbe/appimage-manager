@@ -4,10 +4,8 @@ import (
 	"context"
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -72,19 +70,12 @@ func TestIntegrateFromLocalFileWithoutCacheRefreshSkipsRefresh(t *testing.T) {
 	setupIntegrationConfigForTest(t, tmp)
 	stubDesktopValidationForTest(t)
 
-	var lookupCalls int32
-	originalLookPath := integrationCacheLookPath
-	originalWarn := integrationCacheWarn
+	refresher := &recordingIntegrationCacheRefresher{}
+	originalRefresher := defaultDesktopIntegrationCacheRefresher
 	t.Cleanup(func() {
-		integrationCacheLookPath = originalLookPath
-		integrationCacheWarn = originalWarn
+		defaultDesktopIntegrationCacheRefresher = originalRefresher
 	})
-
-	integrationCacheLookPath = func(string) (string, error) {
-		atomic.AddInt32(&lookupCalls, 1)
-		return "", exec.ErrNotFound
-	}
-	integrationCacheWarn = func(string) {}
+	SetDesktopIntegrationCacheRefresher(refresher)
 
 	appImagePath := filepath.Join(tmp, "0ad-0.28.0-x86_64.AppImage")
 	writeFakeAppImageExtractor(t, appImagePath)
@@ -97,8 +88,8 @@ func TestIntegrateFromLocalFileWithoutCacheRefreshSkipsRefresh(t *testing.T) {
 		t.Fatal("expected integrated app")
 	}
 
-	if atomic.LoadInt32(&lookupCalls) != 0 {
-		t.Fatalf("expected no cache refresh calls, got %d", lookupCalls)
+	if refresher.desktopDir != "" || refresher.iconThemeDir != "" {
+		t.Fatalf("expected no cache refresh calls, got %s %s", refresher.desktopDir, refresher.iconThemeDir)
 	}
 }
 
@@ -539,31 +530,21 @@ func setupIntegrationConfigForTest(t *testing.T, tmp string) {
 func stubDesktopValidationForTest(t *testing.T) {
 	t.Helper()
 
-	originalLookPath := desktopValidateLookPath
-	originalWarn := desktopValidateWarn
+	originalValidator := defaultDesktopEntryValidator
 	t.Cleanup(func() {
-		desktopValidateLookPath = originalLookPath
-		desktopValidateWarn = originalWarn
+		defaultDesktopEntryValidator = originalValidator
 	})
 
-	desktopValidateLookPath = func(string) (string, error) {
-		return "", exec.ErrNotFound
-	}
-	desktopValidateWarn = func(string) {}
+	SetDesktopEntryValidator(&recordingDesktopEntryValidator{})
 }
 
 func stubIntegrationCacheRefreshForTest(t *testing.T) {
 	t.Helper()
 
-	originalLookPath := integrationCacheLookPath
-	originalWarn := integrationCacheWarn
+	originalRefresher := defaultDesktopIntegrationCacheRefresher
 	t.Cleanup(func() {
-		integrationCacheLookPath = originalLookPath
-		integrationCacheWarn = originalWarn
+		defaultDesktopIntegrationCacheRefresher = originalRefresher
 	})
 
-	integrationCacheLookPath = func(string) (string, error) {
-		return "", exec.ErrNotFound
-	}
-	integrationCacheWarn = func(string) {}
+	SetDesktopIntegrationCacheRefresher(&recordingIntegrationCacheRefresher{})
 }

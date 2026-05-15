@@ -28,10 +28,15 @@ type HashVerifier interface {
 	VerifyHashes(path, expectedSHA256, expectedSHA1 string) error
 }
 
+type PathResolver interface {
+	MakeAbsolute(path string) (string, error)
+}
+
 var (
 	defaultZsyncMetadataFetcher ZsyncMetadataFetcher
 	defaultStagedDownload       StagedDownloadService
 	defaultHashVerifier         HashVerifier
+	defaultPathResolver         PathResolver
 )
 
 func SetZsyncMetadataFetcher(fetcher ZsyncMetadataFetcher) {
@@ -44,4 +49,8 @@ func SetStagedDownloadService(service StagedDownloadService) {
 
 func SetHashVerifier(verifier HashVerifier) {
 	defaultHashVerifier = verifier
+}
+
+func SetPathResolver(resolver PathResolver) {
+	defaultPathResolver = resolver
 }

@@ -16,6 +16,7 @@ func TestMain(m *testing.M) {
 	SetZsyncMetadataFetcher(testZsyncMetadataFetcher{})
 	SetStagedDownloadService(testStagedDownloadService{})
 	SetHashVerifier(testHashVerifier{})
+	SetPathResolver(testPathResolver{})
 	os.Exit(m.Run())
 }
 
@@ -67,6 +68,12 @@ type testHashVerifier struct{}
 
 func (testHashVerifier) VerifyHashes(path, expectedSHA256, expectedSHA1 string) error {
 	return fsys.VerifyHashes(path, expectedSHA256, expectedSHA1)
+}
+
+type testPathResolver struct{}
+
+func (testPathResolver) MakeAbsolute(path string) (string, error) {
+	return fsys.MakeAbsolute(path)
 }
 
 func (testGitHubReleaseResolver) ResolveReleaseAssetSelection(repoSlug, assetPattern, arch string) (*GitHubReleaseAssetSelection, error) {

@@ -6,7 +6,6 @@ import (
 	"debug/elf"
 	"fmt"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -203,7 +202,10 @@ func extractUpdateInfo(src string) (string, error) {
 		return "", fmt.Errorf("source must be .AppImage file")
 	}
 
-	src, err := makeAbsolute(src)
+	if defaultPathResolver == nil {
+		return "", fmt.Errorf("path resolver is not configured")
+	}
+	src, err := defaultPathResolver.MakeAbsolute(src)
 	if err != nil {
 		return "", err
 	}
@@ -230,17 +232,4 @@ func extractUpdateInfo(src string) (string, error) {
 	}
 
 	return strings.TrimSpace(strData), nil
-}
-
-func makeAbsolute(path string) (string, error) {
-	if filepath.IsAbs(path) {
-		return path, nil
-	}
-
-	dir, err := os.Getwd()
-	if err != nil {
-		return path, err
-	}
-
-	return filepath.Join(dir, path), nil
 }

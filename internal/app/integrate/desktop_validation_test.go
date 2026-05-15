@@ -2,91 +2,35 @@ package integrate
 
 import (
 	"context"
-	"os/exec"
+	"fmt"
 	"strings"
 	"testing"
 )
 
-func TestValidateDesktopEntryValidatorMissingWarnsAndContinues(t *testing.T) {
-	originalLookPath := desktopValidateLookPath
-	originalCommand := desktopValidateCommandContext
-	originalWarn := desktopValidateWarn
+func TestValidateDesktopEntryDelegatesToConfiguredValidator(t *testing.T) {
+	originalValidator := defaultDesktopEntryValidator
 	t.Cleanup(func() {
-		desktopValidateLookPath = originalLookPath
-		desktopValidateCommandContext = originalCommand
-		desktopValidateWarn = originalWarn
+		defaultDesktopEntryValidator = originalValidator
 	})
 
-	desktopValidateLookPath = func(string) (string, error) {
-		return "", exec.ErrNotFound
-	}
-	desktopValidateCommandContext = func(ctx context.Context, name string, arg ...string) *exec.Cmd {
-		t.Fatal("command should not run when validator is missing")
-		return exec.CommandContext(ctx, "sh", "-c", "exit 1")
-	}
+	validator := &recordingDesktopEntryValidator{}
+	SetDesktopEntryValidator(validator)
 
-	warning := ""
-	desktopValidateWarn = func(msg string) {
-		warning = msg
-	}
-
-	err := ValidateDesktopEntry(context.Background(), "/tmp/app.desktop")
-	if err != nil {
+	if err := ValidateDesktopEntry(context.Background(), "/tmp/app.desktop"); err != nil {
 		t.Fatalf("ValidateDesktopEntry returned error: %v", err)
 	}
-	if !strings.Contains(warning, "skipping desktop entry validation") {
-		t.Fatalf("warning = %q, want skipping message", warning)
+	if validator.path != "/tmp/app.desktop" {
+		t.Fatalf("validator path = %q, want /tmp/app.desktop", validator.path)
 	}
 }
 
-func TestValidateDesktopEntryValidatorPresentSuccess(t *testing.T) {
-	originalLookPath := desktopValidateLookPath
-	originalCommand := desktopValidateCommandContext
-	originalWarn := desktopValidateWarn
+func TestValidateDesktopEntryPropagatesValidatorError(t *testing.T) {
+	originalValidator := defaultDesktopEntryValidator
 	t.Cleanup(func() {
-		desktopValidateLookPath = originalLookPath
-		desktopValidateCommandContext = originalCommand
-		desktopValidateWarn = originalWarn
+		defaultDesktopEntryValidator = originalValidator
 	})
 
-	desktopValidateLookPath = func(string) (string, error) {
-		return "desktop-file-validate", nil
-	}
-	desktopValidateCommandContext = func(ctx context.Context, name string, arg ...string) *exec.Cmd {
-		return exec.CommandContext(ctx, "sh", "-c", "exit 0")
-	}
-
-	calledWarn := false
-	desktopValidateWarn = func(string) {
-		calledWarn = true
-	}
-
-	err := ValidateDesktopEntry(context.Background(), "/tmp/app.desktop")
-	if err != nil {
-		t.Fatalf("ValidateDesktopEntry returned error: %v", err)
-	}
-	if calledWarn {
-		t.Fatal("did not expect warning when validator succeeds")
-	}
-}
-
-func TestValidateDesktopEntryValidatorPresentFailure(t *testing.T) {
-	originalLookPath := desktopValidateLookPath
-	originalCommand := desktopValidateCommandContext
-	originalWarn := desktopValidateWarn
-	t.Cleanup(func() {
-		desktopValidateLookPath = originalLookPath
-		desktopValidateCommandContext = originalCommand
-		desktopValidateWarn = originalWarn
-	})
-
-	desktopValidateLookPath = func(string) (string, error) {
-		return "desktop-file-validate", nil
-	}
-	desktopValidateCommandContext = func(ctx context.Context, name string, arg ...string) *exec.Cmd {
-		return exec.CommandContext(ctx, "sh", "-c", "printf '%s' 'invalid desktop entry' >&2; exit 1")
-	}
-	desktopValidateWarn = func(string) {}
+	SetDesktopEntryValidator(&recordingDesktopEntryValidator{err: fmt.Errorf("invalid desktop entry")})
 
 	err := ValidateDesktopEntry(context.Background(), "/tmp/app.desktop")
 	if err == nil {
@@ -102,4 +46,14 @@ func TestValidateDesktopEntryRejectsEmptyPath(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for empty path")
 	}
+}
+
+type recordingDesktopEntryValidator struct {
+	path string
+	err  error
+}
+
+func (validator *recordingDesktopEntryValidator) ValidateDesktopEntry(ctx context.Context, desktopPath string) error {
+	validator.path = desktopPath
+	return validator.err
 }
