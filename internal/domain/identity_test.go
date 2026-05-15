@@ -76,3 +76,54 @@ func TestUpdateSourcesEqualDoesNotTreatNoneAsIdentity(t *testing.T) {
 		t.Fatal("UpdateSourcesEqual returned true, want false")
 	}
 }
+
+func TestResolveManagedAppIdentityReturnsReplacementForEquivalentDifferentID(t *testing.T) {
+	incoming := &App{
+		ID:   "new.desktop",
+		Name: "New Name",
+		Update: &UpdateSource{
+			Kind: UpdateZsync,
+			Zsync: &ZsyncUpdateSource{
+				UpdateInfo: "zsync|https://example.com/app.zsync",
+				Transport:  "zsync",
+			},
+		},
+	}
+	existing := map[string]*App{
+		"old-id": {
+			ID: "old-id",
+			Update: &UpdateSource{
+				Kind: UpdateZsync,
+				Zsync: &ZsyncUpdateSource{
+					UpdateInfo: "zsync|https://example.com/app.zsync",
+					Transport:  "zsync",
+				},
+			},
+		},
+	}
+
+	id, replacement, err := ResolveManagedAppIdentity("New Name", "new.desktop", "/tmp/New.AppImage", incoming, existing)
+	if err != nil {
+		t.Fatalf("ResolveManagedAppIdentity returned error: %v", err)
+	}
+	if id != "new-name" {
+		t.Fatalf("id = %q, want new-name", id)
+	}
+	if replacement == nil || replacement.ID != "old-id" {
+		t.Fatalf("replacement = %+v, want old-id", replacement)
+	}
+}
+
+func TestEquivalentManagedAppIgnoresAmbiguousMatches(t *testing.T) {
+	incoming := &App{
+		Source: Source{Kind: SourceDirectURL, DirectURL: &DirectURLSource{URL: "https://example.com/app.AppImage"}},
+	}
+	existing := map[string]*App{
+		"one": {ID: "one", Source: Source{Kind: SourceDirectURL, DirectURL: &DirectURLSource{URL: "https://example.com/app.AppImage"}}},
+		"two": {ID: "two", Source: Source{Kind: SourceDirectURL, DirectURL: &DirectURLSource{URL: "https://example.com/app.AppImage"}}},
+	}
+
+	if got := EquivalentManagedApp(incoming, existing, ""); got != nil {
+		t.Fatalf("EquivalentManagedApp = %+v, want nil for ambiguous matches", got)
+	}
+}

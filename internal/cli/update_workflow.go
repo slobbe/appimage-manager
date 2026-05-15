@@ -316,15 +316,11 @@ func checkAppUpdate(app *models.App) (*pendingManagedUpdate, error) {
 				FromKind:  models.UpdateZsync,
 			}, nil
 		}
-		label := "Update available"
-		if update.PreRelease {
-			label = "Pre-release update available"
-		}
 		return &pendingManagedUpdate{
 			App:          app,
 			URL:          update.DownloadUrl,
 			Asset:        update.AssetName,
-			Label:        label,
+			Label:        models.UpdateAvailabilityLabel(update.PreRelease),
 			Available:    true,
 			Latest:       latest,
 			ExpectedSHA1: strings.TrimSpace(update.RemoteSHA1),
@@ -357,15 +353,11 @@ func checkAppUpdate(app *models.App) (*pendingManagedUpdate, error) {
 				FromKind:  models.UpdateGitHubRelease,
 			}, nil
 		}
-		label := "Update available"
-		if update.PreRelease {
-			label = "Pre-release update available"
-		}
 		return &pendingManagedUpdate{
 			App:          app,
 			URL:          update.DownloadUrl,
 			Asset:        update.AssetName,
-			Label:        label,
+			Label:        models.UpdateAvailabilityLabel(update.PreRelease),
 			Available:    true,
 			Latest:       latest,
 			Transport:    update.Transport,

@@ -1394,13 +1394,17 @@ func resolveUpdateSourceFromSetFlags(cmd *cobra.Command) (*models.UpdateSource, 
 		if assetPattern == "" {
 			assetPattern = defaultReleaseAssetPattern
 		}
-		return &models.UpdateSource{
+		source := &models.UpdateSource{
 			Kind: models.UpdateGitHubRelease,
 			GitHubRelease: &models.GitHubReleaseUpdateSource{
 				Repo:  ref.ProviderRef,
 				Asset: assetPattern,
 			},
-		}, nil
+		}
+		if err := models.ValidateUpdateSource(source); err != nil {
+			return nil, usageError(err)
+		}
+		return source, nil
 	}
 
 	if zsyncURL != "" {
@@ -1410,13 +1414,17 @@ func resolveUpdateSourceFromSetFlags(cmd *cobra.Command) (*models.UpdateSource, 
 		if !isHTTPSURL(zsyncURL) {
 			return nil, usageError(fmt.Errorf("--zsync must be a valid https URL"))
 		}
-		return &models.UpdateSource{
+		source := &models.UpdateSource{
 			Kind: models.UpdateZsync,
 			Zsync: &models.ZsyncUpdateSource{
 				UpdateInfo: "zsync|" + zsyncURL,
 				Transport:  "zsync",
 			},
-		}, nil
+		}
+		if err := models.ValidateUpdateSource(source); err != nil {
+			return nil, usageError(err)
+		}
+		return source, nil
 	}
 
 	if assetPattern != "" {

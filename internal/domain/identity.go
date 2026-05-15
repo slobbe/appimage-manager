@@ -3,8 +3,62 @@ package domain
 import (
 	"crypto/sha1"
 	"encoding/hex"
+	"fmt"
 	"strings"
 )
+
+func ResolveManagedAppIdentity(appName, upstreamID, hashSeed string, incoming *App, existing map[string]*App) (string, *App, error) {
+	candidates := ManagedIDCandidates(appName, upstreamID, hashSeed)
+	if len(candidates) == 0 {
+		return "", nil, fmt.Errorf("managed app id cannot be empty")
+	}
+
+	equivalentApp := EquivalentManagedApp(incoming, existing, "")
+	for _, candidate := range candidates {
+		current := existing[candidate]
+		if current == nil {
+			if equivalentApp != nil && strings.TrimSpace(equivalentApp.ID) != candidate {
+				return candidate, equivalentApp, nil
+			}
+			return candidate, nil, nil
+		}
+		if AppsShareManagedIdentity(current, incoming) {
+			return candidate, nil, nil
+		}
+	}
+
+	fallback := candidates[len(candidates)-1]
+	if equivalentApp != nil && strings.TrimSpace(equivalentApp.ID) != fallback {
+		return fallback, equivalentApp, nil
+	}
+	return fallback, nil, nil
+}
+
+func EquivalentManagedApp(incoming *App, existing map[string]*App, excludeID string) *App {
+	if incoming == nil {
+		return nil
+	}
+
+	excludeID = strings.TrimSpace(excludeID)
+	var match *App
+	for _, app := range existing {
+		if app == nil {
+			continue
+		}
+		id := strings.TrimSpace(app.ID)
+		if id == "" || id == excludeID {
+			continue
+		}
+		if !AppsShareManagedIdentity(app, incoming) {
+			continue
+		}
+		if match != nil && strings.TrimSpace(match.ID) != id {
+			return nil
+		}
+		match = app
+	}
+	return match
+}
 
 func ManagedIDCandidates(appName, upstreamID, hashSeed string) []string {
 	upstreamID = strings.TrimSpace(upstreamID)

@@ -1,5 +1,7 @@
 package update
 
+import models "github.com/slobbe/appimage-manager/internal/domain"
+
 type releaseTransportDetails struct {
 	Transport    string
 	ZsyncURL     string
@@ -8,12 +10,18 @@ type releaseTransportDetails struct {
 
 func resolveReleaseTransport(downloadURL, localSHA1 string) releaseTransportDetails {
 	transport, err := probeReleaseZsyncTransport(downloadURL, localSHA1)
-	if err != nil || transport == nil {
-		return releaseTransportDetails{}
+	var probed *models.ReleaseTransport
+	if transport != nil {
+		probed = &models.ReleaseTransport{
+			Transport:    transport.Transport,
+			ZsyncURL:     transport.ZsyncURL,
+			ExpectedSHA1: transport.ExpectedSHA1,
+		}
 	}
+	selected := models.SelectReleaseTransport(probed, err)
 	return releaseTransportDetails{
-		Transport:    transport.Transport,
-		ZsyncURL:     transport.ZsyncURL,
-		ExpectedSHA1: transport.ExpectedSHA1,
+		Transport:    selected.Transport,
+		ZsyncURL:     selected.ZsyncURL,
+		ExpectedSHA1: selected.ExpectedSHA1,
 	}
 }

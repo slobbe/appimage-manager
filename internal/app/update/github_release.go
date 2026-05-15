@@ -62,25 +62,28 @@ func GitHubReleaseUpdateCheck(update *models.UpdateSource, currentVersion, local
 		return nil, err
 	}
 
-	latest, available := models.ReleaseAvailability(currentVersion, release.TagName)
+	var transport models.ReleaseTransport
+	if models.NewReleaseUpdate(currentVersion, release.TagName, release.DownloadURL, release.AssetName, release.PreRelease, transport).Available {
+		resolved := resolveReleaseTransport(release.DownloadURL, localSHA1)
+		transport = models.ReleaseTransport{
+			Transport:    resolved.Transport,
+			ZsyncURL:     resolved.ZsyncURL,
+			ExpectedSHA1: resolved.ExpectedSHA1,
+		}
+	}
+	decision := models.NewReleaseUpdate(currentVersion, release.TagName, release.DownloadURL, release.AssetName, release.PreRelease, transport)
 
 	result := &GitHubReleaseUpdate{
-		Available:         available,
+		Available:         decision.Available,
 		DownloadUrl:       release.DownloadURL,
 		TagName:           release.TagName,
-		NormalizedVersion: latest,
+		NormalizedVersion: decision.LatestVersion,
 		AssetName:         release.AssetName,
 		PreRelease:        release.PreRelease,
+		Transport:         decision.Transport,
+		ZsyncURL:          decision.ZsyncURL,
+		ExpectedSHA1:      decision.ExpectedSHA1,
 	}
-
-	if !available {
-		return result, nil
-	}
-
-	transport := resolveReleaseTransport(release.DownloadURL, localSHA1)
-	result.Transport = transport.Transport
-	result.ZsyncURL = transport.ZsyncURL
-	result.ExpectedSHA1 = transport.ExpectedSHA1
 
 	return result, nil
 }

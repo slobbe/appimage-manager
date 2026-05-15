@@ -390,14 +390,7 @@ func removeStaleInstalledIcon(store AppStore, oldPath, newPath, appID string) {
 	if err != nil {
 		return
 	}
-	for _, app := range allApps {
-		if app == nil || strings.TrimSpace(app.ID) == appID {
-			continue
-		}
-		if filepath.Clean(strings.TrimSpace(app.IconPath)) == oldPath {
-			return
-		}
+	if models.ShouldRemoveStaleInstalledIcon(oldPath, newPath, appID, appDir, allApps) {
+		_ = filesystem.RemoveFileIfExists(oldPath)
 	}
-
-	_ = filesystem.RemoveFileIfExists(oldPath)
 }
