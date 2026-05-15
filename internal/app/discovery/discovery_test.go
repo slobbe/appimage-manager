@@ -5,40 +5,37 @@ import (
 	"testing"
 
 	"github.com/slobbe/appimage-manager/internal/domain"
-	"github.com/slobbe/appimage-manager/internal/infra/github"
 )
 
 func TestGitHubBackendResolveUsesRepoMetadataAndRelease(t *testing.T) {
-	originalResolveSelection := resolveGitHubReleaseAssetSelectionFn
-	originalFetchRepository := fetchGitHubRepositoryFn
+	originalResolver := defaultGitHubResolver
 	t.Cleanup(func() {
-		resolveGitHubReleaseAssetSelectionFn = originalResolveSelection
-		fetchGitHubRepositoryFn = originalFetchRepository
+		defaultGitHubResolver = originalResolver
 	})
 
-	fetchGitHubRepositoryFn = func(ctx context.Context, repoSlug string) (*github.Repository, error) {
-		if repoSlug != "obsidianmd/obsidian-releases" {
-			t.Fatalf("unexpected repo metadata input: %s", repoSlug)
-		}
-		return &github.Repository{
-			Name:            "obsidian-releases",
-			FullName:        "obsidianmd/obsidian-releases",
-			Description:     "Releases of Obsidian",
-			HTMLURL:         "https://github.com/obsidianmd/obsidian-releases",
-			StargazersCount: 10,
-		}, nil
-	}
-	resolveGitHubReleaseAssetSelectionFn = func(repoSlug, assetPattern, arch string) (*github.ReleaseAssetSelection, error) {
-		if repoSlug != "obsidianmd/obsidian-releases" || assetPattern != "*.AppImage" {
-			t.Fatalf("unexpected resolve input: %s %s", repoSlug, assetPattern)
-		}
-		return &github.ReleaseAssetSelection{
-			Release: &github.ReleaseAsset{
-				DownloadURL: "https://example.com/Obsidian.AppImage",
-				TagName:     "v1.12.4",
-				AssetName:   "Obsidian-1.12.4.AppImage",
-			},
-		}, nil
+	defaultGitHubResolver = fakeGitHubResolver{
+		fetchRepository: func(ctx context.Context, repoSlug string) (*Repository, error) {
+			if repoSlug != "obsidianmd/obsidian-releases" {
+				t.Fatalf("unexpected repo metadata input: %s", repoSlug)
+			}
+			return &Repository{
+				Name:        "obsidian-releases",
+				Description: "Releases of Obsidian",
+				HTMLURL:     "https://github.com/obsidianmd/obsidian-releases",
+			}, nil
+		},
+		resolveSelection: func(repoSlug, assetPattern, arch string) (*ReleaseAssetSelection, error) {
+			if repoSlug != "obsidianmd/obsidian-releases" || assetPattern != "*.AppImage" {
+				t.Fatalf("unexpected resolve input: %s %s", repoSlug, assetPattern)
+			}
+			return &ReleaseAssetSelection{
+				Release: &ReleaseAsset{
+					DownloadURL: "https://example.com/Obsidian.AppImage",
+					TagName:     "v1.12.4",
+					AssetName:   "Obsidian-1.12.4.AppImage",
+				},
+			}, nil
+		},
 	}
 
 	metadata, err := (GitHubBackend{}).Resolve(context.Background(), domain.PackageRef{Kind: domain.ProviderGitHub, ProviderRef: "obsidianmd/obsidian-releases"}, "")
@@ -57,30 +54,29 @@ func TestGitHubBackendResolveUsesRepoMetadataAndRelease(t *testing.T) {
 }
 
 func TestGitHubBackendResolvePreservesAmbiguousAssetCandidates(t *testing.T) {
-	originalResolveSelection := resolveGitHubReleaseAssetSelectionFn
-	originalFetchRepository := fetchGitHubRepositoryFn
+	originalResolver := defaultGitHubResolver
 	t.Cleanup(func() {
-		resolveGitHubReleaseAssetSelectionFn = originalResolveSelection
-		fetchGitHubRepositoryFn = originalFetchRepository
+		defaultGitHubResolver = originalResolver
 	})
 
-	fetchGitHubRepositoryFn = func(ctx context.Context, repoSlug string) (*github.Repository, error) {
-		return &github.Repository{
-			Name:        "example",
-			FullName:    "owner/repo",
-			Description: "Example",
-			HTMLURL:     "https://github.com/owner/repo",
-		}, nil
-	}
-	resolveGitHubReleaseAssetSelectionFn = func(repoSlug, assetPattern, arch string) (*github.ReleaseAssetSelection, error) {
-		return &github.ReleaseAssetSelection{
-			Ambiguous: true,
-			Reason:    "multiple generic assets match",
-			Candidates: []github.ReleaseAssetCandidate{
-				{Name: "Example.AppImage", DownloadURL: "https://example.com/one", ArchLabel: "generic"},
-				{Name: "Example-portable.AppImage", DownloadURL: "https://example.com/two", ArchLabel: "generic"},
-			},
-		}, nil
+	defaultGitHubResolver = fakeGitHubResolver{
+		fetchRepository: func(ctx context.Context, repoSlug string) (*Repository, error) {
+			return &Repository{
+				Name:        "example",
+				Description: "Example",
+				HTMLURL:     "https://github.com/owner/repo",
+			}, nil
+		},
+		resolveSelection: func(repoSlug, assetPattern, arch string) (*ReleaseAssetSelection, error) {
+			return &ReleaseAssetSelection{
+				Ambiguous: true,
+				Reason:    "multiple generic assets match",
+				Candidates: []ReleaseAssetCandidate{
+					{Name: "Example.AppImage", DownloadURL: "https://example.com/one", ArchLabel: "generic"},
+					{Name: "Example-portable.AppImage", DownloadURL: "https://example.com/two", ArchLabel: "generic"},
+				},
+			}, nil
+		},
 	}
 
 	metadata, err := (GitHubBackend{}).Resolve(context.Background(), domain.PackageRef{Kind: domain.ProviderGitHub, ProviderRef: "owner/repo"}, "")
@@ -96,4 +92,17 @@ func TestGitHubBackendResolvePreservesAmbiguousAssetCandidates(t *testing.T) {
 	if len(metadata.AssetCandidates) != 2 || metadata.AssetCandidates[1].Name != "Example-portable.AppImage" {
 		t.Fatalf("unexpected candidates: %#v", metadata.AssetCandidates)
 	}
+}
+
+type fakeGitHubResolver struct {
+	resolveSelection func(repoSlug, assetPattern, arch string) (*ReleaseAssetSelection, error)
+	fetchRepository  func(ctx context.Context, repoSlug string) (*Repository, error)
+}
+
+func (resolver fakeGitHubResolver) ResolveReleaseAssetSelection(repoSlug, assetPattern, arch string) (*ReleaseAssetSelection, error) {
+	return resolver.resolveSelection(repoSlug, assetPattern, arch)
+}
+
+func (resolver fakeGitHubResolver) FetchRepository(ctx context.Context, repoSlug string) (*Repository, error) {
+	return resolver.fetchRepository(ctx, repoSlug)
 }

@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	models "github.com/slobbe/appimage-manager/internal/domain"
-	"github.com/slobbe/appimage-manager/internal/infra/github"
 )
 
 type GitHubReleaseUpdate struct {
@@ -19,9 +18,38 @@ type GitHubReleaseUpdate struct {
 	ExpectedSHA1      string
 }
 
-type GitHubReleaseAsset = github.ReleaseAsset
-type GitHubReleaseAssetCandidate = github.ReleaseAssetCandidate
-type GitHubReleaseAssetSelection = github.ReleaseAssetSelection
+type GitHubReleaseAsset struct {
+	DownloadURL       string
+	TagName           string
+	NormalizedVersion string
+	AssetName         string
+	PreRelease        bool
+}
+
+type GitHubReleaseAssetCandidate struct {
+	Name        string
+	DownloadURL string
+	Arch        string
+	ArchLabel   string
+}
+
+type GitHubReleaseAssetSelection struct {
+	Release    *GitHubReleaseAsset
+	Candidates []GitHubReleaseAssetCandidate
+	Ambiguous  bool
+	Reason     string
+}
+
+type GitHubReleaseResolver interface {
+	ResolveReleaseAsset(repoSlug, assetPattern string) (*GitHubReleaseAsset, error)
+	ResolveReleaseAssetSelection(repoSlug, assetPattern, arch string) (*GitHubReleaseAssetSelection, error)
+}
+
+var defaultGitHubReleaseResolver GitHubReleaseResolver
+
+func SetGitHubReleaseResolver(resolver GitHubReleaseResolver) {
+	defaultGitHubReleaseResolver = resolver
+}
 
 func GitHubReleaseUpdateCheck(update *models.UpdateSource, currentVersion, localSHA1 string) (*GitHubReleaseUpdate, error) {
 	if update == nil || update.Kind != models.UpdateGitHubRelease || update.GitHubRelease == nil {
@@ -57,9 +85,15 @@ func GitHubReleaseUpdateCheck(update *models.UpdateSource, currentVersion, local
 }
 
 func ResolveGitHubReleaseAsset(repoSlug, assetPattern string) (*GitHubReleaseAsset, error) {
-	return (github.Client{HTTPClient: SharedHTTPClient()}).ResolveReleaseAsset(repoSlug, assetPattern)
+	if defaultGitHubReleaseResolver == nil {
+		return nil, fmt.Errorf("github release resolver is not configured")
+	}
+	return defaultGitHubReleaseResolver.ResolveReleaseAsset(repoSlug, assetPattern)
 }
 
 func ResolveGitHubReleaseAssetSelection(repoSlug, assetPattern, arch string) (*GitHubReleaseAssetSelection, error) {
-	return (github.Client{HTTPClient: SharedHTTPClient()}).ResolveReleaseAssetSelection(repoSlug, assetPattern, arch)
+	if defaultGitHubReleaseResolver == nil {
+		return nil, fmt.Errorf("github release resolver is not configured")
+	}
+	return defaultGitHubReleaseResolver.ResolveReleaseAssetSelection(repoSlug, assetPattern, arch)
 }

@@ -3,37 +3,22 @@ package discovery
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"strings"
 	"time"
 
 	"github.com/slobbe/appimage-manager/internal/domain"
-	"github.com/slobbe/appimage-manager/internal/infra/github"
-	"github.com/slobbe/appimage-manager/internal/infra/httpclient"
 )
 
 type GitHubBackend struct{}
 
-var discoveryHTTPClient = httpclient.New(coreHTTPTimeout)
-var resolveGitHubReleaseAssetSelectionFn = func(repoSlug, assetPattern, arch string) (*github.ReleaseAssetSelection, error) {
-	return (github.Client{HTTPClient: discoveryHTTPClient}).ResolveReleaseAssetSelection(repoSlug, assetPattern, arch)
-}
-var fetchGitHubRepositoryFn = func(ctx context.Context, repoSlug string) (*github.Repository, error) {
-	return (github.Client{HTTPClient: discoveryHTTPClient}).FetchRepository(ctx, repoSlug)
-}
+var defaultGitHubResolver GitHubResolver
 
 func SetHTTPClientTimeout(timeout time.Duration) {
-	if discoveryHTTPClient == nil {
-		discoveryHTTPClient = httpclient.New(timeout)
-		return
-	}
-	discoveryHTTPClient.Timeout = timeout
+	_ = timeout
 }
 
-func SetHTTPClient(client *http.Client) *http.Client {
-	previous := discoveryHTTPClient
-	discoveryHTTPClient = client
-	return previous
+func SetGitHubResolver(resolver GitHubResolver) {
+	defaultGitHubResolver = resolver
 }
 
 func (GitHubBackend) Name() string {
@@ -49,19 +34,23 @@ func (GitHubBackend) Resolve(ctx context.Context, ref domain.PackageRef, assetOv
 	assetPattern := normalizeAssetPattern(assetOverride)
 	repoURL := "https://github.com/" + repoSlug
 
-	selection, err := resolveGitHubReleaseAssetSelectionFn(repoSlug, assetPattern, "")
+	if defaultGitHubResolver == nil {
+		return nil, fmt.Errorf("github resolver is not configured")
+	}
+
+	selection, err := defaultGitHubResolver.ResolveReleaseAssetSelection(repoSlug, assetPattern, "")
 	if err != nil {
 		return newUnavailablePackageMetadata("GitHub", ref, repoURL, assetPattern, err.Error()), nil
 	}
 
-	repoInfo, err := fetchGitHubRepositoryFn(ctx, repoSlug)
+	repoInfo, err := defaultGitHubResolver.FetchRepository(ctx, repoSlug)
 	if err != nil {
 		return nil, err
 	}
 
 	release := selection.Release
 	if release == nil {
-		release = &github.ReleaseAsset{}
+		release = &ReleaseAsset{}
 	}
 
 	return newInstallablePackageMetadata(
@@ -83,7 +72,7 @@ func (GitHubBackend) Resolve(ctx context.Context, ref domain.PackageRef, assetOv
 	), nil
 }
 
-func discoveryAssetCandidates(candidates []github.ReleaseAssetCandidate) []domain.AssetCandidate {
+func discoveryAssetCandidates(candidates []ReleaseAssetCandidate) []domain.AssetCandidate {
 	result := make([]domain.AssetCandidate, 0, len(candidates))
 	for _, candidate := range candidates {
 		result = append(result, domain.AssetCandidate{

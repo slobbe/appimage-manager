@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
-
-	fsys "github.com/slobbe/appimage-manager/internal/infra/filesystem"
 )
 
 func InstallDesktopIcon(iconID, iconSrc string) (string, string, error) {
@@ -34,11 +32,15 @@ func InstallDesktopIcon(iconID, iconSrc string) (string, string, error) {
 		return destPath, desktopIconValue, nil
 	}
 
-	if err := fsys.EnsureDir(destDir); err != nil {
+	filesystem, err := requireFilesystem()
+	if err != nil {
+		return "", "", err
+	}
+	if err := filesystem.EnsureDir(destDir); err != nil {
 		return "", "", err
 	}
 
-	if _, err := fsys.Move(iconSrc, destPath); err != nil {
+	if _, err := filesystem.Move(iconSrc, destPath); err != nil {
 		return "", "", err
 	}
 

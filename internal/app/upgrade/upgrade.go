@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
 	models "github.com/slobbe/appimage-manager/internal/domain"
-	"github.com/slobbe/appimage-manager/internal/infra/selfupdate"
 )
 
 var (
@@ -23,7 +23,11 @@ var (
 	}
 	upgradeShellCommand       = "/bin/sh"
 	upgradeRunInstallerScript = func(ctx context.Context, scriptURL string) error {
-		return upgradeInfraClient().RunInstallerScript(ctx, scriptURL, func() (string, error) {
+		updater, err := requireSelfUpdater()
+		if err != nil {
+			return err
+		}
+		return updater.RunInstallerScript(ctx, scriptURL, func() (string, error) {
 			paths, err := requirePaths()
 			if err != nil {
 				return "", err
@@ -33,7 +37,24 @@ var (
 	}
 	upgradeExecutablePath    = os.Executable
 	upgradeEvalSymlinks      = filepath.EvalSymlinks
-	upgradeRunVersionCommand = selfupdate.RunVersionCommand
+	upgradeRunVersionCommand = func(ctx context.Context, binaryPath string) (string, error) {
+		cmd := exec.CommandContext(ctx, binaryPath, "--version")
+		var stdout strings.Builder
+		var stderr strings.Builder
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+		if err := cmd.Run(); err != nil {
+			message := strings.TrimSpace(stderr.String())
+			if message == "" {
+				message = strings.TrimSpace(stdout.String())
+			}
+			if message == "" {
+				return "", err
+			}
+			return "", fmt.Errorf("%w: %s", err, message)
+		}
+		return stdout.String(), nil
+	}
 )
 
 type AimUpgradeCheckResult struct {
@@ -109,23 +130,25 @@ func UpgradeViaInstaller(ctx context.Context, currentVersion string) (*Installer
 }
 
 func fetchLatestReleaseTag(ctx context.Context) (string, error) {
-	return upgradeInfraClient().FetchLatestReleaseTag(ctx, upgradeLatestReleaseURL(upgradeRepoSlug))
+	updater, err := requireSelfUpdater()
+	if err != nil {
+		return "", err
+	}
+	return updater.FetchLatestReleaseTag(ctx, upgradeLatestReleaseURL(upgradeRepoSlug))
 }
 
 func resolveInstalledAimPath() (string, error) {
-	return upgradeInfraClient().ResolveInstalledPath()
+	updater, err := requireSelfUpdater()
+	if err != nil {
+		return "", err
+	}
+	return updater.ResolveInstalledPath()
 }
 
 func readInstalledAimVersion(ctx context.Context, binaryPath string) (string, error) {
-	return upgradeInfraClient().ReadInstalledVersion(ctx, binaryPath)
-}
-
-func upgradeInfraClient() selfupdate.Client {
-	return selfupdate.Client{
-		HTTPClient:     upgradeHTTPClient,
-		ShellCommand:   upgradeShellCommand,
-		ExecutablePath: upgradeExecutablePath,
-		EvalSymlinks:   upgradeEvalSymlinks,
-		VersionCommand: upgradeRunVersionCommand,
+	updater, err := requireSelfUpdater()
+	if err != nil {
+		return "", err
 	}
+	return updater.ReadInstalledVersion(ctx, binaryPath)
 }

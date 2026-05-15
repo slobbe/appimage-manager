@@ -8,9 +8,6 @@ import (
 	"strings"
 
 	models "github.com/slobbe/appimage-manager/internal/domain"
-	"github.com/slobbe/appimage-manager/internal/infra/download"
-	fsys "github.com/slobbe/appimage-manager/internal/infra/filesystem"
-	"github.com/slobbe/appimage-manager/internal/infra/zsync"
 )
 
 type ManagedUpdate struct {
@@ -69,7 +66,7 @@ type Service struct {
 	TempDir       string
 	HTTPClient    *http.Client
 	NowISO        func() string
-	Zsync         zsync.Runner
+	Zsync         ZsyncRunner
 	Integrate     IntegrateFunc
 	DownloadAsset func(context.Context, string, string, func(downloaded, total int64)) error
 }
@@ -165,10 +162,10 @@ func (s Service) downloadManagedUpdateAsset(ctx context.Context, assetURL, desti
 	if s.DownloadAsset != nil {
 		return s.DownloadAsset(ctx, assetURL, destination, onProgress)
 	}
-	return (download.StagedDownloader{
-		Client: s.HTTPClient,
-		NowISO: s.NowISO,
-	}).Download(ctx, assetURL, destination, func(event download.Progress) {
+	if defaultStagedDownload == nil {
+		return fmt.Errorf("staged download service is not configured")
+	}
+	return defaultStagedDownload.Download(ctx, assetURL, destination, func(event DownloadProgress) {
 		if onProgress != nil {
 			onProgress(event.Downloaded, event.Total)
 		}
@@ -176,7 +173,10 @@ func (s Service) downloadManagedUpdateAsset(ctx context.Context, assetURL, desti
 }
 
 func (s Service) stableManagedUpdateDownloadDestination(assetURL, nameHint string) (string, error) {
-	return download.StableDestination(filepath.Join(s.TempDir, "downloads"), assetURL, nameHint)
+	if defaultStagedDownload == nil {
+		return "", fmt.Errorf("staged download service is not configured")
+	}
+	return defaultStagedDownload.StableDestination(filepath.Join(s.TempDir, "downloads"), assetURL, nameHint)
 }
 
 func (s Service) integrate(ctx context.Context, downloadPath string) (*models.App, error) {
@@ -189,15 +189,30 @@ func (s Service) integrate(ctx context.Context, downloadPath string) (*models.Ap
 }
 
 func VerifyDownloadedUpdate(downloadPath string, update ManagedUpdate) error {
-	return fsys.VerifyHashes(downloadPath, update.ExpectedSHA256, update.ExpectedSHA1)
+	if defaultHashVerifier == nil {
+		return fmt.Errorf("hash verifier is not configured")
+	}
+	return defaultHashVerifier.VerifyHashes(downloadPath, update.ExpectedSHA256, update.ExpectedSHA1)
 }
 
 func ManagedUpdateDownloadFilename(assetName, downloadURL string) string {
-	return download.AppImageFilename(assetName, downloadURL)
+	name := strings.TrimSpace(filepath.Base(assetName))
+	if name == "" || name == "." || name == string(filepath.Separator) {
+		name = strings.TrimSpace(filepath.Base(downloadURL))
+	}
+	if name == "" || name == "." || name == string(filepath.Separator) {
+		name = "update.AppImage"
+	}
+	if !strings.EqualFold(filepath.Ext(name), ".AppImage") {
+		name = name + ".AppImage"
+	}
+	return name
 }
 
 func RemoveManagedUpdateDownload(downloadPath string) {
-	download.RemoveStaged(downloadPath)
+	if defaultStagedDownload != nil {
+		defaultStagedDownload.RemoveStaged(downloadPath)
+	}
 }
 
 func managedUpdateAppID(update ManagedUpdate) string {

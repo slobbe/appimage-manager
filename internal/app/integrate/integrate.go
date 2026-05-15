@@ -11,8 +11,6 @@ import (
 	"github.com/slobbe/appimage-manager/internal/app/clock"
 	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
 	models "github.com/slobbe/appimage-manager/internal/domain"
-	"github.com/slobbe/appimage-manager/internal/infra/desktop"
-	fsys "github.com/slobbe/appimage-manager/internal/infra/filesystem"
 )
 
 type UpdateOverwritePrompt func(existing, incoming *models.UpdateSource) (bool, error)
@@ -40,12 +38,16 @@ func integrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 	if err != nil {
 		return nil, err
 	}
+	filesystem, err := requireFilesystem()
+	if err != nil {
+		return nil, err
+	}
 
-	if !fsys.HasExtension(src, ".AppImage") {
+	if !filesystem.HasExtension(src, ".AppImage") {
 		return nil, fmt.Errorf("source file must be a .AppImage file")
 	}
 
-	src, err = fsys.MakeAbsolute(src)
+	src, err = filesystem.MakeAbsolute(src)
 	if err != nil {
 		return nil, err
 	}
@@ -66,7 +68,7 @@ func integrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 
 	tmpDir := (*extractionData).Dir
 	defer func() {
-		_ = fsys.RemoveAll(tmpDir)
+		_ = filesystem.RemoveAll(tmpDir)
 	}()
 
 	var updateFromAppImage *models.UpdateSource
@@ -144,19 +146,19 @@ func integrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 	}
 
 	outDir := filepath.Join(paths.AimDir, appID)
-	if err := fsys.EnsureDir(outDir); err != nil {
+	if err := filesystem.EnsureDir(outDir); err != nil {
 		return nil, err
 	}
 
 	extractionData.Dir = outDir
 
-	if extractionData.ExecPath, err = fsys.Move(extractionData.ExecPath, filepath.Join(extractionData.Dir, appID+filepath.Ext(extractionData.ExecPath))); err != nil {
+	if extractionData.ExecPath, err = filesystem.Move(extractionData.ExecPath, filepath.Join(extractionData.Dir, appID+filepath.Ext(extractionData.ExecPath))); err != nil {
 		return nil, err
 	}
-	if extractionData.DesktopEntryPath, err = fsys.Move(extractionData.DesktopEntryPath, filepath.Join(extractionData.Dir, appID+filepath.Ext(extractionData.DesktopEntryPath))); err != nil {
+	if extractionData.DesktopEntryPath, err = filesystem.Move(extractionData.DesktopEntryPath, filepath.Join(extractionData.Dir, appID+filepath.Ext(extractionData.DesktopEntryPath))); err != nil {
 		return nil, err
 	}
-	if extractionData.IconPath, err = fsys.Move(extractionData.IconPath, filepath.Join(extractionData.Dir, appID+filepath.Ext(extractionData.IconPath))); err != nil {
+	if extractionData.IconPath, err = filesystem.Move(extractionData.IconPath, filepath.Join(extractionData.Dir, appID+filepath.Ext(extractionData.IconPath))); err != nil {
 		return nil, err
 	}
 
@@ -178,7 +180,7 @@ func integrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 		return nil, err
 	}
 
-	if err := fsys.MakeExecutable(extractionData.ExecPath); err != nil {
+	if err := filesystem.MakeExecutable(extractionData.ExecPath); err != nil {
 		return nil, err
 	}
 
@@ -209,7 +211,7 @@ func integrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 
 	go func() {
 		defer postProcessWG.Done()
-		sha256sum, sha1sum, hashErr = fsys.Sha256AndSha1(extractionData.ExecPath)
+		sha256sum, sha1sum, hashErr = filesystem.Sha256AndSha1(extractionData.ExecPath)
 	}()
 
 	postProcessWG.Wait()
@@ -261,24 +263,28 @@ func removeManagedApp(ctx context.Context, store AppStore, id string) error {
 	if err != nil {
 		return err
 	}
+	filesystem, err := requireFilesystem()
+	if err != nil {
+		return err
+	}
 	appData, err := store.GetApp(id)
 	if err != nil {
 		return fmt.Errorf("no app with id %s exists", id)
 	}
-	if err := fsys.RemoveFileIfExists(appData.DesktopEntryLink); err != nil {
+	if err := filesystem.RemoveFileIfExists(appData.DesktopEntryLink); err != nil {
 		return fmt.Errorf("failed to remove desktop link: %w", err)
 	}
 	if appData.IconPath != "" {
 		appDir := filepath.Join(paths.AimDir, appData.ID)
 		iconPath := filepath.Clean(appData.IconPath)
 		if iconPath != appDir && !strings.HasPrefix(iconPath, appDir+string(filepath.Separator)) {
-			_ = fsys.RemoveFileIfExists(iconPath)
+			_ = filesystem.RemoveFileIfExists(iconPath)
 		}
 	}
 	if err := store.RemoveApp(appData.ID); err != nil {
 		return err
 	}
-	if err := fsys.RemoveAll(filepath.Join(paths.AimDir, appData.ID)); err != nil {
+	if err := filesystem.RemoveAll(filepath.Join(paths.AimDir, appData.ID)); err != nil {
 		return fmt.Errorf("failed to remove app dir: %w", err)
 	}
 	return nil
@@ -299,7 +305,11 @@ func IntegrateExisting(ctx context.Context, id string) (*models.App, error) {
 		return app, err
 	}
 
-	if err := fsys.MakeExecutable(app.ExecPath); err != nil {
+	filesystem, err := requireFilesystem()
+	if err != nil {
+		return nil, err
+	}
+	if err := filesystem.MakeExecutable(app.ExecPath); err != nil {
 		return nil, err
 	}
 
@@ -326,6 +336,14 @@ func MakeDesktopLink(src, preferredName, fallbackName string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	filesystem, err := requireFilesystem()
+	if err != nil {
+		return "", err
+	}
+	linkResolver, err := requireDesktopLinkResolver()
+	if err != nil {
+		return "", err
+	}
 
 	if src == "" {
 		return "", fmt.Errorf("source cannot be empty")
@@ -335,12 +353,12 @@ func MakeDesktopLink(src, preferredName, fallbackName string) (string, error) {
 		return "", fmt.Errorf("desktop link name cannot be empty")
 	}
 
-	desktopLink, err := desktop.ResolveDesktopLinkPath(paths.DesktopDir, src, preferredName, fallbackName)
+	desktopLink, err := linkResolver.ResolveDesktopLinkPath(paths.DesktopDir, src, preferredName, fallbackName)
 	if err != nil {
 		return "", err
 	}
 
-	if err := fsys.ReplaceSymlink(src, desktopLink); err != nil {
+	if err := filesystem.ReplaceSymlink(src, desktopLink); err != nil {
 		return "", err
 	}
 
@@ -349,6 +367,10 @@ func MakeDesktopLink(src, preferredName, fallbackName string) (string, error) {
 
 func removeStaleInstalledIcon(store AppStore, oldPath, newPath, appID string) {
 	paths, err := requirePaths()
+	if err != nil {
+		return
+	}
+	filesystem, err := requireFilesystem()
 	if err != nil {
 		return
 	}
@@ -377,5 +399,5 @@ func removeStaleInstalledIcon(store AppStore, oldPath, newPath, appID string) {
 		}
 	}
 
-	_ = fsys.RemoveFileIfExists(oldPath)
+	_ = filesystem.RemoveFileIfExists(oldPath)
 }

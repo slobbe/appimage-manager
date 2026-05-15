@@ -6,6 +6,10 @@ import (
 	models "github.com/slobbe/appimage-manager/internal/domain"
 )
 
+func errNotConfigured(name string) error {
+	return fmt.Errorf("%s is not configured", name)
+}
+
 type AppStore interface {
 	AddApp(app *models.App, overwrite bool) error
 	RemoveApp(id string) error

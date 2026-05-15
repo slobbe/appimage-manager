@@ -68,6 +68,7 @@ func prepareRuntime(cmd *cobra.Command) error {
 	appupdate.SetHTTPClientTimeout(settings.NetworkTimeout)
 	appupgrade.SetHTTPClientTimeout(settings.NetworkTimeout)
 	download.SetHTTPClientTimeout(settings.NetworkTimeout)
+	configureAppPorts(settings.NetworkTimeout)
 	appintegrate.SetPaths(integratePathsFromConfig(config.CurrentPaths()))
 	appintegrate.SetStore(repo.NewStore(config.DbSrc))
 	appremove.SetPaths(removePathsFromConfig(config.CurrentPaths()))

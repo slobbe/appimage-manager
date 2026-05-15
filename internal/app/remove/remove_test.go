@@ -3,13 +3,12 @@ package remove
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 
 	"github.com/slobbe/appimage-manager/internal/cli/config"
 	models "github.com/slobbe/appimage-manager/internal/domain"
-	"github.com/slobbe/appimage-manager/internal/infra/desktop"
+	fsys "github.com/slobbe/appimage-manager/internal/infra/filesystem"
 	repo "github.com/slobbe/appimage-manager/internal/infra/repository"
 )
 
@@ -136,6 +135,8 @@ func setupIntegrationConfigForTest(t *testing.T, tmp string) {
 	originalDbSrc := config.DbSrc
 	originalStore := defaultStore
 	originalPaths := defaultPaths
+	originalFilesystem := defaultFilesystem
+	originalCacheRefresh := defaultIntegrationCacheRefresh
 	t.Cleanup(func() {
 		config.AimDir = originalAimDir
 		config.DesktopDir = originalDesktopDir
@@ -143,6 +144,8 @@ func setupIntegrationConfigForTest(t *testing.T, tmp string) {
 		config.DbSrc = originalDbSrc
 		defaultStore = originalStore
 		defaultPaths = originalPaths
+		defaultFilesystem = originalFilesystem
+		defaultIntegrationCacheRefresh = originalCacheRefresh
 	})
 
 	config.AimDir = filepath.Join(tmp, "aim")
@@ -155,6 +158,7 @@ func setupIntegrationConfigForTest(t *testing.T, tmp string) {
 		IconThemeDir: config.IconThemeDir,
 	})
 	SetStore(repo.NewStore(config.DbSrc))
+	SetFilesystem(testFilesystem{})
 
 	for _, dir := range []string{config.AimDir, config.DesktopDir, config.IconThemeDir, filepath.Dir(config.DbSrc)} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -165,16 +169,20 @@ func setupIntegrationConfigForTest(t *testing.T, tmp string) {
 
 func stubIntegrationCacheRefreshForTest(t *testing.T) {
 	t.Helper()
+	SetIntegrationCacheRefresher(testCacheRefresher{})
+}
 
-	originalLookPath := desktop.IntegrationCacheLookPath
-	originalWarn := desktop.IntegrationCacheWarn
-	t.Cleanup(func() {
-		desktop.IntegrationCacheLookPath = originalLookPath
-		desktop.IntegrationCacheWarn = originalWarn
-	})
+type testFilesystem struct{}
 
-	desktop.IntegrationCacheLookPath = func(string) (string, error) {
-		return "", exec.ErrNotFound
-	}
-	desktop.IntegrationCacheWarn = func(string) {}
+func (testFilesystem) RemoveAll(path string) error {
+	return fsys.RemoveAll(path)
+}
+
+func (testFilesystem) RemoveFileIfExists(path string) error {
+	return fsys.RemoveFileIfExists(path)
+}
+
+type testCacheRefresher struct{}
+
+func (testCacheRefresher) RefreshIntegrationCaches(ctx context.Context, desktopDir, iconThemeDir string) {
 }

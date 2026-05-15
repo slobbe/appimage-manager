@@ -6,12 +6,12 @@ import (
 	"debug/elf"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	models "github.com/slobbe/appimage-manager/internal/domain"
-	fsys "github.com/slobbe/appimage-manager/internal/infra/filesystem"
-	"github.com/slobbe/appimage-manager/internal/infra/zsync"
 )
 
 type UpdateInfo struct {
@@ -51,7 +51,10 @@ func ZsyncUpdateCheck(upd *models.UpdateSource, localSHA1 string) (*UpdateData, 
 		return nil, fmt.Errorf("missing zsync update url")
 	}
 
-	metadata, err := (zsync.Client{HTTPClient: SharedHTTPClient()}).FetchMetadata(updateInfo.UpdateUrl)
+	if defaultZsyncMetadataFetcher == nil {
+		return nil, fmt.Errorf("zsync metadata fetcher is not configured")
+	}
+	metadata, err := defaultZsyncMetadataFetcher.FetchMetadata(updateInfo.UpdateUrl)
 	if err != nil {
 		return nil, err
 	}
@@ -60,7 +63,7 @@ func ZsyncUpdateCheck(upd *models.UpdateSource, localSHA1 string) (*UpdateData, 
 	update.DownloadUrlZsync = updateInfo.UpdateUrl
 
 	scanner := bufio.NewScanner(bytes.NewReader(metadata))
-	scanner.Buffer(make([]byte, 64*1024), zsync.MetadataMaxBytes+1)
+	scanner.Buffer(make([]byte, 64*1024), MetadataMaxBytes+1)
 	for scanner.Scan() {
 		line := scanner.Text()
 		if line == "" {
@@ -196,11 +199,11 @@ func githubLatestVersionTag(owner, repo string) (string, error) {
 }
 
 func extractUpdateInfo(src string) (string, error) {
-	if !fsys.HasExtension(src, ".AppImage") {
+	if !strings.EqualFold(filepath.Ext(strings.TrimSpace(src)), ".AppImage") {
 		return "", fmt.Errorf("source must be .AppImage file")
 	}
 
-	src, err := fsys.MakeAbsolute(src)
+	src, err := makeAbsolute(src)
 	if err != nil {
 		return "", err
 	}
@@ -227,4 +230,17 @@ func extractUpdateInfo(src string) (string, error) {
 	}
 
 	return strings.TrimSpace(strData), nil
+}
+
+func makeAbsolute(path string) (string, error) {
+	if filepath.IsAbs(path) {
+		return path, nil
+	}
+
+	dir, err := os.Getwd()
+	if err != nil {
+		return path, err
+	}
+
+	return filepath.Join(dir, path), nil
 }

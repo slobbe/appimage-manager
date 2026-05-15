@@ -3,14 +3,12 @@ package update
 import (
 	"net/http"
 	"time"
-
-	"github.com/slobbe/appimage-manager/internal/infra/httpclient"
 )
 
-var sharedHTTPClient = httpclient.New(30 * time.Second)
+var sharedHTTPClient = &http.Client{Timeout: 30 * time.Second}
 
 func NewHTTPClient(timeout time.Duration) *http.Client {
-	return httpclient.New(timeout)
+	return &http.Client{Timeout: timeout}
 }
 
 func SetHTTPClientTimeout(timeout time.Duration) {

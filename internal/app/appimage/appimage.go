@@ -7,9 +7,6 @@ import (
 	"strings"
 
 	models "github.com/slobbe/appimage-manager/internal/domain"
-	appimageinfra "github.com/slobbe/appimage-manager/internal/infra/appimage"
-	"github.com/slobbe/appimage-manager/internal/infra/desktop"
-	fsys "github.com/slobbe/appimage-manager/internal/infra/filesystem"
 )
 
 type AppInfo = models.AppInfo
@@ -23,25 +20,29 @@ type ExtractionData struct {
 }
 
 func ReadAppImageInfo(ctx context.Context, src string) (*AppInfo, error) {
-	if _, err := fsys.RequireRegularFile(src, "source path"); err != nil {
+	filesystem, extractor, _, err := requireDependencies()
+	if err != nil {
 		return nil, err
 	}
-	if !fsys.HasExtension(src, ".AppImage") {
+	if _, err := filesystem.RequireRegularFile(src, "source path"); err != nil {
+		return nil, err
+	}
+	if !filesystem.HasExtension(src, ".AppImage") {
 		return nil, fmt.Errorf("source file must be an .AppImage: %s", filepath.Ext(src))
 	}
 
-	src, err := fsys.MakeAbsolute(src)
+	src, err = filesystem.MakeAbsolute(src)
 	if err != nil {
 		return nil, fmt.Errorf("failed to make source path absolute: %w", err)
 	}
 
-	extraction, cleanup, err := appimageinfra.Inspect(ctx, src)
+	extraction, cleanup, err := extractor.Inspect(ctx, src)
 	if err != nil {
 		return nil, err
 	}
 	defer cleanup()
 
-	desktopEntry, err := fsys.LocateDesktopEntry(extraction.RootDir)
+	desktopEntry, err := filesystem.LocateDesktopEntry(extraction.RootDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to locate desktop file: %w", err)
 	}
@@ -54,55 +55,59 @@ func ExtractAppImage(ctx context.Context, src string) (*ExtractionData, error) {
 	if err != nil {
 		return nil, err
 	}
+	filesystem, extractor, _, err := requireDependencies()
+	if err != nil {
+		return nil, err
+	}
 
-	if _, err := fsys.RequireRegularFile(src, "source path"); err != nil {
+	if _, err := filesystem.RequireRegularFile(src, "source path"); err != nil {
 		return nil, err
 	}
 
 	srcFileExt := filepath.Ext(src)
 	srcFileName := strings.TrimSuffix(filepath.Base(src), srcFileExt)
 
-	if !fsys.HasExtension(src, ".AppImage") {
+	if !filesystem.HasExtension(src, ".AppImage") {
 		return nil, fmt.Errorf("source file must be an .AppImage: %s", srcFileExt)
 	}
 
-	if src, err = fsys.MakeAbsolute(src); err != nil {
+	if src, err = filesystem.MakeAbsolute(src); err != nil {
 		return nil, fmt.Errorf("failed to make source path absolute: %w", err)
 	}
 
-	extraction, cleanup, err := appimageinfra.Extract(ctx, src, paths.TempDir)
+	extraction, cleanup, err := extractor.Extract(ctx, src, paths.TempDir)
 	if err != nil {
 		return nil, err
 	}
 	defer cleanup()
 
-	tempDesktopEntry, err := fsys.LocateDesktopEntry(extraction.RootDir)
+	tempDesktopEntry, err := filesystem.LocateDesktopEntry(extraction.RootDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to locate desktop file: %w", err)
 	}
 
-	tempIconSrc, err := fsys.LocateIcon(extraction.RootDir)
+	tempIconSrc, err := filesystem.LocateIcon(extraction.RootDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to locate icon file: %w", err)
 	}
 
 	extractDir := filepath.Join(paths.AimDir, "."+srcFileName)
-	if err := fsys.EnsureDir(extractDir); err != nil {
+	if err := filesystem.EnsureDir(extractDir); err != nil {
 		return nil, fmt.Errorf("failed to create temporary extracttion directory %s: %w", extractDir, err)
 	}
 
 	execSrc := filepath.Join(extractDir, srcFileName+".AppImage")
-	if _, err = fsys.Copy(src, execSrc); err != nil {
+	if _, err = filesystem.Copy(src, execSrc); err != nil {
 		return nil, err
 	}
 
 	desktopSrc := filepath.Join(extractDir, srcFileName+".desktop")
-	if _, err := fsys.Move(tempDesktopEntry.Path, desktopSrc); err != nil {
+	if _, err := filesystem.Move(tempDesktopEntry.Path, desktopSrc); err != nil {
 		return nil, err
 	}
 
 	iconSrc := filepath.Join(extractDir, srcFileName+filepath.Ext(tempIconSrc))
-	if _, err := fsys.Move(tempIconSrc, iconSrc); err != nil {
+	if _, err := filesystem.Move(tempIconSrc, iconSrc); err != nil {
 		return nil, err
 	}
 
@@ -118,11 +123,15 @@ func ExtractAppImage(ctx context.Context, src string) (*ExtractionData, error) {
 }
 
 func UpdateDesktopEntry(ctx context.Context, src string, execSrc string, iconSrc string) error {
-	if !fsys.HasExtension(src, ".desktop") {
+	filesystem, _, rewriter, err := requireDependencies()
+	if err != nil {
+		return err
+	}
+	if !filesystem.HasExtension(src, ".desktop") {
 		return fmt.Errorf("source file must be a .desktop file")
 	}
 
-	if execSrc == "" || !fsys.HasExtension(execSrc, ".AppImage") {
+	if execSrc == "" || !filesystem.HasExtension(execSrc, ".AppImage") {
 		return fmt.Errorf("exec source file must be a .AppImage file")
 	}
 
@@ -130,7 +139,7 @@ func UpdateDesktopEntry(ctx context.Context, src string, execSrc string, iconSrc
 		return fmt.Errorf("icon source file cannot be empty")
 	}
 
-	if err := desktop.RewriteDesktopEntryFile(src, execSrc, iconSrc); err != nil {
+	if err := rewriter.RewriteDesktopEntryFile(src, execSrc, iconSrc); err != nil {
 		return fmt.Errorf("failed to write desktop file: %w", err)
 	}
 
@@ -138,15 +147,32 @@ func UpdateDesktopEntry(ctx context.Context, src string, execSrc string, iconSrc
 }
 
 func GetAppInfo(ctx context.Context, desktopSrc string) (*AppInfo, error) {
-	if !fsys.HasExtension(desktopSrc, ".desktop") {
+	filesystem, _, rewriter, err := requireDependencies()
+	if err != nil {
+		return nil, err
+	}
+	if !filesystem.HasExtension(desktopSrc, ".desktop") {
 		return nil, fmt.Errorf("source file must be a .desktop file")
 	}
 
-	content, err := fsys.ReadTextFile(desktopSrc)
+	content, err := filesystem.ReadTextFile(desktopSrc)
 	if err != nil {
 		return nil, err
 	}
 
-	desktopStem := desktop.SanitizeDesktopStem(desktop.DesktopStemFromPath(desktopSrc))
+	desktopStem := rewriter.SanitizeDesktopStem(rewriter.DesktopStemFromPath(desktopSrc))
 	return models.ParseDesktopEntryAppInfo(desktopSrc, content, desktopStem), nil
+}
+
+func requireDependencies() (Filesystem, Extractor, DesktopEntryRewriter, error) {
+	if defaultFilesystem == nil {
+		return nil, nil, nil, fmt.Errorf("appimage filesystem is not configured")
+	}
+	if defaultExtractor == nil {
+		return nil, nil, nil, fmt.Errorf("appimage extractor is not configured")
+	}
+	if defaultDesktopEntryRewriter == nil {
+		return nil, nil, nil, fmt.Errorf("appimage desktop entry rewriter is not configured")
+	}
+	return defaultFilesystem, defaultExtractor, defaultDesktopEntryRewriter, nil
 }

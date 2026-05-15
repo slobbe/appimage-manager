@@ -7,8 +7,6 @@ import (
 	"strings"
 
 	models "github.com/slobbe/appimage-manager/internal/domain"
-	"github.com/slobbe/appimage-manager/internal/infra/desktop"
-	fsys "github.com/slobbe/appimage-manager/internal/infra/filesystem"
 )
 
 func Remove(ctx context.Context, id string, unlink bool) (*models.App, error) {
@@ -25,13 +23,21 @@ func remove(ctx context.Context, store AppStore, id string, unlink bool) (*model
 	if err != nil {
 		return nil, err
 	}
+	filesystem, err := requireFilesystem()
+	if err != nil {
+		return nil, err
+	}
+	cacheRefresher, err := requireIntegrationCacheRefresher()
+	if err != nil {
+		return nil, err
+	}
 
 	appData, err := store.GetApp(id)
 	if err != nil {
 		return nil, fmt.Errorf("no app with id %s exists", id)
 	}
 
-	if err := fsys.RemoveFileIfExists(appData.DesktopEntryLink); err != nil {
+	if err := filesystem.RemoveFileIfExists(appData.DesktopEntryLink); err != nil {
 		return nil, fmt.Errorf("failed to remove desktop link: %w", err)
 	}
 
@@ -49,19 +55,16 @@ func remove(ctx context.Context, store AppStore, id string, unlink bool) (*model
 		if appData.IconPath != "" {
 			iconPath := filepath.Clean(appData.IconPath)
 			if iconPath != appDir && !strings.HasPrefix(iconPath, appDir+string(filepath.Separator)) {
-				_ = fsys.RemoveFileIfExists(iconPath)
+				_ = filesystem.RemoveFileIfExists(iconPath)
 			}
 		}
 
-		if err := fsys.RemoveAll(appDir); err != nil {
+		if err := filesystem.RemoveAll(appDir); err != nil {
 			return appData, fmt.Errorf("failed to remove app dir: %w", err)
 		}
 	}
 
-	desktop.RefreshIntegrationCaches(ctx, desktop.CachePaths{
-		DesktopDir:   paths.DesktopDir,
-		IconThemeDir: paths.IconThemeDir,
-	})
+	cacheRefresher.RefreshIntegrationCaches(ctx, paths.DesktopDir, paths.IconThemeDir)
 
 	return appData, nil
 }
