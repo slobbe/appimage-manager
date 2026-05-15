@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/slobbe/appimage-manager/internal/cli/config"
+	"github.com/slobbe/appimage-manager/internal/infra/config"
 )
 
 func TestInstallDesktopIconPNGUsesAbsoluteThemePath(t *testing.T) {

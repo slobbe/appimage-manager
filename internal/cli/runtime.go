@@ -4,17 +4,21 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"strings"
-	"time"
-
 	"github.com/slobbe/appimage-manager/internal/app/discovery"
 	appintegrate "github.com/slobbe/appimage-manager/internal/app/integrate"
 	appremove "github.com/slobbe/appimage-manager/internal/app/remove"
+	appservices "github.com/slobbe/appimage-manager/internal/app/services"
 	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
 	appupgrade "github.com/slobbe/appimage-manager/internal/app/upgrade"
-	"github.com/slobbe/appimage-manager/internal/cli/config"
+	"github.com/slobbe/appimage-manager/internal/domain"
+	"github.com/slobbe/appimage-manager/internal/infra/config"
 	"github.com/spf13/cobra"
+	"golang.org/x/sys/unix"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"time"
 )
 
 type runtimeOptions struct {
@@ -80,6 +84,9 @@ func prepareRuntime(cmd *cobra.Command) error {
 	ctx = withOperationLog(ctx)
 	ctx = context.WithValue(ctx, runtimeContextKey{}, opts)
 	ctx = context.WithValue(ctx, runtimeSettingsContextKey{}, settings)
+	if _, ok := ctx.Value(runtimeServicesContextKey{}).(runtimeServices); !ok {
+		ctx = withRuntimeServices(ctx, defaultRuntimeServices())
+	}
 	cmd.SetContext(ctx)
 	return nil
 }
@@ -324,4 +331,236 @@ func detectTerminalInput() bool {
 		return false
 	}
 	return (stat.Mode() & os.ModeCharDevice) != 0
+}
+
+type runtimeServicesContextKey struct{}
+
+type runtimeServices struct {
+	Add       appservices.AddService
+	List      appservices.ListService
+	Info      appservices.InfoService
+	Remove    appservices.RemoveService
+	Update    appservices.UpdateService
+	Upgrade   appservices.UpgradeService
+	Discovery appservices.DiscoveryService
+	Locker    Locker
+}
+
+type Locker interface {
+	WithWriteLock(fn func() error) error
+}
+
+type updateSourceReplaceConfirmerFunc func(existing, incoming *domain.UpdateSource) (bool, error)
+
+func (fn updateSourceReplaceConfirmerFunc) ConfirmUpdateSourceReplace(existing, incoming *domain.UpdateSource) (bool, error) {
+	return fn(existing, incoming)
+}
+
+func defaultRuntimeServices() runtimeServices {
+	discovery := legacyDiscoveryService{}
+	return runtimeServices{
+		Add:       legacyAddService{},
+		List:      legacyListService{},
+		Info:      legacyInfoService{Discovery: discovery},
+		Remove:    legacyRemoveService{},
+		Update:    legacyUpdateService{},
+		Upgrade:   legacyUpgradeService{},
+		Discovery: discovery,
+		Locker:    stateFileLocker{},
+	}
+}
+
+func withRuntimeServices(ctx context.Context, services runtimeServices) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, runtimeServicesContextKey{}, services)
+}
+
+func runtimeServicesFrom(cmd *cobra.Command) runtimeServices {
+	if cmd != nil && cmd.Context() != nil {
+		if services, ok := cmd.Context().Value(runtimeServicesContextKey{}).(runtimeServices); ok {
+			return services
+		}
+	}
+	return defaultRuntimeServices()
+}
+
+func installRuntimeServicesForTest(cmd *cobra.Command, services runtimeServices) {
+	ctx := context.Background()
+	if cmd.Context() != nil {
+		ctx = cmd.Context()
+	}
+	cmd.SetContext(withRuntimeServices(ctx, services))
+}
+
+type legacyUpgradeService struct{}
+
+func (legacyUpgradeService) Check(ctx context.Context, currentVersion string) (*appupgrade.AimUpgradeCheckResult, error) {
+	return checkAimUpgrade(ctx, currentVersion)
+}
+
+func (legacyUpgradeService) Upgrade(ctx context.Context, currentVersion string) (*appupgrade.InstallerUpgradeResult, error) {
+	return runUpgradeViaInstaller(ctx, currentVersion)
+}
+
+type legacyListService struct{}
+
+func (legacyListService) List(ctx context.Context, req appservices.ListRequest) (*appservices.ListResult, error) {
+	_ = ctx
+	apps, err := getAllManagedApps()
+	if err != nil {
+		return nil, err
+	}
+
+	selected := make([]*domain.App, 0, len(apps))
+	for _, app := range apps {
+		if app == nil {
+			continue
+		}
+		integrated := len(app.DesktopEntryLink) > 0
+		if integrated && req.IncludeIntegrated {
+			selected = append(selected, app)
+		}
+		if !integrated && req.IncludeUnlinked {
+			selected = append(selected, app)
+		}
+	}
+	return &appservices.ListResult{Apps: selected}, nil
+}
+
+type legacyRemoveService struct{}
+
+func (legacyRemoveService) Remove(ctx context.Context, req appservices.RemoveRequest) (*appservices.RemoveResult, error) {
+	app, err := removeManagedApp(ctx, req.ID, req.Unlink)
+	if err != nil {
+		return nil, err
+	}
+	return &appservices.RemoveResult{
+		App:    app,
+		Unlink: req.Unlink,
+		Paths:  removeDryRunPlan(app, req.Unlink)["paths"].([]string),
+	}, nil
+}
+
+func (legacyRemoveService) PlanRemove(ctx context.Context, req appservices.RemoveRequest) (*appservices.DryRunPlan, error) {
+	_ = ctx
+	app, err := getManagedApp(req.ID)
+	if err != nil {
+		return nil, err
+	}
+	plan := removeDryRunPlan(app, req.Unlink)
+	return &appservices.DryRunPlan{
+		Action: plan["action"].(string),
+		Target: app.ID,
+		Values: plan,
+	}, nil
+}
+
+type legacyDiscoveryService struct{}
+
+func (legacyDiscoveryService) ResolvePackage(ctx context.Context, req appservices.PackageRefInfoRequest) (*domain.PackageMetadata, error) {
+	return resolvePackageMetadataFromRef(ctx, req.Ref, req.AssetPattern)
+}
+
+func withStateWriteLock(cmd *cobra.Command, fn func() error) error {
+	return runtimeServicesFrom(cmd).Locker.WithWriteLock(fn)
+}
+
+type stateFileLocker struct{}
+
+func (stateFileLocker) WithWriteLock(fn func() error) error {
+	if err := os.MkdirAll(config.ConfigDir, 0o755); err != nil {
+		return wrapWriteError(err)
+	}
+
+	lockPath := filepath.Join(config.ConfigDir, "state.lock")
+	file, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return wrapWriteError(err)
+	}
+	defer file.Close()
+
+	if err := unix.Flock(int(file.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
+		return noPermError(fmt.Errorf("another aim process is already modifying this AIM state root; wait for it to finish and try again"))
+	}
+	defer func() {
+		_ = unix.Flock(int(file.Fd()), unix.LOCK_UN)
+	}()
+
+	return fn()
+}
+
+type operationLogKey struct{}
+
+type operationLogBuffer struct {
+	mu    sync.Mutex
+	lines []string
+}
+
+func withOperationLog(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if operationLogFromContext(ctx) != nil {
+		return ctx
+	}
+	return context.WithValue(ctx, operationLogKey{}, &operationLogBuffer{})
+}
+
+func operationLogFromContext(ctx context.Context) *operationLogBuffer {
+	if ctx == nil {
+		return nil
+	}
+	if value, ok := ctx.Value(operationLogKey{}).(*operationLogBuffer); ok {
+		return value
+	}
+	return nil
+}
+
+func operationLogForCommand(cmd *cobra.Command) *operationLogBuffer {
+	if cmd == nil {
+		return nil
+	}
+	return operationLogFromContext(cmd.Context())
+}
+
+func logOperationf(cmd *cobra.Command, format string, args ...interface{}) {
+	buffer := operationLogForCommand(cmd)
+	if buffer == nil {
+		return
+	}
+	buffer.Logf(format, args...)
+}
+
+func logOperationContextf(ctx context.Context, format string, args ...interface{}) {
+	buffer := operationLogFromContext(ctx)
+	if buffer == nil {
+		return
+	}
+	buffer.Logf(format, args...)
+}
+
+func (b *operationLogBuffer) Logf(format string, args ...interface{}) {
+	if b == nil {
+		return
+	}
+	line := strings.TrimSpace(fmt.Sprintf(format, args...))
+	if line == "" {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.lines = append(b.lines, line)
+}
+
+func (b *operationLogBuffer) Lines() []string {
+	if b == nil {
+		return nil
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	lines := make([]string, len(b.lines))
+	copy(lines, b.lines)
+	return lines
 }

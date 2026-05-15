@@ -1,95 +1,191 @@
-# Layer Boundary Refactoring Plan
+# Layer Boundary Cleanup Plan
 
-This plan preserves behavior, keeps commits small, makes each step independently testable, and prefers moving code over rewriting code.
+This checklist is based on a strict but pragmatic layer-boundary review of the current codebase. The repo already has a useful target shape with `internal/domain`, `internal/app`, `internal/infra`, and `internal/cli`, plus `internal/architecture/import_boundaries_test.go` enforcing import direction. The remaining coupling is mostly behavioral: CLI still owns workflows and runtime wiring, app packages still contain IO/API/process details, and some pure business rules live above the domain layer.
 
-## 1. Freeze behavior with a baseline
+Target dependency direction:
 
-Suggested commit: `test: capture current architecture behavior`
+```txt
+cmd/aim
+  -> internal/cli
+  -> internal/app
+  -> internal/domain
 
-- Run `go test ./... && go vet ./...`.
-- Add or confirm focused tests around add/install, update check/apply, remove, upgrade, discovery, and repository persistence before moving more code.
-- Use this baseline as the safety check for every later move.
+internal/infra implements app/domain boundary interfaces and is wired at the edge.
+```
 
-## 2. Remove application-layer imports of concrete infrastructure
+## Findings
 
-Highest-severity issue: `internal/app/...` imports `internal/infra/...` directly in packages like `appimage`, `discovery`, `integrate`, `remove`, `update`, and `upgrade`.
+| Package / Folder | Observed Role | Expected Layer | Assessment |
+|---|---|---|---|
+| `cmd/aim` | Entrypoint | CLI | Good, already thin. |
+| `internal/cli` | Cobra commands, output rendering, prompts, config, runtime wiring, lock files, downloader helpers, desktop validation shelling | CLI plus mixed composition/infra | Too much workflow and concrete IO lives here. |
+| `internal/cli/config` | XDG path resolution, env reads, global mutable paths, settings file parsing | Infra/config | Should move out of CLI so app services receive explicit path/config values. |
+| `internal/app/appimage` | AppImage inspection/extraction workflow plus path construction and desktop file reads through ports | App plus some domain/path rules | Keep orchestration, move pure validation/naming to domain and extraction/file details to infra. |
+| `internal/app/discovery` | Provider metadata workflow, GitHub backend facade, URL construction | App plus provider-specific rules | Keep discovery use case; move provider-specific GitHub URL/API behavior to infra and pure package-ref rules to domain. |
+| `internal/app/integrate` | Full integration workflow, identity resolution, path layout, icon install, desktop validation, persistence, cache refresh | App with domain and infra concerns mixed in | Highest-value use case to split after CLI is thinner. |
+| `internal/app/update` | Update check/apply workflow, zsync metadata parsing, ELF `.upd_info` reading, HTTP client globals, staged download naming | App plus infra and domain rules | Move ELF/HTTP/zsync/staging to infra; move release/update selection rules to domain. |
+| `internal/app/upgrade` | Self-upgrade workflow, GitHub/raw URL construction, HTTP client globals, installer execution through port | App plus infra details | Should depend on `ReleaseFinder` and `SelfUpdater` ports only. |
+| `internal/app/remove` | Remove workflow and path cleanup | App | Mostly acceptable, but filesystem operations should stay behind explicit ports. |
+| `internal/domain` | App, source, update, identity, slug, version, AppImage desktop parsing | Domain | Mostly pure and useful. Some more business rules can move here from app/CLI. |
+| `internal/infra/*` | Filesystem, repository, download, GitHub, desktop, zsync, selfupdate, appimage extraction | Infra | Good package split. Some release-selection behavior may belong in domain/app if it is a business decision rather than API adaptation. |
 
-Suggested commit: `refactor(app): depend on ports instead of infra`
+## Refactoring Checklist
 
-- Define small interfaces in the owning app packages for filesystem, desktop, download, zsync, GitHub release lookup, self-update, and AppImage extraction.
-- Keep concrete implementations in `internal/infra/...`.
-- Wire implementations from CLI/runtime.
-- Test each use case package with fakes.
+### 1. Thin the CLI first: CLI should parse flags and call app services
 
-## 3. Move remaining IO and process execution out of application use cases
+- [ ] Add a thin app-service API for each command path before moving logic:
+  - `AddService`
+  - `ListService`
+  - `InfoService`
+  - `RemoveService`
+  - `UpdateService`
+  - `UpgradeService`
+  - `DiscoveryService`
+- [ ] Move command workflow decisions out of `internal/cli/commands.go`; keep only flag parsing, superficial argument validation, prompts, progress display, output formatting, and exit/error rendering.
+- [ ] Convert `runIntegrateTarget`, install target handling, managed update apply, recovery, and dry-run planning into app service calls that return structured results.
+- [ ] Split `internal/cli/app_ports.go` into a composition root, for example `internal/cli/runtime` or `internal/bootstrap`, whose job is only to construct app services with infra adapters.
+- [ ] Move lock-file handling from `internal/cli/state_lock.go` behind an app-level `StateLock` or runtime-level `Locker` so commands do not directly own persistence coordination.
+- [ ] Move `internal/cli/config` out of CLI, likely to `internal/infra/config`, and pass resolved paths/settings into app services explicitly.
+- [ ] Keep CLI output helpers such as JSON rendering, progress UI, prompts, and friendly error text in `internal/cli`.
+- [ ] Add command tests that assert each command calls the expected service with parsed inputs, using service fakes instead of real repository/download/filesystem setup.
+- [ ] Suggested commits:
+  - `refactor(cli): introduce command service interfaces`
+  - `refactor(cli): move runtime wiring out of commands`
+  - `refactor(config): move xdg config loading to infra`
 
-Suggested commit: `refactor(app): move os execution behind adapters`
+### 2. Extract pure domain types/functions: Move business concepts and rules into domain
 
-- Remove direct `os`, `os/exec`, filesystem path mutation, and shell/process concerns from `internal/app/integrate`, `internal/app/update`, and `internal/app/upgrade`.
-- Prefer moving existing code into infra adapters over rewriting.
-- Keep use cases as orchestration only.
-- Test with app-level fake ports plus existing integration-style infra tests.
+- [ ] Move managed app identity decisions from `internal/app/integrate/managed_identity.go` into `internal/domain`, keeping repository lookup orchestration in app.
+- [ ] Move app ID, desktop stem, slug, replacement, and stale-icon ownership rules into pure domain functions that accept values and return decisions.
+- [ ] Move update availability, release transport selection, version comparison, and update source validation into domain where they are pure business decisions.
+- [ ] Move pure package reference parsing/normalization from `internal/app/discovery` into domain if it describes the package model rather than a provider API.
+- [ ] Keep `ParseDesktopEntryAppInfo` pure in domain, but keep actual desktop file reading/rewriting in infra.
+- [ ] Keep domain free of `os`, `net/http`, `debug/elf`, filesystem APIs, env vars, Cobra, concrete infra packages, and JSON/TOML DTOs.
+- [ ] Add focused domain tests for identity collision, replacement decisions, release/update availability, package refs, and path-independent AppImage metadata parsing.
+- [ ] Suggested commits:
+  - `refactor(domain): extract managed app identity rules`
+  - `refactor(domain): extract update selection rules`
+  - `test(domain): cover pure package and update decisions`
 
-## 4. Separate CLI runtime wiring from command behavior
+### 3. Create app services: Move workflows into app
 
-Current issue: `internal/cli` imports app packages and infra packages together, so command code also acts as composition root.
+- [ ] Replace package-level functions and global setters in app packages with explicit service structs and constructors, for example `integrate.Service`, `update.Service`, `upgrade.Service`, and `discovery.Service`.
+- [ ] Move full workflows currently embedded in CLI into app services:
+  - add local AppImage
+  - add managed package ref
+  - check updates
+  - apply updates
+  - remove app
+  - self-upgrade
+  - dry-run planning
+- [ ] Make app services depend on domain plus small ports, not concrete `infra` packages and not CLI callbacks except narrow user-decision ports such as `UpdateOverwriteConfirmer`.
+- [ ] Return structured result types from app services so CLI can render text/JSON without app knowing about terminal formatting.
+- [ ] Remove global mutable defaults like `SetFilesystem`, `SetGitHubReleaseResolver`, `SetSelfUpdater`, and `SharedHTTPClient` from app packages after services are wired explicitly.
+- [ ] Keep transaction/workflow coordination in app: load app, decide with domain, call repository/downloader/filesystem ports, persist result, refresh caches.
+- [ ] Add app tests with fakes for repositories, downloaders, release finders, filesystem, AppImage extractor, desktop integration, clock, and locker.
+- [ ] Suggested commits:
+  - `refactor(app): introduce integrate service`
+  - `refactor(app): introduce update service`
+  - `refactor(app): introduce upgrade service`
+  - `refactor(app): remove global app ports`
 
-Suggested commit: `refactor(cli): isolate runtime assembly`
+### 4. Move IO/API/filesystem code into infra: Storage, HTTP, GitHub, config, desktop files, etc.
 
-- Move dependency construction into a narrow runtime/composition package under CLI or a dedicated bootstrap package.
-- Commands should call app services through already-wired runtime dependencies.
-- CLI tests should still assert command behavior and output, but not require concrete infra wiring except in runtime assembly tests.
+- [ ] Move ELF `.upd_info` extraction from `internal/app/update/check.go` into an infra AppImage/update-info reader.
+- [ ] Move zsync metadata fetching and parsing that is tied to wire format into `internal/infra/zsync`; return app/domain-level metadata structs.
+- [ ] Move staged download naming, HTTP metadata, progress adaptation, status errors, and shared HTTP client ownership out of CLI/app into `internal/infra/download`.
+- [ ] Keep GitHub API DTOs, release asset HTTP lookup, repository metadata lookup, and GitHub URL construction in `internal/infra/github`.
+- [ ] Move self-update HTTP calls, installed binary resolution, installer script execution, and raw GitHub install-script URL handling to `internal/infra/selfupdate`.
+- [ ] Keep desktop entry rewrite, validation command execution, link resolution, cache refresh, and icon filesystem behavior in `internal/infra/desktop` or `internal/infra/filesystem`.
+- [ ] Keep repository JSON persistence and validation in `internal/infra/repository`; app should see only repository/store interfaces.
+- [ ] Move XDG/env/settings loading and directory creation to `internal/infra/config`; pass a plain `Paths`/`Settings` value into app services.
+- [ ] Keep infra tests integration-oriented around filesystem, HTTP test servers, command execution fakes, repository persistence, and DTO mapping.
+- [ ] Suggested commits:
+  - `refactor(update): move upd info reader to infra`
+  - `refactor(download): centralize staged download IO`
+  - `refactor(selfupdate): move installer IO to infra`
+  - `refactor(config): isolate xdg path loading`
 
-## 5. Move CLI-owned formatting and prompts away from workflows
+### 5. Add interfaces only at boundaries: Repository, Downloader, ReleaseFinder, etc. Avoid abstracting everything.
 
-Suggested commit: `refactor(cli): isolate rendering and prompts`
+- [ ] Define ports in the app package that owns the use case, only when crossing to infra or user interaction.
+- [ ] Keep these likely ports:
+  - `AppRepository` or `AppStore`
+  - `PackageRepository` if package discovery/install grows beyond GitHub
+  - `Downloader`
+  - `StagedDownloader`
+  - `ReleaseFinder`
+  - `RepositoryMetadataFinder`
+  - `UpdateInfoReader`
+  - `ZsyncRunner`
+  - `HashVerifier`
+  - `AppImageExtractor`
+  - `DesktopIntegrator`
+  - `ConfigLoader`
+  - `StateLocker`
+  - `Clock`
+- [ ] Do not create interfaces for pure domain helpers, value constructors, formatting functions, or one-line wrappers that do not cross a real boundary.
+- [ ] Keep interfaces small and use-case-shaped; prefer `FindRelease(ctx, source)` over exposing an entire GitHub client.
+- [ ] Keep concrete infra adapters in `internal/infra/*`, with mapping code at the adapter boundary so DTOs do not leak into app/domain.
+- [ ] Extend `internal/architecture/import_boundaries_test.go` as cleanup progresses:
+  - `internal/domain` must not import `internal/app`, `internal/infra`, or `internal/cli`.
+  - `internal/app` must not import `internal/infra` or `internal/cli`.
+  - `internal/infra` must not import `internal/cli`.
+  - `internal/cli` may import app and bootstrap/runtime wiring, but command files should not import concrete infra once composition is isolated.
+- [ ] Run `go test ./... && go vet ./...` after each phase and before merging the final cleanup.
+- [ ] Suggested commits:
+  - `refactor(app): narrow boundary ports`
+  - `test(architecture): enforce cli and infra boundaries`
 
-- Keep Cobra, prompt text, progress UI, JSON rendering, and command output strictly under `internal/cli`.
-- Ensure app packages return structured results/errors, not user-facing strings where avoidable.
-- Test with existing command snapshot/output tests.
+## Final Target Structure
 
-## 6. Keep domain pure and finish model consolidation
+```txt
+cmd/aim/
 
-Current domain is mostly clean, but it imports parsing/formatting packages such as `net/url`, `path/filepath`, `regexp`, and string normalization helpers.
+internal/domain/
+  app.go
+  identity.go
+  package.go
+  source.go
+  update.go
+  version.go
 
-Suggested commit: `refactor(domain): consolidate pure domain models`
+internal/app/
+  add/
+  appimage/
+  discovery/
+  integrate/
+  remove/
+  update/
+  upgrade/
 
-- Keep only stable business rules in `internal/domain`.
-- Move provider-specific source parsing or filesystem-derived identity behavior out if it depends on external representation details.
-- Preserve domain tests for versions, identity, packages, AppImage info, and slug behavior.
+internal/infra/
+  appimage/
+  config/
+  desktop/
+  download/
+  filesystem/
+  github/
+  repository/
+  selfupdate/
+  zsync/
 
-## 7. Make repository persistence private behind app stores
+internal/cli/
+  commands.go
+  output.go
+  prompts.go
+  progress.go
+  errors.go
+  runtime/
 
-Suggested commit: `refactor(repository): hide persistence details behind stores`
+internal/architecture/
+```
 
-- Keep `internal/infra/repository` as a concrete adapter.
-- App packages should depend only on store interfaces already close to their use case packages.
-- CLI should not call repository methods directly except in composition/runtime setup.
-- Test repository package separately plus app package store-fake tests.
+## Definition of Done
 
-## 8. Split update concerns by source and transport
-
-Suggested commit: `refactor(update): separate source selection from transport`
-
-- Keep release selection and domain decisions separate from GitHub HTTP and zsync transport.
-- Move GitHub API details to `internal/infra/github`.
-- Move zsync execution/download staging to infra adapters.
-- App update package should coordinate: inspect current app, resolve update candidate, apply selected update strategy.
-
-## 9. Separate discovery metadata from GitHub implementation
-
-Suggested commit: `refactor(discovery): isolate provider metadata`
-
-- Keep app discovery interfaces and provider metadata rules in `internal/app/discovery`.
-- Keep concrete GitHub calls and HTTP clients in infra.
-- Test discovery with fake provider responses.
-
-## 10. Add boundary guard tests
-
-Suggested commit: `test: enforce layer import boundaries`
-
-- Add a small architecture test that fails if:
-  - `internal/domain` imports `internal/app`, `internal/infra`, or `internal/cli`
-  - `internal/app` imports `internal/infra` or `internal/cli`
-  - `internal/infra` imports `internal/cli`
-- Run `go test ./... && go vet ./...`.
+- [ ] CLI command handlers are thin and do not directly call repositories, HTTP clients, shell commands, desktop validators, or filesystem persistence except through service results/rendering.
+- [ ] Domain contains the stable business rules and has no IO, env, HTTP, CLI, or concrete infra imports.
+- [ ] App services coordinate workflows with explicit dependencies and no package-level global setters.
+- [ ] Infra owns concrete filesystem, HTTP, GitHub, config, desktop, repository, self-update, AppImage extraction, and zsync behavior.
+- [ ] Interfaces exist only where app/domain cross into infra or user interaction.
+- [ ] `go test ./... && go vet ./...` passes.

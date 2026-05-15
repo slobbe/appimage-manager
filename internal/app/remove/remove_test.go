@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/slobbe/appimage-manager/internal/cli/config"
 	models "github.com/slobbe/appimage-manager/internal/domain"
+	"github.com/slobbe/appimage-manager/internal/infra/config"
 	fsys "github.com/slobbe/appimage-manager/internal/infra/filesystem"
 	repo "github.com/slobbe/appimage-manager/internal/infra/repository"
 )

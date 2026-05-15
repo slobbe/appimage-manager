@@ -11,8 +11,8 @@ import (
 
 	appimage "github.com/slobbe/appimage-manager/internal/app/appimage"
 	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
-	"github.com/slobbe/appimage-manager/internal/cli/config"
 	models "github.com/slobbe/appimage-manager/internal/domain"
+	"github.com/slobbe/appimage-manager/internal/infra/config"
 	repo "github.com/slobbe/appimage-manager/internal/infra/repository"
 )
 

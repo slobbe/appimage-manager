@@ -4,18 +4,19 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
-	"net/url"
-	"path/filepath"
-	"strings"
-
 	appimage "github.com/slobbe/appimage-manager/internal/app/appimage"
 	"github.com/slobbe/appimage-manager/internal/app/discovery"
 	appintegrate "github.com/slobbe/appimage-manager/internal/app/integrate"
 	appremove "github.com/slobbe/appimage-manager/internal/app/remove"
+	appservices "github.com/slobbe/appimage-manager/internal/app/services"
 	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
 	appupgrade "github.com/slobbe/appimage-manager/internal/app/upgrade"
 	models "github.com/slobbe/appimage-manager/internal/domain"
+	"github.com/slobbe/appimage-manager/internal/infra/config"
 	"github.com/spf13/cobra"
+	"net/url"
+	"path/filepath"
+	"strings"
 )
 
 func RootCmd(cmd *cobra.Command, args []string) error {
@@ -44,7 +45,7 @@ func runUpgrade(ctx context.Context, cmd *cobra.Command) error {
 
 	logOperationf(cmd, "Checking for aim updates")
 	checkResult, err := runWithBusyIndicator(cmd, progressCheckAimUpdates(), func() (*appupgrade.AimUpgradeCheckResult, error) {
-		return checkAimUpgrade(ctx, version)
+		return runtimeServicesFrom(cmd).Upgrade.Check(ctx, version)
 	})
 	if err != nil {
 		return err
@@ -60,7 +61,7 @@ func runUpgrade(ctx context.Context, cmd *cobra.Command) error {
 
 	logOperationf(cmd, "Downloading and running the aim installer")
 	result, err := runWithBusyIndicator(cmd, progressUpgradeAim(), func() (*appupgrade.InstallerUpgradeResult, error) {
-		return runUpgradeViaInstaller(ctx, version)
+		return runtimeServicesFrom(cmd).Upgrade.Upgrade(ctx, version)
 	})
 	if err != nil {
 		return err
@@ -208,10 +209,11 @@ func runIntegrateTarget(ctx context.Context, cmd *cobra.Command, input string) e
 		if err := mustEnsureRuntimeDirs(); err != nil {
 			return err
 		}
-		app, err := integrateExistingApp(ctx, target.App.ID)
+		result, err := runtimeServicesFrom(cmd).Add.Reintegrate(ctx, target.App.ID)
 		if err != nil {
 			return err
 		}
+		app := result.App
 		if opts.JSON {
 			return printJSONSuccess(cmd, map[string]interface{}{
 				"status": "reintegrated",
@@ -222,18 +224,18 @@ func runIntegrateTarget(ctx context.Context, cmd *cobra.Command, input string) e
 		return nil
 	case integrateTargetLocalFile:
 		if opts.DryRun {
-			plan, err := buildLocalIntegrateDryRunPlan(ctx, target.LocalPath)
+			plan, err := runtimeServicesFrom(cmd).Add.PlanLocalIntegration(ctx, target.LocalPath)
 			if err != nil {
 				return err
 			}
 			if opts.JSON {
-				return printJSONSuccess(cmd, plan)
+				return printJSONSuccess(cmd, plan.Values)
 			}
-			writeDataf(cmd, "Dry run: would integrate %s\n", plan["input"])
-			if appID, ok := plan["app_id"].(string); ok && appID != "" {
+			writeDataf(cmd, "Dry run: would integrate %s\n", plan.Values["input"])
+			if appID, ok := plan.Values["app_id"].(string); ok && appID != "" {
 				writeDataf(cmd, "  Managed ID: %s\n", appID)
 			}
-			for _, path := range plan["planned_paths"].([]string) {
+			for _, path := range plan.Values["planned_paths"].([]string) {
 				writeDataf(cmd, "  %s\n", path)
 			}
 			return nil
@@ -247,11 +249,18 @@ func runIntegrateTarget(ctx context.Context, cmd *cobra.Command, input string) e
 		}
 
 		app, err := runWithBusyIndicator(cmd, fmt.Sprintf("Integrating %s", inputLabel), func() (*models.App, error) {
-			return integrateLocalApp(ctx, target.LocalPath, func(existing, incoming *models.UpdateSource) (bool, error) {
-				printCurrentIncoming(cmd, updateSummary(existing), updateSummary(incoming))
-				prompt := formatPrompt("Replace source from", "AppImage metadata")
-				return confirmAction(cmd, prompt)
+			result, err := runtimeServicesFrom(cmd).Add.IntegrateLocal(ctx, appservices.IntegrateLocalRequest{
+				Path: target.LocalPath,
+				ConfirmUpdateSourceReplace: updateSourceReplaceConfirmerFunc(func(existing, incoming *models.UpdateSource) (bool, error) {
+					printCurrentIncoming(cmd, updateSummary(existing), updateSummary(incoming))
+					prompt := formatPrompt("Replace source from", "AppImage metadata")
+					return confirmAction(cmd, prompt)
+				}),
 			})
+			if result == nil {
+				return nil, err
+			}
+			return result.App, err
 		})
 		if err != nil {
 			return err
@@ -553,16 +562,16 @@ func RemoveCmd(cmd *cobra.Command, args []string) error {
 
 	opts := runtimeOptionsFrom(cmd)
 	if opts.DryRun {
-		app, err := getManagedApp(id)
+		plan, err := runtimeServicesFrom(cmd).Remove.PlanRemove(cmd.Context(), appservices.RemoveRequest{ID: id, Unlink: unlink})
 		if err != nil {
 			return wrapManagedAppLookupError(id, err)
 		}
-		plan := removeDryRunPlan(app, unlink)
+		app, _ := plan.Values["app"].(*models.App)
 		if opts.JSON {
-			return printJSONSuccess(cmd, plan)
+			return printJSONSuccess(cmd, plan.Values)
 		}
-		writeDataf(cmd, "Dry run: would %s %s [%s]\n", plan["action"], app.Name, app.ID)
-		for _, path := range plan["paths"].([]string) {
+		writeDataf(cmd, "Dry run: would %s %s [%s]\n", plan.Values["action"], app.Name, app.ID)
+		for _, path := range plan.Values["paths"].([]string) {
 			writeDataf(cmd, "  %s\n", path)
 		}
 		return nil
@@ -574,8 +583,10 @@ func RemoveCmd(cmd *cobra.Command, args []string) error {
 	var app *models.App
 	err = withStateWriteLock(cmd, func() error {
 		logOperationf(cmd, "Removing %s", id)
-		var removeErr error
-		app, removeErr = removeManagedApp(cmd.Context(), id, unlink)
+		result, removeErr := runtimeServicesFrom(cmd).Remove.Remove(cmd.Context(), appservices.RemoveRequest{ID: id, Unlink: unlink})
+		if result != nil {
+			app = result.App
+		}
 		return removeErr
 	})
 	if err != nil {
@@ -621,9 +632,18 @@ func ListCmd(cmd *cobra.Command, args []string) error {
 		all = true
 	}
 
-	apps, err := getAllManagedApps()
+	result, err := runtimeServicesFrom(cmd).List.List(cmd.Context(), appservices.ListRequest{
+		IncludeIntegrated: true,
+		IncludeUnlinked:   true,
+	})
 	if err != nil {
 		return err
+	}
+	apps := make(map[string]*models.App, len(result.Apps))
+	for _, app := range result.Apps {
+		if app != nil {
+			apps[app.ID] = app
+		}
 	}
 
 	opts := runtimeOptionsFrom(cmd)
@@ -771,7 +791,7 @@ func runInspectTarget(ctx context.Context, cmd *cobra.Command, input string) err
 
 func runShowPackageRef(ctx context.Context, cmd *cobra.Command, ref models.PackageRef) error {
 	metadata, err := resolvePackageMetadataWithProgress(cmd, formatProviderRef(ref), func() (*models.PackageMetadata, error) {
-		return resolvePackageMetadataFromRef(ctx, ref, "")
+		return runtimeServicesFrom(cmd).Discovery.ResolvePackage(ctx, appservices.PackageRefInfoRequest{Ref: ref})
 	})
 	if err != nil {
 		return err
@@ -1008,18 +1028,16 @@ func inspectLocalAppImage(ctx context.Context, cmd *cobra.Command, src string) e
 		info           *appimage.AppInfo
 		embeddedSource *models.UpdateSource
 	}, error) {
-		info, err := readAppImageInfo(ctx, src)
+		infoResult, err := runtimeServicesFrom(cmd).Info.LocalAppImageInfo(ctx, src)
 		if err != nil {
 			return nil, err
 		}
-
-		embeddedSource, _ := embeddedUpdateSourceForPath(src)
 		return &struct {
 			info           *appimage.AppInfo
 			embeddedSource *models.UpdateSource
 		}{
-			info:           info,
-			embeddedSource: embeddedSource,
+			info:           infoResult.AppImage,
+			embeddedSource: infoResult.EmbeddedUpdate,
 		}, nil
 	})
 	if err != nil {
@@ -1270,7 +1288,11 @@ func runUpdateSetMode(cmd *cobra.Command, id string) error {
 	}
 
 	if opts.DryRun {
-		result := buildUpdateSetDryRunResult(id, app.Update, incomingSource)
+		plan, err := runtimeServicesFrom(cmd).Update.PlanSetSource(cmd.Context(), appservices.UpdateSourceRequest{ID: id, Source: incomingSource})
+		if err != nil {
+			return err
+		}
+		result := plan.Values
 		if opts.JSON {
 			return printJSONSuccess(cmd, result)
 		}
@@ -1280,8 +1302,7 @@ func runUpdateSetMode(cmd *cobra.Command, id string) error {
 
 	if err := withStateWriteLock(cmd, func() error {
 		logOperationf(cmd, "Setting update source for %s", id)
-		app.Update = incomingSource
-		if err := updateManagedApp(app); err != nil {
+		if _, err := runtimeServicesFrom(cmd).Update.SetSource(cmd.Context(), appservices.UpdateSourceRequest{ID: id, Source: incomingSource}); err != nil {
 			return wrapWriteError(err)
 		}
 		return nil
@@ -1311,7 +1332,11 @@ func runUpdateUnsetMode(cmd *cobra.Command, id string) error {
 	}
 
 	if runtimeOptionsFrom(cmd).DryRun {
-		result := buildUpdateUnsetDryRunResult(id, app.Update)
+		plan, err := runtimeServicesFrom(cmd).Update.PlanUnsetSource(cmd.Context(), id)
+		if err != nil {
+			return err
+		}
+		result := plan.Values
 		if runtimeOptionsFrom(cmd).JSON {
 			return printJSONSuccess(cmd, result)
 		}
@@ -1544,4 +1569,85 @@ func truncateForDisplay(value string, width int) string {
 	}
 
 	return string(runes[:width-3]) + "..."
+}
+
+func buildLocalIntegrateDryRunPlan(ctx context.Context, path string) (map[string]interface{}, error) {
+	info, err := readAppImageInfo(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+
+	appID := strings.TrimSpace(info.ID)
+	if appID == "" {
+		appID = strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+	}
+	appDir := filepath.Join(config.AimDir, appID)
+
+	return map[string]interface{}{
+		"action": "integrate",
+		"input":  strings.TrimSpace(path),
+		"app_id": appID,
+		"app": map[string]string{
+			"name":    strings.TrimSpace(info.Name),
+			"id":      appID,
+			"version": strings.TrimSpace(info.Version),
+		},
+		"planned_paths": compactStrings([]string{
+			filepath.Join(appDir, appID+".AppImage"),
+			filepath.Join(appDir, appID+".desktop"),
+			filepath.Join(config.DesktopDir, appID+".desktop"),
+		}),
+		"db_write": true,
+	}, nil
+}
+
+func buildInstallDryRunPlan(ctx context.Context, cmd *cobra.Command, refArg string, target *installTarget, assetPattern, sha256 string) (map[string]interface{}, error) {
+	if target == nil {
+		return nil, fmt.Errorf("missing install target")
+	}
+
+	switch target.Kind {
+	case installTargetDirectURL:
+		return map[string]interface{}{
+			"action":          "install",
+			"target":          strings.TrimSpace(target.URL),
+			"target_kind":     string(target.Kind),
+			"expected_sha256": strings.TrimSpace(sha256),
+			"download_url":    strings.TrimSpace(target.URL),
+			"db_write":        true,
+		}, nil
+	case installTargetGitHub:
+		metadata, err := resolvePackageMetadataWithProgress(cmd, installTargetLabel(target), func() (*models.PackageMetadata, error) {
+			return resolvePackageMetadataFromInput(ctx, refArg, assetPattern)
+		})
+		if err != nil {
+			return nil, err
+		}
+		return map[string]interface{}{
+			"action":      "install",
+			"target":      installTargetLabel(target),
+			"target_kind": string(target.Kind),
+			"metadata":    packageMetadataOutput(metadata),
+			"db_write":    true,
+		}, nil
+	default:
+		return nil, fmt.Errorf("unsupported add target")
+	}
+}
+
+func buildUpdateSetDryRunResult(id string, current, incoming *models.UpdateSource) map[string]interface{} {
+	return map[string]interface{}{
+		"action":          "set_update_source",
+		"id":              strings.TrimSpace(id),
+		"current_source":  current,
+		"incoming_source": incoming,
+	}
+}
+
+func buildUpdateUnsetDryRunResult(id string, current *models.UpdateSource) map[string]interface{} {
+	return map[string]interface{}{
+		"action":         "unset_update_source",
+		"id":             strings.TrimSpace(id),
+		"current_source": current,
+	}
 }
