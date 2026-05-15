@@ -1,13 +1,9 @@
 package cli
 
 import (
-	"bufio"
 	"context"
-	"encoding/csv"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"strings"
 	"time"
@@ -250,73 +246,6 @@ func commandName(cmd *cobra.Command) string {
 	return strings.TrimSpace(strings.TrimPrefix(path, "aim "))
 }
 
-func dataWriter(cmd *cobra.Command) io.Writer {
-	return cmd.OutOrStdout()
-}
-
-func logWriter(cmd *cobra.Command) io.Writer {
-	return cmd.ErrOrStderr()
-}
-
-func writeDataf(cmd *cobra.Command, format string, args ...interface{}) {
-	_, _ = fmt.Fprintf(dataWriter(cmd), format, args...)
-}
-
-func writeLogf(cmd *cobra.Command, format string, args ...interface{}) {
-	_, _ = fmt.Fprintf(logWriter(cmd), format, args...)
-}
-
-func writeProcessLogf(format string, args ...interface{}) {
-	_, _ = fmt.Fprintf(os.Stderr, format, args...)
-}
-
-func printJSONSuccess(cmd *cobra.Command, result interface{}) error {
-	opts := runtimeOptionsFrom(cmd)
-	envelope := commandJSONEnvelope{
-		Command: commandName(cmd),
-		OK:      true,
-		DryRun:  opts.DryRun,
-		Result:  result,
-	}
-
-	encoder := json.NewEncoder(dataWriter(cmd))
-	encoder.SetIndent("", "  ")
-	return encoder.Encode(envelope)
-}
-
-func printJSONError(writer io.Writer, command string, dryRun bool, err error) {
-	userErr := userMessageForError(err)
-	envelope := commandJSONEnvelope{
-		Command: command,
-		OK:      false,
-		DryRun:  dryRun,
-		Error:   userErr.Summary,
-		Hint:    userErr.Hint,
-	}
-	if userErr.Reportable {
-		envelope.ReportIssue = true
-		envelope.IssuesURL = rootCommandIssuesURL
-	}
-
-	encoder := json.NewEncoder(writer)
-	encoder.SetIndent("", "  ")
-	_ = encoder.Encode(envelope)
-}
-
-func writeCSV(cmd *cobra.Command, header []string, rows [][]string) error {
-	w := csv.NewWriter(dataWriter(cmd))
-	if err := w.Write(header); err != nil {
-		return err
-	}
-	for _, row := range rows {
-		if err := w.Write(row); err != nil {
-			return err
-		}
-	}
-	w.Flush()
-	return w.Error()
-}
-
 func shouldUseStructuredOutput(cmd *cobra.Command) bool {
 	opts := runtimeOptionsFrom(cmd)
 	return opts.JSON || opts.CSV
@@ -332,39 +261,6 @@ func verbosef(cmd *cobra.Command, format string, args ...interface{}) {
 		return
 	}
 	writeLogf(cmd, "DEBUG: "+format+"\n", args...)
-}
-
-func printPrompt(cmd *cobra.Command, prompt string) {
-	writeLogf(cmd, "%s", prompt)
-}
-
-func confirmAction(cmd *cobra.Command, prompt string) (bool, error) {
-	opts := runtimeOptionsFrom(cmd)
-	if opts.Yes {
-		return true, nil
-	}
-	if opts.DryRun {
-		return true, nil
-	}
-	if opts.NoInput {
-		return false, noPermError(fmt.Errorf("confirmation required with --no-input; rerun with --yes to continue non-interactively"))
-	}
-	if !terminalInputChecker() {
-		return false, noPermError(fmt.Errorf("confirmation required in non-interactive mode; rerun with --yes"))
-	}
-
-	printPrompt(cmd, prompt)
-	reader := bufio.NewReader(os.Stdin)
-	line, err := reader.ReadString('\n')
-	if err != nil {
-		if errors.Is(err, os.ErrPermission) {
-			return false, noPermError(err)
-		}
-		return false, softwareError(err)
-	}
-
-	answer := strings.TrimSpace(line)
-	return strings.EqualFold(answer, "y") || strings.EqualFold(answer, "yes"), nil
 }
 
 var terminalOutputChecker = detectTerminalOutput

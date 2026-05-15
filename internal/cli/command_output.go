@@ -1,6 +1,11 @@
 package cli
 
 import (
+	"encoding/csv"
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -8,6 +13,73 @@ import (
 	models "github.com/slobbe/appimage-manager/internal/domain"
 	"github.com/spf13/cobra"
 )
+
+func dataWriter(cmd *cobra.Command) io.Writer {
+	return cmd.OutOrStdout()
+}
+
+func logWriter(cmd *cobra.Command) io.Writer {
+	return cmd.ErrOrStderr()
+}
+
+func writeDataf(cmd *cobra.Command, format string, args ...interface{}) {
+	_, _ = fmt.Fprintf(dataWriter(cmd), format, args...)
+}
+
+func writeLogf(cmd *cobra.Command, format string, args ...interface{}) {
+	_, _ = fmt.Fprintf(logWriter(cmd), format, args...)
+}
+
+func writeProcessLogf(format string, args ...interface{}) {
+	_, _ = fmt.Fprintf(os.Stderr, format, args...)
+}
+
+func printJSONSuccess(cmd *cobra.Command, result interface{}) error {
+	opts := runtimeOptionsFrom(cmd)
+	envelope := commandJSONEnvelope{
+		Command: commandName(cmd),
+		OK:      true,
+		DryRun:  opts.DryRun,
+		Result:  result,
+	}
+
+	encoder := json.NewEncoder(dataWriter(cmd))
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(envelope)
+}
+
+func printJSONError(writer io.Writer, command string, dryRun bool, err error) {
+	userErr := userMessageForError(err)
+	envelope := commandJSONEnvelope{
+		Command: command,
+		OK:      false,
+		DryRun:  dryRun,
+		Error:   userErr.Summary,
+		Hint:    userErr.Hint,
+	}
+	if userErr.Reportable {
+		envelope.ReportIssue = true
+		envelope.IssuesURL = rootCommandIssuesURL
+	}
+
+	encoder := json.NewEncoder(writer)
+	encoder.SetIndent("", "  ")
+	_ = encoder.Encode(envelope)
+}
+
+func writeCSV(cmd *cobra.Command, header []string, rows [][]string) error {
+	w := csv.NewWriter(dataWriter(cmd))
+	if err := w.Write(header); err != nil {
+		return err
+	}
+	for _, row := range rows {
+		if err := w.Write(row); err != nil {
+			return err
+		}
+	}
+	w.Flush()
+	return w.Error()
+}
 
 type listOutputRow struct {
 	ID              string `json:"id"`

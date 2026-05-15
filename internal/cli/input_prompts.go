@@ -2,12 +2,46 @@ package cli
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
 )
+
+func printPrompt(cmd *cobra.Command, prompt string) {
+	writeLogf(cmd, "%s", prompt)
+}
+
+func confirmAction(cmd *cobra.Command, prompt string) (bool, error) {
+	opts := runtimeOptionsFrom(cmd)
+	if opts.Yes {
+		return true, nil
+	}
+	if opts.DryRun {
+		return true, nil
+	}
+	if opts.NoInput {
+		return false, noPermError(fmt.Errorf("confirmation required with --no-input; rerun with --yes to continue non-interactively"))
+	}
+	if !terminalInputChecker() {
+		return false, noPermError(fmt.Errorf("confirmation required in non-interactive mode; rerun with --yes"))
+	}
+
+	printPrompt(cmd, prompt)
+	reader := bufio.NewReader(os.Stdin)
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		if errors.Is(err, os.ErrPermission) {
+			return false, noPermError(err)
+		}
+		return false, softwareError(err)
+	}
+
+	answer := strings.TrimSpace(line)
+	return strings.EqualFold(answer, "y") || strings.EqualFold(answer, "yes"), nil
+}
 
 func canPromptForInput(cmd *cobra.Command) bool {
 	opts := runtimeOptionsFrom(cmd)
