@@ -104,3 +104,7 @@ func (testGitHubReleaseResolver) ResolveReleaseAssetSelection(repoSlug, assetPat
 	}
 	return result, nil
 }
+
+func (testGitHubReleaseResolver) ResolveLatestReleaseTag(owner, repo string) (string, error) {
+	return (github.Client{HTTPClient: SharedHTTPClient()}).ResolveLatestReleaseTag(owner, repo)
+}

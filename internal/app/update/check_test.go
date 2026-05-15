@@ -1,6 +1,7 @@
 package update
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -28,6 +29,36 @@ func validZsyncMetadata(filename, sha1 string) string {
 		"",
 		"payload ignored",
 	}, "\n")
+}
+
+type fakeGitHubReleaseResolver struct {
+	latestTag string
+}
+
+func (fakeGitHubReleaseResolver) ResolveReleaseAsset(repoSlug, assetPattern string) (*GitHubReleaseAsset, error) {
+	return nil, nil
+}
+
+func (fakeGitHubReleaseResolver) ResolveReleaseAssetSelection(repoSlug, assetPattern, arch string) (*GitHubReleaseAssetSelection, error) {
+	return nil, nil
+}
+
+func (r fakeGitHubReleaseResolver) ResolveLatestReleaseTag(owner, repo string) (string, error) {
+	return r.latestTag, nil
+}
+
+type failingGitHubReleaseResolver struct{}
+
+func (failingGitHubReleaseResolver) ResolveReleaseAsset(repoSlug, assetPattern string) (*GitHubReleaseAsset, error) {
+	return nil, nil
+}
+
+func (failingGitHubReleaseResolver) ResolveReleaseAssetSelection(repoSlug, assetPattern, arch string) (*GitHubReleaseAssetSelection, error) {
+	return nil, nil
+}
+
+func (failingGitHubReleaseResolver) ResolveLatestReleaseTag(owner, repo string) (string, error) {
+	return "", fmt.Errorf("latest unavailable")
 }
 
 func TestParseUpdateInfoStringZsync(t *testing.T) {
@@ -73,6 +104,42 @@ func TestParseUpdateInfoStringGitHubReleasesZsync(t *testing.T) {
 	}
 	if got.UpdateInfo != info {
 		t.Fatalf("UpdateInfo = %q, want %q", got.UpdateInfo, info)
+	}
+}
+
+func TestParseUpdateInfoStringGitHubReleasesZsyncLatestTag(t *testing.T) {
+	originalResolver := defaultGitHubReleaseResolver
+	SetGitHubReleaseResolver(fakeGitHubReleaseResolver{latestTag: "v2.0.0"})
+	t.Cleanup(func() {
+		SetGitHubReleaseResolver(originalResolver)
+	})
+
+	info := "gh-releases-zsync|owner|repo|latest|*-x86_64.AppImage.zsync"
+
+	got, err := parseUpdateInfoString(info)
+	if err != nil {
+		t.Fatalf("parseUpdateInfoString returned error: %v", err)
+	}
+
+	expectURL := "https://github.com/owner/repo/releases/download/v2.0.0/v2.0.0-x86_64.AppImage.zsync"
+	if got.UpdateUrl != expectURL {
+		t.Fatalf("UpdateUrl = %q, want %q", got.UpdateUrl, expectURL)
+	}
+}
+
+func TestParseUpdateInfoStringGitHubReleasesZsyncLatestTagError(t *testing.T) {
+	originalResolver := defaultGitHubReleaseResolver
+	SetGitHubReleaseResolver(failingGitHubReleaseResolver{})
+	t.Cleanup(func() {
+		SetGitHubReleaseResolver(originalResolver)
+	})
+
+	_, err := parseUpdateInfoString("gh-releases-zsync|owner|repo|latest|*-x86_64.AppImage.zsync")
+	if err == nil {
+		t.Fatal("expected latest tag resolver error")
+	}
+	if !strings.Contains(err.Error(), "latest unavailable") {
+		t.Fatalf("error = %q, want latest unavailable substring", err.Error())
 	}
 }
 

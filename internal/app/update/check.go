@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"debug/elf"
 	"fmt"
-	"net/http"
 	"path/filepath"
 	"strings"
 	"time"
@@ -150,7 +149,7 @@ func parseUpdateInfoString(info string) (*UpdateInfo, error) {
 		zsyncFile := parts[4]
 
 		if tag == "latest" {
-			latestTag, err := githubLatestVersionTag(owner, repo)
+			latestTag, err := ResolveLatestGitHubReleaseTag(owner, repo)
 			if err != nil {
 				return nil, err
 			}
@@ -168,33 +167,6 @@ func parseUpdateInfoString(info string) (*UpdateInfo, error) {
 	}
 
 	return updateInfo, nil
-}
-
-func githubLatestVersionTag(owner, repo string) (string, error) {
-	url := fmt.Sprintf("https://github.com/%s/%s/releases/latest", owner, repo)
-
-	client := &http.Client{
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
-
-	resp, err := client.Get(url)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < 300 || resp.StatusCode > 399 {
-		return "", fmt.Errorf("unexpected status %s", resp.Status)
-	}
-	loc := resp.Header.Get("Location")
-	if loc == "" {
-		return "", fmt.Errorf("missing redirect location")
-	}
-	parts := strings.Split(loc, "/")
-
-	return parts[len(parts)-1], nil
 }
 
 func extractUpdateInfo(src string) (string, error) {

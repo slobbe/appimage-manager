@@ -440,6 +440,10 @@ func (adapter gitHubReleaseAdapter) ResolveReleaseAssetSelection(repoSlug, asset
 	return result, nil
 }
 
+func (adapter gitHubReleaseAdapter) ResolveLatestReleaseTag(owner, repo string) (string, error) {
+	return adapter.client.ResolveLatestReleaseTag(owner, repo)
+}
+
 func configureAppPorts(networkTimeout time.Duration) {
 	appimageapp.SetFilesystem(filesystemAdapter{})
 	appimageapp.SetExtractor(appimageExtractorAdapter{})

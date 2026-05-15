@@ -50,6 +50,37 @@ func (c Client) ResolveReleaseAsset(repoSlug, assetPattern string) (*ReleaseAsse
 	return selection.Release, nil
 }
 
+func (c Client) ResolveLatestReleaseTag(owner, repo string) (string, error) {
+	owner = strings.TrimSpace(owner)
+	repo = strings.TrimSpace(repo)
+	if owner == "" || repo == "" {
+		return "", fmt.Errorf("missing github repository")
+	}
+
+	url := fmt.Sprintf("https://github.com/%s/%s/releases/latest", owner, repo)
+	client := *c.client()
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+
+	resp, err := client.Get(url)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 300 || resp.StatusCode > 399 {
+		return "", fmt.Errorf("unexpected status %s", resp.Status)
+	}
+	loc := resp.Header.Get("Location")
+	if loc == "" {
+		return "", fmt.Errorf("missing redirect location")
+	}
+	parts := strings.Split(loc, "/")
+
+	return parts[len(parts)-1], nil
+}
+
 func (c Client) ResolveReleaseAssetSelection(repoSlug, assetPattern, arch string) (*ReleaseAssetSelection, error) {
 	repoSlug = strings.TrimSpace(repoSlug)
 	if repoSlug == "" || strings.Count(repoSlug, "/") != 1 {

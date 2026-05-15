@@ -43,6 +43,7 @@ type GitHubReleaseAssetSelection struct {
 type GitHubReleaseResolver interface {
 	ResolveReleaseAsset(repoSlug, assetPattern string) (*GitHubReleaseAsset, error)
 	ResolveReleaseAssetSelection(repoSlug, assetPattern, arch string) (*GitHubReleaseAssetSelection, error)
+	ResolveLatestReleaseTag(owner, repo string) (string, error)
 }
 
 var defaultGitHubReleaseResolver GitHubReleaseResolver
@@ -96,4 +97,11 @@ func ResolveGitHubReleaseAssetSelection(repoSlug, assetPattern, arch string) (*G
 		return nil, fmt.Errorf("github release resolver is not configured")
 	}
 	return defaultGitHubReleaseResolver.ResolveReleaseAssetSelection(repoSlug, assetPattern, arch)
+}
+
+func ResolveLatestGitHubReleaseTag(owner, repo string) (string, error) {
+	if defaultGitHubReleaseResolver == nil {
+		return "", fmt.Errorf("github release resolver is not configured")
+	}
+	return defaultGitHubReleaseResolver.ResolveLatestReleaseTag(owner, repo)
 }
