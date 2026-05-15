@@ -357,15 +357,27 @@ func (fn updateSourceReplaceConfirmerFunc) ConfirmUpdateSourceReplace(existing, 
 }
 
 func defaultRuntimeServices() runtimeServices {
-	discovery := legacyDiscoveryService{}
+	store := repositoryStore()
+	discoveryService := appservices.NewDiscoveryWorkflowService(appservices.DiscoveryWorkflowService{BackendsFunc: discoveryBackends})
 	return runtimeServices{
-		Add:       legacyAddService{},
-		List:      legacyListService{},
-		Info:      legacyInfoService{Discovery: discovery},
-		Remove:    legacyRemoveService{},
-		Update:    legacyUpdateService{},
-		Upgrade:   legacyUpgradeService{},
-		Discovery: discovery,
+		Add: appservices.NewBasicAddService(appservices.BasicAddService{
+			IntegrateLocalApp: integrateLocalApp,
+			ReintegrateApp:    integrateExistingApp,
+			AppImageInfo:      appservices.AppImageInfoReaderFunc(readAppImageInfo),
+			AimDir:            config.AimDir,
+			DesktopDir:        config.DesktopDir,
+		}),
+		List: appservices.NewStoreListService(store),
+		Info: appservices.NewStoreInfoService(appservices.StoreInfoService{
+			Store:      store,
+			AppImage:   appservices.AppImageInfoReaderFunc(readAppImageInfo),
+			UpdateInfo: appservices.UpdateInfoReaderFunc(getAppImageUpdateInfo),
+			Discovery:  discoveryService,
+		}),
+		Remove:    appservices.NewRemoveWorkflowService(appservices.RemoveWorkflowService{Store: store, RemoveFunc: removeManagedApp}),
+		Update:    appservices.NewSourceUpdateService(store),
+		Upgrade:   appservices.NewUpgradeWorkflowService(appservices.UpgradeWorkflowService{CheckFunc: checkAimUpgrade, UpgradeFunc: runUpgradeViaInstaller}),
+		Discovery: discoveryService,
 		Locker:    stateFileLocker{},
 	}
 }
@@ -392,75 +404,6 @@ func installRuntimeServicesForTest(cmd *cobra.Command, services runtimeServices)
 		ctx = cmd.Context()
 	}
 	cmd.SetContext(withRuntimeServices(ctx, services))
-}
-
-type legacyUpgradeService struct{}
-
-func (legacyUpgradeService) Check(ctx context.Context, currentVersion string) (*appupgrade.AimUpgradeCheckResult, error) {
-	return checkAimUpgrade(ctx, currentVersion)
-}
-
-func (legacyUpgradeService) Upgrade(ctx context.Context, currentVersion string) (*appupgrade.InstallerUpgradeResult, error) {
-	return runUpgradeViaInstaller(ctx, currentVersion)
-}
-
-type legacyListService struct{}
-
-func (legacyListService) List(ctx context.Context, req appservices.ListRequest) (*appservices.ListResult, error) {
-	_ = ctx
-	apps, err := getAllManagedApps()
-	if err != nil {
-		return nil, err
-	}
-
-	selected := make([]*domain.App, 0, len(apps))
-	for _, app := range apps {
-		if app == nil {
-			continue
-		}
-		integrated := len(app.DesktopEntryLink) > 0
-		if integrated && req.IncludeIntegrated {
-			selected = append(selected, app)
-		}
-		if !integrated && req.IncludeUnlinked {
-			selected = append(selected, app)
-		}
-	}
-	return &appservices.ListResult{Apps: selected}, nil
-}
-
-type legacyRemoveService struct{}
-
-func (legacyRemoveService) Remove(ctx context.Context, req appservices.RemoveRequest) (*appservices.RemoveResult, error) {
-	app, err := removeManagedApp(ctx, req.ID, req.Unlink)
-	if err != nil {
-		return nil, err
-	}
-	return &appservices.RemoveResult{
-		App:    app,
-		Unlink: req.Unlink,
-		Paths:  removeDryRunPlan(app, req.Unlink)["paths"].([]string),
-	}, nil
-}
-
-func (legacyRemoveService) PlanRemove(ctx context.Context, req appservices.RemoveRequest) (*appservices.DryRunPlan, error) {
-	_ = ctx
-	app, err := getManagedApp(req.ID)
-	if err != nil {
-		return nil, err
-	}
-	plan := removeDryRunPlan(app, req.Unlink)
-	return &appservices.DryRunPlan{
-		Action: plan["action"].(string),
-		Target: app.ID,
-		Values: plan,
-	}, nil
-}
-
-type legacyDiscoveryService struct{}
-
-func (legacyDiscoveryService) ResolvePackage(ctx context.Context, req appservices.PackageRefInfoRequest) (*domain.PackageMetadata, error) {
-	return resolvePackageMetadataFromRef(ctx, req.Ref, req.AssetPattern)
 }
 
 func withStateWriteLock(cmd *cobra.Command, fn func() error) error {

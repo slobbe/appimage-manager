@@ -114,7 +114,7 @@ func (service *recordingRemoveService) PlanRemove(ctx context.Context, req appse
 	_ = ctx
 	service.planCalls++
 	service.req = req
-	return &appservices.DryRunPlan{Values: removeDryRunPlan(service.result.App, req.Unlink)}, nil
+	return &appservices.DryRunPlan{Values: appservices.RemoveDryRunValues(service.result.App, req.Unlink)}, nil
 }
 
 type recordingUpgradeService struct {

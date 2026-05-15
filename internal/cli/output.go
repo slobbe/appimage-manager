@@ -12,7 +12,6 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"sort"
 	"strings"
 	"syscall"
@@ -242,46 +241,6 @@ func sortAppsByID(apps map[string]*models.App) []*models.App {
 		ordered = append(ordered, apps[id])
 	}
 	return ordered
-}
-
-func removeDryRunPlan(app *models.App, unlink bool) map[string]interface{} {
-	if app == nil {
-		return map[string]interface{}{}
-	}
-
-	action := "remove"
-	paths := []string{app.DesktopEntryLink}
-	if unlink {
-		action = "unlink"
-	} else {
-		paths = append(paths, filepath.Dir(app.ExecPath))
-		if app.IconPath != "" {
-			paths = append(paths, app.IconPath)
-		}
-	}
-
-	return map[string]interface{}{
-		"action": action,
-		"unlink": unlink,
-		"app":    app,
-		"paths":  compactStrings(paths),
-	}
-}
-
-func compactStrings(values []string) []string {
-	filtered := make([]string, 0, len(values))
-	seen := map[string]struct{}{}
-	for _, value := range values {
-		if value == "" {
-			continue
-		}
-		if _, exists := seen[value]; exists {
-			continue
-		}
-		seen[value] = struct{}{}
-		filtered = append(filtered, value)
-	}
-	return filtered
 }
 
 func boolString(value bool) string {
