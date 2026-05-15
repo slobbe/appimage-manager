@@ -1,21 +1,9 @@
 package update
 
-import models "github.com/slobbe/appimage-manager/internal/domain"
-
 type releaseTransportDetails struct {
 	Transport    string
 	ZsyncURL     string
 	ExpectedSHA1 string
-}
-
-func normalizeVersion(version string) string {
-	return models.NormalizeComparableVersion(version)
-}
-
-func releaseAvailability(currentVersion, tagName string) (string, bool) {
-	latest := normalizeVersion(tagName)
-	current := normalizeVersion(currentVersion)
-	return latest, latest != "" && latest != current
 }
 
 func resolveReleaseTransport(downloadURL, localSHA1 string) releaseTransportDetails {

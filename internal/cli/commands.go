@@ -110,7 +110,7 @@ func AddCmd(cmd *cobra.Command, args []string) error {
 type addInputSelection struct {
 	Positional string
 	DirectURL  string
-	Ref        discovery.PackageRef
+	Ref        models.PackageRef
 	HasRef     bool
 }
 
@@ -513,7 +513,7 @@ func chooseRemoteUpdateSource(cmd *cobra.Command, id string, incoming *models.Up
 	if existing == nil || existing.Kind == models.UpdateNone {
 		return incoming, nil
 	}
-	if updateSourcesEqual(existing, incoming) {
+	if models.UpdateSourcesEqual(existing, incoming) {
 		return incoming, nil
 	}
 
@@ -528,33 +528,6 @@ func chooseRemoteUpdateSource(cmd *cobra.Command, id string, incoming *models.Up
 	}
 
 	return incoming, nil
-}
-
-func updateSourcesEqual(a, b *models.UpdateSource) bool {
-	if a == nil && b == nil {
-		return true
-	}
-	if a == nil || b == nil {
-		return false
-	}
-	if a.Kind != b.Kind {
-		return false
-	}
-
-	switch a.Kind {
-	case models.UpdateNone:
-		return true
-	case models.UpdateGitHubRelease:
-		return a.GitHubRelease != nil && b.GitHubRelease != nil &&
-			strings.TrimSpace(a.GitHubRelease.Repo) == strings.TrimSpace(b.GitHubRelease.Repo) &&
-			strings.TrimSpace(a.GitHubRelease.Asset) == strings.TrimSpace(b.GitHubRelease.Asset)
-	case models.UpdateZsync:
-		return a.Zsync != nil && b.Zsync != nil &&
-			strings.TrimSpace(a.Zsync.UpdateInfo) == strings.TrimSpace(b.Zsync.UpdateInfo) &&
-			strings.TrimSpace(a.Zsync.Transport) == strings.TrimSpace(b.Zsync.Transport)
-	default:
-		return false
-	}
 }
 
 func isSHA256Hex(value string) bool {
@@ -797,8 +770,8 @@ func runInspectTarget(ctx context.Context, cmd *cobra.Command, input string) err
 	}
 }
 
-func runShowPackageRef(ctx context.Context, cmd *cobra.Command, ref discovery.PackageRef) error {
-	metadata, err := resolvePackageMetadataWithProgress(cmd, formatProviderRef(ref), func() (*discovery.PackageMetadata, error) {
+func runShowPackageRef(ctx context.Context, cmd *cobra.Command, ref models.PackageRef) error {
+	metadata, err := resolvePackageMetadataWithProgress(cmd, formatProviderRef(ref), func() (*models.PackageMetadata, error) {
 		return resolvePackageMetadataFromRef(ctx, ref, "")
 	})
 	if err != nil {
@@ -858,7 +831,7 @@ func runInstallTarget(ctx context.Context, cmd *cobra.Command, refArg string) er
 	case installTargetDirectURL:
 		app, err = integrateFromDirectURL(ctx, cmd, target, sha256)
 	case installTargetGitHub:
-		var metadata *discovery.PackageMetadata
+		var metadata *models.PackageMetadata
 		metadata, err = resolveInstallablePackageMetadataFromTarget(ctx, cmd, refArg, target, assetPattern)
 		if err == nil {
 			app, err = installPackageMetadata(ctx, cmd, metadata)
@@ -880,7 +853,7 @@ func runInstallTarget(ctx context.Context, cmd *cobra.Command, refArg string) er
 	return nil
 }
 
-func runInstallPackageRef(ctx context.Context, cmd *cobra.Command, ref discovery.PackageRef) error {
+func runInstallPackageRef(ctx context.Context, cmd *cobra.Command, ref models.PackageRef) error {
 	assetPattern, err := flagString(cmd, "asset")
 	if err != nil {
 		return err
@@ -895,7 +868,7 @@ func runInstallPackageRef(ctx context.Context, cmd *cobra.Command, ref discovery
 	opts := runtimeOptionsFrom(cmd)
 
 	if opts.DryRun {
-		metadata, err := resolvePackageMetadataWithProgress(cmd, formatProviderRef(ref), func() (*discovery.PackageMetadata, error) {
+		metadata, err := resolvePackageMetadataWithProgress(cmd, formatProviderRef(ref), func() (*models.PackageMetadata, error) {
 			return resolvePackageMetadataFromRef(ctx, ref, assetPattern)
 		})
 		if err != nil {
@@ -1284,7 +1257,7 @@ func runUpdateSetMode(cmd *cobra.Command, id string) error {
 		}
 	}
 
-	if app.Update != nil && app.Update.Kind != models.UpdateNone && !updateSourcesEqual(app.Update, incomingSource) {
+	if app.Update != nil && app.Update.Kind != models.UpdateNone && !models.UpdateSourcesEqual(app.Update, incomingSource) {
 		printCurrentIncoming(cmd, updateSummary(app.Update), updateSummary(incomingSource))
 		prompt := formatPrompt("Replace source for", id)
 		confirmed, err := confirmAction(cmd, prompt)

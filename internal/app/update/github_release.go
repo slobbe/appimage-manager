@@ -33,7 +33,7 @@ func GitHubReleaseUpdateCheck(update *models.UpdateSource, currentVersion, local
 		return nil, err
 	}
 
-	latest, available := releaseAvailability(currentVersion, release.TagName)
+	latest, available := models.ReleaseAvailability(currentVersion, release.TagName)
 
 	result := &GitHubReleaseUpdate{
 		Available:         available,

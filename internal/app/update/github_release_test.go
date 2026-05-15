@@ -24,44 +24,6 @@ func (t *rewriteHostTransport) RoundTrip(req *http.Request) (*http.Response, err
 	return t.next.RoundTrip(clone)
 }
 
-func TestNormalizeVersion(t *testing.T) {
-	tests := []struct {
-		name   string
-		input  string
-		expect string
-	}{
-		{name: "keeps plain semver", input: "1.2.3", expect: "1.2.3"},
-		{name: "trims spaces and v prefix", input: "  v1.2.3  ", expect: "1.2.3"},
-		{name: "normalizes version prefix", input: "Version 2.0.0", expect: "2.0.0"},
-		{name: "extracts decorated package tag", input: "@standardnotes/desktop@3.201.19", expect: "3.201.19"},
-		{name: "extracts release prefix version", input: "release-3.2.1", expect: "3.2.1"},
-		{name: "extracts embedded v version", input: "desktop-v1.2.3", expect: "1.2.3"},
-		{name: "strips linux arch suffix", input: "1.17.0-linux-x86-64", expect: "1.17.0"},
-		{name: "strips arch suffix", input: "1.17.0-x86_64", expect: "1.17.0"},
-		{name: "keeps prerelease", input: "v1.2.3-rc1", expect: "1.2.3-rc1"},
-		{name: "keeps prerelease before packaging suffix", input: "1.17.0-rc1-linux-x86_64", expect: "1.17.0-rc1"},
-		{name: "keeps dotted prerelease", input: "foo@1.2.3-beta.1", expect: "1.2.3-beta.1"},
-		{name: "clears unknown", input: "unknown", expect: ""},
-		{name: "handles empty", input: "", expect: ""},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := normalizeVersion(tt.input)
-			if got != tt.expect {
-				t.Fatalf("normalizeVersion(%q) = %q, want %q", tt.input, got, tt.expect)
-			}
-		})
-	}
-}
-
-func TestNormalizeVersionUsesLastMatchingToken(t *testing.T) {
-	got := normalizeVersion("pkg-2024.1@1.2.3")
-	if got != "1.2.3" {
-		t.Fatalf("normalizeVersion returned %q, want %q", got, "1.2.3")
-	}
-}
-
 func TestGitHubReleaseUpdateCheckNormalizesDecoratedTag(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`[

@@ -1,19 +1,23 @@
 package discovery
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/slobbe/appimage-manager/internal/domain"
+)
 
 type resolvedReleaseMetadata struct {
 	DownloadURL       string
 	TagName           string
 	NormalizedVersion string
 	AssetName         string
-	AssetCandidates   []AssetCandidate
+	AssetCandidates   []domain.AssetCandidate
 	AssetAmbiguous    bool
 	AssetReason       string
 }
 
-func newUnavailablePackageMetadata(provider string, ref PackageRef, repoURL, assetPattern, reason string) *PackageMetadata {
-	return &PackageMetadata{
+func newUnavailablePackageMetadata(provider string, ref domain.PackageRef, repoURL, assetPattern, reason string) *domain.PackageMetadata {
+	return &domain.PackageMetadata{
 		Provider:      strings.TrimSpace(provider),
 		Ref:           ref,
 		RepoURL:       strings.TrimSpace(repoURL),
@@ -23,9 +27,9 @@ func newUnavailablePackageMetadata(provider string, ref PackageRef, repoURL, ass
 	}
 }
 
-func newInstallablePackageMetadata(provider string, ref PackageRef, repoURL, name, summary, assetPattern string, release resolvedReleaseMetadata) *PackageMetadata {
-	return &PackageMetadata{
-		Name:            firstNonEmpty(name, DisplayNameFromRef(ref.ProviderRef)),
+func newInstallablePackageMetadata(provider string, ref domain.PackageRef, repoURL, name, summary, assetPattern string, release resolvedReleaseMetadata) *domain.PackageMetadata {
+	return &domain.PackageMetadata{
+		Name:            firstNonEmpty(name, domain.DisplayNameFromRef(ref.ProviderRef)),
 		Provider:        strings.TrimSpace(provider),
 		Ref:             ref,
 		RepoURL:         strings.TrimSpace(repoURL),

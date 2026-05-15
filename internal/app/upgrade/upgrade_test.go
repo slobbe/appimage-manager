@@ -333,39 +333,6 @@ func TestReadInstalledAimVersionTrimsWhitespace(t *testing.T) {
 	}
 }
 
-func TestCompareUpgradeVersions(t *testing.T) {
-	tests := []struct {
-		name    string
-		left    string
-		right   string
-		expect  int
-		wantErr bool
-	}{
-		{name: "newer", left: "0.12.5", right: "0.12.4", expect: 1},
-		{name: "same", left: "0.12.5", right: "0.12.5", expect: 0},
-		{name: "older", left: "0.12.4", right: "0.12.5", expect: -1},
-		{name: "invalid", left: "dev", right: "0.12.5", wantErr: true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := compareUpgradeVersions(tt.left, tt.right)
-			if tt.wantErr {
-				if err == nil {
-					t.Fatal("expected error")
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("compareUpgradeVersions returned error: %v", err)
-			}
-			if got != tt.expect {
-				t.Fatalf("compareUpgradeVersions(%q, %q) = %d, want %d", tt.left, tt.right, got, tt.expect)
-			}
-		})
-	}
-}
-
 func TestRunInstallerScriptRejectsBadStatus(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "nope", http.StatusBadGateway)

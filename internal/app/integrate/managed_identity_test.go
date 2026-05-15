@@ -72,7 +72,7 @@ func TestResolveManagedAppIDDisambiguatesWithHash(t *testing.T) {
 		t.Fatalf("ResolveManagedAppID returned error: %v", err)
 	}
 
-	want := "notes-com.vendor2.Notes-" + shortIdentityHash("com.vendor2.Notes", seed)
+	want := "notes-com.vendor2.Notes-" + models.ShortIdentityHash("com.vendor2.Notes", seed)
 	if id != want {
 		t.Fatalf("id = %q, want %q", id, want)
 	}

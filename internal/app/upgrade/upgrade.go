@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	models "github.com/slobbe/appimage-manager/internal/domain"
@@ -66,14 +65,14 @@ func CheckForAimUpgrade(ctx context.Context, currentVersion string) (*AimUpgrade
 		HasUpdate:      true,
 	}
 
-	currentComparable := normalizeUpgradeVersion(currentRaw)
-	latestComparable := normalizeUpgradeVersion(latestRaw)
+	currentComparable := models.NormalizeUpgradeVersion(currentRaw)
+	latestComparable := models.NormalizeUpgradeVersion(latestRaw)
 	if currentComparable == "" || latestComparable == "" || strings.EqualFold(currentRaw, "dev") {
 		result.Comparable = false
 		return result, nil
 	}
 
-	comparison, err := compareUpgradeVersions(currentComparable, latestComparable)
+	comparison, err := models.CompareComparableVersions(currentComparable, latestComparable)
 	if err != nil {
 		return nil, err
 	}
@@ -129,62 +128,4 @@ func upgradeInfraClient() selfupdate.Client {
 		EvalSymlinks:   upgradeEvalSymlinks,
 		VersionCommand: upgradeRunVersionCommand,
 	}
-}
-
-func normalizeUpgradeVersion(raw string) string {
-	value := strings.TrimSpace(strings.Trim(raw, `"'`))
-	if value == "" || strings.EqualFold(value, "dev") {
-		return ""
-	}
-	return models.NormalizeComparableVersion(value)
-}
-
-func compareUpgradeVersions(left, right string) (int, error) {
-	leftVersion, err := parseUpgradeSemver(left)
-	if err != nil {
-		return 0, err
-	}
-	rightVersion, err := parseUpgradeSemver(right)
-	if err != nil {
-		return 0, err
-	}
-
-	for i := range leftVersion {
-		if leftVersion[i] > rightVersion[i] {
-			return 1, nil
-		}
-		if leftVersion[i] < rightVersion[i] {
-			return -1, nil
-		}
-	}
-
-	return 0, nil
-}
-
-func parseUpgradeSemver(version string) ([3]int, error) {
-	var parsed [3]int
-
-	normalized := strings.TrimSpace(strings.Trim(version, `"'`))
-	if normalized == "" {
-		return parsed, fmt.Errorf("invalid version %q", version)
-	}
-
-	if idx := strings.IndexAny(normalized, "+-"); idx >= 0 {
-		normalized = normalized[:idx]
-	}
-
-	parts := strings.Split(normalized, ".")
-	if len(parts) < 2 || len(parts) > 3 {
-		return parsed, fmt.Errorf("invalid version %q", version)
-	}
-
-	for i := range parts {
-		value, err := strconv.Atoi(strings.TrimSpace(parts[i]))
-		if err != nil || value < 0 {
-			return parsed, fmt.Errorf("invalid version %q", version)
-		}
-		parsed[i] = value
-	}
-
-	return parsed, nil
 }

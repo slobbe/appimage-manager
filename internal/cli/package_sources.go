@@ -12,27 +12,27 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func validateGitHubRepoFlag(value string) (discovery.PackageRef, error) {
-	ref, err := discovery.ParseGitHubRepoValue(value)
+func validateGitHubRepoFlag(value string) (models.PackageRef, error) {
+	ref, err := models.ParseGitHubRepoValue(value)
 	if err != nil {
-		return discovery.PackageRef{}, usageError(fmt.Errorf("--github must be in owner/repo form"))
+		return models.PackageRef{}, usageError(fmt.Errorf("--github must be in owner/repo form"))
 	}
 	return ref, nil
 }
 
-func resolveProviderFlagRef(cmd *cobra.Command, args []string) (discovery.PackageRef, bool, error) {
+func resolveProviderFlagRef(cmd *cobra.Command, args []string) (models.PackageRef, bool, error) {
 	githubValue, err := flagString(cmd, "github")
 	if err != nil {
-		return discovery.PackageRef{}, false, err
+		return models.PackageRef{}, false, err
 	}
 
 	hasGitHub := strings.TrimSpace(githubValue) != ""
 
 	if !hasGitHub {
-		return discovery.PackageRef{}, false, nil
+		return models.PackageRef{}, false, nil
 	}
 	if len(args) > 0 {
-		return discovery.PackageRef{}, false, usageError(fmt.Errorf("when using --github, do not pass a positional target"))
+		return models.PackageRef{}, false, usageError(fmt.Errorf("when using --github, do not pass a positional target"))
 	}
 
 	ref, err := validateGitHubRepoFlag(githubValue)
@@ -45,7 +45,7 @@ func looksLikeGitHubPackageURL(input string) bool {
 }
 
 func providerURLGuidance(cmdName, providerFlag, subject, input string) error {
-	ref, err := discovery.ParsePackageRefURL(input)
+	ref, err := models.ParsePackageRefURL(input)
 	if err != nil {
 		return nil
 	}
@@ -88,7 +88,7 @@ func positionalInfoRemoteGuidance(input string) error {
 	}
 }
 
-func resolveInfoInput(cmd *cobra.Command, args []string) (string, discovery.PackageRef, bool, error) {
+func resolveInfoInput(cmd *cobra.Command, args []string) (string, models.PackageRef, bool, error) {
 	ref, ok, err := resolveProviderFlagRef(cmd, args)
 	if err != nil || ok {
 		return "", ref, ok, err
@@ -96,34 +96,34 @@ func resolveInfoInput(cmd *cobra.Command, args []string) (string, discovery.Pack
 	value, err := resolveSingleInputOrPrompt(cmd, args, "<id|Path/To.AppImage>", "Managed app id or local AppImage path: ", missingInputErrorForInfo())
 	if err != nil {
 		if isMissingArgumentError(err) || err.Error() == missingInputErrorForInfo().Error() {
-			return "", discovery.PackageRef{}, false, printConciseHelpError(cmd, missingInputErrorForInfo().Error())
+			return "", models.PackageRef{}, false, printConciseHelpError(cmd, missingInputErrorForInfo().Error())
 		}
-		return "", discovery.PackageRef{}, false, err
+		return "", models.PackageRef{}, false, err
 	}
-	return value, discovery.PackageRef{}, false, nil
+	return value, models.PackageRef{}, false, nil
 }
 
-func resolvePackageRefInput(input string) (discovery.PackageRef, error) {
+func resolvePackageRefInput(input string) (models.PackageRef, error) {
 	trimmed := strings.TrimSpace(input)
 	if trimmed == "" {
-		return discovery.PackageRef{}, usageError(fmt.Errorf("missing package ref"))
+		return models.PackageRef{}, usageError(fmt.Errorf("missing package ref"))
 	}
 
-	return discovery.ParsePackageRefURL(trimmed)
+	return models.ParsePackageRefURL(trimmed)
 }
 
-func backendForRef(ref discovery.PackageRef) (discovery.DiscoveryBackend, error) {
+func backendForRef(ref models.PackageRef) (discovery.DiscoveryBackend, error) {
 	for _, backend := range discoveryBackends() {
 		switch {
-		case ref.Kind == discovery.ProviderGitHub && strings.EqualFold(backend.Name(), "GitHub"):
+		case ref.Kind == models.ProviderGitHub && strings.EqualFold(backend.Name(), "GitHub"):
 			return backend, nil
 		}
 	}
 
-	return nil, unavailableError(fmt.Errorf("no discovery backend available for %s", discovery.FormatPackageRef(ref)))
+	return nil, unavailableError(fmt.Errorf("no discovery backend available for %s", models.FormatPackageRef(ref)))
 }
 
-func resolvePackageMetadataFromRef(ctx context.Context, ref discovery.PackageRef, assetOverride string) (*discovery.PackageMetadata, error) {
+func resolvePackageMetadataFromRef(ctx context.Context, ref models.PackageRef, assetOverride string) (*models.PackageMetadata, error) {
 	backend, err := backendForRef(ref)
 	if err != nil {
 		return nil, err
@@ -134,13 +134,13 @@ func resolvePackageMetadataFromRef(ctx context.Context, ref discovery.PackageRef
 		return nil, err
 	}
 	if metadata == nil {
-		return nil, unavailableError(fmt.Errorf("failed to resolve package metadata for %s", discovery.FormatPackageRef(ref)))
+		return nil, unavailableError(fmt.Errorf("failed to resolve package metadata for %s", models.FormatPackageRef(ref)))
 	}
 
 	return metadata, nil
 }
 
-func resolvePackageMetadataFromInput(ctx context.Context, input, assetOverride string) (*discovery.PackageMetadata, error) {
+func resolvePackageMetadataFromInput(ctx context.Context, input, assetOverride string) (*models.PackageMetadata, error) {
 	ref, err := resolvePackageRefInput(input)
 	if err != nil {
 		return nil, err
@@ -149,11 +149,11 @@ func resolvePackageMetadataFromInput(ctx context.Context, input, assetOverride s
 	return resolvePackageMetadataFromRef(ctx, ref, assetOverride)
 }
 
-func resolvePackageMetadataWithProgress(cmd *cobra.Command, label string, resolve func() (*discovery.PackageMetadata, error)) (*discovery.PackageMetadata, error) {
+func resolvePackageMetadataWithProgress(cmd *cobra.Command, label string, resolve func() (*models.PackageMetadata, error)) (*models.PackageMetadata, error) {
 	return runWithBusyIndicator(cmd, fmt.Sprintf("Resolving package metadata for %s", label), resolve)
 }
 
-func requireInstallablePackageMetadata(metadata *discovery.PackageMetadata) (*discovery.PackageMetadata, error) {
+func requireInstallablePackageMetadata(metadata *models.PackageMetadata) (*models.PackageMetadata, error) {
 	if metadata != nil && metadata.Installable {
 		return metadata, nil
 	}
@@ -163,7 +163,7 @@ func requireInstallablePackageMetadata(metadata *discovery.PackageMetadata) (*di
 	return nil, usageError(fmt.Errorf("package is not installable: %s", strings.TrimSpace(metadata.InstallReason)))
 }
 
-func resolveGitHubAssetAmbiguity(cmd *cobra.Command, metadata *discovery.PackageMetadata) (*discovery.PackageMetadata, error) {
+func resolveGitHubAssetAmbiguity(cmd *cobra.Command, metadata *models.PackageMetadata) (*models.PackageMetadata, error) {
 	if metadata == nil || !metadata.AssetAmbiguous {
 		return metadata, nil
 	}
@@ -199,14 +199,14 @@ func resolveGitHubAssetAmbiguity(cmd *cobra.Command, metadata *discovery.Package
 	return &resolved, nil
 }
 
-func assetAmbiguityReason(metadata *discovery.PackageMetadata) string {
+func assetAmbiguityReason(metadata *models.PackageMetadata) string {
 	if metadata != nil && strings.TrimSpace(metadata.AssetReason) != "" {
 		return strings.TrimSpace(metadata.AssetReason)
 	}
 	return "multiple assets match"
 }
 
-func assetCandidateNames(candidates []discovery.AssetCandidate) []string {
+func assetCandidateNames(candidates []models.AssetCandidate) []string {
 	names := make([]string, 0, len(candidates))
 	for _, candidate := range candidates {
 		if strings.TrimSpace(candidate.Name) != "" {
@@ -216,8 +216,8 @@ func assetCandidateNames(candidates []discovery.AssetCandidate) []string {
 	return names
 }
 
-func resolveInstallablePackageMetadataFromTarget(ctx context.Context, cmd *cobra.Command, refArg string, target *installTarget, assetPattern string) (*discovery.PackageMetadata, error) {
-	metadata, err := resolvePackageMetadataWithProgress(cmd, installTargetLabel(target), func() (*discovery.PackageMetadata, error) {
+func resolveInstallablePackageMetadataFromTarget(ctx context.Context, cmd *cobra.Command, refArg string, target *installTarget, assetPattern string) (*models.PackageMetadata, error) {
+	metadata, err := resolvePackageMetadataWithProgress(cmd, installTargetLabel(target), func() (*models.PackageMetadata, error) {
 		return resolvePackageMetadataFromInput(ctx, refArg, assetPattern)
 	})
 	if err != nil {
@@ -230,8 +230,8 @@ func resolveInstallablePackageMetadataFromTarget(ctx context.Context, cmd *cobra
 	return resolveGitHubAssetAmbiguity(cmd, metadata)
 }
 
-func resolveInstallablePackageMetadataFromRef(ctx context.Context, cmd *cobra.Command, ref discovery.PackageRef, assetPattern string) (*discovery.PackageMetadata, error) {
-	metadata, err := resolvePackageMetadataWithProgress(cmd, formatProviderRef(ref), func() (*discovery.PackageMetadata, error) {
+func resolveInstallablePackageMetadataFromRef(ctx context.Context, cmd *cobra.Command, ref models.PackageRef, assetPattern string) (*models.PackageMetadata, error) {
+	metadata, err := resolvePackageMetadataWithProgress(cmd, formatProviderRef(ref), func() (*models.PackageMetadata, error) {
 		return resolvePackageMetadataFromRef(ctx, ref, assetPattern)
 	})
 	if err != nil {
@@ -244,20 +244,20 @@ func resolveInstallablePackageMetadataFromRef(ctx context.Context, cmd *cobra.Co
 	return resolveGitHubAssetAmbiguity(cmd, metadata)
 }
 
-func installPackageMetadata(ctx context.Context, cmd *cobra.Command, metadata *discovery.PackageMetadata) (*models.App, error) {
+func installPackageMetadata(ctx context.Context, cmd *cobra.Command, metadata *models.PackageMetadata) (*models.App, error) {
 	if metadata == nil {
 		return nil, softwareError(fmt.Errorf("package metadata cannot be empty"))
 	}
 
 	switch metadata.Ref.Kind {
-	case discovery.ProviderGitHub:
+	case models.ProviderGitHub:
 		return installResolvedGitHubPackage(ctx, cmd, metadata)
 	default:
 		return nil, softwareError(fmt.Errorf("unsupported add provider %q", metadata.Ref.Kind))
 	}
 }
 
-func installResolvedGitHubPackage(ctx context.Context, cmd *cobra.Command, metadata *discovery.PackageMetadata) (*models.App, error) {
+func installResolvedGitHubPackage(ctx context.Context, cmd *cobra.Command, metadata *models.PackageMetadata) (*models.App, error) {
 	release := &appupdate.GitHubReleaseAsset{
 		DownloadURL:       strings.TrimSpace(metadata.DownloadURL),
 		TagName:           strings.TrimSpace(metadata.ReleaseTag),
@@ -268,7 +268,7 @@ func installResolvedGitHubPackage(ctx context.Context, cmd *cobra.Command, metad
 	return integrateGitHubReleaseAsset(ctx, cmd, target, metadata.AssetPattern, release)
 }
 
-func printPackageMetadata(cmd *cobra.Command, metadata *discovery.PackageMetadata) {
+func printPackageMetadata(cmd *cobra.Command, metadata *models.PackageMetadata) {
 	printSection(cmd, metadata.Name)
 	writeDataf(cmd, "Provider: %s\n", strings.TrimSpace(metadata.Provider))
 	if providerRef := formatProviderRef(metadata.Ref); providerRef != "" {
@@ -301,14 +301,14 @@ func printPackageMetadata(cmd *cobra.Command, metadata *discovery.PackageMetadat
 	writeDataf(cmd, "  %s\n", formatAddProviderCommand(metadata.Ref))
 }
 
-func formatProviderRef(ref discovery.PackageRef) string {
+func formatProviderRef(ref models.PackageRef) string {
 	value := strings.TrimSpace(ref.ProviderRef)
 	if value == "" {
 		return ""
 	}
 
 	switch ref.Kind {
-	case discovery.ProviderGitHub:
+	case models.ProviderGitHub:
 		return "GitHub " + value
 	default:
 		return value
@@ -334,14 +334,14 @@ func installTargetLabel(target *installTarget) string {
 	return "package"
 }
 
-func formatAddProviderCommand(ref discovery.PackageRef) string {
+func formatAddProviderCommand(ref models.PackageRef) string {
 	value := strings.TrimSpace(ref.ProviderRef)
 	if value == "" {
 		return "aim add"
 	}
 
 	switch ref.Kind {
-	case discovery.ProviderGitHub:
+	case models.ProviderGitHub:
 		return "aim add --github " + value
 	default:
 		return "aim add"

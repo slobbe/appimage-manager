@@ -12,12 +12,7 @@ import (
 	fsys "github.com/slobbe/appimage-manager/internal/infra/filesystem"
 )
 
-type AppInfo struct {
-	Name        string
-	ID          string
-	DesktopStem string
-	Version     string
-}
+type AppInfo = models.AppInfo
 
 type ExtractionData struct {
 	Dir              string
@@ -152,80 +147,6 @@ func GetAppInfo(ctx context.Context, desktopSrc string) (*AppInfo, error) {
 		return nil, err
 	}
 
-	appInfo := AppInfo{
-		DesktopStem: desktop.SanitizeDesktopStem(desktop.DesktopStemFromPath(desktopSrc)),
-	}
-	inDesktopEntry := false
-	for line := range strings.SplitSeq(content, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-			continue
-		}
-
-		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
-			inDesktopEntry = trimmed == "[Desktop Entry]"
-			continue
-		}
-
-		if inDesktopEntry && strings.HasPrefix(trimmed, "[") {
-			break
-		}
-
-		if !inDesktopEntry {
-			continue
-		}
-
-		parts := strings.SplitN(trimmed, "=", 2)
-		if len(parts) != 2 {
-			continue
-		}
-
-		key := strings.TrimSpace(parts[0])
-		value := strings.TrimSpace(parts[1])
-
-		if strings.Contains(key, "[") {
-			continue
-		}
-
-		switch key {
-		case "Name":
-			if appInfo.Name == "" {
-				appInfo.Name = value
-			}
-		case "X-AppImage-Version":
-			if appInfo.Version == "" {
-				appInfo.Version = sanitizeAppVersion(value)
-			}
-		}
-	}
-
-	if appInfo.Name == "" {
-		appInfo.Name = strings.TrimSuffix(filepath.Base(desktopSrc), filepath.Ext(desktopSrc))
-	}
-	if appInfo.Version == "" {
-		appInfo.Version = versionFromFilename(desktopSrc)
-	}
-	if appInfo.Version == "" {
-		appInfo.Version = "unknown"
-	}
-
-	appInfo.ID = appInfo.DesktopStem
-	if appInfo.ID == "" {
-		appInfo.ID = models.Slugify(appInfo.Name)
-	}
-
-	return &appInfo, nil
-}
-
-func sanitizeAppVersion(raw string) string {
-	return models.NormalizeComparableVersion(raw)
-}
-
-func versionFromFilename(path string) string {
-	base := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
-	if base == "" {
-		return ""
-	}
-
-	return sanitizeAppVersion(base)
+	desktopStem := desktop.SanitizeDesktopStem(desktop.DesktopStemFromPath(desktopSrc))
+	return models.ParseDesktopEntryAppInfo(desktopSrc, content, desktopStem), nil
 }

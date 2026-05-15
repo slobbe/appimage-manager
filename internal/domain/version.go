@@ -1,7 +1,9 @@
 package domain
 
 import (
+	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -71,6 +73,70 @@ func NormalizeComparableVersion(raw string) string {
 	}
 
 	return trimLeadingVIfNumeric(value)
+}
+
+func NormalizeUpgradeVersion(raw string) string {
+	value := strings.TrimSpace(strings.Trim(raw, `"'`))
+	if value == "" || strings.EqualFold(value, "dev") {
+		return ""
+	}
+	return NormalizeComparableVersion(value)
+}
+
+func ReleaseAvailability(currentVersion, tagName string) (string, bool) {
+	latest := NormalizeComparableVersion(tagName)
+	current := NormalizeComparableVersion(currentVersion)
+	return latest, latest != "" && latest != current
+}
+
+func CompareComparableVersions(left, right string) (int, error) {
+	leftVersion, err := parseComparableSemver(left)
+	if err != nil {
+		return 0, err
+	}
+	rightVersion, err := parseComparableSemver(right)
+	if err != nil {
+		return 0, err
+	}
+
+	for i := range leftVersion {
+		if leftVersion[i] > rightVersion[i] {
+			return 1, nil
+		}
+		if leftVersion[i] < rightVersion[i] {
+			return -1, nil
+		}
+	}
+
+	return 0, nil
+}
+
+func parseComparableSemver(version string) ([3]int, error) {
+	var parsed [3]int
+
+	normalized := strings.TrimSpace(strings.Trim(version, `"'`))
+	if normalized == "" {
+		return parsed, fmt.Errorf("invalid version %q", version)
+	}
+
+	if idx := strings.IndexAny(normalized, "+-"); idx >= 0 {
+		normalized = normalized[:idx]
+	}
+
+	parts := strings.Split(normalized, ".")
+	if len(parts) < 2 || len(parts) > 3 {
+		return parsed, fmt.Errorf("invalid version %q", version)
+	}
+
+	for i := range parts {
+		value, err := strconv.Atoi(strings.TrimSpace(parts[i]))
+		if err != nil || value < 0 {
+			return parsed, fmt.Errorf("invalid version %q", version)
+		}
+		parsed[i] = value
+	}
+
+	return parsed, nil
 }
 
 func trimLeadingVIfNumeric(value string) string {

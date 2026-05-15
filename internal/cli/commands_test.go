@@ -1388,11 +1388,11 @@ func TestAddCmdGitHubSetsDefaultAssetSourceAndUpdate(t *testing.T) {
 		return []discovery.DiscoveryBackend{
 			&stubDiscoveryBackend{
 				name: "GitHub",
-				resolveFn: func(context.Context, discovery.PackageRef, string) (*discovery.PackageMetadata, error) {
-					return &discovery.PackageMetadata{
+				resolveFn: func(context.Context, models.PackageRef, string) (*models.PackageMetadata, error) {
+					return &models.PackageMetadata{
 						Name:          "My App",
 						Provider:      "GitHub",
-						Ref:           discovery.PackageRef{Kind: discovery.ProviderGitHub, ProviderRef: "owner/repo"},
+						Ref:           models.PackageRef{Kind: models.ProviderGitHub, ProviderRef: "owner/repo"},
 						LatestVersion: "1.2.3",
 						AssetName:     "MyApp-x86_64.AppImage",
 						AssetPattern:  "*.AppImage",
@@ -1473,11 +1473,11 @@ func TestAddCmdGitHubPersistsCustomAsset(t *testing.T) {
 		return []discovery.DiscoveryBackend{
 			&stubDiscoveryBackend{
 				name: "GitHub",
-				resolveFn: func(context.Context, discovery.PackageRef, string) (*discovery.PackageMetadata, error) {
-					return &discovery.PackageMetadata{
+				resolveFn: func(context.Context, models.PackageRef, string) (*models.PackageMetadata, error) {
+					return &models.PackageMetadata{
 						Name:          "My App",
 						Provider:      "GitHub",
-						Ref:           discovery.PackageRef{Kind: discovery.ProviderGitHub, ProviderRef: "owner/repo"},
+						Ref:           models.PackageRef{Kind: models.ProviderGitHub, ProviderRef: "owner/repo"},
 						LatestVersion: "1.2.3",
 						AssetName:     "MyApp-x86_64.AppImage",
 						AssetPattern:  "MyApp-*-x86_64.AppImage",
@@ -1539,11 +1539,11 @@ func TestAddCmdGitHubUsesCustomAsset(t *testing.T) {
 		return []discovery.DiscoveryBackend{
 			&stubDiscoveryBackend{
 				name: "GitHub",
-				resolveFn: func(context.Context, discovery.PackageRef, string) (*discovery.PackageMetadata, error) {
-					return &discovery.PackageMetadata{
+				resolveFn: func(context.Context, models.PackageRef, string) (*models.PackageMetadata, error) {
+					return &models.PackageMetadata{
 						Name:          "My App",
 						Provider:      "GitHub",
-						Ref:           discovery.PackageRef{Kind: discovery.ProviderGitHub, ProviderRef: "owner/repo"},
+						Ref:           models.PackageRef{Kind: models.ProviderGitHub, ProviderRef: "owner/repo"},
 						LatestVersion: "1.2.3",
 						AssetName:     "MyApp-x86_64.AppImage",
 						AssetPattern:  "MyApp-*-x86_64.AppImage",
@@ -1597,16 +1597,16 @@ func TestAddCmdGitHubAmbiguousAssetNoInputShowsGuidance(t *testing.T) {
 		return []discovery.DiscoveryBackend{
 			&stubDiscoveryBackend{
 				name: "GitHub",
-				resolveFn: func(context.Context, discovery.PackageRef, string) (*discovery.PackageMetadata, error) {
-					return &discovery.PackageMetadata{
+				resolveFn: func(context.Context, models.PackageRef, string) (*models.PackageMetadata, error) {
+					return &models.PackageMetadata{
 						Name:           "My App",
 						Provider:       "GitHub",
-						Ref:            discovery.PackageRef{Kind: discovery.ProviderGitHub, ProviderRef: "owner/repo"},
+						Ref:            models.PackageRef{Kind: models.ProviderGitHub, ProviderRef: "owner/repo"},
 						AssetPattern:   "*.AppImage",
 						Installable:    true,
 						AssetAmbiguous: true,
 						AssetReason:    "multiple generic assets match",
-						AssetCandidates: []discovery.AssetCandidate{
+						AssetCandidates: []models.AssetCandidate{
 							{Name: "MyApp.AppImage", DownloadURL: "https://example.com/MyApp.AppImage", ArchLabel: "generic"},
 							{Name: "MyApp-portable.AppImage", DownloadURL: "https://example.com/MyApp-portable.AppImage", ArchLabel: "generic"},
 						},
@@ -1649,18 +1649,18 @@ func TestAddCmdGitHubPromptsForAmbiguousAsset(t *testing.T) {
 		return []discovery.DiscoveryBackend{
 			&stubDiscoveryBackend{
 				name: "GitHub",
-				resolveFn: func(context.Context, discovery.PackageRef, string) (*discovery.PackageMetadata, error) {
-					return &discovery.PackageMetadata{
+				resolveFn: func(context.Context, models.PackageRef, string) (*models.PackageMetadata, error) {
+					return &models.PackageMetadata{
 						Name:           "My App",
 						Provider:       "GitHub",
-						Ref:            discovery.PackageRef{Kind: discovery.ProviderGitHub, ProviderRef: "owner/repo"},
+						Ref:            models.PackageRef{Kind: models.ProviderGitHub, ProviderRef: "owner/repo"},
 						LatestVersion:  "1.2.3",
 						AssetPattern:   "*.AppImage",
 						Installable:    true,
 						ReleaseTag:     "v1.2.3",
 						AssetAmbiguous: true,
 						AssetReason:    "multiple generic assets match",
-						AssetCandidates: []discovery.AssetCandidate{
+						AssetCandidates: []models.AssetCandidate{
 							{Name: "MyApp.AppImage", DownloadURL: "https://example.com/MyApp.AppImage", ArchLabel: "generic"},
 							{Name: "MyApp-portable.AppImage", DownloadURL: "https://example.com/MyApp-portable.AppImage", ArchLabel: "generic"},
 						},
@@ -1711,11 +1711,11 @@ func TestAddCmdGitHubShowsProgressStages(t *testing.T) {
 		return []discovery.DiscoveryBackend{
 			&stubDiscoveryBackend{
 				name: "GitHub",
-				resolveFn: func(context.Context, discovery.PackageRef, string) (*discovery.PackageMetadata, error) {
-					return &discovery.PackageMetadata{
+				resolveFn: func(context.Context, models.PackageRef, string) (*models.PackageMetadata, error) {
+					return &models.PackageMetadata{
 						Name:          "My App",
 						Provider:      "GitHub",
-						Ref:           discovery.PackageRef{Kind: discovery.ProviderGitHub, ProviderRef: "owner/repo"},
+						Ref:           models.PackageRef{Kind: models.ProviderGitHub, ProviderRef: "owner/repo"},
 						LatestVersion: "1.2.3",
 						AssetName:     "MyApp-x86_64.AppImage",
 						AssetPattern:  "*.AppImage",
@@ -1752,14 +1752,14 @@ func TestAddCmdGitHubShowsProgressStages(t *testing.T) {
 
 type stubDiscoveryBackend struct {
 	name      string
-	resolveFn func(context.Context, discovery.PackageRef, string) (*discovery.PackageMetadata, error)
+	resolveFn func(context.Context, models.PackageRef, string) (*models.PackageMetadata, error)
 }
 
 func (b *stubDiscoveryBackend) Name() string {
 	return b.name
 }
 
-func (b *stubDiscoveryBackend) Resolve(ctx context.Context, ref discovery.PackageRef, asset string) (*discovery.PackageMetadata, error) {
+func (b *stubDiscoveryBackend) Resolve(ctx context.Context, ref models.PackageRef, asset string) (*models.PackageMetadata, error) {
 	return b.resolveFn(ctx, ref, asset)
 }
 
@@ -1773,11 +1773,11 @@ func TestInfoCmdDirectProviderRef(t *testing.T) {
 		return []discovery.DiscoveryBackend{
 			&stubDiscoveryBackend{
 				name: "GitHub",
-				resolveFn: func(context.Context, discovery.PackageRef, string) (*discovery.PackageMetadata, error) {
-					return &discovery.PackageMetadata{
+				resolveFn: func(context.Context, models.PackageRef, string) (*models.PackageMetadata, error) {
+					return &models.PackageMetadata{
 						Name:          "My App",
 						Provider:      "GitHub",
-						Ref:           discovery.PackageRef{Kind: discovery.ProviderGitHub, ProviderRef: "owner/repo"},
+						Ref:           models.PackageRef{Kind: models.ProviderGitHub, ProviderRef: "owner/repo"},
 						RepoURL:       "https://github.com/owner/repo",
 						Summary:       "A test app",
 						LatestVersion: "1.2.3",
@@ -1829,11 +1829,11 @@ func TestInfoCmdUninstallablePackageOmitsInstallPreview(t *testing.T) {
 		return []discovery.DiscoveryBackend{
 			&stubDiscoveryBackend{
 				name: "GitHub",
-				resolveFn: func(context.Context, discovery.PackageRef, string) (*discovery.PackageMetadata, error) {
-					return &discovery.PackageMetadata{
+				resolveFn: func(context.Context, models.PackageRef, string) (*models.PackageMetadata, error) {
+					return &models.PackageMetadata{
 						Name:          "My App",
 						Provider:      "GitHub",
-						Ref:           discovery.PackageRef{Kind: discovery.ProviderGitHub, ProviderRef: "owner/repo"},
+						Ref:           models.PackageRef{Kind: models.ProviderGitHub, ProviderRef: "owner/repo"},
 						RepoURL:       "https://github.com/owner/repo",
 						Summary:       "A test app",
 						Installable:   false,
@@ -1880,11 +1880,11 @@ func TestInfoCmdGitHubPackageRef(t *testing.T) {
 		return []discovery.DiscoveryBackend{
 			&stubDiscoveryBackend{
 				name: "GitHub",
-				resolveFn: func(context.Context, discovery.PackageRef, string) (*discovery.PackageMetadata, error) {
-					return &discovery.PackageMetadata{
+				resolveFn: func(context.Context, models.PackageRef, string) (*models.PackageMetadata, error) {
+					return &models.PackageMetadata{
 						Name:          "My App",
 						Provider:      "GitHub",
-						Ref:           discovery.PackageRef{Kind: discovery.ProviderGitHub, ProviderRef: "owner/repo"},
+						Ref:           models.PackageRef{Kind: models.ProviderGitHub, ProviderRef: "owner/repo"},
 						RepoURL:       "https://github.com/owner/repo",
 						Summary:       "A test app",
 						LatestVersion: "1.2.3",
@@ -1932,11 +1932,11 @@ func TestAddCmdDirectProviderRefDelegatesToExistingAddFlow(t *testing.T) {
 		return []discovery.DiscoveryBackend{
 			&stubDiscoveryBackend{
 				name: "GitHub",
-				resolveFn: func(context.Context, discovery.PackageRef, string) (*discovery.PackageMetadata, error) {
-					return &discovery.PackageMetadata{
+				resolveFn: func(context.Context, models.PackageRef, string) (*models.PackageMetadata, error) {
+					return &models.PackageMetadata{
 						Name:          "My App",
 						Provider:      "GitHub",
-						Ref:           discovery.PackageRef{Kind: discovery.ProviderGitHub, ProviderRef: "owner/repo"},
+						Ref:           models.PackageRef{Kind: models.ProviderGitHub, ProviderRef: "owner/repo"},
 						LatestVersion: "1.2.3",
 						AssetName:     "MyApp-x86_64.AppImage",
 						AssetPattern:  "*.AppImage",
@@ -1998,11 +1998,11 @@ func TestAddCmdRejectsPositionalGitHubURL(t *testing.T) {
 		return []discovery.DiscoveryBackend{
 			&stubDiscoveryBackend{
 				name: "GitHub",
-				resolveFn: func(context.Context, discovery.PackageRef, string) (*discovery.PackageMetadata, error) {
-					return &discovery.PackageMetadata{
+				resolveFn: func(context.Context, models.PackageRef, string) (*models.PackageMetadata, error) {
+					return &models.PackageMetadata{
 						Name:          "My App",
 						Provider:      "GitHub",
-						Ref:           discovery.PackageRef{Kind: discovery.ProviderGitHub, ProviderRef: "owner/repo"},
+						Ref:           models.PackageRef{Kind: models.ProviderGitHub, ProviderRef: "owner/repo"},
 						LatestVersion: "1.2.3",
 						AssetName:     "MyApp-x86_64.AppImage",
 						AssetPattern:  "*.AppImage",
@@ -2049,11 +2049,11 @@ func TestInfoCmdRejectsPositionalGitHubURL(t *testing.T) {
 		return []discovery.DiscoveryBackend{
 			&stubDiscoveryBackend{
 				name: "GitHub",
-				resolveFn: func(context.Context, discovery.PackageRef, string) (*discovery.PackageMetadata, error) {
-					return &discovery.PackageMetadata{
+				resolveFn: func(context.Context, models.PackageRef, string) (*models.PackageMetadata, error) {
+					return &models.PackageMetadata{
 						Name:          "My App",
 						Provider:      "GitHub",
-						Ref:           discovery.PackageRef{Kind: discovery.ProviderGitHub, ProviderRef: "owner/repo"},
+						Ref:           models.PackageRef{Kind: models.ProviderGitHub, ProviderRef: "owner/repo"},
 						RepoURL:       "https://github.com/owner/repo",
 						Summary:       "A test app",
 						LatestVersion: "1.2.3",
@@ -2085,10 +2085,10 @@ func TestAddCmdFailsForUninstallablePackage(t *testing.T) {
 		return []discovery.DiscoveryBackend{
 			&stubDiscoveryBackend{
 				name: "GitHub",
-				resolveFn: func(context.Context, discovery.PackageRef, string) (*discovery.PackageMetadata, error) {
-					return &discovery.PackageMetadata{
+				resolveFn: func(context.Context, models.PackageRef, string) (*models.PackageMetadata, error) {
+					return &models.PackageMetadata{
 						Provider:      "GitHub",
-						Ref:           discovery.PackageRef{Kind: discovery.ProviderGitHub, ProviderRef: "owner/repo"},
+						Ref:           models.PackageRef{Kind: models.ProviderGitHub, ProviderRef: "owner/repo"},
 						Installable:   false,
 						InstallReason: "no matching release asset",
 					}, nil

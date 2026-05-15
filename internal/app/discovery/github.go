@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/slobbe/appimage-manager/internal/domain"
 	"github.com/slobbe/appimage-manager/internal/infra/github"
 	"github.com/slobbe/appimage-manager/internal/infra/httpclient"
 )
@@ -39,8 +40,8 @@ func (GitHubBackend) Name() string {
 	return "GitHub"
 }
 
-func (GitHubBackend) Resolve(ctx context.Context, ref PackageRef, assetOverride string) (*PackageMetadata, error) {
-	if ref.Kind != ProviderGitHub {
+func (GitHubBackend) Resolve(ctx context.Context, ref domain.PackageRef, assetOverride string) (*domain.PackageMetadata, error) {
+	if ref.Kind != domain.ProviderGitHub {
 		return nil, fmt.Errorf("invalid github package ref")
 	}
 
@@ -82,10 +83,10 @@ func (GitHubBackend) Resolve(ctx context.Context, ref PackageRef, assetOverride 
 	), nil
 }
 
-func discoveryAssetCandidates(candidates []github.ReleaseAssetCandidate) []AssetCandidate {
-	result := make([]AssetCandidate, 0, len(candidates))
+func discoveryAssetCandidates(candidates []github.ReleaseAssetCandidate) []domain.AssetCandidate {
+	result := make([]domain.AssetCandidate, 0, len(candidates))
 	for _, candidate := range candidates {
-		result = append(result, AssetCandidate{
+		result = append(result, domain.AssetCandidate{
 			Name:        candidate.Name,
 			DownloadURL: candidate.DownloadURL,
 			Arch:        candidate.Arch,

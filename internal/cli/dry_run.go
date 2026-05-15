@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/slobbe/appimage-manager/internal/app/discovery"
 	"github.com/slobbe/appimage-manager/internal/cli/config"
 	models "github.com/slobbe/appimage-manager/internal/domain"
 	"github.com/spf13/cobra"
@@ -58,7 +57,7 @@ func buildInstallDryRunPlan(ctx context.Context, cmd *cobra.Command, refArg stri
 			"db_write":        true,
 		}, nil
 	case installTargetGitHub:
-		metadata, err := resolvePackageMetadataWithProgress(cmd, installTargetLabel(target), func() (*discovery.PackageMetadata, error) {
+		metadata, err := resolvePackageMetadataWithProgress(cmd, installTargetLabel(target), func() (*models.PackageMetadata, error) {
 			return resolvePackageMetadataFromInput(ctx, refArg, assetPattern)
 		})
 		if err != nil {

@@ -5,7 +5,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/slobbe/appimage-manager/internal/app/discovery"
 	models "github.com/slobbe/appimage-manager/internal/domain"
 	"github.com/spf13/cobra"
 )
@@ -132,7 +131,7 @@ func updatePlainHeader() []string {
 	return []string{"id", "current_version", "latest_version", "status", "source_kind"}
 }
 
-func packageMetadataOutput(metadata *discovery.PackageMetadata) map[string]interface{} {
+func packageMetadataOutput(metadata *models.PackageMetadata) map[string]interface{} {
 	if metadata == nil {
 		return nil
 	}
