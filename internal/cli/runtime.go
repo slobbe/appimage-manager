@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/slobbe/appimage-manager/internal/app/discovery"
 	appintegrate "github.com/slobbe/appimage-manager/internal/app/integrate"
 	appremove "github.com/slobbe/appimage-manager/internal/app/remove"
 	appservices "github.com/slobbe/appimage-manager/internal/app/services"
@@ -71,7 +70,6 @@ func prepareRuntime(cmd *cobra.Command) error {
 	appremove.SetPaths(removePathsFromConfig(config.CurrentPaths()))
 	appupgrade.SetPaths(upgradePathsFromConfig(config.CurrentPaths()))
 	configureRepositoryStores()
-	discovery.SetHTTPClientTimeout(settings.NetworkTimeout)
 
 	if opts.Debug {
 		writeLogf(cmd, "DEBUG: Using AIM paths: data=%s db=%s temp=%s config=%s timeout=%s\n", config.AimDir, config.DbSrc, config.TempDir, config.ConfigDir, settings.NetworkTimeout)
@@ -362,12 +360,13 @@ func defaultRuntimeServices() runtimeServices {
 			InstallDirectURLApp: func(ctx context.Context, req appservices.InstallDirectURLRequest) (*domain.App, error) {
 				return installDirectURLApp(ctx, req)
 			},
-			InstallPackageRefApp: func(ctx context.Context, req appservices.InstallPackageRefRequest) (*domain.App, error) {
-				return installPackageRefApp(ctx, req)
+			InstallPackageRefApp: func(ctx context.Context, metadata *domain.PackageMetadata) (*domain.App, error) {
+				return installPackageMetadata(ctx, nil, metadata)
 			},
 			PlanPackageRefInstallFunc: func(ctx context.Context, req appservices.InstallPackageRefRequest) (*appservices.DryRunPlan, error) {
 				return planPackageRefInstall(ctx, req)
 			},
+			Discovery:    discoveryService,
 			AppImageInfo: appservices.AppImageInfoReaderFunc(readAppImageInfo),
 			AimDir:       config.AimDir,
 			DesktopDir:   config.DesktopDir,

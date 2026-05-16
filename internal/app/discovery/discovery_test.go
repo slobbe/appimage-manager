@@ -9,12 +9,7 @@ import (
 )
 
 func TestGitHubBackendResolveUsesRepoMetadataAndRelease(t *testing.T) {
-	originalResolver := defaultGitHubResolver
-	t.Cleanup(func() {
-		defaultGitHubResolver = originalResolver
-	})
-
-	defaultGitHubResolver = fakeGitHubResolver{
+	resolver := fakeGitHubResolver{
 		fetchRepository: func(ctx context.Context, repoSlug string) (*Repository, error) {
 			if repoSlug != "obsidianmd/obsidian-releases" {
 				t.Fatalf("unexpected repo metadata input: %s", repoSlug)
@@ -39,7 +34,7 @@ func TestGitHubBackendResolveUsesRepoMetadataAndRelease(t *testing.T) {
 		},
 	}
 
-	metadata, err := (GitHubBackend{}).Resolve(context.Background(), domain.PackageRef{Kind: domain.ProviderGitHub, ProviderRef: "obsidianmd/obsidian-releases"}, "")
+	metadata, err := (GitHubBackend{Resolver: resolver}).Resolve(context.Background(), domain.PackageRef{Kind: domain.ProviderGitHub, ProviderRef: "obsidianmd/obsidian-releases"}, "")
 	if err != nil {
 		t.Fatalf("Resolve returned error: %v", err)
 	}
@@ -55,12 +50,7 @@ func TestGitHubBackendResolveUsesRepoMetadataAndRelease(t *testing.T) {
 }
 
 func TestGitHubBackendResolvePreservesAmbiguousAssetCandidates(t *testing.T) {
-	originalResolver := defaultGitHubResolver
-	t.Cleanup(func() {
-		defaultGitHubResolver = originalResolver
-	})
-
-	defaultGitHubResolver = fakeGitHubResolver{
+	resolver := fakeGitHubResolver{
 		fetchRepository: func(ctx context.Context, repoSlug string) (*Repository, error) {
 			return &Repository{
 				Name:        "example",
@@ -80,7 +70,7 @@ func TestGitHubBackendResolvePreservesAmbiguousAssetCandidates(t *testing.T) {
 		},
 	}
 
-	metadata, err := (GitHubBackend{}).Resolve(context.Background(), domain.PackageRef{Kind: domain.ProviderGitHub, ProviderRef: "owner/repo"}, "")
+	metadata, err := (GitHubBackend{Resolver: resolver}).Resolve(context.Background(), domain.PackageRef{Kind: domain.ProviderGitHub, ProviderRef: "owner/repo"}, "")
 	if err != nil {
 		t.Fatalf("Resolve returned error: %v", err)
 	}
@@ -96,18 +86,13 @@ func TestGitHubBackendResolvePreservesAmbiguousAssetCandidates(t *testing.T) {
 }
 
 func TestGitHubBackendResolveReturnsUnavailableMetadataForReleaseErrors(t *testing.T) {
-	originalResolver := defaultGitHubResolver
-	t.Cleanup(func() {
-		defaultGitHubResolver = originalResolver
-	})
-
-	defaultGitHubResolver = fakeGitHubResolver{
+	resolver := fakeGitHubResolver{
 		resolveSelection: func(repoSlug, assetPattern, arch string) (*ReleaseAssetSelection, error) {
 			return nil, fmt.Errorf("no assets match pattern")
 		},
 	}
 
-	metadata, err := (GitHubBackend{}).Resolve(context.Background(), domain.PackageRef{Kind: domain.ProviderGitHub, ProviderRef: "owner/repo"}, "")
+	metadata, err := (GitHubBackend{Resolver: resolver}).Resolve(context.Background(), domain.PackageRef{Kind: domain.ProviderGitHub, ProviderRef: "owner/repo"}, "")
 	if err != nil {
 		t.Fatalf("Resolve returned error: %v", err)
 	}

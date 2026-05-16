@@ -47,8 +47,9 @@ type BasicAddService struct {
 	IntegrateLocalApp         IntegrateFunc
 	ReintegrateApp            func(context.Context, string) (*domain.App, error)
 	InstallDirectURLApp       func(context.Context, InstallDirectURLRequest) (*domain.App, error)
-	InstallPackageRefApp      func(context.Context, InstallPackageRefRequest) (*domain.App, error)
+	InstallPackageRefApp      func(context.Context, *domain.PackageMetadata) (*domain.App, error)
 	PlanPackageRefInstallFunc func(context.Context, InstallPackageRefRequest) (*DryRunPlan, error)
+	Discovery                 DiscoveryService
 	AppImageInfo              AppImageInfoReader
 	AimDir                    string
 	DesktopDir                string
@@ -96,10 +97,37 @@ func (service BasicAddService) InstallDirectURL(ctx context.Context, req Install
 }
 
 func (service BasicAddService) InstallPackageRef(ctx context.Context, req InstallPackageRefRequest) (*AddResult, error) {
-	if service.InstallPackageRefApp == nil {
+	if service.Discovery == nil && req.ResolveMetadata == nil {
+		return nil, fmt.Errorf("discovery service is not configured")
+	}
+	install := service.InstallPackageRefApp
+	if req.InstallPackage != nil {
+		install = req.InstallPackage
+	}
+	if install == nil {
 		return nil, fmt.Errorf("package install service is not configured")
 	}
-	app, err := service.InstallPackageRefApp(ctx, req)
+	var metadata *domain.PackageMetadata
+	var err error
+	if req.ResolveMetadata != nil {
+		metadata, err = req.ResolveMetadata(ctx, req.Ref, req.AssetPattern)
+	} else {
+		metadata, err = service.Discovery.ResolvePackage(ctx, PackageRefInfoRequest{Ref: req.Ref, AssetPattern: req.AssetPattern})
+	}
+	if err != nil {
+		return nil, err
+	}
+	metadata, err = RequireInstallablePackage(metadata)
+	if err != nil {
+		return nil, err
+	}
+	if req.ResolveAmbiguity != nil {
+		metadata, err = req.ResolveAmbiguity.ResolvePackageAmbiguity(metadata)
+		if err != nil {
+			return nil, err
+		}
+	}
+	app, err := install(ctx, metadata)
 	if err != nil {
 		return nil, err
 	}
@@ -154,10 +182,23 @@ func (service BasicAddService) PlanDirectURLInstall(ctx context.Context, req Ins
 }
 
 func (service BasicAddService) PlanPackageRefInstall(ctx context.Context, req InstallPackageRefRequest) (*DryRunPlan, error) {
-	if service.PlanPackageRefInstallFunc == nil {
-		return nil, fmt.Errorf("package install planning service is not configured")
+	if service.PlanPackageRefInstallFunc != nil {
+		return service.PlanPackageRefInstallFunc(ctx, req)
 	}
-	return service.PlanPackageRefInstallFunc(ctx, req)
+	if service.Discovery == nil {
+		return nil, fmt.Errorf("discovery service is not configured")
+	}
+	metadata, err := service.Discovery.ResolvePackage(ctx, PackageRefInfoRequest{Ref: req.Ref, AssetPattern: req.AssetPattern})
+	if err != nil {
+		return nil, err
+	}
+	values := map[string]interface{}{
+		"action":   "install",
+		"target":   domain.FormatPackageRef(req.Ref),
+		"provider": req.Ref,
+		"metadata": metadata,
+	}
+	return &DryRunPlan{Action: "install", Target: domain.FormatPackageRef(req.Ref), Values: values}, nil
 }
 
 type StoreListService struct {
@@ -431,6 +472,16 @@ func (service SourceUpdateService) PlanUnsetSource(ctx context.Context, id strin
 	}
 	values := UpdateUnsetDryRunValues(id, app.Update)
 	return &DryRunPlan{Action: "unset_update_source", Target: id, Values: values}, nil
+}
+
+func RequireInstallablePackage(metadata *domain.PackageMetadata) (*domain.PackageMetadata, error) {
+	if metadata != nil && metadata.Installable {
+		return metadata, nil
+	}
+	if metadata == nil {
+		return nil, fmt.Errorf("package metadata cannot be empty")
+	}
+	return nil, fmt.Errorf("package is not installable: %s", strings.TrimSpace(metadata.InstallReason))
 }
 
 func RemoveDryRunValues(app *domain.App, unlink bool) map[string]interface{} {

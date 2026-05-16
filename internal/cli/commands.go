@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 func RootCmd(cmd *cobra.Command, args []string) error {
@@ -429,6 +430,12 @@ func integrateGitHubReleaseAsset(ctx context.Context, cmd *cobra.Command, target
 			}
 		},
 	})
+}
+
+type packageAmbiguityResolverFunc func(*models.PackageMetadata) (*models.PackageMetadata, error)
+
+func (fn packageAmbiguityResolverFunc) ResolvePackageAmbiguity(metadata *models.PackageMetadata) (*models.PackageMetadata, error) {
+	return fn(metadata)
 }
 
 type remoteInstallRequest struct {
@@ -933,15 +940,25 @@ func runInstallPackageRef(ctx context.Context, cmd *cobra.Command, ref models.Pa
 		return err
 	}
 
-	metadata, err := resolveInstallablePackageMetadataFromRef(ctx, cmd, ref, assetPattern)
+	result, err := runtimeServicesFrom(cmd).Add.InstallPackageRef(ctx, appservices.InstallPackageRefRequest{
+		Ref:          ref,
+		AssetPattern: assetPattern,
+		ResolveMetadata: func(ctx context.Context, ref models.PackageRef, assetPattern string) (*models.PackageMetadata, error) {
+			return resolvePackageMetadataWithProgress(cmd, formatProviderRef(ref), func() (*models.PackageMetadata, error) {
+				return resolvePackageMetadataFromRef(ctx, ref, assetPattern)
+			})
+		},
+		ResolveAmbiguity: packageAmbiguityResolverFunc(func(metadata *models.PackageMetadata) (*models.PackageMetadata, error) {
+			return resolveGitHubAssetAmbiguity(cmd, metadata)
+		}),
+		InstallPackage: func(ctx context.Context, metadata *models.PackageMetadata) (*models.App, error) {
+			return installPackageMetadata(ctx, cmd, metadata)
+		},
+	})
 	if err != nil {
 		return err
 	}
-
-	app, err := installPackageMetadata(ctx, cmd, metadata)
-	if err != nil {
-		return err
-	}
+	app := result.App
 
 	if opts.JSON {
 		return printJSONSuccess(cmd, map[string]interface{}{
@@ -1476,7 +1493,7 @@ var runZsyncUpdateCheck = appupdate.ZsyncUpdateCheck
 var runGitHubReleaseUpdateCheck = appupdate.GitHubReleaseUpdateCheck
 var discoveryBackends = func() []discovery.DiscoveryBackend {
 	return []discovery.DiscoveryBackend{
-		discovery.GitHubBackend{},
+		newGitHubDiscoveryBackend(runtimeSettings{NetworkTimeout: 30 * time.Second}),
 	}
 }
 var resolveGitHubReleaseAsset = appupdate.ResolveGitHubReleaseAsset

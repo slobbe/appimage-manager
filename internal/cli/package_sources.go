@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/slobbe/appimage-manager/internal/app/discovery"
+	appservices "github.com/slobbe/appimage-manager/internal/app/services"
 	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
 	models "github.com/slobbe/appimage-manager/internal/domain"
 	"github.com/spf13/cobra"
@@ -154,13 +155,11 @@ func resolvePackageMetadataWithProgress(cmd *cobra.Command, label string, resolv
 }
 
 func requireInstallablePackageMetadata(metadata *models.PackageMetadata) (*models.PackageMetadata, error) {
-	if metadata != nil && metadata.Installable {
-		return metadata, nil
+	metadata, err := appservices.RequireInstallablePackage(metadata)
+	if err != nil {
+		return nil, usageError(err)
 	}
-	if metadata == nil {
-		return nil, softwareError(fmt.Errorf("package metadata cannot be empty"))
-	}
-	return nil, usageError(fmt.Errorf("package is not installable: %s", strings.TrimSpace(metadata.InstallReason)))
+	return metadata, nil
 }
 
 func resolveGitHubAssetAmbiguity(cmd *cobra.Command, metadata *models.PackageMetadata) (*models.PackageMetadata, error) {

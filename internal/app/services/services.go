@@ -71,8 +71,11 @@ type InstallDirectURLRequest struct {
 }
 
 type InstallPackageRefRequest struct {
-	Ref          domain.PackageRef
-	AssetPattern string
+	Ref              domain.PackageRef
+	AssetPattern     string
+	ResolveMetadata  func(context.Context, domain.PackageRef, string) (*domain.PackageMetadata, error)
+	ResolveAmbiguity PackageAmbiguityResolver
+	InstallPackage   func(context.Context, *domain.PackageMetadata) (*domain.App, error)
 }
 
 type PackageRefInfoRequest struct {
@@ -166,4 +169,8 @@ const (
 
 type UpdateSourceReplaceConfirmer interface {
 	ConfirmUpdateSourceReplace(existing, incoming *domain.UpdateSource) (bool, error)
+}
+
+type PackageAmbiguityResolver interface {
+	ResolvePackageAmbiguity(metadata *domain.PackageMetadata) (*domain.PackageMetadata, error)
 }

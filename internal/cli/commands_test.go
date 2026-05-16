@@ -3838,7 +3838,6 @@ func TestPrepareRuntimeLoadsSettingsTimeout(t *testing.T) {
 		appupdate.SetHTTPClientTimeout(originalTimeout)
 		appupgrade.SetHTTPClientTimeout(originalUpgradeTimeout)
 		download.SetHTTPClientTimeout(originalDownloadHeaderTimeout)
-		discovery.SetHTTPClientTimeout(originalTimeout)
 	})
 
 	config.ApplyPaths(config.ResolvePathsFromStateRoot(rootDir))

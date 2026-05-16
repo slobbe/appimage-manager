@@ -401,6 +401,12 @@ func (adapter gitHubReleaseAdapter) ResolveLatestReleaseTag(owner, repo string) 
 	return adapter.client.ResolveLatestReleaseTag(owner, repo)
 }
 
+func newGitHubDiscoveryBackend(settings runtimeSettings) discovery.DiscoveryBackend {
+	return discovery.NewGitHubBackend(github.DiscoveryResolver{
+		Client: github.Client{HTTPClient: httpclient.New(settings.NetworkTimeout)},
+	})
+}
+
 func configureAppPorts(networkTimeout time.Duration) {
 	appimageapp.SetFilesystem(filesystemAdapter{})
 	appimageapp.SetExtractor(appimageExtractorAdapter{})
@@ -416,9 +422,6 @@ func configureAppPorts(networkTimeout time.Duration) {
 	appupdate.SetHashVerifier(hashVerifierAdapter{})
 	appupdate.SetUpdateInfoExtractor(updateInfoExtractorAdapter{})
 	appupgrade.SetSelfUpdater(selfUpdaterAdapter{})
-	discovery.SetGitHubResolver(github.DiscoveryResolver{
-		Client: github.Client{HTTPClient: httpclient.New(networkTimeout)},
-	})
 	appupdate.SetGitHubReleaseResolver(gitHubReleaseAdapter{
 		client: github.Client{HTTPClient: appupdate.SharedHTTPClient()},
 	})
