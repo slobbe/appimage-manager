@@ -3,6 +3,7 @@ package appimage
 import (
 	"bytes"
 	"context"
+	"debug/elf"
 	"errors"
 	"fmt"
 	"os"
@@ -123,6 +124,40 @@ func extractStreaming(ctx context.Context, src string, dir string) (*Extraction,
 	}
 
 	return verifiedExtraction(dir)
+}
+
+func ExtractUpdateInfo(src string) (string, error) {
+	if !strings.EqualFold(filepath.Ext(strings.TrimSpace(src)), ".AppImage") {
+		return "", fmt.Errorf("source must be .AppImage file")
+	}
+
+	src, err := fsys.MakeAbsolute(src)
+	if err != nil {
+		return "", err
+	}
+
+	f, err := elf.Open(src)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	section := f.Section(".upd_info")
+	if section == nil {
+		return "", fmt.Errorf("no update information found in ELF headers")
+	}
+
+	data, err := section.Data()
+	if err != nil {
+		return "", err
+	}
+
+	strData := string(data)
+	if i := strings.Index(strData, "\x00"); i != -1 {
+		strData = strData[:i]
+	}
+
+	return strings.TrimSpace(strData), nil
 }
 
 func verifiedExtraction(dir string) (*Extraction, error) {

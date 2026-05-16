@@ -5,6 +5,8 @@ import (
 	"os"
 	"testing"
 
+	"github.com/slobbe/appimage-manager/internal/domain"
+	"github.com/slobbe/appimage-manager/internal/infra/appimage"
 	"github.com/slobbe/appimage-manager/internal/infra/download"
 	fsys "github.com/slobbe/appimage-manager/internal/infra/filesystem"
 	"github.com/slobbe/appimage-manager/internal/infra/github"
@@ -16,7 +18,7 @@ func TestMain(m *testing.M) {
 	SetZsyncMetadataFetcher(testZsyncMetadataFetcher{})
 	SetStagedDownloadService(testStagedDownloadService{})
 	SetHashVerifier(testHashVerifier{})
-	SetPathResolver(testPathResolver{})
+	SetUpdateInfoExtractor(testUpdateInfoExtractor{})
 	os.Exit(m.Run())
 }
 
@@ -38,7 +40,7 @@ func (testGitHubReleaseResolver) ResolveReleaseAsset(repoSlug, assetPattern stri
 
 type testZsyncMetadataFetcher struct{}
 
-func (testZsyncMetadataFetcher) FetchMetadata(url string) ([]byte, error) {
+func (testZsyncMetadataFetcher) FetchMetadata(url string) (*domain.ZsyncMetadata, error) {
 	return (zsync.Client{HTTPClient: SharedHTTPClient()}).FetchMetadata(url)
 }
 
@@ -70,10 +72,10 @@ func (testHashVerifier) VerifyHashes(path, expectedSHA256, expectedSHA1 string) 
 	return fsys.VerifyHashes(path, expectedSHA256, expectedSHA1)
 }
 
-type testPathResolver struct{}
+type testUpdateInfoExtractor struct{}
 
-func (testPathResolver) MakeAbsolute(path string) (string, error) {
-	return fsys.MakeAbsolute(path)
+func (testUpdateInfoExtractor) ExtractUpdateInfo(path string) (string, error) {
+	return appimage.ExtractUpdateInfo(path)
 }
 
 func (testGitHubReleaseResolver) ResolveReleaseAssetSelection(repoSlug, assetPattern, arch string) (*GitHubReleaseAssetSelection, error) {

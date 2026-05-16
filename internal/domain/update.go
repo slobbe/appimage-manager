@@ -48,6 +48,12 @@ type ReleaseTransport struct {
 	ExpectedSHA1 string
 }
 
+type ZsyncMetadata struct {
+	RemoteTime     string
+	RemoteSHA1     string
+	RemoteFilename string
+}
+
 func ValidateUpdateSource(source *UpdateSource) error {
 	if source == nil {
 		return fmt.Errorf("missing update source")

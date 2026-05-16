@@ -1,6 +1,10 @@
 package update
 
-import "context"
+import (
+	"context"
+
+	"github.com/slobbe/appimage-manager/internal/domain"
+)
 
 const MetadataMaxBytes = 1 << 20
 
@@ -9,7 +13,7 @@ type ZsyncRunner interface {
 }
 
 type ZsyncMetadataFetcher interface {
-	FetchMetadata(url string) ([]byte, error)
+	FetchMetadata(url string) (*domain.ZsyncMetadata, error)
 }
 
 type DownloadProgress struct {
@@ -28,15 +32,15 @@ type HashVerifier interface {
 	VerifyHashes(path, expectedSHA256, expectedSHA1 string) error
 }
 
-type PathResolver interface {
-	MakeAbsolute(path string) (string, error)
+type UpdateInfoExtractor interface {
+	ExtractUpdateInfo(path string) (string, error)
 }
 
 var (
 	defaultZsyncMetadataFetcher ZsyncMetadataFetcher
 	defaultStagedDownload       StagedDownloadService
 	defaultHashVerifier         HashVerifier
-	defaultPathResolver         PathResolver
+	defaultUpdateInfoExtractor  UpdateInfoExtractor
 )
 
 func SetZsyncMetadataFetcher(fetcher ZsyncMetadataFetcher) {
@@ -51,6 +55,6 @@ func SetHashVerifier(verifier HashVerifier) {
 	defaultHashVerifier = verifier
 }
 
-func SetPathResolver(resolver PathResolver) {
-	defaultPathResolver = resolver
+func SetUpdateInfoExtractor(extractor UpdateInfoExtractor) {
+	defaultUpdateInfoExtractor = extractor
 }

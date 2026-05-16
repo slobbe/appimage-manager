@@ -2,8 +2,6 @@ package cli
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +10,7 @@ import (
 	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
 	models "github.com/slobbe/appimage-manager/internal/domain"
 	"github.com/slobbe/appimage-manager/internal/infra/config"
+	"github.com/slobbe/appimage-manager/internal/infra/download"
 	"github.com/spf13/cobra"
 	"os"
 	"path/filepath"
@@ -516,17 +515,6 @@ func downloadUpdateAssetWithDescription(ctx context.Context, assetURL, destinati
 		}
 	}()
 
-	stagedMeta, err := loadStagedDownloadMetadata(destination)
-	if err != nil {
-		return wrapWriteError(err)
-	}
-
-	meta := downloadMetadataFromStaged(stagedMeta)
-	if meta != nil && strings.TrimSpace(meta.URL) != "" && strings.TrimSpace(meta.URL) != strings.TrimSpace(assetURL) {
-		removeStagedDownload(destination)
-		meta = nil
-	}
-
 	var (
 		downloaded   int64
 		total        int64
@@ -534,11 +522,10 @@ func downloadUpdateAssetWithDescription(ctx context.Context, assetURL, destinati
 	)
 
 	logOperationContextf(ctx, "HTTP GET %s", assetURL)
-	resultMeta, err := runtimeDownload(ctx, runtimeDownloadRequest{
-		URL:         assetURL,
-		Destination: destination,
-		Metadata:    meta,
-	}, func(event runtimeDownloadProgress) {
+	err := (download.StagedDownloader{
+		Client: runtimeDownloadHTTPClient(),
+		NowISO: clock.NowISO,
+	}).Download(ctx, assetURL, destination, func(event download.Progress) {
 		delta := event.Downloaded - downloaded
 		downloaded = event.Downloaded
 		total = event.Total
@@ -561,17 +548,9 @@ func downloadUpdateAssetWithDescription(ctx context.Context, assetURL, destinati
 		if ownsProgress && interactive && progress != nil && delta > 0 {
 			progress.Add(delta)
 		}
-		if err := saveStagedDownloadMetadata(destination, stagedMetadataFromDownload(&event.Metadata)); err != nil {
-			logOperationContextf(ctx, "failed to save staged download metadata: %v", err)
-		}
 	})
-	if resultMeta != nil {
-		if err := saveStagedDownloadMetadata(destination, stagedMetadataFromDownload(resultMeta)); err != nil {
-			return wrapWriteError(err)
-		}
-	}
 	if err != nil {
-		var statusErr *runtimeDownloadStatusError
+		var statusErr *download.StatusError
 		if errors.As(err, &statusErr) {
 			return withUserGuidance(
 				unavailableError(statusErr),
@@ -1054,38 +1033,6 @@ const (
 	updateCheckCacheTTL     = 5 * time.Minute
 )
 
-type stagedDownloadMetadata struct {
-	URL          string `json:"url"`
-	ETag         string `json:"etag,omitempty"`
-	LastModified string `json:"last_modified,omitempty"`
-	TotalBytes   int64  `json:"total_bytes,omitempty"`
-	UpdatedAt    string `json:"updated_at"`
-}
-
-func downloadMetadataFromStaged(meta *stagedDownloadMetadata) *runtimeDownloadMetadata {
-	if meta == nil {
-		return nil
-	}
-	return &runtimeDownloadMetadata{
-		URL:          meta.URL,
-		ETag:         meta.ETag,
-		LastModified: meta.LastModified,
-		TotalBytes:   meta.TotalBytes,
-	}
-}
-
-func stagedMetadataFromDownload(meta *runtimeDownloadMetadata) stagedDownloadMetadata {
-	if meta == nil {
-		return stagedDownloadMetadata{}
-	}
-	return stagedDownloadMetadata{
-		URL:          meta.URL,
-		ETag:         meta.ETag,
-		LastModified: meta.LastModified,
-		TotalBytes:   meta.TotalBytes,
-	}
-}
-
 type updateCheckCacheFile struct {
 	Version int                              `json:"version"`
 	Entries map[string]updateCheckCacheEntry `json:"entries"`
@@ -1119,50 +1066,15 @@ func updateCheckCacheFilePath() string {
 }
 
 func stableDownloadDestination(assetURL, nameHint string) (string, error) {
-	if err := runtimeEnsureDir(stagedDownloadDir()); err != nil {
+	destination, err := download.StableDestination(stagedDownloadDir(), assetURL, nameHint)
+	if err != nil {
 		return "", wrapWriteError(err)
 	}
-
-	key := strings.TrimSpace(assetURL) + "|" + strings.TrimSpace(nameHint)
-	sum := sha256.Sum256([]byte(key))
-	fileName := updateDownloadFilename(nameHint, assetURL)
-	base := strings.TrimSuffix(fileName, filepath.Ext(fileName))
-	stagedName := fmt.Sprintf("%s-%s%s", base, hex.EncodeToString(sum[:8]), filepath.Ext(fileName))
-	return filepath.Join(stagedDownloadDir(), stagedName), nil
-}
-
-func stagedDownloadMetadataPath(downloadPath string) string {
-	return downloadPath + ".meta.json"
-}
-
-func loadStagedDownloadMetadata(downloadPath string) (*stagedDownloadMetadata, error) {
-	data, ok, err := runtimeReadFileIfExists(stagedDownloadMetadataPath(downloadPath))
-	if err != nil {
-		return nil, err
-	}
-	if !ok {
-		return nil, nil
-	}
-
-	var meta stagedDownloadMetadata
-	if err := json.Unmarshal(data, &meta); err != nil {
-		return nil, err
-	}
-	return &meta, nil
-}
-
-func saveStagedDownloadMetadata(downloadPath string, meta stagedDownloadMetadata) error {
-	meta.UpdatedAt = clock.NowISO()
-	data, err := json.MarshalIndent(meta, "", "  ")
-	if err != nil {
-		return err
-	}
-	return runtimeWriteAtomicFile(stagedDownloadMetadataPath(downloadPath), data, 0o644)
+	return destination, nil
 }
 
 func removeStagedDownload(downloadPath string) {
-	_ = runtimeRemoveFileIfExists(downloadPath)
-	_ = runtimeRemoveFileIfExists(stagedDownloadMetadataPath(downloadPath))
+	download.RemoveStaged(downloadPath)
 }
 
 func loadUpdateCheckCache() (*updateCheckCacheFile, error) {

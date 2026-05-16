@@ -1,13 +1,8 @@
 package update
 
 import (
-	"bufio"
-	"bytes"
-	"debug/elf"
 	"fmt"
-	"path/filepath"
 	"strings"
-	"time"
 
 	models "github.com/slobbe/appimage-manager/internal/domain"
 )
@@ -59,43 +54,10 @@ func ZsyncUpdateCheck(upd *models.UpdateSource, localSHA1 string) (*UpdateData, 
 
 	update := UpdateData{}
 	update.DownloadUrlZsync = updateInfo.UpdateUrl
-
-	scanner := bufio.NewScanner(bytes.NewReader(metadata))
-	scanner.Buffer(make([]byte, 64*1024), MetadataMaxBytes+1)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if line == "" {
-			break
-		}
-
-		sha1, exists := strings.CutPrefix(line, "SHA-1:")
-		if exists {
-			update.RemoteSHA1 = strings.TrimSpace(sha1)
-		}
-
-		filename, exists := strings.CutPrefix(line, "Filename:")
-		if exists {
-			update.RemoteFilename = strings.TrimSpace(filename)
-		}
-
-		mtime, exists := strings.CutPrefix(line, "MTime:")
-		if exists {
-			t, _ := time.Parse(time.RFC1123, strings.TrimSpace(mtime))
-			update.RemoteTime = t.Format(time.RFC3339)
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("failed to read zsync metadata: %w", err)
-	}
-
-	if update.RemoteFilename != "" {
-		update.RemoteFilename = strings.TrimSuffix(update.RemoteFilename, ".zsync")
-	}
+	update.RemoteSHA1 = metadata.RemoteSHA1
+	update.RemoteFilename = metadata.RemoteFilename
+	update.RemoteTime = metadata.RemoteTime
 	update.NormalizedVersion = models.NormalizeComparableVersion(update.RemoteFilename)
-
-	if update.RemoteFilename == "" || update.RemoteSHA1 == "" {
-		return nil, fmt.Errorf("invalid zsync metadata")
-	}
 
 	lastSlash := strings.LastIndex(update.DownloadUrlZsync, "/")
 	update.DownloadUrl = update.DownloadUrlZsync[:lastSlash+1] + update.RemoteFilename
@@ -170,38 +132,8 @@ func parseUpdateInfoString(info string) (*UpdateInfo, error) {
 }
 
 func extractUpdateInfo(src string) (string, error) {
-	if !strings.EqualFold(filepath.Ext(strings.TrimSpace(src)), ".AppImage") {
-		return "", fmt.Errorf("source must be .AppImage file")
+	if defaultUpdateInfoExtractor == nil {
+		return "", fmt.Errorf("update info extractor is not configured")
 	}
-
-	if defaultPathResolver == nil {
-		return "", fmt.Errorf("path resolver is not configured")
-	}
-	src, err := defaultPathResolver.MakeAbsolute(src)
-	if err != nil {
-		return "", err
-	}
-
-	f, err := elf.Open(src)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-
-	section := f.Section(".upd_info")
-	if section == nil {
-		return "", fmt.Errorf("no update information found in ELF headers")
-	}
-
-	data, err := section.Data()
-	if err != nil {
-		return "", err
-	}
-
-	strData := string(data)
-	if i := strings.Index(strData, "\x00"); i != -1 {
-		strData = strData[:i]
-	}
-
-	return strings.TrimSpace(strData), nil
+	return defaultUpdateInfoExtractor.ExtractUpdateInfo(src)
 }

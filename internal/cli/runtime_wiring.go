@@ -171,7 +171,7 @@ func (integrationCacheRefresherAdapter) RefreshIntegrationCaches(ctx context.Con
 
 type zsyncMetadataFetcherAdapter struct{}
 
-func (zsyncMetadataFetcherAdapter) FetchMetadata(url string) ([]byte, error) {
+func (zsyncMetadataFetcherAdapter) FetchMetadata(url string) (*models.ZsyncMetadata, error) {
 	return (zsync.Client{HTTPClient: appupdate.SharedHTTPClient()}).FetchMetadata(url)
 }
 
@@ -209,10 +209,10 @@ func (hashVerifierAdapter) VerifyHashes(path, expectedSHA256, expectedSHA1 strin
 	return fsys.VerifyHashes(path, expectedSHA256, expectedSHA1)
 }
 
-type pathResolverAdapter struct{}
+type updateInfoExtractorAdapter struct{}
 
-func (pathResolverAdapter) MakeAbsolute(path string) (string, error) {
-	return fsys.MakeAbsolute(path)
+func (updateInfoExtractorAdapter) ExtractUpdateInfo(path string) (string, error) {
+	return appimageinfra.ExtractUpdateInfo(path)
 }
 
 var (
@@ -414,7 +414,7 @@ func configureAppPorts(networkTimeout time.Duration) {
 	appupdate.SetZsyncMetadataFetcher(zsyncMetadataFetcherAdapter{})
 	appupdate.SetStagedDownloadService(stagedDownloadAdapter{client: appupdate.SharedHTTPClient})
 	appupdate.SetHashVerifier(hashVerifierAdapter{})
-	appupdate.SetPathResolver(pathResolverAdapter{})
+	appupdate.SetUpdateInfoExtractor(updateInfoExtractorAdapter{})
 	appupgrade.SetSelfUpdater(selfUpdaterAdapter{})
 	discovery.SetGitHubResolver(github.DiscoveryResolver{
 		Client: github.Client{HTTPClient: httpclient.New(networkTimeout)},

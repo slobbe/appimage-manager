@@ -8,15 +8,30 @@ import (
 	"time"
 )
 
-func TestFetchMetadataReturnsBody(t *testing.T) {
+func TestFetchMetadataReturnsParsedMetadata(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte("Filename: app.AppImage\n"))
+		_, _ = w.Write([]byte("Filename: app.AppImage.zsync\nSHA-1: abc123\nMTime: Mon, 02 Jan 2006 15:04:05 MST\n"))
 	}))
 	defer server.Close()
 
 	metadata, err := (Client{HTTPClient: server.Client()}).FetchMetadata(server.URL + "/app.AppImage.zsync")
 	if err != nil {
 		t.Fatalf("FetchMetadata returned error: %v", err)
+	}
+	if metadata.RemoteFilename != "app.AppImage" || metadata.RemoteSHA1 != "abc123" || metadata.RemoteTime != "2006-01-02T15:04:05Z" {
+		t.Fatalf("metadata = %+v", metadata)
+	}
+}
+
+func TestFetchMetadataBytesReturnsBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("Filename: app.AppImage\n"))
+	}))
+	defer server.Close()
+
+	metadata, err := (Client{HTTPClient: server.Client()}).FetchMetadataBytes(server.URL + "/app.AppImage.zsync")
+	if err != nil {
+		t.Fatalf("FetchMetadataBytes returned error: %v", err)
 	}
 	if string(metadata) != "Filename: app.AppImage\n" {
 		t.Fatalf("metadata = %q", string(metadata))
