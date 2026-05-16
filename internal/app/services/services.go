@@ -135,7 +135,7 @@ type UpdateCheckResult struct {
 
 type UpdateApplyResult struct {
 	App    *domain.App
-	Update *update.UpdateData
+	Update *update.ManagedUpdate
 }
 
 type UpdateSourceResult struct {
@@ -146,7 +146,7 @@ type UpdateSourceResult struct {
 
 type ManagedUpdateStatus struct {
 	App    *domain.App
-	Update *update.UpdateData
+	Update *update.ManagedUpdate
 	Error  error
 }
 

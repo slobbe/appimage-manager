@@ -44,11 +44,14 @@ func (fn AppImageInfoReaderFunc) ReadAppImageInfo(ctx context.Context, path stri
 type IntegrateFunc func(context.Context, string, appintegrate.UpdateOverwritePrompt) (*domain.App, error)
 
 type BasicAddService struct {
-	IntegrateLocalApp IntegrateFunc
-	ReintegrateApp    func(context.Context, string) (*domain.App, error)
-	AppImageInfo      AppImageInfoReader
-	AimDir            string
-	DesktopDir        string
+	IntegrateLocalApp         IntegrateFunc
+	ReintegrateApp            func(context.Context, string) (*domain.App, error)
+	InstallDirectURLApp       func(context.Context, InstallDirectURLRequest) (*domain.App, error)
+	InstallPackageRefApp      func(context.Context, InstallPackageRefRequest) (*domain.App, error)
+	PlanPackageRefInstallFunc func(context.Context, InstallPackageRefRequest) (*DryRunPlan, error)
+	AppImageInfo              AppImageInfoReader
+	AimDir                    string
+	DesktopDir                string
 }
 
 func NewBasicAddService(service BasicAddService) BasicAddService {
@@ -82,15 +85,25 @@ func (service BasicAddService) Reintegrate(ctx context.Context, id string) (*Add
 }
 
 func (service BasicAddService) InstallDirectURL(ctx context.Context, req InstallDirectURLRequest) (*AddResult, error) {
-	_ = ctx
-	_ = req
-	return nil, fmt.Errorf("direct URL install service is not configured")
+	if service.InstallDirectURLApp == nil {
+		return nil, fmt.Errorf("direct URL install service is not configured")
+	}
+	app, err := service.InstallDirectURLApp(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return &AddResult{Status: "installed", App: app}, nil
 }
 
 func (service BasicAddService) InstallPackageRef(ctx context.Context, req InstallPackageRefRequest) (*AddResult, error) {
-	_ = ctx
-	_ = req
-	return nil, fmt.Errorf("package install service is not configured")
+	if service.InstallPackageRefApp == nil {
+		return nil, fmt.Errorf("package install service is not configured")
+	}
+	app, err := service.InstallPackageRefApp(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return &AddResult{Status: "installed", App: app}, nil
 }
 
 func (service BasicAddService) PlanLocalIntegration(ctx context.Context, path string) (*DryRunPlan, error) {
@@ -141,9 +154,10 @@ func (service BasicAddService) PlanDirectURLInstall(ctx context.Context, req Ins
 }
 
 func (service BasicAddService) PlanPackageRefInstall(ctx context.Context, req InstallPackageRefRequest) (*DryRunPlan, error) {
-	_ = ctx
-	_ = req
-	return nil, fmt.Errorf("package install planning service is not configured")
+	if service.PlanPackageRefInstallFunc == nil {
+		return nil, fmt.Errorf("package install planning service is not configured")
+	}
+	return service.PlanPackageRefInstallFunc(ctx, req)
 }
 
 type StoreListService struct {
@@ -295,19 +309,7 @@ func (service DiscoveryWorkflowService) ResolvePackage(ctx context.Context, req 
 	if service.BackendsFunc != nil {
 		backends = service.BackendsFunc()
 	}
-	for _, backend := range backends {
-		if backend == nil {
-			continue
-		}
-		metadata, err := backend.Resolve(ctx, req.Ref, req.AssetPattern)
-		if err != nil {
-			return nil, err
-		}
-		if metadata != nil {
-			return metadata, nil
-		}
-	}
-	return nil, fmt.Errorf("failed to resolve package metadata for %s", domain.FormatPackageRef(req.Ref))
+	return discovery.NewService(backends...).Resolve(ctx, req.Ref, req.AssetPattern)
 }
 
 type UpgradeWorkflowService struct {
@@ -345,8 +347,35 @@ func NewSourceUpdateService(store AppStore) SourceUpdateService {
 
 func (service SourceUpdateService) Check(ctx context.Context, req UpdateCheckRequest) (*UpdateCheckResult, error) {
 	_ = ctx
-	_ = req
-	return nil, fmt.Errorf("update check service is not configured")
+	if service.Store == nil {
+		return nil, fmt.Errorf("app store is not configured")
+	}
+
+	apps := make([]*domain.App, 0)
+	if strings.TrimSpace(req.ID) != "" {
+		app, err := service.Store.GetApp(req.ID)
+		if err != nil {
+			return nil, err
+		}
+		apps = append(apps, app)
+	} else {
+		all, err := service.Store.GetAllApps()
+		if err != nil {
+			return nil, err
+		}
+		for _, app := range all {
+			if app != nil {
+				apps = append(apps, app)
+			}
+		}
+	}
+
+	checkResults := appupdate.CheckManagedUpdates(apps, nil)
+	statuses := make([]ManagedUpdateStatus, 0, len(checkResults))
+	for _, result := range checkResults {
+		statuses = append(statuses, ManagedUpdateStatus{App: result.App, Update: result.Update, Error: result.Error})
+	}
+	return &UpdateCheckResult{Apps: statuses}, nil
 }
 
 func (service SourceUpdateService) Apply(ctx context.Context, req UpdateApplyRequest) (*UpdateApplyResult, error) {

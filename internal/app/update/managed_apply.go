@@ -71,6 +71,10 @@ type Service struct {
 	DownloadAsset func(context.Context, string, string, func(downloaded, total int64)) error
 }
 
+func NewService(service Service) Service {
+	return service
+}
+
 func (s Service) ApplyManagedUpdate(ctx context.Context, update ManagedUpdate, reporter ManagedApplyReporter) (*models.App, error) {
 	emitManagedApplyEvent(reporter, ManagedApplyEvent{Stage: ManagedApplyStageQueued})
 

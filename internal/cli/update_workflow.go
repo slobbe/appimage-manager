@@ -117,59 +117,15 @@ func printManagedCheckFailures(cmd *cobra.Command, failures []managedCheckFailur
 }
 
 func runManagedChecks(apps []*models.App) []managedCheckResult {
-	results := make([]managedCheckResult, len(apps))
-	if len(apps) == 0 {
-		return results
+	appResults := appupdate.CheckManagedUpdates(apps, runAppUpdateCheck)
+	results := make([]managedCheckResult, len(appResults))
+	for idx, result := range appResults {
+		results[idx] = managedCheckResult{app: result.App, update: result.Update, err: result.Error}
 	}
-
-	groups := make(map[string][]int, len(apps))
-	orderedKeys := make([]string, 0, len(apps))
-	for idx, app := range apps {
-		key := managedCheckCacheKey(app, idx)
-		if _, exists := groups[key]; !exists {
-			orderedKeys = append(orderedKeys, key)
-		}
-		groups[key] = append(groups[key], idx)
-	}
-
-	jobs := make(chan int, len(orderedKeys))
-	workerCount := managedCheckWorkerCount(len(orderedKeys))
-
-	var wg sync.WaitGroup
-	for i := 0; i < workerCount; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-
-			for keyIdx := range jobs {
-				key := orderedKeys[keyIdx]
-				indices := groups[key]
-				firstIdx := indices[0]
-				primaryApp := apps[firstIdx]
-
-				update, err := runAppUpdateCheck(primaryApp)
-				for _, idx := range indices {
-					app := apps[idx]
-					results[idx] = managedCheckResult{
-						app:    app,
-						update: clonePendingManagedUpdateForApp(update, app),
-						err:    err,
-					}
-				}
-			}
-		}()
-	}
-
-	for keyIdx := range orderedKeys {
-		jobs <- keyIdx
-	}
-	close(jobs)
-
-	wg.Wait()
 	return results
 }
 
-func runManagedChecksWithCache(cmd *cobra.Command, apps []*models.App, cache *updateCheckCacheFile) ([]managedCheckResult, error) {
+func runManagedChecksWithCache(cmd *cobra.Command, apps []*models.App, cache *appupdate.CheckCacheFile) ([]managedCheckResult, error) {
 	results := make([]managedCheckResult, len(apps))
 	if len(apps) == 0 {
 		return results, nil
@@ -202,55 +158,15 @@ func runManagedChecksWithCache(cmd *cobra.Command, apps []*models.App, cache *up
 }
 
 func managedCheckCacheKey(app *models.App, fallbackIdx int) string {
-	if app == nil || app.Update == nil {
-		return fmt.Sprintf("none:%d", fallbackIdx)
-	}
-
-	kind := strings.TrimSpace(string(app.Update.Kind))
-	version := normalizeCheckKeyValue(app.Version)
-	sha1 := normalizeCheckKeyValue(app.SHA1)
-
-	switch app.Update.Kind {
-	case models.UpdateZsync:
-		if app.Update.Zsync == nil {
-			return fmt.Sprintf("zsync:missing:%s:%s", sha1, kind)
-		}
-		return fmt.Sprintf("zsync:%s:%s:%s", normalizeCheckKeyValue(app.Update.Zsync.UpdateInfo), normalizeCheckKeyValue(app.Update.Zsync.Transport), sha1)
-	case models.UpdateGitHubRelease:
-		if app.Update.GitHubRelease == nil {
-			return fmt.Sprintf("github:missing:%s", version)
-		}
-		return fmt.Sprintf("github:%s:%s:%s", normalizeCheckKeyValue(app.Update.GitHubRelease.Repo), normalizeCheckKeyValue(app.Update.GitHubRelease.Asset), version)
-	default:
-		return fmt.Sprintf("kind:%s:%s:%d", kind, version, fallbackIdx)
-	}
-}
-
-func normalizeCheckKeyValue(value string) string {
-	return strings.ToLower(strings.TrimSpace(value))
+	return appupdate.ManagedCheckCacheKey(app, fallbackIdx)
 }
 
 func clonePendingManagedUpdateForApp(update *pendingManagedUpdate, app *models.App) *pendingManagedUpdate {
-	if update == nil {
-		return nil
-	}
-
-	clone := *update
-	clone.App = app
-	return &clone
+	return appupdate.CloneManagedUpdateForApp(update, app)
 }
 
 func managedCheckWorkerCount(total int) int {
-	if total <= 0 {
-		return 0
-	}
-
-	const maxWorkers = 4
-	if total < maxWorkers {
-		return total
-	}
-
-	return maxWorkers
+	return appupdate.ManagedCheckWorkerCount(total)
 }
 
 func flushManagedCheckMetadata(updates []checkMetadataUpdate) error {
@@ -288,85 +204,14 @@ func updateCheckMetadata(app *models.App, checked, available bool, latest string
 }
 
 func checkAppUpdate(app *models.App) (*pendingManagedUpdate, error) {
-	if app == nil || app.Update == nil || app.Update.Kind == models.UpdateNone {
-		return nil, nil
+	update, err := appupdate.NewManagedUpdateChecker(appupdate.ManagedUpdateChecker{
+		ZsyncCheck:         runZsyncUpdateCheck,
+		GitHubReleaseCheck: runGitHubReleaseUpdateCheck,
+	}).Check(app)
+	if err != nil {
+		return nil, softwareError(err)
 	}
-
-	switch app.Update.Kind {
-	case models.UpdateZsync:
-		update, err := runZsyncUpdateCheck(app.Update, app.SHA1)
-		if err != nil {
-			return nil, err
-		}
-		if update == nil {
-			return &pendingManagedUpdate{
-				App:       app,
-				Available: false,
-				Latest:    "",
-				FromKind:  models.UpdateZsync,
-			}, nil
-		}
-		latest := strings.TrimSpace(update.NormalizedVersion)
-		if !update.Available {
-			return &pendingManagedUpdate{
-				App:       app,
-				Available: false,
-				Latest:    latest,
-				FromKind:  models.UpdateZsync,
-			}, nil
-		}
-		return &pendingManagedUpdate{
-			App:          app,
-			URL:          update.DownloadUrl,
-			Asset:        update.AssetName,
-			Label:        models.UpdateAvailabilityLabel(update.PreRelease),
-			Available:    true,
-			Latest:       latest,
-			ExpectedSHA1: strings.TrimSpace(update.RemoteSHA1),
-			FromKind:     models.UpdateZsync,
-		}, nil
-	case models.UpdateGitHubRelease:
-		update, err := runGitHubReleaseUpdateCheck(app.Update, app.Version, app.SHA1)
-		if err != nil {
-			return nil, err
-		}
-		if update == nil {
-			return &pendingManagedUpdate{
-				App:       app,
-				Available: false,
-				Latest:    "",
-				FromKind:  models.UpdateGitHubRelease,
-			}, nil
-		}
-
-		latest := strings.TrimSpace(update.NormalizedVersion)
-		if latest == "" {
-			latest = strings.TrimSpace(update.TagName)
-		}
-
-		if !update.Available {
-			return &pendingManagedUpdate{
-				App:       app,
-				Available: false,
-				Latest:    latest,
-				FromKind:  models.UpdateGitHubRelease,
-			}, nil
-		}
-		return &pendingManagedUpdate{
-			App:          app,
-			URL:          update.DownloadUrl,
-			Asset:        update.AssetName,
-			Label:        models.UpdateAvailabilityLabel(update.PreRelease),
-			Available:    true,
-			Latest:       latest,
-			Transport:    update.Transport,
-			ZsyncURL:     update.ZsyncURL,
-			ExpectedSHA1: strings.TrimSpace(update.ExpectedSHA1),
-			FromKind:     models.UpdateGitHubRelease,
-		}, nil
-	default:
-		return nil, softwareError(fmt.Errorf("unsupported update source for %s: %q", app.ID, app.Update.Kind))
-	}
+	return update, nil
 }
 
 var (
@@ -610,7 +455,7 @@ type managedUpdateRunConfig struct {
 	autoApply  bool
 	checkOnly  bool
 	opts       runtimeOptions
-	checkCache *updateCheckCacheFile
+	checkCache *appupdate.CheckCacheFile
 }
 
 type managedUpdateCollection struct {
@@ -695,7 +540,7 @@ func prepareManagedUpdateRun(cmd *cobra.Command, targetID string) (managedUpdate
 		}
 	}
 
-	var checkCache *updateCheckCacheFile
+	var checkCache *appupdate.CheckCacheFile
 	if !opts.DryRun && runtimePrepared(cmd) {
 		checkCache, err = loadUpdateCheckCache()
 		if err != nil {
@@ -1028,35 +873,6 @@ func collectManagedUpdateTargets(targetID string) ([]*models.App, error) {
 	return apps, nil
 }
 
-const (
-	updateCheckCacheVersion = 1
-	updateCheckCacheTTL     = 5 * time.Minute
-)
-
-type updateCheckCacheFile struct {
-	Version int                              `json:"version"`
-	Entries map[string]updateCheckCacheEntry `json:"entries"`
-}
-
-type updateCheckCacheEntry struct {
-	SourceKey string                   `json:"source_key"`
-	CheckedAt string                   `json:"checked_at"`
-	Update    *cachedPendingUpdateData `json:"update,omitempty"`
-}
-
-type cachedPendingUpdateData struct {
-	URL            string            `json:"url,omitempty"`
-	Asset          string            `json:"asset,omitempty"`
-	Label          string            `json:"label,omitempty"`
-	Available      bool              `json:"available"`
-	Latest         string            `json:"latest,omitempty"`
-	ExpectedSHA1   string            `json:"expected_sha1,omitempty"`
-	ExpectedSHA256 string            `json:"expected_sha256,omitempty"`
-	Transport      string            `json:"transport,omitempty"`
-	ZsyncURL       string            `json:"zsync_url,omitempty"`
-	FromKind       models.UpdateKind `json:"source_kind,omitempty"`
-}
-
 func stagedDownloadDir() string {
 	return filepath.Join(config.TempDir, "downloads")
 }
@@ -1077,43 +893,31 @@ func removeStagedDownload(downloadPath string) {
 	download.RemoveStaged(downloadPath)
 }
 
-func loadUpdateCheckCache() (*updateCheckCacheFile, error) {
+func loadUpdateCheckCache() (*appupdate.CheckCacheFile, error) {
 	path := updateCheckCacheFilePath()
 	data, ok, err := runtimeReadFileIfExists(path)
 	if err != nil {
 		return nil, err
 	}
 	if !ok {
-		return &updateCheckCacheFile{
-			Version: updateCheckCacheVersion,
-			Entries: map[string]updateCheckCacheEntry{},
-		}, nil
+		return appupdate.NewCheckCacheFile(), nil
 	}
 
-	var cache updateCheckCacheFile
+	var cache appupdate.CheckCacheFile
 	if err := json.Unmarshal(data, &cache); err != nil {
 		return nil, err
 	}
-	if cache.Version != updateCheckCacheVersion || cache.Entries == nil {
-		cache.Version = updateCheckCacheVersion
-		if cache.Entries == nil {
-			cache.Entries = map[string]updateCheckCacheEntry{}
-		}
-	}
-	return &cache, nil
+	return appupdate.NormalizeCheckCache(&cache), nil
 }
 
-func saveUpdateCheckCache(cache *updateCheckCacheFile) error {
+func saveUpdateCheckCache(cache *appupdate.CheckCacheFile) error {
 	if cache == nil {
 		return nil
 	}
 	if err := runtimeEnsureDir(config.TempDir); err != nil {
 		return err
 	}
-	cache.Version = updateCheckCacheVersion
-	if cache.Entries == nil {
-		cache.Entries = map[string]updateCheckCacheEntry{}
-	}
+	appupdate.NormalizeCheckCache(cache)
 
 	data, err := json.MarshalIndent(cache, "", "  ")
 	if err != nil {
@@ -1122,85 +926,16 @@ func saveUpdateCheckCache(cache *updateCheckCacheFile) error {
 	return runtimeWriteAtomicFile(updateCheckCacheFilePath(), data, 0o644)
 }
 
-func cachedManagedUpdateForApp(cache *updateCheckCacheFile, app *models.App, sourceKey string) (*pendingManagedUpdate, bool) {
-	if cache == nil || app == nil {
-		return nil, false
-	}
-	entry, ok := cache.Entries[strings.TrimSpace(app.ID)]
-	if !ok {
-		return nil, false
-	}
-	if strings.TrimSpace(entry.SourceKey) != strings.TrimSpace(sourceKey) {
-		return nil, false
-	}
-	checkedAt, err := time.Parse(time.RFC3339, strings.TrimSpace(entry.CheckedAt))
-	if err != nil {
-		return nil, false
-	}
-	if time.Since(checkedAt) > updateCheckCacheTTL {
-		return nil, false
-	}
-	return entry.toPending(app), true
+func cachedManagedUpdateForApp(cache *appupdate.CheckCacheFile, app *models.App, sourceKey string) (*pendingManagedUpdate, bool) {
+	return appupdate.CachedManagedUpdateForApp(cache, app, sourceKey, time.Now(), appupdate.DefaultCheckCacheTTL)
 }
 
-func (entry updateCheckCacheEntry) toPending(app *models.App) *pendingManagedUpdate {
-	if entry.Update == nil {
-		return nil
-	}
-	return &pendingManagedUpdate{
-		App:            app,
-		URL:            entry.Update.URL,
-		Asset:          entry.Update.Asset,
-		Label:          entry.Update.Label,
-		Available:      entry.Update.Available,
-		Latest:         entry.Update.Latest,
-		ExpectedSHA1:   entry.Update.ExpectedSHA1,
-		ExpectedSHA256: entry.Update.ExpectedSHA256,
-		Transport:      entry.Update.Transport,
-		ZsyncURL:       entry.Update.ZsyncURL,
-		FromKind:       entry.Update.FromKind,
-	}
+func setCachedManagedUpdate(cache *appupdate.CheckCacheFile, app *models.App, sourceKey string, update *pendingManagedUpdate) {
+	appupdate.SetCachedManagedUpdate(cache, app, sourceKey, update, clock.NowISO())
 }
 
-func setCachedManagedUpdate(cache *updateCheckCacheFile, app *models.App, sourceKey string, update *pendingManagedUpdate) {
-	if cache == nil || app == nil {
-		return
-	}
-	if cache.Entries == nil {
-		cache.Entries = map[string]updateCheckCacheEntry{}
-	}
-	cache.Entries[strings.TrimSpace(app.ID)] = updateCheckCacheEntry{
-		SourceKey: strings.TrimSpace(sourceKey),
-		CheckedAt: clock.NowISO(),
-		Update:    newCachedPendingUpdate(update),
-	}
-}
-
-func invalidateCachedManagedUpdates(cache *updateCheckCacheFile, appIDs ...string) {
-	if cache == nil || cache.Entries == nil {
-		return
-	}
-	for _, id := range appIDs {
-		delete(cache.Entries, strings.TrimSpace(id))
-	}
-}
-
-func newCachedPendingUpdate(update *pendingManagedUpdate) *cachedPendingUpdateData {
-	if update == nil {
-		return nil
-	}
-	return &cachedPendingUpdateData{
-		URL:            update.URL,
-		Asset:          update.Asset,
-		Label:          update.Label,
-		Available:      update.Available,
-		Latest:         update.Latest,
-		ExpectedSHA1:   update.ExpectedSHA1,
-		ExpectedSHA256: update.ExpectedSHA256,
-		Transport:      update.Transport,
-		ZsyncURL:       update.ZsyncURL,
-		FromKind:       update.FromKind,
-	}
+func invalidateCachedManagedUpdates(cache *appupdate.CheckCacheFile, appIDs ...string) {
+	appupdate.InvalidateCachedManagedUpdates(cache, appIDs...)
 }
 
 func appliedAppIDs(apps []*models.App) []string {
@@ -1213,8 +948,6 @@ func appliedAppIDs(apps []*models.App) []string {
 	}
 	return ids
 }
-
-const maxManagedApplyWorkers = 5
 
 var managedApplyRenderInterval = progressThrottleInterval
 
@@ -1273,56 +1006,21 @@ func runManagedApplies(ctx context.Context, cmd *cobra.Command, pending []pendin
 	}
 
 	controller := newManagedApplyController(cmd, pending)
-	results := make([]managedApplyResult, len(pending))
-	jobs := make(chan int, len(pending))
-	workerCount := managedApplyWorkerCount(len(pending))
-
-	var wg sync.WaitGroup
-	for worker := 0; worker < workerCount; worker++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-
-			for idx := range jobs {
-				item := pending[idx]
-				reporter := managedApplyReporterFunc(func(event managedApplyEvent) {
-					if item.App != nil && strings.TrimSpace(event.AppID) == "" {
-						event.AppID = item.App.ID
-					}
-					event.Index = idx
-					event.Total = len(pending)
-					controller.Event(event)
-				})
-
-				updatedApp, err := runManagedApply(ctx, item, reporter)
-				results[idx] = managedApplyResult{
-					index:      idx,
-					app:        item.App,
-					updatedApp: updatedApp,
-					err:        err,
-				}
-			}
-		}()
+	appResults := appupdate.ApplyManagedUpdates(ctx, pending, runManagedApply, func(index, total int, update pendingManagedUpdate) appupdate.ManagedApplyReporter {
+		return appupdate.WithManagedApplyEventDefaults(managedApplyReporterFunc(func(event managedApplyEvent) {
+			controller.Event(event)
+		}), index, total, update)
+	})
+	results := make([]managedApplyResult, len(appResults))
+	for idx, result := range appResults {
+		results[idx] = managedApplyResult{index: result.Index, app: result.App, updatedApp: result.UpdatedApp, err: result.Error}
 	}
-
-	for idx := range pending {
-		jobs <- idx
-	}
-	close(jobs)
-	wg.Wait()
-
 	controller.Finish(results)
 	return results
 }
 
 func managedApplyWorkerCount(total int) int {
-	if total <= 0 {
-		return 0
-	}
-	if total < maxManagedApplyWorkers {
-		return total
-	}
-	return maxManagedApplyWorkers
+	return appupdate.ManagedApplyWorkerCount(total)
 }
 
 func emitManagedApplyEvent(reporter managedApplyReporter, event managedApplyEvent) {

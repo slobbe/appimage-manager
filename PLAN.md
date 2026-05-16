@@ -48,7 +48,7 @@ internal/infra implements app/domain boundary interfaces and is wired at the edg
 - [x] Move `internal/cli/config` out of CLI, likely to `internal/infra/config`, and pass resolved paths/settings into app services explicitly.
 - [x] Keep CLI output helpers such as JSON rendering, progress UI, prompts, and friendly error text in `internal/cli`.
 - [x] Add command tests that assert each command calls the expected service with parsed inputs, using service fakes instead of real repository/download/filesystem setup.
-- [ ] Suggested commits:
+- [x] Suggested commits:
   - `refactor(cli): introduce command service interfaces`
   - `refactor(cli): move runtime wiring out of commands`
   - `refactor(config): move xdg config loading to infra`
@@ -62,7 +62,7 @@ internal/infra implements app/domain boundary interfaces and is wired at the edg
 - [x] Keep `ParseDesktopEntryAppInfo` pure in domain, but keep actual desktop file reading/rewriting in infra.
 - [x] Keep domain free of `os`, `net/http`, `debug/elf`, filesystem APIs, env vars, Cobra, concrete infra packages, and JSON/TOML DTOs.
 - [x] Add focused domain tests for identity collision, replacement decisions, release/update availability, package refs, and path-independent AppImage metadata parsing.
-- [ ] Suggested commits:
+- [x] Suggested commits:
   - `refactor(domain): extract managed app identity rules`
   - `refactor(domain): extract update selection rules`
   - `test(domain): cover pure package and update decisions`
@@ -83,7 +83,7 @@ internal/infra implements app/domain boundary interfaces and is wired at the edg
 - [ ] Remove global mutable defaults like `SetFilesystem`, `SetGitHubReleaseResolver`, `SetSelfUpdater`, and `SharedHTTPClient` from app packages after services are wired explicitly.
 - [ ] Keep transaction/workflow coordination in app: load app, decide with domain, call repository/downloader/filesystem ports, persist result, refresh caches.
 - [x] Add app tests with fakes for repositories, downloaders, release finders, filesystem, AppImage extractor, desktop integration, clock, and locker.
-- [ ] Suggested commits:
+- [x] Suggested commits:
   - `refactor(app): introduce integrate service`
   - `refactor(app): introduce update service`
   - `refactor(app): introduce upgrade service`
@@ -100,7 +100,7 @@ internal/infra implements app/domain boundary interfaces and is wired at the edg
 - [x] Keep repository JSON persistence and validation in `internal/infra/repository`; app should see only repository/store interfaces.
 - [x] Move XDG/env/settings loading and directory creation to `internal/infra/config`; pass a plain `Paths`/`Settings` value into app services.
 - [x] Keep infra tests integration-oriented around filesystem, HTTP test servers, command execution fakes, repository persistence, and DTO mapping.
-- [ ] Suggested commits:
+- [x] Suggested commits:
   - `refactor(update): move upd info reader to infra`
   - `refactor(download): centralize staged download IO`
   - `refactor(selfupdate): move installer IO to infra`
@@ -133,7 +133,7 @@ internal/infra implements app/domain boundary interfaces and is wired at the edg
   - `internal/infra` must not import `internal/cli`.
   - `internal/cli` may import app and bootstrap/runtime wiring, but command files should not import concrete infra once composition is isolated.
 - [x] Run `go test ./... && go vet ./...` after each phase and before merging the final cleanup.
-- [ ] Suggested commits:
+- [x] Suggested commits:
   - `refactor(app): narrow boundary ports`
   - `test(architecture): enforce cli and infra boundaries`
 

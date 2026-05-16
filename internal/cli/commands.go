@@ -440,6 +440,35 @@ type remoteInstallRequest struct {
 	BuildUpdate    func(app *models.App) *models.UpdateSource
 }
 
+func installDirectURLApp(ctx context.Context, req appservices.InstallDirectURLRequest) (*models.App, error) {
+	return integrateRemoteInstall(ctx, nil, remoteInstallRequest{
+		DisplayLabel:   req.URL,
+		DownloadURL:    req.URL,
+		ExpectedSHA256: req.SHA256,
+		BuildSource: func(app *models.App) models.Source {
+			return models.Source{Kind: models.SourceDirectURL, DirectURL: &models.DirectURLSource{URL: req.URL, SHA256: req.SHA256, DownloadedAt: app.UpdatedAt}}
+		},
+		BuildUpdate: func(*models.App) *models.UpdateSource { return &models.UpdateSource{Kind: models.UpdateNone} },
+	})
+}
+
+func installPackageRefApp(ctx context.Context, req appservices.InstallPackageRefRequest) (*models.App, error) {
+	metadata, err := resolvePackageMetadataFromRef(ctx, req.Ref, req.AssetPattern)
+	if err != nil {
+		return nil, err
+	}
+	return installPackageMetadata(ctx, nil, metadata)
+}
+
+func planPackageRefInstall(ctx context.Context, req appservices.InstallPackageRefRequest) (*appservices.DryRunPlan, error) {
+	metadata, err := resolvePackageMetadataFromRef(ctx, req.Ref, req.AssetPattern)
+	if err != nil {
+		return nil, err
+	}
+	values := map[string]interface{}{"action": "install", "target": formatProviderRef(req.Ref), "provider": req.Ref, "metadata": packageMetadataOutput(metadata)}
+	return &appservices.DryRunPlan{Action: "install", Target: formatProviderRef(req.Ref), Values: values}, nil
+}
+
 func integrateRemoteInstall(ctx context.Context, cmd *cobra.Command, req remoteInstallRequest) (*models.App, error) {
 	fileName := updateDownloadFilename(req.AssetName, req.DownloadURL)
 	downloadPath, err := stableDownloadDestination(req.DownloadURL, fileName)
@@ -455,20 +484,26 @@ func integrateRemoteInstall(ctx context.Context, cmd *cobra.Command, req remoteI
 
 	if strings.TrimSpace(req.ExpectedSHA256) != "" {
 		logOperationf(cmd, "Verifying %s", fileName)
-		printInfo(cmd, fmt.Sprintf("Verifying %s", fileName))
+		if cmd != nil {
+			printInfo(cmd, fmt.Sprintf("Verifying %s", fileName))
+		}
 		if err := verifyDownloadedUpdate(downloadPath, pendingManagedUpdate{ExpectedSHA256: req.ExpectedSHA256}); err != nil {
 			return nil, err
 		}
 	}
 
 	logOperationf(cmd, "Integrating %s", fileName)
-	app, err := runWithBusyIndicator(cmd, fmt.Sprintf("Integrating %s", fileName), func() (*models.App, error) {
+	integrate := func() (*models.App, error) {
 		return integrateLocalApp(ctx, downloadPath, func(existing, incoming *models.UpdateSource) (bool, error) {
 			_ = existing
 			_ = incoming
 			return false, nil
 		})
-	})
+	}
+	app, err := integrate()
+	if cmd != nil {
+		app, err = runWithBusyIndicator(cmd, fmt.Sprintf("Integrating %s", fileName), integrate)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -524,6 +559,9 @@ func chooseRemoteUpdateSource(cmd *cobra.Command, id string, incoming *models.Up
 		return incoming, nil
 	}
 
+	if cmd == nil {
+		return existing, nil
+	}
 	printCurrentIncoming(cmd, updateSummary(existing), updateSummary(incoming))
 	prompt := formatPrompt("Replace source for", id)
 	confirmed, err := confirmAction(cmd, prompt)
@@ -819,10 +857,6 @@ func runInstallTarget(ctx context.Context, cmd *cobra.Command, refArg string) er
 		return err
 	}
 
-	assetPattern, err := flagString(cmd, "asset")
-	if err != nil {
-		return err
-	}
 	sha256, err := flagString(cmd, "sha256")
 	if err != nil {
 		return err
@@ -830,36 +864,28 @@ func runInstallTarget(ctx context.Context, cmd *cobra.Command, refArg string) er
 	opts := runtimeOptionsFrom(cmd)
 
 	if opts.DryRun {
-		plan, err := buildInstallDryRunPlan(ctx, cmd, refArg, target, assetPattern, sha256)
+		plan, err := runtimeServicesFrom(cmd).Add.PlanDirectURLInstall(ctx, appservices.InstallDirectURLRequest{URL: target.URL, SHA256: sha256})
 		if err != nil {
 			return err
 		}
 		if opts.JSON {
-			return printJSONSuccess(cmd, plan)
+			return printJSONSuccess(cmd, plan.Values)
 		}
-		writeDataf(cmd, "Dry run: would install %s\n", plan["target"])
+		writeDataf(cmd, "Dry run: would install %s\n", plan.Values["target"])
 		return nil
 	}
 	if err := mustEnsureRuntimeDirs(); err != nil {
 		return err
 	}
 
-	var app *models.App
-	switch target.Kind {
-	case installTargetDirectURL:
-		app, err = integrateFromDirectURL(ctx, cmd, target, sha256)
-	case installTargetGitHub:
-		var metadata *models.PackageMetadata
-		metadata, err = resolveInstallablePackageMetadataFromTarget(ctx, cmd, refArg, target, assetPattern)
-		if err == nil {
-			app, err = installPackageMetadata(ctx, cmd, metadata)
-		}
-	default:
-		err = softwareError(fmt.Errorf("unsupported add target"))
+	if strings.TrimSpace(sha256) == "" {
+		printWarning(cmd, "No SHA-256 provided; skipping checksum verification")
 	}
+	result, err := runtimeServicesFrom(cmd).Add.InstallDirectURL(ctx, appservices.InstallDirectURLRequest{URL: target.URL, SHA256: sha256})
 	if err != nil {
 		return err
 	}
+	app := result.App
 
 	if opts.JSON {
 		return printJSONSuccess(cmd, map[string]interface{}{

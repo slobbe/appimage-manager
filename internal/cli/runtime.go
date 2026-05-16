@@ -359,9 +359,18 @@ func defaultRuntimeServices() runtimeServices {
 		Add: appservices.NewBasicAddService(appservices.BasicAddService{
 			IntegrateLocalApp: integrateLocalApp,
 			ReintegrateApp:    integrateExistingApp,
-			AppImageInfo:      appservices.AppImageInfoReaderFunc(readAppImageInfo),
-			AimDir:            config.AimDir,
-			DesktopDir:        config.DesktopDir,
+			InstallDirectURLApp: func(ctx context.Context, req appservices.InstallDirectURLRequest) (*domain.App, error) {
+				return installDirectURLApp(ctx, req)
+			},
+			InstallPackageRefApp: func(ctx context.Context, req appservices.InstallPackageRefRequest) (*domain.App, error) {
+				return installPackageRefApp(ctx, req)
+			},
+			PlanPackageRefInstallFunc: func(ctx context.Context, req appservices.InstallPackageRefRequest) (*appservices.DryRunPlan, error) {
+				return planPackageRefInstall(ctx, req)
+			},
+			AppImageInfo: appservices.AppImageInfoReaderFunc(readAppImageInfo),
+			AimDir:       config.AimDir,
+			DesktopDir:   config.DesktopDir,
 		}),
 		List: appservices.NewStoreListService(store),
 		Info: appservices.NewStoreInfoService(appservices.StoreInfoService{
