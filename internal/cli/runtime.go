@@ -343,11 +343,7 @@ type runtimeServices struct {
 	Update    appservices.UpdateService
 	Upgrade   appservices.UpgradeService
 	Discovery appservices.DiscoveryService
-	Locker    Locker
-}
-
-type Locker interface {
-	WithWriteLock(fn func() error) error
+	Locker    appservices.StateLocker
 }
 
 type updateSourceReplaceConfirmerFunc func(existing, incoming *domain.UpdateSource) (bool, error)

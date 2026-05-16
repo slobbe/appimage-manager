@@ -109,7 +109,7 @@ internal/infra implements app/domain boundary interfaces and is wired at the edg
 ### 5. Add interfaces only at boundaries: Repository, Downloader, ReleaseFinder, etc. Avoid abstracting everything.
 
 - [x] Define ports in the app package that owns the use case, only when crossing to infra or user interaction.
-- [ ] Keep these likely ports:
+- [x] Keep these likely ports:
   - `AppRepository` or `AppStore`
   - `PackageRepository` if package discovery/install grows beyond GitHub
   - `Downloader`

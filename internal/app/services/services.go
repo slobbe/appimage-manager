@@ -52,6 +52,14 @@ type DiscoveryService interface {
 	ResolvePackage(ctx context.Context, req PackageRefInfoRequest) (*domain.PackageMetadata, error)
 }
 
+type StateLocker interface {
+	WithWriteLock(fn func() error) error
+}
+
+type Clock interface {
+	NowISO() string
+}
+
 type IntegrateLocalRequest struct {
 	Path                       string
 	ConfirmUpdateSourceReplace UpdateSourceReplaceConfirmer
