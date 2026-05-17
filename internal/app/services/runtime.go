@@ -44,6 +44,8 @@ func (fn AppImageInfoReaderFunc) ReadAppImageInfo(ctx context.Context, path stri
 type IntegrateFunc func(context.Context, string, appintegrate.UpdateOverwritePrompt) (*domain.App, error)
 
 type BasicAddService struct {
+	Store                     AppStore
+	HasExtension              func(string, string) bool
 	IntegrateLocalApp         IntegrateFunc
 	ReintegrateApp            func(context.Context, string) (*domain.App, error)
 	InstallDirectURLApp       func(context.Context, InstallDirectURLRequest) (*domain.App, error)
@@ -57,6 +59,41 @@ type BasicAddService struct {
 
 func NewBasicAddService(service BasicAddService) BasicAddService {
 	return service
+}
+
+func (service BasicAddService) ResolveIntegrateTarget(ctx context.Context, input string) (*IntegrateTargetResult, error) {
+	_ = ctx
+	trimmed := strings.TrimSpace(input)
+	if trimmed == "" {
+		return nil, fmt.Errorf("missing required argument <Path/To.AppImage|id>")
+	}
+
+	if service.Store != nil {
+		if app, err := service.Store.GetApp(trimmed); err == nil && app != nil {
+			kind := IntegrateTargetIntegrated
+			if strings.TrimSpace(app.DesktopEntryLink) == "" {
+				kind = IntegrateTargetUnlinked
+			}
+			return &IntegrateTargetResult{Kind: kind, App: app}, nil
+		}
+	}
+
+	if strings.HasPrefix(trimmed, "https://") {
+		return nil, fmt.Errorf("remote sources are added with 'aim add'")
+	}
+	if strings.HasPrefix(strings.ToLower(trimmed), "http://") {
+		return nil, fmt.Errorf("direct URLs must use https; use 'aim add --url https://...'")
+	}
+
+	hasExtension := service.HasExtension
+	if hasExtension == nil {
+		hasExtension = func(value, ext string) bool { return strings.EqualFold(filepath.Ext(value), ext) }
+	}
+	if hasExtension(trimmed, ".AppImage") {
+		return &IntegrateTargetResult{Kind: IntegrateTargetLocalFile, LocalPath: trimmed}, nil
+	}
+
+	return nil, fmt.Errorf("unknown argument %s", input)
 }
 
 func (service BasicAddService) IntegrateLocal(ctx context.Context, req IntegrateLocalRequest) (*AddResult, error) {
@@ -378,12 +415,22 @@ func (service UpgradeWorkflowService) Upgrade(ctx context.Context, currentVersio
 	return upgrade(ctx, currentVersion)
 }
 
+type ManagedUpdateChecker func([]*domain.App, appupdate.ManagedCheckFunc) []appupdate.ManagedCheckResult
+
+type ManagedUpdateApplier func(context.Context, appupdate.ManagedUpdate, appupdate.ManagedApplyReporter) (*domain.App, error)
+
 type SourceUpdateService struct {
 	Store AppStore
+	CheckManagedUpdates ManagedUpdateChecker
+	ApplyManagedUpdate ManagedUpdateApplier
 }
 
 func NewSourceUpdateService(store AppStore) SourceUpdateService {
 	return SourceUpdateService{Store: store}
+}
+
+func NewSourceUpdateWorkflowService(service SourceUpdateService) SourceUpdateService {
+	return service
 }
 
 func (service SourceUpdateService) Check(ctx context.Context, req UpdateCheckRequest) (*UpdateCheckResult, error) {
@@ -411,7 +458,11 @@ func (service SourceUpdateService) Check(ctx context.Context, req UpdateCheckReq
 		}
 	}
 
-	checkResults := appupdate.CheckManagedUpdates(apps, nil)
+	check := service.CheckManagedUpdates
+	if check == nil {
+		check = appupdate.CheckManagedUpdates
+	}
+	checkResults := check(apps, nil)
 	statuses := make([]ManagedUpdateStatus, 0, len(checkResults))
 	for _, result := range checkResults {
 		statuses = append(statuses, ManagedUpdateStatus{App: result.App, Update: result.Update, Error: result.Error})
@@ -420,9 +471,40 @@ func (service SourceUpdateService) Check(ctx context.Context, req UpdateCheckReq
 }
 
 func (service SourceUpdateService) Apply(ctx context.Context, req UpdateApplyRequest) (*UpdateApplyResult, error) {
-	_ = ctx
-	_ = req
-	return nil, fmt.Errorf("update apply service is not configured")
+	if service.Store == nil {
+		return nil, fmt.Errorf("app store is not configured")
+	}
+	apply := service.ApplyManagedUpdate
+	if apply == nil {
+		return nil, fmt.Errorf("update apply service is not configured")
+	}
+	app, err := service.Store.GetApp(req.ID)
+	if err != nil {
+		return nil, err
+	}
+	if app == nil {
+		return nil, fmt.Errorf("managed app cannot be empty")
+	}
+	checks := appupdate.CheckManagedUpdates([]*domain.App{app}, nil)
+	if len(checks) == 0 || checks[0].Update == nil || !checks[0].Update.Available {
+		return &UpdateApplyResult{App: app}, nil
+	}
+	updated, err := apply(ctx, *checks[0].Update, nil)
+	if err != nil {
+		return nil, err
+	}
+	return &UpdateApplyResult{App: updated, Update: checks[0].Update}, nil
+}
+
+func (service SourceUpdateService) ApplyBatch(ctx context.Context, req UpdateApplyBatchRequest) (*UpdateApplyBatchResult, error) {
+	apply := service.ApplyManagedUpdate
+	if apply == nil {
+		return nil, fmt.Errorf("update apply service is not configured")
+	}
+	results := appupdate.ApplyManagedUpdates(ctx, req.Pending, func(ctx context.Context, update appupdate.ManagedUpdate, reporter appupdate.ManagedApplyReporter) (*domain.App, error) {
+		return apply(ctx, update, reporter)
+	}, req.ReporterFor)
+	return &UpdateApplyBatchResult{Results: results}, nil
 }
 
 func (service SourceUpdateService) SetSource(ctx context.Context, req UpdateSourceRequest) (*UpdateSourceResult, error) {

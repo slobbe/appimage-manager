@@ -6,25 +6,18 @@ import (
 )
 
 func TestRefreshDesktopIntegrationCachesDelegatesConfiguredPaths(t *testing.T) {
-	originalPaths := defaultPaths
-	t.Cleanup(func() {
-		defaultPaths = originalPaths
-	})
-	SetPaths(Paths{
-		AimDir:       "/tmp/aim",
-		DesktopDir:   "/tmp/applications",
-		TempDir:      "/tmp/tmp",
-		IconThemeDir: "/tmp/hicolor",
-	})
-	originalRefresher := defaultDesktopIntegrationCacheRefresher
-	t.Cleanup(func() {
-		defaultDesktopIntegrationCacheRefresher = originalRefresher
-	})
-
 	refresher := &recordingIntegrationCacheRefresher{}
-	SetDesktopIntegrationCacheRefresher(refresher)
+	service := Service{
+		Paths: Paths{
+			AimDir:       "/tmp/aim",
+			DesktopDir:   "/tmp/applications",
+			TempDir:      "/tmp/tmp",
+			IconThemeDir: "/tmp/hicolor",
+		},
+		DesktopIntegrationCacheRefresher: refresher,
+	}
 
-	refreshDesktopIntegrationCaches(context.Background())
+	service.refreshDesktopIntegrationCaches(context.Background())
 
 	if refresher.desktopDir != "/tmp/applications" {
 		t.Fatalf("desktopDir = %q, want /tmp/applications", refresher.desktopDir)

@@ -41,8 +41,12 @@ internal/infra implements app/domain boundary interfaces and is wired at the edg
   - `UpdateService`
   - `UpgradeService`
   - `DiscoveryService`
-- [ ] Move command workflow decisions out of `internal/cli/commands.go`; keep only flag parsing, superficial argument validation, prompts, progress display, output formatting, and exit/error rendering.
-- [ ] Convert `runIntegrateTarget`, install target handling, managed update apply, recovery, and dry-run planning into app service calls that return structured results.
+- [x] Move command workflow decisions out of `internal/cli/commands.go`; keep only flag parsing, superficial argument validation, prompts, progress display, output formatting, and exit/error rendering.
+- [x] Convert managed update apply, recovery, and remaining dry-run planning into app service calls that return structured results.
+- [x] Convert `runIntegrateTarget` target classification and dry-run planning into app service calls that return structured results.
+- [x] Convert direct URL install target workflow into an app service with explicit download, verify, integrate, persist, remove, and staged-file cleanup ports.
+- [x] Convert managed package install workflow into an app service with explicit download, integrate, source/update assignment, persist, remove, and staged-file cleanup ports.
+- [x] Route managed update target loading through app services instead of direct CLI repository reads.
 - [x] Split `internal/cli/app_ports.go` into a composition root, for example `internal/cli/runtime` or `internal/bootstrap`, whose job is only to construct app services with infra adapters.
 - [x] Move lock-file handling from `internal/cli/state_lock.go` behind an app-level `StateLock` or runtime-level `Locker` so commands do not directly own persistence coordination.
 - [x] Move `internal/cli/config` out of CLI, likely to `internal/infra/config`, and pass resolved paths/settings into app services explicitly.
@@ -80,7 +84,7 @@ internal/infra implements app/domain boundary interfaces and is wired at the edg
   - dry-run planning
 - [ ] Make app services depend on domain plus small ports, not concrete `infra` packages and not CLI callbacks except narrow user-decision ports such as `UpdateOverwriteConfirmer`.
 - [x] Return structured result types from app services so CLI can render text/JSON without app knowing about terminal formatting.
-- [ ] Remove global mutable defaults like `SetFilesystem`, `SetGitHubReleaseResolver`, `SetSelfUpdater`, and `SharedHTTPClient` from app packages after services are wired explicitly.
+- [x] Remove global mutable defaults like `SetFilesystem`, `SetGitHubReleaseResolver`, `SetSelfUpdater`, and `SharedHTTPClient` from app packages after services are wired explicitly.
 - [ ] Keep transaction/workflow coordination in app: load app, decide with domain, call repository/downloader/filesystem ports, persist result, refresh caches.
 - [x] Add app tests with fakes for repositories, downloaders, release finders, filesystem, AppImage extractor, desktop integration, clock, and locker.
 - [x] Suggested commits:
@@ -183,7 +187,7 @@ internal/architecture/
 
 ## Definition of Done
 
-- [ ] CLI command handlers are thin and do not directly call repositories, HTTP clients, shell commands, desktop validators, or filesystem persistence except through service results/rendering.
+- [x] CLI command handlers are thin and do not directly call repositories, HTTP clients, shell commands, desktop validators, or filesystem persistence except through service results/rendering.
 - [x] Domain contains the stable business rules and has no IO, env, HTTP, CLI, or concrete infra imports.
 - [ ] App services coordinate workflows with explicit dependencies and no package-level global setters.
 - [x] Infra owns concrete filesystem, HTTP, GitHub, config, desktop, repository, self-update, AppImage extraction, and zsync behavior.

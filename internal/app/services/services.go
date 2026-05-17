@@ -10,6 +10,7 @@ import (
 )
 
 type AddService interface {
+	ResolveIntegrateTarget(ctx context.Context, input string) (*IntegrateTargetResult, error)
 	IntegrateLocal(ctx context.Context, req IntegrateLocalRequest) (*AddResult, error)
 	Reintegrate(ctx context.Context, id string) (*AddResult, error)
 	InstallDirectURL(ctx context.Context, req InstallDirectURLRequest) (*AddResult, error)
@@ -37,6 +38,7 @@ type RemoveService interface {
 type UpdateService interface {
 	Check(ctx context.Context, req UpdateCheckRequest) (*UpdateCheckResult, error)
 	Apply(ctx context.Context, req UpdateApplyRequest) (*UpdateApplyResult, error)
+	ApplyBatch(ctx context.Context, req UpdateApplyBatchRequest) (*UpdateApplyBatchResult, error)
 	SetSource(ctx context.Context, req UpdateSourceRequest) (*UpdateSourceResult, error)
 	UnsetSource(ctx context.Context, id string) (*UpdateSourceResult, error)
 	PlanSetSource(ctx context.Context, req UpdateSourceRequest) (*DryRunPlan, error)
@@ -63,6 +65,20 @@ type Clock interface {
 type IntegrateLocalRequest struct {
 	Path                       string
 	ConfirmUpdateSourceReplace UpdateSourceReplaceConfirmer
+}
+
+type IntegrateTargetKind string
+
+const (
+	IntegrateTargetLocalFile  IntegrateTargetKind = "local_file"
+	IntegrateTargetUnlinked   IntegrateTargetKind = "unlinked"
+	IntegrateTargetIntegrated IntegrateTargetKind = "integrated"
+)
+
+type IntegrateTargetResult struct {
+	Kind      IntegrateTargetKind
+	App       *domain.App
+	LocalPath string
 }
 
 type InstallDirectURLRequest struct {
@@ -104,6 +120,11 @@ type UpdateApplyRequest struct {
 	ID string
 }
 
+type UpdateApplyBatchRequest struct {
+	Pending     []update.ManagedUpdate
+	ReporterFor update.ManagedApplyReporterFactory
+}
+
 type UpdateSourceRequest struct {
 	ID     string
 	Source *domain.UpdateSource
@@ -139,6 +160,10 @@ type UpdateCheckResult struct {
 type UpdateApplyResult struct {
 	App    *domain.App
 	Update *update.ManagedUpdate
+}
+
+type UpdateApplyBatchResult struct {
+	Results []update.ManagedApplyResult
 }
 
 type UpdateSourceResult struct {

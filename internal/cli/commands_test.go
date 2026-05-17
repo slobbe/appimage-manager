@@ -22,6 +22,7 @@ import (
 	appimage "github.com/slobbe/appimage-manager/internal/app/appimage"
 	"github.com/slobbe/appimage-manager/internal/app/discovery"
 	appintegrate "github.com/slobbe/appimage-manager/internal/app/integrate"
+	appservices "github.com/slobbe/appimage-manager/internal/app/services"
 	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
 	appupgrade "github.com/slobbe/appimage-manager/internal/app/upgrade"
 	models "github.com/slobbe/appimage-manager/internal/domain"
@@ -72,13 +73,13 @@ func TestResolveIntegrateTarget(t *testing.T) {
 	tests := []struct {
 		name      string
 		input     string
-		expect    integrateTargetKind
+		expect    appservices.IntegrateTargetKind
 		wantError bool
 		errText   string
 	}{
-		{name: "local appimage path", input: "/tmp/MyApp.AppImage", expect: integrateTargetLocalFile},
-		{name: "integrated id", input: "integrated", expect: integrateTargetIntegrated},
-		{name: "unlinked id", input: "unlinked", expect: integrateTargetUnlinked},
+		{name: "local appimage path", input: "/tmp/MyApp.AppImage", expect: appservices.IntegrateTargetLocalFile},
+		{name: "integrated id", input: "integrated", expect: appservices.IntegrateTargetIntegrated},
+		{name: "unlinked id", input: "unlinked", expect: appservices.IntegrateTargetUnlinked},
 		{name: "direct url rejected", input: "https://example.com/MyApp.AppImage", wantError: true, errText: "remote sources are added with 'aim add'"},
 		{name: "github repo rejected", input: "github:owner/repo", wantError: true, errText: "unknown argument github:owner/repo"},
 		{name: "http rejected", input: "http://example.com/MyApp.AppImage", wantError: true, errText: "direct URLs must use https; use 'aim add --url https://...'"},
@@ -86,9 +87,14 @@ func TestResolveIntegrateTarget(t *testing.T) {
 		{name: "unknown id", input: "missing", wantError: true},
 	}
 
+	service := appservices.NewBasicAddService(appservices.BasicAddService{
+		Store:        repo.NewStore(dbPath),
+		HasExtension: runtimeHasExtension,
+	})
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := resolveIntegrateTarget(tt.input)
+			got, err := service.ResolveIntegrateTarget(context.Background(), tt.input)
 			if tt.wantError {
 				if err == nil {
 					t.Fatalf("resolveIntegrateTarget(%q) expected error", tt.input)
@@ -3830,13 +3836,9 @@ func TestRenderCommandErrorIncludesOperationLog(t *testing.T) {
 func TestPrepareRuntimeLoadsSettingsTimeout(t *testing.T) {
 	rootDir := t.TempDir()
 	originalPaths := config.CurrentPaths()
-	originalTimeout := appupdate.SharedHTTPClient().Timeout
-	originalUpgradeTimeout := appupgrade.SharedHTTPClient().Timeout
 	originalDownloadHeaderTimeout := sharedDownloadHTTPTransport(t).ResponseHeaderTimeout
 	t.Cleanup(func() {
 		config.ApplyPaths(originalPaths)
-		appupdate.SetHTTPClientTimeout(originalTimeout)
-		appupgrade.SetHTTPClientTimeout(originalUpgradeTimeout)
 		download.SetHTTPClientTimeout(originalDownloadHeaderTimeout)
 	})
 
@@ -3856,12 +3858,7 @@ func TestPrepareRuntimeLoadsSettingsTimeout(t *testing.T) {
 	if got := runtimeSettingsFrom(cmd).NetworkTimeout; got != 45*time.Second {
 		t.Fatalf("runtime timeout = %s, want 45s", got)
 	}
-	if got := appupdate.SharedHTTPClient().Timeout; got != 45*time.Second {
-		t.Fatalf("shared HTTP timeout = %s, want 45s", got)
-	}
-	if got := appupgrade.SharedHTTPClient().Timeout; got != 45*time.Second {
-		t.Fatalf("shared upgrade HTTP timeout = %s, want 45s", got)
-	}
+
 	if got := download.SharedHTTPClient().Timeout; got != 0 {
 		t.Fatalf("shared download HTTP timeout = %s, want 0", got)
 	}

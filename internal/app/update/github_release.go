@@ -48,23 +48,23 @@ type GitHubReleaseResolver interface {
 
 var defaultGitHubReleaseResolver GitHubReleaseResolver
 
-func SetGitHubReleaseResolver(resolver GitHubReleaseResolver) {
-	defaultGitHubReleaseResolver = resolver
+func GitHubReleaseUpdateCheck(update *models.UpdateSource, currentVersion, localSHA1 string) (*GitHubReleaseUpdate, error) {
+	return GitHubReleaseUpdateCheckWithResolver(update, currentVersion, localSHA1, defaultGitHubReleaseResolver, defaultZsyncMetadataFetcher)
 }
 
-func GitHubReleaseUpdateCheck(update *models.UpdateSource, currentVersion, localSHA1 string) (*GitHubReleaseUpdate, error) {
+func GitHubReleaseUpdateCheckWithResolver(update *models.UpdateSource, currentVersion, localSHA1 string, resolver GitHubReleaseResolver, fetcher ZsyncMetadataFetcher) (*GitHubReleaseUpdate, error) {
 	if update == nil || update.Kind != models.UpdateGitHubRelease || update.GitHubRelease == nil {
 		return nil, fmt.Errorf("invalid github release update source")
 	}
 
-	release, err := ResolveGitHubReleaseAsset(update.GitHubRelease.Repo, update.GitHubRelease.Asset)
+	release, err := resolveGitHubReleaseAsset(update.GitHubRelease.Repo, update.GitHubRelease.Asset, resolver)
 	if err != nil {
 		return nil, err
 	}
 
 	var transport models.ReleaseTransport
 	if models.NewReleaseUpdate(currentVersion, release.TagName, release.DownloadURL, release.AssetName, release.PreRelease, transport).Available {
-		resolved := resolveReleaseTransport(release.DownloadURL, localSHA1)
+		resolved := resolveReleaseTransportWithFetcher(release.DownloadURL, localSHA1, fetcher)
 		transport = models.ReleaseTransport{
 			Transport:    resolved.Transport,
 			ZsyncURL:     resolved.ZsyncURL,
@@ -88,18 +88,11 @@ func GitHubReleaseUpdateCheck(update *models.UpdateSource, currentVersion, local
 	return result, nil
 }
 
-func ResolveGitHubReleaseAsset(repoSlug, assetPattern string) (*GitHubReleaseAsset, error) {
-	if defaultGitHubReleaseResolver == nil {
+func resolveGitHubReleaseAsset(repoSlug, assetPattern string, resolver GitHubReleaseResolver) (*GitHubReleaseAsset, error) {
+	if resolver == nil {
 		return nil, fmt.Errorf("github release resolver is not configured")
 	}
-	return defaultGitHubReleaseResolver.ResolveReleaseAsset(repoSlug, assetPattern)
-}
-
-func ResolveGitHubReleaseAssetSelection(repoSlug, assetPattern, arch string) (*GitHubReleaseAssetSelection, error) {
-	if defaultGitHubReleaseResolver == nil {
-		return nil, fmt.Errorf("github release resolver is not configured")
-	}
-	return defaultGitHubReleaseResolver.ResolveReleaseAssetSelection(repoSlug, assetPattern, arch)
+	return resolver.ResolveReleaseAsset(repoSlug, assetPattern)
 }
 
 func ResolveLatestGitHubReleaseTag(owner, repo string) (string, error) {

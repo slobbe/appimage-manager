@@ -13,7 +13,7 @@ func TestResolveManagedAppIDUsesSlugifiedName(t *testing.T) {
 	tmp := t.TempDir()
 	setupIntegrationConfigForTest(t, tmp)
 
-	id, replacement, err := ResolveManagedAppID("ClickUp", "desktop", "/tmp/desktop.AppImage", incomingIdentity("desktop", "ClickUp", "/tmp/desktop.AppImage"))
+	id, replacement, err := testService.ResolveManagedAppID("ClickUp", "desktop", "/tmp/desktop.AppImage", incomingIdentity("desktop", "ClickUp", "/tmp/desktop.AppImage"))
 	if err != nil {
 		t.Fatalf("ResolveManagedAppID returned error: %v", err)
 	}
@@ -29,7 +29,7 @@ func TestResolveManagedAppIDFallsBackToUpstreamID(t *testing.T) {
 	tmp := t.TempDir()
 	setupIntegrationConfigForTest(t, tmp)
 
-	id, _, err := ResolveManagedAppID("---", "desktop", "/tmp/desktop.AppImage", incomingIdentity("desktop", "---", "/tmp/desktop.AppImage"))
+	id, _, err := testService.ResolveManagedAppID("---", "desktop", "/tmp/desktop.AppImage", incomingIdentity("desktop", "---", "/tmp/desktop.AppImage"))
 	if err != nil {
 		t.Fatalf("ResolveManagedAppID returned error: %v", err)
 	}
@@ -46,7 +46,7 @@ func TestResolveManagedAppIDDisambiguatesWithUpstreamID(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	id, _, err := ResolveManagedAppID("Notes", "com.vendor2.Notes", "/tmp/vendor2.AppImage", incomingIdentity("com.vendor2.Notes", "Notes", "/tmp/vendor2.AppImage"))
+	id, _, err := testService.ResolveManagedAppID("Notes", "com.vendor2.Notes", "/tmp/vendor2.AppImage", incomingIdentity("com.vendor2.Notes", "Notes", "/tmp/vendor2.AppImage"))
 	if err != nil {
 		t.Fatalf("ResolveManagedAppID returned error: %v", err)
 	}
@@ -67,7 +67,7 @@ func TestResolveManagedAppIDDisambiguatesWithHash(t *testing.T) {
 	}
 
 	seed := "/tmp/vendor2.AppImage"
-	id, _, err := ResolveManagedAppID("Notes", "com.vendor2.Notes", seed, incomingIdentity("com.vendor2.Notes", "Notes", seed))
+	id, _, err := testService.ResolveManagedAppID("Notes", "com.vendor2.Notes", seed, incomingIdentity("com.vendor2.Notes", "Notes", seed))
 	if err != nil {
 		t.Fatalf("ResolveManagedAppID returned error: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestResolveManagedAppIDReusesSameEquivalentID(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	id, replacement, err := ResolveManagedAppID("ClickUp", "desktop", src, incomingIdentity("desktop", "ClickUp", src))
+	id, replacement, err := testService.ResolveManagedAppID("ClickUp", "desktop", src, incomingIdentity("desktop", "ClickUp", src))
 	if err != nil {
 		t.Fatalf("ResolveManagedAppID returned error: %v", err)
 	}
@@ -108,7 +108,7 @@ func TestResolveManagedAppIDReturnsEquivalentReplacementForOldID(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	id, replacement, err := ResolveManagedAppID("ClickUp", "desktop", src, incomingIdentity("desktop", "ClickUp", src))
+	id, replacement, err := testService.ResolveManagedAppID("ClickUp", "desktop", src, incomingIdentity("desktop", "ClickUp", src))
 	if err != nil {
 		t.Fatalf("ResolveManagedAppID returned error: %v", err)
 	}

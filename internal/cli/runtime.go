@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	appimageapp "github.com/slobbe/appimage-manager/internal/app/appimage"
 	appintegrate "github.com/slobbe/appimage-manager/internal/app/integrate"
 	appremove "github.com/slobbe/appimage-manager/internal/app/remove"
 	appservices "github.com/slobbe/appimage-manager/internal/app/services"
@@ -11,6 +12,8 @@ import (
 	appupgrade "github.com/slobbe/appimage-manager/internal/app/upgrade"
 	"github.com/slobbe/appimage-manager/internal/domain"
 	"github.com/slobbe/appimage-manager/internal/infra/config"
+	"github.com/slobbe/appimage-manager/internal/infra/github"
+	"github.com/slobbe/appimage-manager/internal/infra/httpclient"
 	"github.com/spf13/cobra"
 	"golang.org/x/sys/unix"
 	"os"
@@ -62,14 +65,9 @@ func prepareRuntime(cmd *cobra.Command) error {
 	if err != nil {
 		return err
 	}
-	appupdate.SetHTTPClientTimeout(settings.NetworkTimeout)
-	appupgrade.SetHTTPClientTimeout(settings.NetworkTimeout)
 	setRuntimeDownloadTimeout(settings.NetworkTimeout)
 	configureAppPorts(settings.NetworkTimeout)
-	appintegrate.SetPaths(integratePathsFromConfig(config.CurrentPaths()))
-	appremove.SetPaths(removePathsFromConfig(config.CurrentPaths()))
-	appupgrade.SetPaths(upgradePathsFromConfig(config.CurrentPaths()))
-	configureRepositoryStores()
+	configureRuntimeWorkflowServices()
 
 	if opts.Debug {
 		writeLogf(cmd, "DEBUG: Using AIM paths: data=%s db=%s temp=%s config=%s timeout=%s\n", config.AimDir, config.DbSrc, config.TempDir, config.ConfigDir, settings.NetworkTimeout)
@@ -83,10 +81,17 @@ func prepareRuntime(cmd *cobra.Command) error {
 	ctx = context.WithValue(ctx, runtimeContextKey{}, opts)
 	ctx = context.WithValue(ctx, runtimeSettingsContextKey{}, settings)
 	if _, ok := ctx.Value(runtimeServicesContextKey{}).(runtimeServices); !ok {
-		ctx = withRuntimeServices(ctx, defaultRuntimeServices())
+		ctx = withRuntimeServices(ctx, defaultRuntimeServicesForSettings(settings))
 	}
 	cmd.SetContext(ctx)
 	return nil
+}
+
+func appimagePathsFromConfig(paths config.Paths) appimageapp.Paths {
+	return appimageapp.Paths{
+		AimDir:  paths.AimDir,
+		TempDir: paths.TempDir,
+	}
 }
 
 func integratePathsFromConfig(paths config.Paths) appintegrate.Paths {
@@ -351,17 +356,46 @@ func (fn updateSourceReplaceConfirmerFunc) ConfirmUpdateSourceReplace(existing, 
 }
 
 func defaultRuntimeServices() runtimeServices {
+	return defaultRuntimeServicesForSettings(runtimeSettings{NetworkTimeout: 30 * time.Second})
+}
+
+func defaultRuntimeServicesForSettings(settings runtimeSettings) runtimeServices {
 	store := repositoryStore()
 	discoveryService := appservices.NewDiscoveryWorkflowService(appservices.DiscoveryWorkflowService{BackendsFunc: discoveryBackends})
+	apiClient := httpclient.New(settings.NetworkTimeout)
+	selfUpdater := selfUpdaterAdapter{client: apiClient}
+	zsyncMetadataFetcher := zsyncMetadataFetcherAdapter{client: apiClient}
+	gitHubReleaseResolver := gitHubReleaseAdapter{client: github.Client{HTTPClient: apiClient}}
+	upgradeService := appupgrade.NewService(appupgrade.Service{
+		TempDir:     config.TempDir,
+		SelfUpdater: selfUpdater,
+	})
+	remoteInstallService := appservices.NewRemoteInstallService(appservices.RemoteInstallService{
+		Store:             store,
+		Filename:          updateDownloadFilename,
+		StableDestination: stableDownloadDestination,
+		Download: func(ctx context.Context, assetURL, destination string) error {
+			return downloadRemoteAsset(ctx, assetURL, destination, isTerminalStderr())
+		},
+		VerifySHA256: func(path, expectedSHA256 string) error {
+			return verifyDownloadedUpdate(path, pendingManagedUpdate{ExpectedSHA256: expectedSHA256})
+		},
+		IntegrateLocalApp: integrateLocalApp,
+		PersistApp:        addSingleApp,
+		RemoveApp:         removeManagedApp,
+		RemoveStaged:      removeStagedDownload,
+	})
 	return runtimeServices{
 		Add: appservices.NewBasicAddService(appservices.BasicAddService{
+			Store:             store,
+			HasExtension:      runtimeHasExtension,
 			IntegrateLocalApp: integrateLocalApp,
 			ReintegrateApp:    integrateExistingApp,
 			InstallDirectURLApp: func(ctx context.Context, req appservices.InstallDirectURLRequest) (*domain.App, error) {
-				return installDirectURLApp(ctx, req)
+				return remoteInstallService.InstallDirectURL(ctx, req)
 			},
 			InstallPackageRefApp: func(ctx context.Context, metadata *domain.PackageMetadata) (*domain.App, error) {
-				return installPackageMetadata(ctx, nil, metadata)
+				return remoteInstallService.InstallPackageMetadata(ctx, metadata)
 			},
 			PlanPackageRefInstallFunc: func(ctx context.Context, req appservices.InstallPackageRefRequest) (*appservices.DryRunPlan, error) {
 				return planPackageRefInstall(ctx, req)
@@ -378,9 +412,37 @@ func defaultRuntimeServices() runtimeServices {
 			UpdateInfo: appservices.UpdateInfoReaderFunc(getAppImageUpdateInfo),
 			Discovery:  discoveryService,
 		}),
-		Remove:    appservices.NewRemoveWorkflowService(appservices.RemoveWorkflowService{Store: store, RemoveFunc: removeManagedApp}),
-		Update:    appservices.NewSourceUpdateService(store),
-		Upgrade:   appservices.NewUpgradeWorkflowService(appservices.UpgradeWorkflowService{CheckFunc: checkAimUpgrade, UpgradeFunc: runUpgradeViaInstaller}),
+		Remove: appservices.NewRemoveWorkflowService(appservices.RemoveWorkflowService{Store: store, RemoveFunc: removeManagedApp}),
+		Update: appservices.NewSourceUpdateWorkflowService(appservices.SourceUpdateService{
+			Store: store,
+			CheckManagedUpdates: func(apps []*domain.App, check appupdate.ManagedCheckFunc) []appupdate.ManagedCheckResult {
+				if check == nil {
+					checker := appupdate.NewManagedUpdateChecker(appupdate.ManagedUpdateChecker{
+						ZsyncMetadataFetcher:  zsyncMetadataFetcher,
+						GitHubReleaseResolver: gitHubReleaseResolver,
+					})
+					check = checker.Check
+				}
+				return appupdate.CheckManagedUpdates(apps, check)
+			},
+			ApplyManagedUpdate: func(ctx context.Context, update appupdate.ManagedUpdate, reporter appupdate.ManagedApplyReporter) (*domain.App, error) {
+				return runManagedApply(ctx, update, reporter)
+			},
+		}),
+		Upgrade: appservices.NewUpgradeWorkflowService(appservices.UpgradeWorkflowService{
+			CheckFunc: func(ctx context.Context, currentVersion string) (*appupgrade.AimUpgradeCheckResult, error) {
+				if checkAimUpgrade != nil {
+					return checkAimUpgrade(ctx, currentVersion)
+				}
+				return upgradeService.Check(ctx, currentVersion)
+			},
+			UpgradeFunc: func(ctx context.Context, currentVersion string) (*appupgrade.InstallerUpgradeResult, error) {
+				if runUpgradeViaInstaller != nil {
+					return runUpgradeViaInstaller(ctx, currentVersion)
+				}
+				return upgradeService.Upgrade(ctx, currentVersion)
+			},
+		}),
 		Discovery: discoveryService,
 		Locker:    stateFileLocker{},
 	}

@@ -8,15 +8,10 @@ import (
 )
 
 func TestValidateDesktopEntryDelegatesToConfiguredValidator(t *testing.T) {
-	originalValidator := defaultDesktopEntryValidator
-	t.Cleanup(func() {
-		defaultDesktopEntryValidator = originalValidator
-	})
-
 	validator := &recordingDesktopEntryValidator{}
-	SetDesktopEntryValidator(validator)
+	service := Service{DesktopEntryValidator: validator}
 
-	if err := ValidateDesktopEntry(context.Background(), "/tmp/app.desktop"); err != nil {
+	if err := service.ValidateDesktopEntry(context.Background(), "/tmp/app.desktop"); err != nil {
 		t.Fatalf("ValidateDesktopEntry returned error: %v", err)
 	}
 	if validator.path != "/tmp/app.desktop" {
@@ -25,14 +20,9 @@ func TestValidateDesktopEntryDelegatesToConfiguredValidator(t *testing.T) {
 }
 
 func TestValidateDesktopEntryPropagatesValidatorError(t *testing.T) {
-	originalValidator := defaultDesktopEntryValidator
-	t.Cleanup(func() {
-		defaultDesktopEntryValidator = originalValidator
-	})
+	service := Service{DesktopEntryValidator: &recordingDesktopEntryValidator{err: fmt.Errorf("invalid desktop entry")}}
 
-	SetDesktopEntryValidator(&recordingDesktopEntryValidator{err: fmt.Errorf("invalid desktop entry")})
-
-	err := ValidateDesktopEntry(context.Background(), "/tmp/app.desktop")
+	err := service.ValidateDesktopEntry(context.Background(), "/tmp/app.desktop")
 	if err == nil {
 		t.Fatal("expected validation error")
 	}

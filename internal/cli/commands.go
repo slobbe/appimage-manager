@@ -5,9 +5,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	appimage "github.com/slobbe/appimage-manager/internal/app/appimage"
-	"github.com/slobbe/appimage-manager/internal/app/discovery"
-	appintegrate "github.com/slobbe/appimage-manager/internal/app/integrate"
-	appremove "github.com/slobbe/appimage-manager/internal/app/remove"
 	appservices "github.com/slobbe/appimage-manager/internal/app/services"
 	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
 	appupgrade "github.com/slobbe/appimage-manager/internal/app/upgrade"
@@ -16,7 +13,6 @@ import (
 	"net/url"
 	"path/filepath"
 	"strings"
-	"time"
 )
 
 func RootCmd(cmd *cobra.Command, args []string) error {
@@ -91,7 +87,7 @@ func AddCmd(cmd *cobra.Command, args []string) error {
 		if strings.TrimSpace(selection.DirectURL) != "" {
 			return runInstallTarget(cmd.Context(), cmd, selection.DirectURL)
 		}
-		if _, err := resolveIntegrateTarget(selection.Positional); err == nil {
+		if _, err := runtimeServicesFrom(cmd).Add.ResolveIntegrateTarget(cmd.Context(), selection.Positional); err == nil {
 			if err := validateAddIntegrateFlags(cmd); err != nil {
 				return err
 			}
@@ -162,29 +158,15 @@ func resolveAddInput(cmd *cobra.Command, args []string) (addInputSelection, erro
 	return addInputSelection{Positional: value}, nil
 }
 
-type integrateTargetKind string
-
-const (
-	integrateTargetLocalFile  integrateTargetKind = "local_file"
-	integrateTargetUnlinked   integrateTargetKind = "unlinked"
-	integrateTargetIntegrated integrateTargetKind = "integrated"
-)
-
-type integrateTarget struct {
-	Kind      integrateTargetKind
-	App       *models.App
-	LocalPath string
-}
-
 func runIntegrateTarget(ctx context.Context, cmd *cobra.Command, input string) error {
-	target, err := resolveIntegrateTarget(input)
+	target, err := runtimeServicesFrom(cmd).Add.ResolveIntegrateTarget(ctx, input)
 	if err != nil {
-		return err
+		return usageError(err)
 	}
 	opts := runtimeOptionsFrom(cmd)
 
 	switch target.Kind {
-	case integrateTargetIntegrated:
+	case appservices.IntegrateTargetIntegrated:
 		if opts.JSON {
 			return printJSONSuccess(cmd, map[string]interface{}{
 				"status": "already_integrated",
@@ -193,7 +175,7 @@ func runIntegrateTarget(ctx context.Context, cmd *cobra.Command, input string) e
 		}
 		printSuccess(cmd, fmt.Sprintf("Already integrated: %s", formatAppRef(target.App)))
 		return nil
-	case integrateTargetUnlinked:
+	case appservices.IntegrateTargetUnlinked:
 		if opts.DryRun {
 			result := map[string]interface{}{
 				"status": "dry_run",
@@ -222,7 +204,7 @@ func runIntegrateTarget(ctx context.Context, cmd *cobra.Command, input string) e
 		}
 		printSuccess(cmd, fmt.Sprintf("Reintegrated: %s", formatAppRef(app)))
 		return nil
-	case integrateTargetLocalFile:
+	case appservices.IntegrateTargetLocalFile:
 		if opts.DryRun {
 			plan, err := runtimeServicesFrom(cmd).Add.PlanLocalIntegration(ctx, target.LocalPath)
 			if err != nil {
@@ -278,35 +260,6 @@ func runIntegrateTarget(ctx context.Context, cmd *cobra.Command, input string) e
 	}
 }
 
-func resolveIntegrateTarget(input string) (*integrateTarget, error) {
-	trimmed := strings.TrimSpace(input)
-	if trimmed == "" {
-		return nil, usageError(fmt.Errorf("missing required argument <Path/To.AppImage|id>"))
-	}
-
-	if app, err := getManagedApp(trimmed); err == nil {
-		kind := integrateTargetIntegrated
-		if strings.TrimSpace(app.DesktopEntryLink) == "" {
-			kind = integrateTargetUnlinked
-		}
-		return &integrateTarget{Kind: kind, App: app}, nil
-	}
-
-	if strings.HasPrefix(trimmed, "https://") {
-		return nil, usageError(fmt.Errorf("remote sources are added with 'aim add'"))
-	}
-
-	if strings.HasPrefix(strings.ToLower(trimmed), "http://") {
-		return nil, usageError(fmt.Errorf("direct URLs must use https; use 'aim add --url https://...'"))
-	}
-
-	if runtimeHasExtension(trimmed, ".AppImage") {
-		return &integrateTarget{Kind: integrateTargetLocalFile, LocalPath: trimmed}, nil
-	}
-
-	return nil, usageError(fmt.Errorf("unknown argument %s", input))
-}
-
 type installTargetKind string
 
 const (
@@ -334,15 +287,11 @@ func resolveInstallTarget(input string) (*installTarget, error) {
 		return nil, usageError(fmt.Errorf("--url must use https"))
 	}
 
-	if app, err := getManagedApp(trimmed); err == nil && app != nil {
-		return nil, usageError(fmt.Errorf("managed app IDs are added with 'aim add <id>'"))
-	}
-
 	if runtimeHasExtension(trimmed, ".AppImage") {
 		return nil, usageError(fmt.Errorf("local AppImages are added with 'aim add <Path/To.AppImage>'"))
 	}
 
-	return nil, usageError(fmt.Errorf("--url must be a valid https URL"))
+	return nil, usageError(fmt.Errorf("--url must be a valid https URL; managed app IDs are added with 'aim add <id>'"))
 }
 
 func validateInstallTargetFlags(cmd *cobra.Command, target *installTarget) error {
@@ -378,93 +327,10 @@ func validateInstallTargetFlags(cmd *cobra.Command, target *installTarget) error
 	return nil
 }
 
-func integrateFromDirectURL(ctx context.Context, cmd *cobra.Command, target *installTarget, sha256 string) (*models.App, error) {
-	if strings.TrimSpace(sha256) == "" {
-		printWarning(cmd, "No SHA-256 provided; skipping checksum verification")
-	}
-
-	return integrateRemoteInstall(ctx, cmd, remoteInstallRequest{
-		DisplayLabel:   target.URL,
-		DownloadURL:    target.URL,
-		ExpectedSHA256: sha256,
-		BuildSource: func(app *models.App) models.Source {
-			return models.Source{
-				Kind: models.SourceDirectURL,
-				DirectURL: &models.DirectURLSource{
-					URL:          target.URL,
-					SHA256:       sha256,
-					DownloadedAt: app.UpdatedAt,
-				},
-			}
-		},
-		BuildUpdate: func(*models.App) *models.UpdateSource {
-			return &models.UpdateSource{Kind: models.UpdateNone}
-		},
-	})
-}
-
-func integrateGitHubReleaseAsset(ctx context.Context, cmd *cobra.Command, target *installTarget, assetPattern string, release *appupdate.GitHubReleaseAsset) (*models.App, error) {
-	return integrateRemoteInstall(ctx, cmd, remoteInstallRequest{
-		DisplayLabel: target.Repo,
-		DownloadURL:  release.DownloadURL,
-		AssetName:    release.AssetName,
-		BuildSource: func(app *models.App) models.Source {
-			return models.Source{
-				Kind: models.SourceGitHubRelease,
-				GitHubRelease: &models.GitHubReleaseSource{
-					Repo:         target.Repo,
-					Asset:        assetPattern,
-					Tag:          release.TagName,
-					AssetName:    release.AssetName,
-					DownloadedAt: app.UpdatedAt,
-				},
-			}
-		},
-		BuildUpdate: func(*models.App) *models.UpdateSource {
-			return &models.UpdateSource{
-				Kind: models.UpdateGitHubRelease,
-				GitHubRelease: &models.GitHubReleaseUpdateSource{
-					Repo:  target.Repo,
-					Asset: assetPattern,
-				},
-			}
-		},
-	})
-}
-
 type packageAmbiguityResolverFunc func(*models.PackageMetadata) (*models.PackageMetadata, error)
 
 func (fn packageAmbiguityResolverFunc) ResolvePackageAmbiguity(metadata *models.PackageMetadata) (*models.PackageMetadata, error) {
 	return fn(metadata)
-}
-
-type remoteInstallRequest struct {
-	DisplayLabel   string
-	DownloadURL    string
-	AssetName      string
-	ExpectedSHA256 string
-	BuildSource    func(app *models.App) models.Source
-	BuildUpdate    func(app *models.App) *models.UpdateSource
-}
-
-func installDirectURLApp(ctx context.Context, req appservices.InstallDirectURLRequest) (*models.App, error) {
-	return integrateRemoteInstall(ctx, nil, remoteInstallRequest{
-		DisplayLabel:   req.URL,
-		DownloadURL:    req.URL,
-		ExpectedSHA256: req.SHA256,
-		BuildSource: func(app *models.App) models.Source {
-			return models.Source{Kind: models.SourceDirectURL, DirectURL: &models.DirectURLSource{URL: req.URL, SHA256: req.SHA256, DownloadedAt: app.UpdatedAt}}
-		},
-		BuildUpdate: func(*models.App) *models.UpdateSource { return &models.UpdateSource{Kind: models.UpdateNone} },
-	})
-}
-
-func installPackageRefApp(ctx context.Context, req appservices.InstallPackageRefRequest) (*models.App, error) {
-	metadata, err := resolvePackageMetadataFromRef(ctx, req.Ref, req.AssetPattern)
-	if err != nil {
-		return nil, err
-	}
-	return installPackageMetadata(ctx, nil, metadata)
 }
 
 func planPackageRefInstall(ctx context.Context, req appservices.InstallPackageRefRequest) (*appservices.DryRunPlan, error) {
@@ -474,112 +340,6 @@ func planPackageRefInstall(ctx context.Context, req appservices.InstallPackageRe
 	}
 	values := map[string]interface{}{"action": "install", "target": formatProviderRef(req.Ref), "provider": req.Ref, "metadata": packageMetadataOutput(metadata)}
 	return &appservices.DryRunPlan{Action: "install", Target: formatProviderRef(req.Ref), Values: values}, nil
-}
-
-func integrateRemoteInstall(ctx context.Context, cmd *cobra.Command, req remoteInstallRequest) (*models.App, error) {
-	fileName := updateDownloadFilename(req.AssetName, req.DownloadURL)
-	downloadPath, err := stableDownloadDestination(req.DownloadURL, fileName)
-	if err != nil {
-		return nil, err
-	}
-
-	logOperationf(cmd, "Downloading install asset from %s", req.DownloadURL)
-	downloadCtx := withDownloadDescription(ctx, fmt.Sprintf("Downloading %s", fileName))
-	if err := downloadRemoteAsset(downloadCtx, req.DownloadURL, downloadPath, isTerminalStderr()); err != nil {
-		return nil, err
-	}
-
-	if strings.TrimSpace(req.ExpectedSHA256) != "" {
-		logOperationf(cmd, "Verifying %s", fileName)
-		if cmd != nil {
-			printInfo(cmd, fmt.Sprintf("Verifying %s", fileName))
-		}
-		if err := verifyDownloadedUpdate(downloadPath, pendingManagedUpdate{ExpectedSHA256: req.ExpectedSHA256}); err != nil {
-			return nil, err
-		}
-	}
-
-	logOperationf(cmd, "Integrating %s", fileName)
-	integrate := func() (*models.App, error) {
-		return integrateLocalApp(ctx, downloadPath, func(existing, incoming *models.UpdateSource) (bool, error) {
-			_ = existing
-			_ = incoming
-			return false, nil
-		})
-	}
-	app, err := integrate()
-	if cmd != nil {
-		app, err = runWithBusyIndicator(cmd, fmt.Sprintf("Integrating %s", fileName), integrate)
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	incomingUpdate := req.BuildUpdate(app)
-	finalUpdate, err := chooseRemoteUpdateSource(cmd, app.ID, incomingUpdate)
-	if err != nil {
-		return nil, err
-	}
-
-	app.Source = req.BuildSource(app)
-	app.Update = finalUpdate
-
-	equivalentApp, err := appintegrate.FindEquivalentManagedApp(app)
-	if err != nil {
-		return nil, wrapWriteError(err)
-	}
-	if equivalentApp != nil {
-		app.ReplacesID = equivalentApp.ID
-	}
-
-	logOperationf(cmd, "Persisting %s", app.ID)
-	if err := addSingleApp(app, true); err != nil {
-		return nil, wrapWriteError(err)
-	}
-	if strings.TrimSpace(app.ReplacesID) != "" {
-		if _, err := removeManagedApp(ctx, app.ReplacesID, false); err != nil {
-			return nil, wrapWriteError(fmt.Errorf("failed to remove superseded app %s: %w", app.ReplacesID, err))
-		}
-		app.ReplacesID = ""
-	}
-
-	removeStagedDownload(downloadPath)
-
-	return app, nil
-}
-
-func chooseRemoteUpdateSource(cmd *cobra.Command, id string, incoming *models.UpdateSource) (*models.UpdateSource, error) {
-	if incoming == nil {
-		incoming = &models.UpdateSource{Kind: models.UpdateNone}
-	}
-
-	existingApp, err := getManagedApp(id)
-	if err != nil {
-		return incoming, nil
-	}
-
-	existing := existingApp.Update
-	if existing == nil || existing.Kind == models.UpdateNone {
-		return incoming, nil
-	}
-	if models.UpdateSourcesEqual(existing, incoming) {
-		return incoming, nil
-	}
-
-	if cmd == nil {
-		return existing, nil
-	}
-	printCurrentIncoming(cmd, updateSummary(existing), updateSummary(incoming))
-	prompt := formatPrompt("Replace source for", id)
-	confirmed, err := confirmAction(cmd, prompt)
-	if err != nil {
-		return nil, err
-	}
-	if !confirmed {
-		return existing, nil
-	}
-
-	return incoming, nil
 }
 
 func isSHA256Hex(value string) bool {
@@ -786,15 +546,20 @@ func InfoCmd(cmd *cobra.Command, args []string) error {
 		return runShowPackageRef(cmd.Context(), cmd, ref)
 	}
 
-	if _, err := resolveInspectTarget(input); err == nil {
-		return runInspectTarget(cmd.Context(), cmd, input)
+	trimmed := strings.TrimSpace(input)
+	if trimmed == "" {
+		return usageError(fmt.Errorf("missing required argument <id|Path/To.AppImage>"))
 	}
-
-	if refErr := positionalInfoRemoteGuidance(input); refErr != nil {
+	if runtimeHasExtension(trimmed, ".AppImage") {
+		return inspectLocalAppImage(cmd.Context(), cmd, trimmed)
+	}
+	if refErr := positionalInfoRemoteGuidance(trimmed); refErr != nil {
 		return refErr
 	}
-
-	return usageError(fmt.Errorf("unknown info target %q; expected <id> or <Path/To.AppImage>", input))
+	if err := inspectManagedApp(cmd.Context(), cmd, trimmed); err != nil {
+		return usageError(fmt.Errorf("unknown info target %q; expected <id> or <Path/To.AppImage>", trimmed))
+	}
+	return nil
 }
 
 func yesNo(value bool) string {
@@ -802,35 +567,6 @@ func yesNo(value bool) string {
 		return "yes"
 	}
 	return "no"
-}
-
-type inspectTargetKind string
-
-const (
-	inspectTargetManaged inspectTargetKind = "managed"
-	inspectTargetLocal   inspectTargetKind = "local"
-)
-
-type inspectTarget struct {
-	Kind inspectTargetKind
-	App  *models.App
-	Path string
-}
-
-func runInspectTarget(ctx context.Context, cmd *cobra.Command, input string) error {
-	target, err := resolveInspectTarget(input)
-	if err != nil {
-		return err
-	}
-
-	switch target.Kind {
-	case inspectTargetManaged:
-		return inspectManagedApp(ctx, cmd, target.App)
-	case inspectTargetLocal:
-		return inspectLocalAppImage(ctx, cmd, target.Path)
-	default:
-		return softwareError(fmt.Errorf("unknown inspect target %q", input))
-	}
 }
 
 func runShowPackageRef(ctx context.Context, cmd *cobra.Command, ref models.PackageRef) error {
@@ -949,11 +685,15 @@ func runInstallPackageRef(ctx context.Context, cmd *cobra.Command, ref models.Pa
 			})
 		},
 		ResolveAmbiguity: packageAmbiguityResolverFunc(func(metadata *models.PackageMetadata) (*models.PackageMetadata, error) {
-			return resolveGitHubAssetAmbiguity(cmd, metadata)
+			resolved, err := resolveGitHubAssetAmbiguity(cmd, metadata)
+			if err != nil {
+				return nil, err
+			}
+			if resolved != nil && strings.TrimSpace(resolved.AssetName) != "" {
+				writeDataf(cmd, "Integrating %s...\n", strings.TrimSpace(resolved.AssetName))
+			}
+			return resolved, nil
 		}),
-		InstallPackage: func(ctx context.Context, metadata *models.PackageMetadata) (*models.App, error) {
-			return installPackageMetadata(ctx, cmd, metadata)
-		},
 	})
 	if err != nil {
 		return err
@@ -1005,29 +745,16 @@ func validateAddIntegrateFlags(cmd *cobra.Command) error {
 	return nil
 }
 
-func resolveInspectTarget(input string) (*inspectTarget, error) {
-	trimmed := strings.TrimSpace(input)
-	if trimmed == "" {
-		return nil, usageError(fmt.Errorf("missing required argument <id|Path/To.AppImage>"))
+func inspectManagedApp(ctx context.Context, cmd *cobra.Command, id string) error {
+	info, err := runtimeServicesFrom(cmd).Info.ManagedAppInfo(ctx, id)
+	if err != nil {
+		return wrapManagedAppLookupError(id, err)
 	}
-
-	if app, err := getManagedApp(trimmed); err == nil {
-		return &inspectTarget{Kind: inspectTargetManaged, App: app}, nil
-	}
-
-	if runtimeHasExtension(trimmed, ".AppImage") {
-		return &inspectTarget{Kind: inspectTargetLocal, Path: trimmed}, nil
-	}
-
-	return nil, rewriteMissingAppError(trimmed, fmt.Errorf("no app with id %s", trimmed))
-}
-
-func inspectManagedApp(ctx context.Context, cmd *cobra.Command, app *models.App) error {
+	app := info.App
 	if app == nil {
 		return fmt.Errorf("managed app cannot be empty")
 	}
-
-	embeddedSource, _ := embeddedUpdateSourceForPath(app.ExecPath)
+	embeddedSource := info.EmbeddedUpdate
 
 	if runtimeOptionsFrom(cmd).JSON {
 		return printJSONSuccess(cmd, map[string]interface{}{
@@ -1116,31 +843,6 @@ func updateSummaryOrNone(update *models.UpdateSource) string {
 	return updateSummary(update)
 }
 
-func updateSourceFromEmbeddedInfo(info *appupdate.UpdateInfo) (*models.UpdateSource, error) {
-	if info == nil {
-		return nil, softwareError(fmt.Errorf("missing embedded update info"))
-	}
-	if info.Kind != models.UpdateZsync {
-		return nil, softwareError(fmt.Errorf("unsupported embedded update info kind %q", info.Kind))
-	}
-
-	return &models.UpdateSource{
-		Kind: models.UpdateZsync,
-		Zsync: &models.ZsyncUpdateSource{
-			UpdateInfo: strings.TrimSpace(info.UpdateInfo),
-			Transport:  strings.TrimSpace(info.Transport),
-		},
-	}, nil
-}
-
-func embeddedUpdateSourceForPath(path string) (*models.UpdateSource, error) {
-	info, err := getAppImageUpdateInfo(strings.TrimSpace(path))
-	if err != nil {
-		return nil, err
-	}
-	return updateSourceFromEmbeddedInfo(info)
-}
-
 func UpdateCmd(cmd *cobra.Command, args []string) error {
 	setID, err := flagString(cmd, "set")
 	if err != nil {
@@ -1197,37 +899,6 @@ func UpdateCmd(cmd *cobra.Command, args []string) error {
 	}
 
 	return runManagedUpdate(cmd.Context(), cmd, targetID)
-}
-
-func unsetManagedUpdateSource(cmd *cobra.Command, app *models.App, prompt string, showCurrent bool) (bool, error) {
-	if app == nil {
-		return false, softwareError(fmt.Errorf("managed app cannot be empty"))
-	}
-	if app.Update == nil || app.Update.Kind == models.UpdateNone {
-		printSuccess(cmd, fmt.Sprintf("No update source configured for %s", app.ID))
-		return false, nil
-	}
-
-	if showCurrent {
-		printCurrentValue(cmd, updateSummary(app.Update))
-	}
-
-	confirmed, err := confirmAction(cmd, prompt)
-	if err != nil {
-		return false, err
-	}
-	if !confirmed {
-		printWarning(cmd, "Update source unchanged")
-		return false, nil
-	}
-
-	app.Update = &models.UpdateSource{Kind: models.UpdateNone}
-	if err := updateManagedApp(app); err != nil {
-		return false, wrapWriteError(err)
-	}
-
-	printSuccess(cmd, "Update source unset")
-	return true, nil
 }
 
 func hasUpdateSetFlags(cmd *cobra.Command) bool {
@@ -1289,18 +960,19 @@ func runUpdateSetMode(cmd *cobra.Command, id string) error {
 		}
 	}
 
-	app, err := getManagedApp(id)
+	info, err := runtimeServicesFrom(cmd).Info.ManagedAppInfo(cmd.Context(), id)
 	if err != nil {
 		return wrapManagedAppLookupError(id, err)
 	}
+	app := info.App
 
 	if embedded {
 		if err := validateEmbeddedUpdateSetFlags(cmd); err != nil {
 			return err
 		}
 
-		incomingSource, err = embeddedUpdateSourceForPath(app.ExecPath)
-		if err != nil {
+		incomingSource = info.EmbeddedUpdate
+		if incomingSource == nil || incomingSource.Kind == models.UpdateNone {
 			printWarning(cmd, warningNoEmbeddedSource())
 			if app.Update == nil || app.Update.Kind == models.UpdateNone {
 				if opts.JSON {
@@ -1311,8 +983,20 @@ func runUpdateSetMode(cmd *cobra.Command, id string) error {
 
 			printCurrentValue(cmd, updateSummary(app.Update))
 			prompt := formatPrompt("Unset source for", id)
-			_, err := unsetManagedUpdateSource(cmd, app, prompt, false)
-			return err
+			confirmed, err := confirmAction(cmd, prompt)
+			if err != nil {
+				return err
+			}
+			if !confirmed {
+				printWarning(cmd, "Update source unchanged")
+				return nil
+			}
+			_, err = runtimeServicesFrom(cmd).Update.UnsetSource(cmd.Context(), id)
+			if err != nil {
+				return err
+			}
+			printSuccess(cmd, "Update source unset")
+			return nil
 		}
 	}
 
@@ -1368,10 +1052,11 @@ func runUpdateUnsetMode(cmd *cobra.Command, id string) error {
 		return printConciseHelpError(cmd, "missing required input; pass --unset <id> to remove an update source")
 	}
 
-	app, err := getManagedApp(id)
+	info, err := runtimeServicesFrom(cmd).Info.ManagedAppInfo(cmd.Context(), id)
 	if err != nil {
 		return wrapManagedAppLookupError(id, err)
 	}
+	app := info.App
 
 	if runtimeOptionsFrom(cmd).DryRun {
 		plan, err := runtimeServicesFrom(cmd).Update.PlanUnsetSource(cmd.Context(), id)
@@ -1386,18 +1071,35 @@ func runUpdateUnsetMode(cmd *cobra.Command, id string) error {
 		return nil
 	}
 
+	if app == nil {
+		return softwareError(fmt.Errorf("managed app cannot be empty"))
+	}
+	if app.Update == nil || app.Update.Kind == models.UpdateNone {
+		printSuccess(cmd, fmt.Sprintf("No update source configured for %s", app.ID))
+		return nil
+	}
+	printCurrentValue(cmd, updateSummary(app.Update))
 	prompt := formatPrompt("Unset source for", id)
-	_, err = func() (bool, error) {
-		var changed bool
-		err := withStateWriteLock(cmd, func() error {
-			logOperationf(cmd, "Unsetting update source for %s", id)
-			var unsetErr error
-			changed, unsetErr = unsetManagedUpdateSource(cmd, app, prompt, true)
-			return unsetErr
-		})
-		return changed, err
-	}()
-	return err
+	confirmed, err := confirmAction(cmd, prompt)
+	if err != nil {
+		return err
+	}
+	if !confirmed {
+		printWarning(cmd, "Update source unchanged")
+		return nil
+	}
+	if err := withStateWriteLock(cmd, func() error {
+		logOperationf(cmd, "Unsetting update source for %s", id)
+		_, unsetErr := runtimeServicesFrom(cmd).Update.UnsetSource(cmd.Context(), id)
+		if unsetErr != nil {
+			return wrapWriteError(unsetErr)
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	printSuccess(cmd, "Update source unset")
+	return nil
 }
 
 func resolveUpdateSourceFromSetFlags(cmd *cobra.Command) (*models.UpdateSource, error) {
@@ -1487,27 +1189,6 @@ type managedCheckFailure struct {
 	AppID  string
 	Reason string
 }
-
-var runAppUpdateCheck = checkAppUpdate
-var runZsyncUpdateCheck = appupdate.ZsyncUpdateCheck
-var runGitHubReleaseUpdateCheck = appupdate.GitHubReleaseUpdateCheck
-var discoveryBackends = func() []discovery.DiscoveryBackend {
-	return []discovery.DiscoveryBackend{
-		newGitHubDiscoveryBackend(runtimeSettings{NetworkTimeout: 30 * time.Second}),
-	}
-}
-var resolveGitHubReleaseAsset = appupdate.ResolveGitHubReleaseAsset
-var downloadRemoteAsset = downloadUpdateAsset
-var checkAimUpgrade = appupgrade.CheckForAimUpgrade
-var runUpgradeViaInstaller = appupgrade.UpgradeViaInstaller
-var runManagedApply = applyManagedUpdate
-var integrateExistingApp = appintegrate.IntegrateExisting
-var integrateLocalApp = appintegrate.IntegrateFromLocalFile
-var readAppImageInfo = appimage.ReadAppImageInfo
-var getAppImageUpdateInfo = appupdate.GetUpdateInfo
-var removeManagedApp = appremove.Remove
-var addAppsBatch = defaultAddAppsBatch
-var addSingleApp = defaultAddSingleApp
 
 const defaultReleaseAssetPattern = "*.AppImage"
 

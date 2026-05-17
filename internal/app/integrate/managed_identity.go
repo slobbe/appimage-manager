@@ -3,7 +3,11 @@ package integrate
 import models "github.com/slobbe/appimage-manager/internal/domain"
 
 func ResolveManagedAppID(appName, upstreamID, hashSeed string, incoming *models.App) (string, *models.App, error) {
-	store, err := requireStore()
+	return Service{}.ResolveManagedAppID(appName, upstreamID, hashSeed, incoming)
+}
+
+func (service Service) ResolveManagedAppID(appName, upstreamID, hashSeed string, incoming *models.App) (string, *models.App, error) {
+	store, err := service.requireStore()
 	if err != nil {
 		return "", nil, err
 	}
@@ -20,11 +24,15 @@ func resolveManagedAppID(store AppStore, appName, upstreamID, hashSeed string, i
 }
 
 func FindEquivalentManagedApp(incoming *models.App) (*models.App, error) {
+	return Service{}.FindEquivalentManagedApp(incoming)
+}
+
+func (service Service) FindEquivalentManagedApp(incoming *models.App) (*models.App, error) {
 	if incoming == nil {
 		return nil, nil
 	}
 
-	store, err := requireStore()
+	store, err := service.requireStore()
 	if err != nil {
 		return nil, err
 	}

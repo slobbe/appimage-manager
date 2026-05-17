@@ -17,7 +17,7 @@ func TestInstallDesktopIconPNGUsesAbsoluteThemePath(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	installedPath, iconValue, err := InstallDesktopIcon("my-app", src)
+	installedPath, iconValue, err := testService.InstallDesktopIcon("my-app", src)
 	if err != nil {
 		t.Fatalf("InstallDesktopIcon returned error: %v", err)
 	}
@@ -43,7 +43,7 @@ func TestInstallDesktopIconSVGUsesAbsoluteScalablePath(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	installedPath, iconValue, err := InstallDesktopIcon("my-app", src)
+	installedPath, iconValue, err := testService.InstallDesktopIcon("my-app", src)
 	if err != nil {
 		t.Fatalf("InstallDesktopIcon returned error: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestInstallDesktopIconUnsupportedExtUsesAbsolutePath(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	installedPath, iconValue, err := InstallDesktopIcon("my-app", src)
+	installedPath, iconValue, err := testService.InstallDesktopIcon("my-app", src)
 	if err != nil {
 		t.Fatalf("InstallDesktopIcon returned error: %v", err)
 	}
@@ -84,10 +84,10 @@ func TestInstallDesktopIconErrors(t *testing.T) {
 	tmp := t.TempDir()
 	setupIconDirsForTest(t, tmp)
 
-	if _, _, err := InstallDesktopIcon("", "/tmp/icon.png"); err == nil {
+	if _, _, err := testService.InstallDesktopIcon("", "/tmp/icon.png"); err == nil {
 		t.Fatal("expected error for empty app id")
 	}
-	if _, _, err := InstallDesktopIcon("my-app", ""); err == nil {
+	if _, _, err := testService.InstallDesktopIcon("my-app", ""); err == nil {
 		t.Fatal("expected error for empty icon source")
 	}
 }
@@ -96,17 +96,18 @@ func setupIconDirsForTest(t *testing.T, tmp string) {
 	t.Helper()
 
 	originalThemeDir := config.IconThemeDir
-	originalPaths := defaultPaths
 	t.Cleanup(func() {
 		config.IconThemeDir = originalThemeDir
-		defaultPaths = originalPaths
 	})
 
 	config.IconThemeDir = filepath.Join(tmp, "icons", "hicolor")
-	SetPaths(Paths{
-		AimDir:       filepath.Join(tmp, "aim"),
-		DesktopDir:   filepath.Join(tmp, "applications"),
-		TempDir:      filepath.Join(tmp, "cache", "tmp"),
-		IconThemeDir: config.IconThemeDir,
-	})
+	testService = Service{
+		Filesystem: testAppImageFilesystem{},
+		Paths: Paths{
+			AimDir:       filepath.Join(tmp, "aim"),
+			DesktopDir:   filepath.Join(tmp, "applications"),
+			TempDir:      filepath.Join(tmp, "cache", "tmp"),
+			IconThemeDir: config.IconThemeDir,
+		},
+	}
 }

@@ -8,7 +8,6 @@ import (
 
 	"github.com/slobbe/appimage-manager/internal/app/discovery"
 	appservices "github.com/slobbe/appimage-manager/internal/app/services"
-	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
 	models "github.com/slobbe/appimage-manager/internal/domain"
 	"github.com/spf13/cobra"
 )
@@ -241,30 +240,6 @@ func resolveInstallablePackageMetadataFromRef(ctx context.Context, cmd *cobra.Co
 		return nil, err
 	}
 	return resolveGitHubAssetAmbiguity(cmd, metadata)
-}
-
-func installPackageMetadata(ctx context.Context, cmd *cobra.Command, metadata *models.PackageMetadata) (*models.App, error) {
-	if metadata == nil {
-		return nil, softwareError(fmt.Errorf("package metadata cannot be empty"))
-	}
-
-	switch metadata.Ref.Kind {
-	case models.ProviderGitHub:
-		return installResolvedGitHubPackage(ctx, cmd, metadata)
-	default:
-		return nil, softwareError(fmt.Errorf("unsupported add provider %q", metadata.Ref.Kind))
-	}
-}
-
-func installResolvedGitHubPackage(ctx context.Context, cmd *cobra.Command, metadata *models.PackageMetadata) (*models.App, error) {
-	release := &appupdate.GitHubReleaseAsset{
-		DownloadURL:       strings.TrimSpace(metadata.DownloadURL),
-		TagName:           strings.TrimSpace(metadata.ReleaseTag),
-		NormalizedVersion: strings.TrimSpace(strings.TrimPrefix(metadata.LatestVersion, "v")),
-		AssetName:         strings.TrimSpace(metadata.AssetName),
-	}
-	target := &installTarget{Kind: installTargetGitHub, Repo: metadata.Ref.ProviderRef}
-	return integrateGitHubReleaseAsset(ctx, cmd, target, metadata.AssetPattern, release)
 }
 
 func printPackageMetadata(cmd *cobra.Command, metadata *models.PackageMetadata) {

@@ -5,12 +5,12 @@ import (
 	"fmt"
 )
 
-func refreshDesktopIntegrationCaches(ctx context.Context) {
-	paths, err := requirePaths()
+func (service Service) refreshDesktopIntegrationCaches(ctx context.Context) {
+	paths, err := service.requirePaths()
 	if err != nil {
 		return
 	}
-	refresher, err := requireDesktopIntegrationCacheRefresher()
+	refresher, err := service.requireDesktopIntegrationCacheRefresher()
 	if err != nil {
 		return
 	}
@@ -18,11 +18,11 @@ func refreshDesktopIntegrationCaches(ctx context.Context) {
 }
 
 func RefreshDesktopIntegrationCaches(ctx context.Context) {
-	refreshDesktopIntegrationCaches(ctx)
+	Service{}.refreshDesktopIntegrationCaches(ctx)
 }
 
-func requireCachePathsForRefresh() (string, string, error) {
-	paths, err := requirePaths()
+func (service Service) requireCachePathsForRefresh() (string, string, error) {
+	paths, err := service.requirePaths()
 	if err != nil {
 		return "", "", fmt.Errorf("failed to refresh integration caches: %w", err)
 	}

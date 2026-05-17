@@ -27,6 +27,10 @@ type UpdateData struct {
 }
 
 func ZsyncUpdateCheck(upd *models.UpdateSource, localSHA1 string) (*UpdateData, error) {
+	return ZsyncUpdateCheckWithFetcher(upd, localSHA1, defaultZsyncMetadataFetcher)
+}
+
+func ZsyncUpdateCheckWithFetcher(upd *models.UpdateSource, localSHA1 string, fetcher ZsyncMetadataFetcher) (*UpdateData, error) {
 	if upd.Kind != models.UpdateZsync || upd.Zsync == nil {
 		return nil, fmt.Errorf("no zsync update information")
 	}
@@ -44,10 +48,10 @@ func ZsyncUpdateCheck(upd *models.UpdateSource, localSHA1 string) (*UpdateData, 
 		return nil, fmt.Errorf("missing zsync update url")
 	}
 
-	if defaultZsyncMetadataFetcher == nil {
+	if fetcher == nil {
 		return nil, fmt.Errorf("zsync metadata fetcher is not configured")
 	}
-	metadata, err := defaultZsyncMetadataFetcher.FetchMetadata(updateInfo.UpdateUrl)
+	metadata, err := fetcher.FetchMetadata(updateInfo.UpdateUrl)
 	if err != nil {
 		return nil, err
 	}
@@ -69,7 +73,11 @@ func ZsyncUpdateCheck(upd *models.UpdateSource, localSHA1 string) (*UpdateData, 
 }
 
 func GetUpdateInfo(src string) (*UpdateInfo, error) {
-	info, err := extractUpdateInfo(src)
+	return Service{UpdateInfoExtractor: defaultUpdateInfoExtractor}.GetUpdateInfo(src)
+}
+
+func (service Service) GetUpdateInfo(src string) (*UpdateInfo, error) {
+	info, err := service.extractUpdateInfo(src)
 	if err != nil {
 		return nil, err
 	}
@@ -131,9 +139,9 @@ func parseUpdateInfoString(info string) (*UpdateInfo, error) {
 	return updateInfo, nil
 }
 
-func extractUpdateInfo(src string) (string, error) {
-	if defaultUpdateInfoExtractor == nil {
+func (service Service) extractUpdateInfo(src string) (string, error) {
+	if service.UpdateInfoExtractor == nil {
 		return "", fmt.Errorf("update info extractor is not configured")
 	}
-	return defaultUpdateInfoExtractor.ExtractUpdateInfo(src)
+	return service.UpdateInfoExtractor.ExtractUpdateInfo(src)
 }

@@ -12,11 +12,6 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	SetFilesystem(testAppImageFilesystem{})
-	SetDesktopLinkResolver(testDesktopLinkResolver{})
-	appimageapp.SetFilesystem(testAppImageFilesystem{})
-	appimageapp.SetExtractor(testAppImageExtractor{})
-	appimageapp.SetDesktopEntryRewriter(testAppImageDesktopEntryRewriter{})
 	os.Exit(m.Run())
 }
 

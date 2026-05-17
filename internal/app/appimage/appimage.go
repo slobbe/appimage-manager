@@ -19,8 +19,26 @@ type ExtractionData struct {
 	IconPath         string
 }
 
+var defaultService Service
+
 func ReadAppImageInfo(ctx context.Context, src string) (*AppInfo, error) {
-	filesystem, extractor, _, err := requireDependencies()
+	return defaultService.ReadAppImageInfo(ctx, src)
+}
+
+func ExtractAppImage(ctx context.Context, src string) (*ExtractionData, error) {
+	return defaultService.ExtractAppImage(ctx, src)
+}
+
+func UpdateDesktopEntry(ctx context.Context, src string, execSrc string, iconSrc string) error {
+	return defaultService.UpdateDesktopEntry(ctx, src, execSrc, iconSrc)
+}
+
+func GetAppInfo(ctx context.Context, desktopSrc string) (*AppInfo, error) {
+	return defaultService.GetAppInfo(ctx, desktopSrc)
+}
+
+func (service Service) ReadAppImageInfo(ctx context.Context, src string) (*AppInfo, error) {
+	filesystem, extractor, _, err := service.requireDependencies()
 	if err != nil {
 		return nil, err
 	}
@@ -47,15 +65,15 @@ func ReadAppImageInfo(ctx context.Context, src string) (*AppInfo, error) {
 		return nil, fmt.Errorf("failed to locate desktop file: %w", err)
 	}
 
-	return GetAppInfo(ctx, desktopEntry.Path)
+	return service.GetAppInfo(ctx, desktopEntry.Path)
 }
 
-func ExtractAppImage(ctx context.Context, src string) (*ExtractionData, error) {
-	paths, err := requirePaths()
+func (service Service) ExtractAppImage(ctx context.Context, src string) (*ExtractionData, error) {
+	paths, err := requirePaths(service.Paths)
 	if err != nil {
 		return nil, err
 	}
-	filesystem, extractor, _, err := requireDependencies()
+	filesystem, extractor, _, err := service.requireDependencies()
 	if err != nil {
 		return nil, err
 	}
@@ -122,8 +140,8 @@ func ExtractAppImage(ctx context.Context, src string) (*ExtractionData, error) {
 	return extractionData, nil
 }
 
-func UpdateDesktopEntry(ctx context.Context, src string, execSrc string, iconSrc string) error {
-	filesystem, _, rewriter, err := requireDependencies()
+func (service Service) UpdateDesktopEntry(ctx context.Context, src string, execSrc string, iconSrc string) error {
+	filesystem, _, rewriter, err := service.requireDependencies()
 	if err != nil {
 		return err
 	}
@@ -146,8 +164,8 @@ func UpdateDesktopEntry(ctx context.Context, src string, execSrc string, iconSrc
 	return nil
 }
 
-func GetAppInfo(ctx context.Context, desktopSrc string) (*AppInfo, error) {
-	filesystem, _, rewriter, err := requireDependencies()
+func (service Service) GetAppInfo(ctx context.Context, desktopSrc string) (*AppInfo, error) {
+	filesystem, _, rewriter, err := service.requireDependencies()
 	if err != nil {
 		return nil, err
 	}
@@ -164,15 +182,15 @@ func GetAppInfo(ctx context.Context, desktopSrc string) (*AppInfo, error) {
 	return models.ParseDesktopEntryAppInfo(desktopSrc, content, desktopStem), nil
 }
 
-func requireDependencies() (Filesystem, Extractor, DesktopEntryRewriter, error) {
-	if defaultFilesystem == nil {
+func (service Service) requireDependencies() (Filesystem, Extractor, DesktopEntryRewriter, error) {
+	if service.Filesystem == nil {
 		return nil, nil, nil, fmt.Errorf("appimage filesystem is not configured")
 	}
-	if defaultExtractor == nil {
+	if service.Extractor == nil {
 		return nil, nil, nil, fmt.Errorf("appimage extractor is not configured")
 	}
-	if defaultDesktopEntryRewriter == nil {
+	if service.DesktopEntryRewriter == nil {
 		return nil, nil, nil, fmt.Errorf("appimage desktop entry rewriter is not configured")
 	}
-	return defaultFilesystem, defaultExtractor, defaultDesktopEntryRewriter, nil
+	return service.Filesystem, service.Extractor, service.DesktopEntryRewriter, nil
 }

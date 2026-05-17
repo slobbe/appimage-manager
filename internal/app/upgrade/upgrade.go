@@ -9,8 +9,7 @@ import (
 )
 
 var (
-	upgradeRepoSlug   = "slobbe/appimage-manager"
-	upgradeHTTPClient = SharedHTTPClient()
+	upgradeRepoSlug = "slobbe/appimage-manager"
 
 	upgradeInstallScriptURL = func(repoSlug string) string {
 		return fmt.Sprintf("https://raw.githubusercontent.com/%s/main/scripts/install.sh", repoSlug)
@@ -19,16 +18,11 @@ var (
 		return fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repoSlug)
 	}
 	upgradeRunInstallerScript = func(ctx context.Context, scriptURL string) error {
-		updater, err := requireSelfUpdater()
-		if err != nil {
-			return err
+		if defaultSelfUpdater == nil {
+			return fmt.Errorf("self updater is not configured")
 		}
-		return updater.RunInstallerScript(ctx, scriptURL, func() (string, error) {
-			paths, err := requirePaths()
-			if err != nil {
-				return "", err
-			}
-			return paths.TempDir, nil
+		return defaultSelfUpdater.RunInstallerScript(ctx, scriptURL, func() (string, error) {
+			return defaultPaths.TempDir, nil
 		})
 	}
 )
@@ -106,25 +100,22 @@ func UpgradeViaInstaller(ctx context.Context, currentVersion string) (*Installer
 }
 
 func fetchLatestReleaseTag(ctx context.Context) (string, error) {
-	updater, err := requireSelfUpdater()
-	if err != nil {
-		return "", err
+	if defaultSelfUpdater == nil {
+		return "", fmt.Errorf("self updater is not configured")
 	}
-	return updater.FetchLatestReleaseTag(ctx, upgradeLatestReleaseURL(upgradeRepoSlug))
+	return defaultSelfUpdater.FetchLatestReleaseTag(ctx, upgradeLatestReleaseURL(upgradeRepoSlug))
 }
 
 func resolveInstalledAimPath() (string, error) {
-	updater, err := requireSelfUpdater()
-	if err != nil {
-		return "", err
+	if defaultSelfUpdater == nil {
+		return "", fmt.Errorf("self updater is not configured")
 	}
-	return updater.ResolveInstalledPath()
+	return defaultSelfUpdater.ResolveInstalledPath()
 }
 
 func readInstalledAimVersion(ctx context.Context, binaryPath string) (string, error) {
-	updater, err := requireSelfUpdater()
-	if err != nil {
-		return "", err
+	if defaultSelfUpdater == nil {
+		return "", fmt.Errorf("self updater is not configured")
 	}
-	return updater.ReadInstalledVersion(ctx, binaryPath)
+	return defaultSelfUpdater.ReadInstalledVersion(ctx, binaryPath)
 }

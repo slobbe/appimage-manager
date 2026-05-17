@@ -7,7 +7,6 @@ import (
 	"strings"
 	"sync"
 
-	appimage "github.com/slobbe/appimage-manager/internal/app/appimage"
 	"github.com/slobbe/appimage-manager/internal/app/clock"
 	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
 	models "github.com/slobbe/appimage-manager/internal/domain"
@@ -18,27 +17,27 @@ type UpdateOverwritePrompt func(existing, incoming *models.UpdateSource) (bool, 
 var getEmbeddedUpdateInfo = appupdate.GetUpdateInfo
 
 func IntegrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwrite UpdateOverwritePrompt) (*models.App, error) {
-	return integrateFromLocalFile(ctx, src, confirmUpdateOverwrite, true, true)
+	return Service{}.integrateFromLocalFile(ctx, src, confirmUpdateOverwrite, true, true)
 }
 
 func IntegrateFromLocalFileWithoutCacheRefresh(ctx context.Context, src string, confirmUpdateOverwrite UpdateOverwritePrompt) (*models.App, error) {
-	return integrateFromLocalFile(ctx, src, confirmUpdateOverwrite, false, true)
+	return Service{}.integrateFromLocalFile(ctx, src, confirmUpdateOverwrite, false, true)
 }
 
 func IntegrateFromLocalFileWithoutCacheRefreshOrPersist(ctx context.Context, src string, confirmUpdateOverwrite UpdateOverwritePrompt) (*models.App, error) {
-	return integrateFromLocalFile(ctx, src, confirmUpdateOverwrite, false, false)
+	return Service{}.integrateFromLocalFile(ctx, src, confirmUpdateOverwrite, false, false)
 }
 
-func integrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwrite UpdateOverwritePrompt, refreshCaches bool, persist bool) (*models.App, error) {
-	store, err := requireStore()
+func (service Service) integrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwrite UpdateOverwritePrompt, refreshCaches bool, persist bool) (*models.App, error) {
+	store, err := service.requireStore()
 	if err != nil {
 		return nil, err
 	}
-	paths, err := requirePaths()
+	paths, err := service.requirePaths()
 	if err != nil {
 		return nil, err
 	}
-	filesystem, err := requireFilesystem()
+	filesystem, err := service.requireFilesystem()
 	if err != nil {
 		return nil, err
 	}
@@ -52,12 +51,16 @@ func integrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 		return nil, err
 	}
 
-	extractionData, err := appimage.ExtractAppImage(ctx, src)
+	appImage := service.AppImage
+	if appImage == nil {
+		return nil, fmt.Errorf("appimage service is not configured")
+	}
+	extractionData, err := appImage.ExtractAppImage(ctx, src)
 	if err != nil {
 		return nil, err
 	}
 
-	appInfo, err := appimage.GetAppInfo(ctx, extractionData.DesktopEntryPath)
+	appInfo, err := appImage.GetAppInfo(ctx, extractionData.DesktopEntryPath)
 	if err != nil {
 		return nil, err
 	}
@@ -162,21 +165,21 @@ func integrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 		return nil, err
 	}
 
-	installedIconPath, desktopIconValue, err := InstallDesktopIcon(appID, extractionData.IconPath)
+	installedIconPath, desktopIconValue, err := service.InstallDesktopIcon(appID, extractionData.IconPath)
 	if err != nil {
 		return nil, err
 	}
 	extractionData.IconPath = installedIconPath
 
 	if existingApp != nil && replacementApp == nil {
-		removeStaleInstalledIcon(store, existingApp.IconPath, installedIconPath, appID)
+		service.removeStaleInstalledIcon(store, existingApp.IconPath, installedIconPath, appID)
 	}
 
-	if err := appimage.UpdateDesktopEntry(ctx, extractionData.DesktopEntryPath, extractionData.ExecPath, desktopIconValue); err != nil {
+	if err := appImage.UpdateDesktopEntry(ctx, extractionData.DesktopEntryPath, extractionData.ExecPath, desktopIconValue); err != nil {
 		return nil, err
 	}
 
-	if err := ValidateDesktopEntry(ctx, extractionData.DesktopEntryPath); err != nil {
+	if err := service.ValidateDesktopEntry(ctx, extractionData.DesktopEntryPath); err != nil {
 		return nil, err
 	}
 
@@ -184,7 +187,7 @@ func integrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 		return nil, err
 	}
 
-	desktopEntryLink, err := MakeDesktopLink(extractionData.DesktopEntryPath, appID+".desktop", "aim-"+appID+".desktop")
+	desktopEntryLink, err := service.MakeDesktopLink(extractionData.DesktopEntryPath, appID+".desktop", "aim-"+appID+".desktop")
 	if err != nil {
 		return nil, err
 	}
@@ -205,7 +208,7 @@ func integrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 	if refreshCaches {
 		go func() {
 			defer postProcessWG.Done()
-			refreshDesktopIntegrationCaches(ctx)
+			service.refreshDesktopIntegrationCaches(ctx)
 		}()
 	}
 
@@ -247,7 +250,7 @@ func integrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 			return nil, err
 		}
 		if replacementApp != nil {
-			if err := removeManagedApp(ctx, store, replacementApp.ID); err != nil {
+			if err := service.removeManagedApp(ctx, store, replacementApp.ID); err != nil {
 				return nil, err
 			}
 			app.ReplacesID = ""
@@ -257,13 +260,13 @@ func integrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwr
 	return app, nil
 }
 
-func removeManagedApp(ctx context.Context, store AppStore, id string) error {
+func (service Service) removeManagedApp(ctx context.Context, store AppStore, id string) error {
 	_ = ctx
-	paths, err := requirePaths()
+	paths, err := service.requirePaths()
 	if err != nil {
 		return err
 	}
-	filesystem, err := requireFilesystem()
+	filesystem, err := service.requireFilesystem()
 	if err != nil {
 		return err
 	}
@@ -291,11 +294,15 @@ func removeManagedApp(ctx context.Context, store AppStore, id string) error {
 }
 
 func IntegrateExisting(ctx context.Context, id string) (*models.App, error) {
+	return Service{}.integrateExisting(ctx, id)
+}
+
+func (service Service) integrateExisting(ctx context.Context, id string) (*models.App, error) {
 	if id == "" {
 		return nil, fmt.Errorf("id cannot be empty")
 	}
 
-	store, err := requireStore()
+	store, err := service.requireStore()
 	if err != nil {
 		return nil, err
 	}
@@ -305,7 +312,7 @@ func IntegrateExisting(ctx context.Context, id string) (*models.App, error) {
 		return app, err
 	}
 
-	filesystem, err := requireFilesystem()
+	filesystem, err := service.requireFilesystem()
 	if err != nil {
 		return nil, err
 	}
@@ -313,16 +320,16 @@ func IntegrateExisting(ctx context.Context, id string) (*models.App, error) {
 		return nil, err
 	}
 
-	if err := ValidateDesktopEntry(ctx, app.DesktopEntryPath); err != nil {
+	if err := service.ValidateDesktopEntry(ctx, app.DesktopEntryPath); err != nil {
 		return nil, err
 	}
 
-	app.DesktopEntryLink, err = MakeDesktopLink(app.DesktopEntryPath, app.ID+".desktop", "aim-"+app.ID+".desktop")
+	app.DesktopEntryLink, err = service.MakeDesktopLink(app.DesktopEntryPath, app.ID+".desktop", "aim-"+app.ID+".desktop")
 	if err != nil {
 		return app, err
 	}
 
-	refreshDesktopIntegrationCaches(ctx)
+	service.refreshDesktopIntegrationCaches(ctx)
 
 	if err := store.AddApp(app, true); err != nil {
 		return app, err
@@ -332,15 +339,19 @@ func IntegrateExisting(ctx context.Context, id string) (*models.App, error) {
 }
 
 func MakeDesktopLink(src, preferredName, fallbackName string) (string, error) {
-	paths, err := requirePaths()
+	return Service{}.MakeDesktopLink(src, preferredName, fallbackName)
+}
+
+func (service Service) MakeDesktopLink(src, preferredName, fallbackName string) (string, error) {
+	paths, err := service.requirePaths()
 	if err != nil {
 		return "", err
 	}
-	filesystem, err := requireFilesystem()
+	filesystem, err := service.requireFilesystem()
 	if err != nil {
 		return "", err
 	}
-	linkResolver, err := requireDesktopLinkResolver()
+	linkResolver, err := service.requireDesktopLinkResolver()
 	if err != nil {
 		return "", err
 	}
@@ -365,12 +376,12 @@ func MakeDesktopLink(src, preferredName, fallbackName string) (string, error) {
 	return desktopLink, nil
 }
 
-func removeStaleInstalledIcon(store AppStore, oldPath, newPath, appID string) {
-	paths, err := requirePaths()
+func (service Service) removeStaleInstalledIcon(store AppStore, oldPath, newPath, appID string) {
+	paths, err := service.requirePaths()
 	if err != nil {
 		return
 	}
-	filesystem, err := requireFilesystem()
+	filesystem, err := service.requireFilesystem()
 	if err != nil {
 		return
 	}

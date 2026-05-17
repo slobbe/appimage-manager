@@ -40,20 +40,13 @@ type DesktopEntryRewriter interface {
 	DesktopStemFromPath(path string) string
 }
 
-var (
-	defaultFilesystem           Filesystem
-	defaultExtractor            Extractor
-	defaultDesktopEntryRewriter DesktopEntryRewriter
-)
-
-func SetFilesystem(filesystem Filesystem) {
-	defaultFilesystem = filesystem
+type Service struct {
+	Paths                Paths
+	Filesystem           Filesystem
+	Extractor            Extractor
+	DesktopEntryRewriter DesktopEntryRewriter
 }
 
-func SetExtractor(extractor Extractor) {
-	defaultExtractor = extractor
-}
-
-func SetDesktopEntryRewriter(rewriter DesktopEntryRewriter) {
-	defaultDesktopEntryRewriter = rewriter
+func NewService(service Service) Service {
+	return service
 }

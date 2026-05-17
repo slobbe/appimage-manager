@@ -12,6 +12,8 @@ import (
 	repo "github.com/slobbe/appimage-manager/internal/infra/repository"
 )
 
+var testService Service
+
 func TestRemoveUnlinkPreservesManagedFiles(t *testing.T) {
 	tmp := t.TempDir()
 	setupIntegrationConfigForTest(t, tmp)
@@ -47,7 +49,7 @@ func TestRemoveUnlinkPreservesManagedFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	app, err := Remove(context.Background(), "my-app", true)
+	app, err := testService.Remove(context.Background(), "my-app", true)
 	if err != nil {
 		t.Fatalf("Remove returned error: %v", err)
 	}
@@ -108,7 +110,7 @@ func TestRemoveDeletesManagedFilesWhenNotUnlinking(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := Remove(context.Background(), "my-app", false); err != nil {
+	if _, err := testService.Remove(context.Background(), "my-app", false); err != nil {
 		t.Fatalf("Remove returned error: %v", err)
 	}
 
@@ -133,32 +135,27 @@ func setupIntegrationConfigForTest(t *testing.T, tmp string) {
 	originalDesktopDir := config.DesktopDir
 	originalIconThemeDir := config.IconThemeDir
 	originalDbSrc := config.DbSrc
-	originalStore := defaultStore
-	originalPaths := defaultPaths
-	originalFilesystem := defaultFilesystem
-	originalCacheRefresh := defaultIntegrationCacheRefresh
 	t.Cleanup(func() {
 		config.AimDir = originalAimDir
 		config.DesktopDir = originalDesktopDir
 		config.IconThemeDir = originalIconThemeDir
 		config.DbSrc = originalDbSrc
-		defaultStore = originalStore
-		defaultPaths = originalPaths
-		defaultFilesystem = originalFilesystem
-		defaultIntegrationCacheRefresh = originalCacheRefresh
 	})
 
 	config.AimDir = filepath.Join(tmp, "aim")
 	config.DesktopDir = filepath.Join(tmp, "applications")
 	config.IconThemeDir = filepath.Join(tmp, "icons", "hicolor")
 	config.DbSrc = filepath.Join(tmp, "state", "aim", "apps.json")
-	SetPaths(Paths{
-		AimDir:       config.AimDir,
-		DesktopDir:   config.DesktopDir,
-		IconThemeDir: config.IconThemeDir,
-	})
-	SetStore(repo.NewStore(config.DbSrc))
-	SetFilesystem(testFilesystem{})
+	testService = Service{
+		Store:                     repo.NewStore(config.DbSrc),
+		Filesystem:                testFilesystem{},
+		IntegrationCacheRefresher: testCacheRefresher{},
+		Paths: Paths{
+			AimDir:       config.AimDir,
+			DesktopDir:   config.DesktopDir,
+			IconThemeDir: config.IconThemeDir,
+		},
+	}
 
 	for _, dir := range []string{config.AimDir, config.DesktopDir, config.IconThemeDir, filepath.Dir(config.DbSrc)} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -169,7 +166,7 @@ func setupIntegrationConfigForTest(t *testing.T, tmp string) {
 
 func stubIntegrationCacheRefreshForTest(t *testing.T) {
 	t.Helper()
-	SetIntegrationCacheRefresher(testCacheRefresher{})
+	testService.IntegrationCacheRefresher = testCacheRefresher{}
 }
 
 type testFilesystem struct{}

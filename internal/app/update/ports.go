@@ -42,19 +42,3 @@ var (
 	defaultHashVerifier         HashVerifier
 	defaultUpdateInfoExtractor  UpdateInfoExtractor
 )
-
-func SetZsyncMetadataFetcher(fetcher ZsyncMetadataFetcher) {
-	defaultZsyncMetadataFetcher = fetcher
-}
-
-func SetStagedDownloadService(service StagedDownloadService) {
-	defaultStagedDownload = service
-}
-
-func SetHashVerifier(verifier HashVerifier) {
-	defaultHashVerifier = verifier
-}
-
-func SetUpdateInfoExtractor(extractor UpdateInfoExtractor) {
-	defaultUpdateInfoExtractor = extractor
-}

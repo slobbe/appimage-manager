@@ -7,6 +7,10 @@ import (
 )
 
 func InstallDesktopIcon(iconID, iconSrc string) (string, string, error) {
+	return Service{}.InstallDesktopIcon(iconID, iconSrc)
+}
+
+func (service Service) InstallDesktopIcon(iconID, iconSrc string) (string, string, error) {
 	iconID = strings.TrimSpace(iconID)
 	if iconID == "" {
 		return "", "", fmt.Errorf("icon id cannot be empty")
@@ -22,7 +26,7 @@ func InstallDesktopIcon(iconID, iconSrc string) (string, string, error) {
 		return "", "", fmt.Errorf("icon file extension is required")
 	}
 
-	destDir := iconInstallDir(ext)
+	destDir := service.iconInstallDir(ext)
 	destName := iconID + ext
 
 	destPath := filepath.Join(destDir, destName)
@@ -32,7 +36,7 @@ func InstallDesktopIcon(iconID, iconSrc string) (string, string, error) {
 		return destPath, desktopIconValue, nil
 	}
 
-	filesystem, err := requireFilesystem()
+	filesystem, err := service.requireFilesystem()
 	if err != nil {
 		return "", "", err
 	}
@@ -47,8 +51,8 @@ func InstallDesktopIcon(iconID, iconSrc string) (string, string, error) {
 	return destPath, desktopIconValue, nil
 }
 
-func iconInstallDir(ext string) string {
-	paths, err := requirePaths()
+func (service Service) iconInstallDir(ext string) string {
+	paths, err := service.requirePaths()
 	if err != nil {
 		return ""
 	}

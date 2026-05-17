@@ -14,19 +14,23 @@ type releaseZsyncTransport struct {
 }
 
 func probeReleaseZsyncTransport(assetURL, localSHA1 string) (*releaseZsyncTransport, error) {
+	return probeReleaseZsyncTransportWithFetcher(assetURL, localSHA1, nil)
+}
+
+func probeReleaseZsyncTransportWithFetcher(assetURL, localSHA1 string, fetcher ZsyncMetadataFetcher) (*releaseZsyncTransport, error) {
 	assetURL = strings.TrimSpace(assetURL)
 	if assetURL == "" {
 		return nil, fmt.Errorf("missing asset url")
 	}
 
 	zsyncURL := assetURL + ".zsync"
-	update, err := ZsyncUpdateCheck(&models.UpdateSource{
+	update, err := ZsyncUpdateCheckWithFetcher(&models.UpdateSource{
 		Kind: models.UpdateZsync,
 		Zsync: &models.ZsyncUpdateSource{
 			UpdateInfo: "zsync|" + zsyncURL,
 			Transport:  "zsync",
 		},
-	}, localSHA1)
+	}, localSHA1, fetcher)
 	if err != nil {
 		return nil, err
 	}

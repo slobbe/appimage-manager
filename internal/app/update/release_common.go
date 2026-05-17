@@ -9,7 +9,11 @@ type releaseTransportDetails struct {
 }
 
 func resolveReleaseTransport(downloadURL, localSHA1 string) releaseTransportDetails {
-	transport, err := probeReleaseZsyncTransport(downloadURL, localSHA1)
+	return resolveReleaseTransportWithFetcher(downloadURL, localSHA1, nil)
+}
+
+func resolveReleaseTransportWithFetcher(downloadURL, localSHA1 string, fetcher ZsyncMetadataFetcher) releaseTransportDetails {
+	transport, err := probeReleaseZsyncTransportWithFetcher(downloadURL, localSHA1, fetcher)
 	var probed *models.ReleaseTransport
 	if transport != nil {
 		probed = &models.ReleaseTransport{

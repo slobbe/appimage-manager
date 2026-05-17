@@ -7,15 +7,9 @@ type Paths struct {
 	TempDir string
 }
 
-var defaultPaths Paths
-
-func SetPaths(paths Paths) {
-	defaultPaths = paths
-}
-
-func requirePaths() (Paths, error) {
-	if defaultPaths.AimDir == "" || defaultPaths.TempDir == "" {
+func requirePaths(paths Paths) (Paths, error) {
+	if paths.AimDir == "" || paths.TempDir == "" {
 		return Paths{}, fmt.Errorf("appimage paths are not configured")
 	}
-	return defaultPaths, nil
+	return paths, nil
 }

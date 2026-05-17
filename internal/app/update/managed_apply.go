@@ -3,7 +3,6 @@ package update
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"path/filepath"
 	"strings"
 
@@ -63,12 +62,14 @@ func (f ManagedApplyReporterFunc) Event(event ManagedApplyEvent) {
 type IntegrateFunc func(context.Context, string, func(existing, incoming *models.UpdateSource) (bool, error)) (*models.App, error)
 
 type Service struct {
-	TempDir       string
-	HTTPClient    *http.Client
-	NowISO        func() string
-	Zsync         ZsyncRunner
-	Integrate     IntegrateFunc
-	DownloadAsset func(context.Context, string, string, func(downloaded, total int64)) error
+	TempDir             string
+	NowISO              func() string
+	Zsync               ZsyncRunner
+	StagedDownload      StagedDownloadService
+	HashVerifier        HashVerifier
+	UpdateInfoExtractor UpdateInfoExtractor
+	Integrate           IntegrateFunc
+	DownloadAsset       func(context.Context, string, string, func(downloaded, total int64)) error
 }
 
 func NewService(service Service) Service {
@@ -119,7 +120,7 @@ func (s Service) ApplyManagedUpdate(ctx context.Context, update ManagedUpdate, r
 	}
 
 	emitManagedApplyEvent(reporter, ManagedApplyEvent{Stage: ManagedApplyStageVerify})
-	if err := VerifyDownloadedUpdate(downloadPath, update); err != nil {
+	if err := s.verifyDownloadedUpdate(downloadPath, update); err != nil {
 		emitManagedApplyEvent(reporter, ManagedApplyEvent{Stage: ManagedApplyStageFailed, Message: err.Error()})
 		return nil, err
 	}
@@ -147,7 +148,7 @@ func (s Service) ApplyManagedUpdate(ctx context.Context, update ManagedUpdate, r
 		Stage:   ManagedApplyStageDone,
 		Version: app.Version,
 	})
-	RemoveManagedUpdateDownload(downloadPath)
+	s.RemoveManagedUpdateDownload(downloadPath)
 	return app, nil
 }
 
@@ -166,10 +167,11 @@ func (s Service) downloadManagedUpdateAsset(ctx context.Context, assetURL, desti
 	if s.DownloadAsset != nil {
 		return s.DownloadAsset(ctx, assetURL, destination, onProgress)
 	}
-	if defaultStagedDownload == nil {
+	stagedDownload := s.StagedDownload
+	if stagedDownload == nil {
 		return fmt.Errorf("staged download service is not configured")
 	}
-	return defaultStagedDownload.Download(ctx, assetURL, destination, func(event DownloadProgress) {
+	return stagedDownload.Download(ctx, assetURL, destination, func(event DownloadProgress) {
 		if onProgress != nil {
 			onProgress(event.Downloaded, event.Total)
 		}
@@ -177,10 +179,11 @@ func (s Service) downloadManagedUpdateAsset(ctx context.Context, assetURL, desti
 }
 
 func (s Service) stableManagedUpdateDownloadDestination(assetURL, nameHint string) (string, error) {
-	if defaultStagedDownload == nil {
+	stagedDownload := s.StagedDownload
+	if stagedDownload == nil {
 		return "", fmt.Errorf("staged download service is not configured")
 	}
-	return defaultStagedDownload.StableDestination(filepath.Join(s.TempDir, "downloads"), assetURL, nameHint)
+	return stagedDownload.StableDestination(filepath.Join(s.TempDir, "downloads"), assetURL, nameHint)
 }
 
 func (s Service) integrate(ctx context.Context, downloadPath string) (*models.App, error) {
@@ -192,11 +195,23 @@ func (s Service) integrate(ctx context.Context, downloadPath string) (*models.Ap
 	})
 }
 
-func VerifyDownloadedUpdate(downloadPath string, update ManagedUpdate) error {
-	if defaultHashVerifier == nil {
+func (s Service) verifyDownloadedUpdate(downloadPath string, update ManagedUpdate) error {
+	verifier := s.HashVerifier
+	if verifier == nil {
+		verifier = defaultHashVerifier
+	}
+	if verifier == nil {
 		return fmt.Errorf("hash verifier is not configured")
 	}
-	return defaultHashVerifier.VerifyHashes(downloadPath, update.ExpectedSHA256, update.ExpectedSHA1)
+	return verifier.VerifyHashes(downloadPath, update.ExpectedSHA256, update.ExpectedSHA1)
+}
+
+func (s Service) VerifyDownloadedUpdate(downloadPath string, update ManagedUpdate) error {
+	return s.verifyDownloadedUpdate(downloadPath, update)
+}
+
+func VerifyDownloadedUpdate(downloadPath string, update ManagedUpdate) error {
+	return Service{HashVerifier: defaultHashVerifier}.verifyDownloadedUpdate(downloadPath, update)
 }
 
 func ManagedUpdateDownloadFilename(assetName, downloadURL string) string {
@@ -213,9 +228,9 @@ func ManagedUpdateDownloadFilename(assetName, downloadURL string) string {
 	return name
 }
 
-func RemoveManagedUpdateDownload(downloadPath string) {
-	if defaultStagedDownload != nil {
-		defaultStagedDownload.RemoveStaged(downloadPath)
+func (s Service) RemoveManagedUpdateDownload(downloadPath string) {
+	if s.StagedDownload != nil {
+		s.StagedDownload.RemoveStaged(downloadPath)
 	}
 }
 

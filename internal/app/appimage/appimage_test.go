@@ -232,9 +232,9 @@ func TestLocateDesktopFileFallsBackToRecursiveSearch(t *testing.T) {
 func setupExtractionConfigForTest(t *testing.T, tmp string) {
 	t.Helper()
 
-	originalPaths := defaultPaths
+	originalPaths := defaultService.Paths
 	t.Cleanup(func() {
-		defaultPaths = originalPaths
+		defaultService.Paths = originalPaths
 	})
 
 	SetPaths(Paths{

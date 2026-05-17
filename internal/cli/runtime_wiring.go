@@ -24,9 +24,31 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"reflect"
 	"strings"
 	"time"
 )
+
+var runAppUpdateCheck = checkAppUpdate
+var runZsyncUpdateCheck = appupdate.ZsyncUpdateCheck
+var runGitHubReleaseUpdateCheck = appupdate.GitHubReleaseUpdateCheck
+var discoveryBackends = func() []discovery.DiscoveryBackend {
+	return []discovery.DiscoveryBackend{
+		newGitHubDiscoveryBackend(runtimeSettings{NetworkTimeout: 30 * time.Second}),
+	}
+}
+var resolveGitHubReleaseAsset func(repoSlug, assetPattern string) (*appupdate.GitHubReleaseAsset, error)
+var downloadRemoteAsset = downloadUpdateAsset
+var checkAimUpgrade func(context.Context, string) (*appupgrade.AimUpgradeCheckResult, error)
+var runUpgradeViaInstaller func(context.Context, string) (*appupgrade.InstallerUpgradeResult, error)
+var runManagedApply = applyManagedUpdate
+var integrateExistingApp = appintegrate.IntegrateExisting
+var integrateLocalApp = appintegrate.IntegrateFromLocalFile
+var readAppImageInfo func(context.Context, string) (*appimageapp.AppInfo, error)
+var getAppImageUpdateInfo func(string) (*appupdate.UpdateInfo, error)
+var removeManagedApp = appremove.Remove
+var addAppsBatch = defaultAddAppsBatch
+var addSingleApp = defaultAddSingleApp
 
 type filesystemAdapter struct{}
 
@@ -169,10 +191,12 @@ func (integrationCacheRefresherAdapter) RefreshIntegrationCaches(ctx context.Con
 	})
 }
 
-type zsyncMetadataFetcherAdapter struct{}
+type zsyncMetadataFetcherAdapter struct {
+	client *http.Client
+}
 
-func (zsyncMetadataFetcherAdapter) FetchMetadata(url string) (*models.ZsyncMetadata, error) {
-	return (zsync.Client{HTTPClient: appupdate.SharedHTTPClient()}).FetchMetadata(url)
+func (adapter zsyncMetadataFetcherAdapter) FetchMetadata(url string) (*models.ZsyncMetadata, error) {
+	return (zsync.Client{HTTPClient: adapter.client}).FetchMetadata(url)
 }
 
 type stagedDownloadAdapter struct {
@@ -332,22 +356,28 @@ func runtimeZsyncRunner() appupdate.ZsyncRunner {
 	}
 }
 
-type selfUpdaterAdapter struct{}
-
-func (selfUpdaterAdapter) FetchLatestReleaseTag(ctx context.Context, releaseURL string) (string, error) {
-	return (selfupdate.Client{HTTPClient: appupgrade.SharedHTTPClient()}).FetchLatestReleaseTag(ctx, releaseURL)
+type selfUpdaterAdapter struct {
+	client *http.Client
 }
 
-func (selfUpdaterAdapter) ReadInstalledVersion(ctx context.Context, binaryPath string) (string, error) {
-	return (selfupdate.Client{HTTPClient: appupgrade.SharedHTTPClient()}).ReadInstalledVersion(ctx, binaryPath)
+func (adapter selfUpdaterAdapter) clientAdapter() selfupdate.Client {
+	return selfupdate.Client{HTTPClient: adapter.client}
 }
 
-func (selfUpdaterAdapter) ResolveInstalledPath() (string, error) {
-	return (selfupdate.Client{HTTPClient: appupgrade.SharedHTTPClient()}).ResolveInstalledPath()
+func (adapter selfUpdaterAdapter) FetchLatestReleaseTag(ctx context.Context, releaseURL string) (string, error) {
+	return adapter.clientAdapter().FetchLatestReleaseTag(ctx, releaseURL)
 }
 
-func (selfUpdaterAdapter) RunInstallerScript(ctx context.Context, scriptURL string, tempDir func() (string, error)) error {
-	return (selfupdate.Client{HTTPClient: appupgrade.SharedHTTPClient()}).RunInstallerScript(ctx, scriptURL, tempDir)
+func (adapter selfUpdaterAdapter) ReadInstalledVersion(ctx context.Context, binaryPath string) (string, error) {
+	return adapter.clientAdapter().ReadInstalledVersion(ctx, binaryPath)
+}
+
+func (adapter selfUpdaterAdapter) ResolveInstalledPath() (string, error) {
+	return adapter.clientAdapter().ResolveInstalledPath()
+}
+
+func (adapter selfUpdaterAdapter) RunInstallerScript(ctx context.Context, scriptURL string, tempDir func() (string, error)) error {
+	return adapter.clientAdapter().RunInstallerScript(ctx, scriptURL, tempDir)
 }
 
 type gitHubReleaseAdapter struct {
@@ -408,32 +438,68 @@ func newGitHubDiscoveryBackend(settings runtimeSettings) discovery.DiscoveryBack
 }
 
 func configureAppPorts(networkTimeout time.Duration) {
-	appimageapp.SetFilesystem(filesystemAdapter{})
-	appimageapp.SetExtractor(appimageExtractorAdapter{})
-	appimageapp.SetDesktopEntryRewriter(desktopEntryRewriterAdapter{})
-	appintegrate.SetFilesystem(filesystemAdapter{})
-	appintegrate.SetDesktopLinkResolver(desktopLinkResolverAdapter{})
-	appintegrate.SetDesktopEntryValidator(desktopEntryValidatorAdapter{})
-	appintegrate.SetDesktopIntegrationCacheRefresher(desktopIntegrationCacheRefresherAdapter{})
-	appremove.SetFilesystem(filesystemAdapter{})
-	appremove.SetIntegrationCacheRefresher(integrationCacheRefresherAdapter{})
-	appupdate.SetZsyncMetadataFetcher(zsyncMetadataFetcherAdapter{})
-	appupdate.SetStagedDownloadService(stagedDownloadAdapter{client: appupdate.SharedHTTPClient})
-	appupdate.SetHashVerifier(hashVerifierAdapter{})
-	appupdate.SetUpdateInfoExtractor(updateInfoExtractorAdapter{})
-	appupgrade.SetSelfUpdater(selfUpdaterAdapter{})
-	appupdate.SetGitHubReleaseResolver(gitHubReleaseAdapter{
-		client: github.Client{HTTPClient: appupdate.SharedHTTPClient()},
+	apiClient := httpclient.New(networkTimeout)
+	appImageService := appimageapp.NewService(appimageapp.Service{
+		Paths:                appimagePathsFromConfig(config.CurrentPaths()),
+		Filesystem:           filesystemAdapter{},
+		Extractor:            appimageExtractorAdapter{},
+		DesktopEntryRewriter: desktopEntryRewriterAdapter{},
 	})
+	if readAppImageInfo == nil {
+		readAppImageInfo = appImageService.ReadAppImageInfo
+	}
+	updateInfoService := appupdate.NewService(appupdate.Service{UpdateInfoExtractor: updateInfoExtractorAdapter{}})
+	if getAppImageUpdateInfo == nil {
+		getAppImageUpdateInfo = updateInfoService.GetUpdateInfo
+	}
+	if resolveGitHubReleaseAsset == nil {
+		resolveGitHubReleaseAsset = gitHubReleaseAdapter{client: github.Client{HTTPClient: apiClient}}.ResolveReleaseAsset
+	}
+	selfUpdater := selfUpdaterAdapter{client: apiClient}
+	upgradeService := appupgrade.NewService(appupgrade.Service{TempDir: config.TempDir, SelfUpdater: selfUpdater})
+	if checkAimUpgrade == nil {
+		checkAimUpgrade = upgradeService.Check
+	}
+	if runUpgradeViaInstaller == nil {
+		runUpgradeViaInstaller = upgradeService.Upgrade
+	}
 }
 
 func repositoryStore() *repo.Store {
 	return repo.NewStore(config.DbSrc)
 }
 
+var configureRuntimeWorkflowServices = configureRepositoryStores
+
+func sameFunc(a, b any) bool {
+	return reflect.ValueOf(a).Pointer() == reflect.ValueOf(b).Pointer()
+}
+
 func configureRepositoryStores() {
-	appintegrate.SetStore(repositoryStore())
-	appremove.SetStore(repositoryStore())
+	store := repositoryStore()
+	integrateService := appintegrate.NewService(appintegrate.Service{
+		Store:                            store,
+		Filesystem:                       filesystemAdapter{},
+		DesktopLinkResolver:              desktopLinkResolverAdapter{},
+		DesktopEntryValidator:            desktopEntryValidatorAdapter{},
+		DesktopIntegrationCacheRefresher: desktopIntegrationCacheRefresherAdapter{},
+		Paths:                            integratePathsFromConfig(config.CurrentPaths()),
+	})
+	removeService := appremove.NewService(appremove.Service{
+		Store:                     store,
+		Filesystem:                filesystemAdapter{},
+		IntegrationCacheRefresher: integrationCacheRefresherAdapter{},
+		Paths:                     removePathsFromConfig(config.CurrentPaths()),
+	})
+	if sameFunc(integrateExistingApp, appintegrate.IntegrateExisting) {
+		integrateExistingApp = integrateService.Reintegrate
+	}
+	if sameFunc(integrateLocalApp, appintegrate.IntegrateFromLocalFile) {
+		integrateLocalApp = integrateService.IntegrateLocal
+	}
+	if sameFunc(removeManagedApp, appremove.Remove) {
+		removeManagedApp = removeService.Remove
+	}
 }
 
 type checkMetadataUpdate struct {

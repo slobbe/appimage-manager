@@ -8,8 +8,10 @@ import (
 )
 
 type ManagedUpdateChecker struct {
-	ZsyncCheck         func(update *models.UpdateSource, localSHA1 string) (*UpdateData, error)
-	GitHubReleaseCheck func(update *models.UpdateSource, currentVersion, localSHA1 string) (*GitHubReleaseUpdate, error)
+	ZsyncMetadataFetcher  ZsyncMetadataFetcher
+	GitHubReleaseResolver GitHubReleaseResolver
+	ZsyncCheck            func(update *models.UpdateSource, localSHA1 string) (*UpdateData, error)
+	GitHubReleaseCheck    func(update *models.UpdateSource, currentVersion, localSHA1 string) (*GitHubReleaseUpdate, error)
 }
 
 func NewManagedUpdateChecker(checker ManagedUpdateChecker) ManagedUpdateChecker {
@@ -34,7 +36,9 @@ func (checker ManagedUpdateChecker) Check(app *models.App) (*ManagedUpdate, erro
 func (checker ManagedUpdateChecker) checkZsync(app *models.App) (*ManagedUpdate, error) {
 	check := checker.ZsyncCheck
 	if check == nil {
-		check = ZsyncUpdateCheck
+		check = func(update *models.UpdateSource, localSHA1 string) (*UpdateData, error) {
+			return ZsyncUpdateCheckWithFetcher(update, localSHA1, checker.ZsyncMetadataFetcher)
+		}
 	}
 	update, err := check(app.Update, app.SHA1)
 	if err != nil {
@@ -63,7 +67,9 @@ func (checker ManagedUpdateChecker) checkZsync(app *models.App) (*ManagedUpdate,
 func (checker ManagedUpdateChecker) checkGitHubRelease(app *models.App) (*ManagedUpdate, error) {
 	check := checker.GitHubReleaseCheck
 	if check == nil {
-		check = GitHubReleaseUpdateCheck
+		check = func(update *models.UpdateSource, currentVersion, localSHA1 string) (*GitHubReleaseUpdate, error) {
+			return GitHubReleaseUpdateCheckWithResolver(update, currentVersion, localSHA1, checker.GitHubReleaseResolver, checker.ZsyncMetadataFetcher)
+		}
 	}
 	update, err := check(app.Update, app.Version, app.SHA1)
 	if err != nil {

@@ -16,6 +16,8 @@ import (
 	repo "github.com/slobbe/appimage-manager/internal/infra/repository"
 )
 
+var testService Service
+
 func TestIntegrateFromLocalFileWithSymlinkedDesktopEntry(t *testing.T) {
 	tmp := t.TempDir()
 	setupIntegrationConfigForTest(t, tmp)
@@ -25,7 +27,7 @@ func TestIntegrateFromLocalFileWithSymlinkedDesktopEntry(t *testing.T) {
 	appImagePath := filepath.Join(tmp, "0ad-0.28.0-x86_64.AppImage")
 	writeFakeAppImageExtractor(t, appImagePath)
 
-	app, err := IntegrateFromLocalFile(context.Background(), appImagePath, nil)
+	app, err := testService.IntegrateLocal(context.Background(), appImagePath, nil)
 	if err != nil {
 		t.Fatalf("IntegrateFromLocalFile returned error: %v", err)
 	}
@@ -71,16 +73,12 @@ func TestIntegrateFromLocalFileWithoutCacheRefreshSkipsRefresh(t *testing.T) {
 	stubDesktopValidationForTest(t)
 
 	refresher := &recordingIntegrationCacheRefresher{}
-	originalRefresher := defaultDesktopIntegrationCacheRefresher
-	t.Cleanup(func() {
-		defaultDesktopIntegrationCacheRefresher = originalRefresher
-	})
-	SetDesktopIntegrationCacheRefresher(refresher)
+	testService.DesktopIntegrationCacheRefresher = refresher
 
 	appImagePath := filepath.Join(tmp, "0ad-0.28.0-x86_64.AppImage")
 	writeFakeAppImageExtractor(t, appImagePath)
 
-	app, err := IntegrateFromLocalFileWithoutCacheRefresh(context.Background(), appImagePath, nil)
+	app, err := testService.IntegrateLocalWithoutCacheRefresh(context.Background(), appImagePath, nil)
 	if err != nil {
 		t.Fatalf("IntegrateFromLocalFileWithoutCacheRefresh returned error: %v", err)
 	}
@@ -102,7 +100,7 @@ func TestIntegrateFromLocalFileWithoutCacheRefreshOrPersistSkipsDatabaseSave(t *
 	appImagePath := filepath.Join(tmp, "0ad-0.28.0-x86_64.AppImage")
 	writeFakeAppImageExtractor(t, appImagePath)
 
-	app, err := IntegrateFromLocalFileWithoutCacheRefreshOrPersist(context.Background(), appImagePath, nil)
+	app, err := testService.IntegrateLocalWithoutCacheRefreshOrPersist(context.Background(), appImagePath, nil)
 	if err != nil {
 		t.Fatalf("IntegrateFromLocalFileWithoutCacheRefreshOrPersist returned error: %v", err)
 	}
@@ -127,7 +125,7 @@ func TestIntegrateFromLocalFileReturnsPromptlyWhenContextCanceled(t *testing.T) 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		_, err := IntegrateFromLocalFile(ctx, appImagePath, nil)
+		_, err := testService.IntegrateLocal(ctx, appImagePath, nil)
 		done <- err
 	}()
 
@@ -153,7 +151,7 @@ func TestIntegrateFromLocalFileUsesReadableManagedIdentity(t *testing.T) {
 	appImagePath := filepath.Join(tmp, "t3-code-alpha.AppImage")
 	writeFakeAppImageExtractorWithDesktop(t, appImagePath, "t3-code-desktop.desktop", "T3 Code (Alpha)", "0.0.14", "t3-code-desktop", "t3-code-desktop.svg")
 
-	app, err := IntegrateFromLocalFile(context.Background(), appImagePath, nil)
+	app, err := testService.IntegrateLocal(context.Background(), appImagePath, nil)
 	if err != nil {
 		t.Fatalf("IntegrateFromLocalFile returned error: %v", err)
 	}
@@ -189,7 +187,7 @@ func TestIntegrateFromLocalFileUsesNameForGenericDesktopID(t *testing.T) {
 	appImagePath := filepath.Join(tmp, "desktop.AppImage")
 	writeFakeAppImageExtractorWithDesktop(t, appImagePath, "desktop.desktop", "ClickUp", "2603135dev5rzzi", "desktop", "desktop.svg")
 
-	app, err := IntegrateFromLocalFile(context.Background(), appImagePath, nil)
+	app, err := testService.IntegrateLocal(context.Background(), appImagePath, nil)
 	if err != nil {
 		t.Fatalf("IntegrateFromLocalFile returned error: %v", err)
 	}
@@ -275,7 +273,7 @@ func TestIntegrateFromLocalFileMigratesGenericOldIDToReadableID(t *testing.T) {
 
 	writeFakeAppImageExtractorWithDesktop(t, appImagePath, "desktop.desktop", "ClickUp", "2603135dev5rzzi", "desktop", "desktop.svg")
 
-	app, err := IntegrateFromLocalFile(context.Background(), appImagePath, nil)
+	app, err := testService.IntegrateLocal(context.Background(), appImagePath, nil)
 	if err != nil {
 		t.Fatalf("IntegrateFromLocalFile returned error: %v", err)
 	}
@@ -329,7 +327,7 @@ func TestRemoveStaleInstalledIconKeepsIconReferencedByAnotherApp(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	removeStaleInstalledIcon(defaultStore, oldIconPath, newIconPath, "clickup")
+	testService.removeStaleInstalledIcon(testService.Store, oldIconPath, newIconPath, "clickup")
 
 	if _, err := os.Stat(oldIconPath); err != nil {
 		t.Fatalf("expected shared icon to remain: %v", err)
@@ -398,7 +396,7 @@ func TestIntegrateFromLocalFileReplacesEquivalentManagedAppWhenDesktopIDChanges(
 	appImagePath := filepath.Join(tmp, "t3-code.AppImage")
 	writeFakeAppImageExtractorWithDesktop(t, appImagePath, "t3-code.desktop", "T3 Code", "0.0.15", "t3-code", "t3-code.svg")
 
-	app, err := IntegrateFromLocalFile(context.Background(), appImagePath, nil)
+	app, err := testService.IntegrateLocal(context.Background(), appImagePath, nil)
 	if err != nil {
 		t.Fatalf("IntegrateFromLocalFile returned error: %v", err)
 	}
@@ -470,7 +468,7 @@ func TestIntegrateExistingPrefersUnprefixedDesktopLink(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	integrated, err := IntegrateExisting(context.Background(), "my-app")
+	integrated, err := testService.Reintegrate(context.Background(), "my-app")
 	if err != nil {
 		t.Fatalf("IntegrateExisting returned error: %v", err)
 	}
@@ -487,18 +485,12 @@ func setupIntegrationConfigForTest(t *testing.T, tmp string) {
 	originalDesktopDir := config.DesktopDir
 	originalIconThemeDir := config.IconThemeDir
 	originalDbSrc := config.DbSrc
-	originalStore := defaultStore
-	originalPaths := defaultPaths
-	originalAppImagePaths := appimage.Paths{}
 	t.Cleanup(func() {
 		config.AimDir = originalAimDir
 		config.TempDir = originalTempDir
 		config.DesktopDir = originalDesktopDir
 		config.IconThemeDir = originalIconThemeDir
 		config.DbSrc = originalDbSrc
-		defaultStore = originalStore
-		defaultPaths = originalPaths
-		appimage.SetPaths(originalAppImagePaths)
 	})
 
 	config.AimDir = filepath.Join(tmp, "aim")
@@ -506,13 +498,25 @@ func setupIntegrationConfigForTest(t *testing.T, tmp string) {
 	config.DesktopDir = filepath.Join(tmp, "applications")
 	config.IconThemeDir = filepath.Join(tmp, "icons", "hicolor")
 	config.DbSrc = filepath.Join(tmp, "state", "aim", "apps.json")
-	SetPaths(Paths{
-		AimDir:       config.AimDir,
-		DesktopDir:   config.DesktopDir,
-		TempDir:      config.TempDir,
-		IconThemeDir: config.IconThemeDir,
-	})
-	SetStore(repo.NewStore(config.DbSrc))
+	testService = Service{
+		Store:                            repo.NewStore(config.DbSrc),
+		Filesystem:                       testAppImageFilesystem{},
+		DesktopLinkResolver:              testDesktopLinkResolver{},
+		DesktopEntryValidator:            &recordingDesktopEntryValidator{},
+		DesktopIntegrationCacheRefresher: &recordingIntegrationCacheRefresher{},
+		AppImage: appimage.Service{
+			Paths:                appimage.Paths{AimDir: config.AimDir, TempDir: config.TempDir},
+			Filesystem:           testAppImageFilesystem{},
+			Extractor:            testAppImageExtractor{},
+			DesktopEntryRewriter: testAppImageDesktopEntryRewriter{},
+		},
+		Paths: Paths{
+			AimDir:       config.AimDir,
+			DesktopDir:   config.DesktopDir,
+			TempDir:      config.TempDir,
+			IconThemeDir: config.IconThemeDir,
+		},
+	}
 
 	dirs := []string{
 		config.AimDir,
@@ -529,22 +533,10 @@ func setupIntegrationConfigForTest(t *testing.T, tmp string) {
 
 func stubDesktopValidationForTest(t *testing.T) {
 	t.Helper()
-
-	originalValidator := defaultDesktopEntryValidator
-	t.Cleanup(func() {
-		defaultDesktopEntryValidator = originalValidator
-	})
-
-	SetDesktopEntryValidator(&recordingDesktopEntryValidator{})
+	testService.DesktopEntryValidator = &recordingDesktopEntryValidator{}
 }
 
 func stubIntegrationCacheRefreshForTest(t *testing.T) {
 	t.Helper()
-
-	originalRefresher := defaultDesktopIntegrationCacheRefresher
-	t.Cleanup(func() {
-		defaultDesktopIntegrationCacheRefresher = originalRefresher
-	})
-
-	SetDesktopIntegrationCacheRefresher(&recordingIntegrationCacheRefresher{})
+	testService.DesktopIntegrationCacheRefresher = &recordingIntegrationCacheRefresher{}
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/slobbe/appimage-manager/internal/app/clock"
 	appintegrate "github.com/slobbe/appimage-manager/internal/app/integrate"
+	appservices "github.com/slobbe/appimage-manager/internal/app/services"
 	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
 	models "github.com/slobbe/appimage-manager/internal/domain"
 	"github.com/slobbe/appimage-manager/internal/infra/config"
@@ -217,9 +218,9 @@ func checkAppUpdate(app *models.App) (*pendingManagedUpdate, error) {
 var (
 	downloadManagedRemoteAsset = func(ctx context.Context, assetURL, destination string, interactive bool, onProgress func(int64, int64)) error {
 		return appupdate.Service{
-			TempDir:    config.TempDir,
-			HTTPClient: runtimeDownloadHTTPClient(),
-			NowISO:     clock.NowISO,
+			TempDir:        config.TempDir,
+			NowISO:         clock.NowISO,
+			StagedDownload: stagedDownloadAdapter{client: runtimeDownloadHTTPClient},
 		}.DownloadManagedUpdateAsset(ctx, assetURL, destination, onProgress)
 	}
 	integrateManagedUpdate = appintegrate.IntegrateFromLocalFileWithoutCacheRefreshOrPersist
@@ -227,10 +228,11 @@ var (
 
 func managedUpdateService() appupdate.Service {
 	return appupdate.Service{
-		TempDir:    config.TempDir,
-		HTTPClient: runtimeDownloadHTTPClient(),
-		NowISO:     clock.NowISO,
-		Zsync:      runtimeZsyncRunner(),
+		TempDir:        config.TempDir,
+		NowISO:         clock.NowISO,
+		Zsync:          runtimeZsyncRunner(),
+		StagedDownload: stagedDownloadAdapter{client: runtimeDownloadHTTPClient},
+		HashVerifier:   hashVerifierAdapter{},
 		DownloadAsset: func(ctx context.Context, assetURL, destination string, onProgress func(downloaded, total int64)) error {
 			return downloadManagedRemoteAsset(ctx, assetURL, destination, false, onProgress)
 		},
@@ -302,7 +304,8 @@ func cleanupReplacedManagedApps(ctx context.Context, apps []*models.App) error {
 }
 
 func verifyDownloadedUpdate(downloadPath string, update pendingManagedUpdate) error {
-	return rewriteChecksumError(appupdate.VerifyDownloadedUpdate(downloadPath, update))
+	service := appupdate.NewService(appupdate.Service{HashVerifier: hashVerifierAdapter{}})
+	return rewriteChecksumError(service.VerifyDownloadedUpdate(downloadPath, update))
 }
 
 type downloadDescriptionContextKey struct{}
@@ -519,7 +522,7 @@ func runManagedUpdate(ctx context.Context, cmd *cobra.Command, targetID string) 
 }
 
 func prepareManagedUpdateRun(cmd *cobra.Command, targetID string) (managedUpdateRunConfig, error) {
-	apps, err := collectManagedUpdateTargets(targetID)
+	apps, err := collectManagedUpdateTargets(cmd, targetID)
 	if err != nil {
 		return managedUpdateRunConfig{}, err
 	}
@@ -845,30 +848,30 @@ func renderManagedUpdateRows(cmd *cobra.Command, opts runtimeOptions, rows []upd
 	return false, nil
 }
 
-func collectManagedUpdateTargets(targetID string) ([]*models.App, error) {
+func collectManagedUpdateTargets(cmd *cobra.Command, targetID string) ([]*models.App, error) {
 	if strings.TrimSpace(targetID) != "" {
-		app, err := getManagedApp(targetID)
+		info, err := runtimeServicesFrom(cmd).Info.ManagedAppInfo(cmd.Context(), targetID)
 		if err != nil {
 			return nil, wrapManagedAppLookupError(targetID, err)
 		}
-		return []*models.App{app}, nil
+		return []*models.App{info.App}, nil
 	}
 
-	allApps, err := getAllManagedApps()
+	result, err := runtimeServicesFrom(cmd).List.List(cmd.Context(), appservices.ListRequest{IncludeIntegrated: true, IncludeUnlinked: true})
 	if err != nil {
 		return nil, err
 	}
 
-	ids := make([]string, 0, len(allApps))
-	for id := range allApps {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-
-	apps := make([]*models.App, 0, len(ids))
-	for _, id := range ids {
-		apps = append(apps, allApps[id])
-	}
+	apps := append([]*models.App(nil), result.Apps...)
+	sort.SliceStable(apps, func(i, j int) bool {
+		if apps[i] == nil {
+			return false
+		}
+		if apps[j] == nil {
+			return true
+		}
+		return strings.TrimSpace(apps[i].ID) < strings.TrimSpace(apps[j].ID)
+	})
 
 	return apps, nil
 }
@@ -1006,11 +1009,24 @@ func runManagedApplies(ctx context.Context, cmd *cobra.Command, pending []pendin
 	}
 
 	controller := newManagedApplyController(cmd, pending)
-	appResults := appupdate.ApplyManagedUpdates(ctx, pending, runManagedApply, func(index, total int, update pendingManagedUpdate) appupdate.ManagedApplyReporter {
-		return appupdate.WithManagedApplyEventDefaults(managedApplyReporterFunc(func(event managedApplyEvent) {
-			controller.Event(event)
-		}), index, total, update)
+	batch, err := runtimeServicesFrom(cmd).Update.ApplyBatch(ctx, appservices.UpdateApplyBatchRequest{
+		Pending: pending,
+		ReporterFor: func(index, total int, update pendingManagedUpdate) appupdate.ManagedApplyReporter {
+			return appupdate.WithManagedApplyEventDefaults(managedApplyReporterFunc(func(event managedApplyEvent) {
+				controller.Event(event)
+			}), index, total, update)
+		},
 	})
+	appResults := []appupdate.ManagedApplyResult(nil)
+	if batch != nil {
+		appResults = batch.Results
+	}
+	if err != nil {
+		appResults = make([]appupdate.ManagedApplyResult, len(pending))
+		for idx, update := range pending {
+			appResults[idx] = appupdate.ManagedApplyResult{Index: idx, App: update.App, Error: err}
+		}
+	}
 	results := make([]managedApplyResult, len(appResults))
 	for idx, result := range appResults {
 		results[idx] = managedApplyResult{index: result.Index, app: result.App, updatedApp: result.UpdatedApp, err: result.Error}
