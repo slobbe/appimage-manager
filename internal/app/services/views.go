@@ -161,6 +161,14 @@ type ManagedUpdateView struct {
 	FromKind       string      `json:"from_kind,omitempty"`
 }
 
+// ManagedApplyResultView describes the result of applying one managed update.
+type ManagedApplyResultView struct {
+	Index      int         `json:"index"`
+	App        *AppSummary `json:"app,omitempty"`
+	UpdatedApp *AppDetails `json:"updated_app,omitempty"`
+	Error      string      `json:"error,omitempty"`
+}
+
 // ManagedApplyEventView is emitted by app services for CLI progress rendering.
 type ManagedApplyEventView struct {
 	AppID         string `json:"app_id,omitempty"`
@@ -352,6 +360,18 @@ func managedUpdateViewFromAppUpdate(update *appupdate.ManagedUpdate) *ManagedUpd
 		ZsyncURL:       strings.TrimSpace(update.ZsyncURL),
 		FromKind:       strings.TrimSpace(string(update.FromKind)),
 	}
+}
+
+func managedApplyResultViewFromAppUpdate(result appupdate.ManagedApplyResult) ManagedApplyResultView {
+	view := ManagedApplyResultView{
+		Index:      result.Index,
+		App:        appSummaryFromDomain(result.App),
+		UpdatedApp: appDetailsFromDomain(result.UpdatedApp),
+	}
+	if result.Error != nil {
+		view.Error = result.Error.Error()
+	}
+	return view
 }
 
 func managedApplyEventViewFromAppUpdate(event appupdate.ManagedApplyEvent) ManagedApplyEventView {

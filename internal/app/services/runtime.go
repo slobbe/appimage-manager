@@ -494,7 +494,13 @@ func (service SourceUpdateService) Check(ctx context.Context, req UpdateCheckReq
 	checkResults := check(apps, nil)
 	statuses := make([]ManagedUpdateStatus, 0, len(checkResults))
 	for _, result := range checkResults {
-		statuses = append(statuses, ManagedUpdateStatus{App: result.App, Update: result.Update, Error: result.Error})
+		statuses = append(statuses, ManagedUpdateStatus{
+			App:          appSummaryFromDomain(result.App),
+			Update:       managedUpdateViewFromAppUpdate(result.Update),
+			Error:        result.Error,
+			LegacyApp:    result.App,
+			LegacyUpdate: result.Update,
+		})
 	}
 	return &UpdateCheckResult{Apps: statuses}, nil
 }
@@ -516,13 +522,18 @@ func (service SourceUpdateService) Apply(ctx context.Context, req UpdateApplyReq
 	}
 	checks := appupdate.CheckManagedUpdates([]*domain.App{app}, nil)
 	if len(checks) == 0 || checks[0].Update == nil || !checks[0].Update.Available {
-		return &UpdateApplyResult{App: app}, nil
+		return &UpdateApplyResult{App: appDetailsFromDomain(app), LegacyApp: app}, nil
 	}
 	updated, err := apply(ctx, *checks[0].Update, nil)
 	if err != nil {
 		return nil, err
 	}
-	return &UpdateApplyResult{App: updated, Update: checks[0].Update}, nil
+	return &UpdateApplyResult{
+		App:          appDetailsFromDomain(updated),
+		Update:       managedUpdateViewFromAppUpdate(checks[0].Update),
+		LegacyApp:    updated,
+		LegacyUpdate: checks[0].Update,
+	}, nil
 }
 
 func (service SourceUpdateService) ApplyBatch(ctx context.Context, req UpdateApplyBatchRequest) (*UpdateApplyBatchResult, error) {
@@ -530,10 +541,14 @@ func (service SourceUpdateService) ApplyBatch(ctx context.Context, req UpdateApp
 	if apply == nil {
 		return nil, internalErrorf("update apply service is not configured")
 	}
-	results := appupdate.ApplyManagedUpdates(ctx, req.Pending, func(ctx context.Context, update appupdate.ManagedUpdate, reporter appupdate.ManagedApplyReporter) (*domain.App, error) {
+	legacyResults := appupdate.ApplyManagedUpdates(ctx, req.Pending, func(ctx context.Context, update appupdate.ManagedUpdate, reporter appupdate.ManagedApplyReporter) (*domain.App, error) {
 		return apply(ctx, update, reporter)
 	}, req.ReporterFor)
-	return &UpdateApplyBatchResult{Results: results}, nil
+	results := make([]ManagedApplyResultView, 0, len(legacyResults))
+	for _, result := range legacyResults {
+		results = append(results, managedApplyResultViewFromAppUpdate(result))
+	}
+	return &UpdateApplyBatchResult{Results: results, LegacyResults: legacyResults}, nil
 }
 
 func (service SourceUpdateService) SetSource(ctx context.Context, req UpdateSourceRequest) (*UpdateSourceResult, error) {

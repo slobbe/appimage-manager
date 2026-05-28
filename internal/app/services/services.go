@@ -176,12 +176,19 @@ type UpdateCheckResult struct {
 }
 
 type UpdateApplyResult struct {
-	App    *domain.App
-	Update *update.ManagedUpdate
+	App    *AppDetails
+	Update *ManagedUpdateView
+
+	// Legacy fields are temporary migration bridges for update persistence/apply workflows.
+	LegacyApp    *domain.App           `json:"-"`
+	LegacyUpdate *update.ManagedUpdate `json:"-"`
 }
 
 type UpdateApplyBatchResult struct {
-	Results []update.ManagedApplyResult
+	Results []ManagedApplyResultView
+
+	// LegacyResults is a temporary migration bridge for CLI persistence/progress handling.
+	LegacyResults []update.ManagedApplyResult `json:"-"`
 }
 
 type UpdateSourceResult struct {
@@ -194,9 +201,13 @@ type UpdateSourceResult struct {
 }
 
 type ManagedUpdateStatus struct {
-	App    *domain.App
-	Update *update.ManagedUpdate
+	App    *AppSummary
+	Update *ManagedUpdateView
 	Error  error
+
+	// Legacy fields are temporary migration bridges for update workflow internals.
+	LegacyApp    *domain.App           `json:"-"`
+	LegacyUpdate *update.ManagedUpdate `json:"-"`
 }
 
 type DryRunPlan struct {

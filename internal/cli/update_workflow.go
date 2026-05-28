@@ -1021,7 +1021,7 @@ func runManagedApplies(ctx context.Context, cmd *cobra.Command, pending []pendin
 	})
 	appResults := []appupdate.ManagedApplyResult(nil)
 	if batch != nil {
-		appResults = batch.Results
+		appResults = batch.LegacyResults
 	}
 	if err != nil {
 		appResults = make([]appupdate.ManagedApplyResult, len(pending))

@@ -115,6 +115,15 @@ func TestManagedUpdateAndEventViews(t *testing.T) {
 		t.Fatalf("unexpected managed update view: %+v", view)
 	}
 
+	applyResult := managedApplyResultViewFromAppUpdate(appupdate.ManagedApplyResult{
+		Index:      1,
+		App:        &domain.App{ID: "app", Name: "App"},
+		UpdatedApp: &domain.App{ID: "app", Name: "App", Version: "2.0.0"},
+	})
+	if applyResult.Index != 1 || applyResult.App == nil || applyResult.UpdatedApp == nil || applyResult.UpdatedApp.Version != "2.0.0" {
+		t.Fatalf("unexpected managed apply result view: %+v", applyResult)
+	}
+
 	event := managedApplyEventViewFromAppUpdate(appupdate.ManagedApplyEvent{
 		AppID:         " app ",
 		Stage:         appupdate.ManagedApplyStageDownload,
