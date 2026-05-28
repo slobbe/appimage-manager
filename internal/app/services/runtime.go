@@ -400,19 +400,17 @@ func NewUpgradeWorkflowService(service UpgradeWorkflowService) UpgradeWorkflowSe
 }
 
 func (service UpgradeWorkflowService) Check(ctx context.Context, currentVersion string) (*appupgrade.AimUpgradeCheckResult, error) {
-	check := service.CheckFunc
-	if check == nil {
-		check = appupgrade.CheckForAimUpgrade
+	if service.CheckFunc == nil {
+		return nil, fmt.Errorf("upgrade check service is not configured")
 	}
-	return check(ctx, currentVersion)
+	return service.CheckFunc(ctx, currentVersion)
 }
 
 func (service UpgradeWorkflowService) Upgrade(ctx context.Context, currentVersion string) (*appupgrade.InstallerUpgradeResult, error) {
-	upgrade := service.UpgradeFunc
-	if upgrade == nil {
-		upgrade = appupgrade.UpgradeViaInstaller
+	if service.UpgradeFunc == nil {
+		return nil, fmt.Errorf("upgrade installer service is not configured")
 	}
-	return upgrade(ctx, currentVersion)
+	return service.UpgradeFunc(ctx, currentVersion)
 }
 
 type ManagedUpdateChecker func([]*domain.App, appupdate.ManagedCheckFunc) []appupdate.ManagedCheckResult
@@ -420,9 +418,9 @@ type ManagedUpdateChecker func([]*domain.App, appupdate.ManagedCheckFunc) []appu
 type ManagedUpdateApplier func(context.Context, appupdate.ManagedUpdate, appupdate.ManagedApplyReporter) (*domain.App, error)
 
 type SourceUpdateService struct {
-	Store AppStore
+	Store               AppStore
 	CheckManagedUpdates ManagedUpdateChecker
-	ApplyManagedUpdate ManagedUpdateApplier
+	ApplyManagedUpdate  ManagedUpdateApplier
 }
 
 func NewSourceUpdateService(store AppStore) SourceUpdateService {

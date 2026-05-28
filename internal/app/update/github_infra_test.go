@@ -2,8 +2,8 @@ package update
 
 import (
 	"context"
-	"os"
-	"testing"
+	"net/http"
+	"time"
 
 	"github.com/slobbe/appimage-manager/internal/domain"
 	"github.com/slobbe/appimage-manager/internal/infra/appimage"
@@ -13,14 +13,10 @@ import (
 	"github.com/slobbe/appimage-manager/internal/infra/zsync"
 )
 
-func TestMain(m *testing.M) {
-	SetGitHubReleaseResolver(testGitHubReleaseResolver{})
-	SetZsyncMetadataFetcher(testZsyncMetadataFetcher{})
-	SetStagedDownloadService(testStagedDownloadService{})
-	SetHashVerifier(testHashVerifier{})
-	SetUpdateInfoExtractor(testUpdateInfoExtractor{})
-	os.Exit(m.Run())
-}
+var sharedHTTPClient = &http.Client{Timeout: 30 * time.Second}
+
+func NewHTTPClient(timeout time.Duration) *http.Client { return &http.Client{Timeout: timeout} }
+func SharedHTTPClient() *http.Client                   { return sharedHTTPClient }
 
 type testGitHubReleaseResolver struct{}
 

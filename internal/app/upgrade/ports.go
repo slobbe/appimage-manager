@@ -8,5 +8,3 @@ type SelfUpdater interface {
 	ResolveInstalledPath() (string, error)
 	RunInstallerScript(ctx context.Context, scriptURL string, tempDir func() (string, error)) error
 }
-
-var defaultSelfUpdater SelfUpdater

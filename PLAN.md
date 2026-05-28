@@ -185,11 +185,32 @@ internal/cli/
 internal/architecture/
 ```
 
+## Remaining Commit Checklist
+
+Use these as the remaining focused commits for the cleanup. Do not create compatibility shims for removed internal APIs.
+
+- [x] `refactor(appimage): remove default appimage service`
+  - Remove production package-level `defaultService` wrappers from `internal/app/appimage`.
+  - Route callers through explicit `appimage.Service` dependencies.
+  - Update tests to construct services directly instead of using global setters.
+- [x] `refactor(update): make update workflows explicit services`
+  - Remove remaining production package-level update resolver/state defaults.
+  - Keep update workflows behind explicit service/port dependencies.
+  - Update CLI runtime wiring and tests to pass concrete update services.
+- [x] `refactor(upgrade): remove default upgrade ports`
+  - Remove default upgrade paths/self-updater package state.
+  - Route upgrade checks and installer runs through explicit `upgrade.Service` dependencies.
+- [ ] `refactor(cli): isolate runtime composition wiring`
+  - Move concrete infra adapter construction out of general CLI command files into a focused runtime/composition package or file set.
+  - Keep CLI command handlers dependent on service interfaces and output helpers.
+- [ ] `test(architecture): tighten composition boundary if desired`
+  - Optionally add import-boundary tests that prevent command files from importing concrete infra while allowing the composition root to wire adapters.
+
 ## Definition of Done
 
 - [x] CLI command handlers are thin and do not directly call repositories, HTTP clients, shell commands, desktop validators, or filesystem persistence except through service results/rendering.
 - [x] Domain contains the stable business rules and has no IO, env, HTTP, CLI, or concrete infra imports.
-- [ ] App services coordinate workflows with explicit dependencies and no package-level global setters.
+- [x] App services coordinate workflows with explicit dependencies and no package-level global setters.
 - [x] Infra owns concrete filesystem, HTTP, GitHub, config, desktop, repository, self-update, AppImage extraction, and zsync behavior.
 - [x] Interfaces exist only where app/domain cross into infra or user interaction.
 - [x] `go test ./... && go vet ./...` passes.

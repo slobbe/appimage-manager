@@ -35,10 +35,3 @@ type HashVerifier interface {
 type UpdateInfoExtractor interface {
 	ExtractUpdateInfo(path string) (string, error)
 }
-
-var (
-	defaultZsyncMetadataFetcher ZsyncMetadataFetcher
-	defaultStagedDownload       StagedDownloadService
-	defaultHashVerifier         HashVerifier
-	defaultUpdateInfoExtractor  UpdateInfoExtractor
-)

@@ -62,14 +62,16 @@ func (f ManagedApplyReporterFunc) Event(event ManagedApplyEvent) {
 type IntegrateFunc func(context.Context, string, func(existing, incoming *models.UpdateSource) (bool, error)) (*models.App, error)
 
 type Service struct {
-	TempDir             string
-	NowISO              func() string
-	Zsync               ZsyncRunner
-	StagedDownload      StagedDownloadService
-	HashVerifier        HashVerifier
-	UpdateInfoExtractor UpdateInfoExtractor
-	Integrate           IntegrateFunc
-	DownloadAsset       func(context.Context, string, string, func(downloaded, total int64)) error
+	TempDir               string
+	NowISO                func() string
+	Zsync                 ZsyncRunner
+	StagedDownload        StagedDownloadService
+	HashVerifier          HashVerifier
+	UpdateInfoExtractor   UpdateInfoExtractor
+	ZsyncMetadataFetcher  ZsyncMetadataFetcher
+	GitHubReleaseResolver GitHubReleaseResolver
+	Integrate             IntegrateFunc
+	DownloadAsset         func(context.Context, string, string, func(downloaded, total int64)) error
 }
 
 func NewService(service Service) Service {
@@ -198,9 +200,6 @@ func (s Service) integrate(ctx context.Context, downloadPath string) (*models.Ap
 func (s Service) verifyDownloadedUpdate(downloadPath string, update ManagedUpdate) error {
 	verifier := s.HashVerifier
 	if verifier == nil {
-		verifier = defaultHashVerifier
-	}
-	if verifier == nil {
 		return fmt.Errorf("hash verifier is not configured")
 	}
 	return verifier.VerifyHashes(downloadPath, update.ExpectedSHA256, update.ExpectedSHA1)
@@ -208,10 +207,6 @@ func (s Service) verifyDownloadedUpdate(downloadPath string, update ManagedUpdat
 
 func (s Service) VerifyDownloadedUpdate(downloadPath string, update ManagedUpdate) error {
 	return s.verifyDownloadedUpdate(downloadPath, update)
-}
-
-func VerifyDownloadedUpdate(downloadPath string, update ManagedUpdate) error {
-	return Service{HashVerifier: defaultHashVerifier}.verifyDownloadedUpdate(downloadPath, update)
 }
 
 func ManagedUpdateDownloadFilename(assetName, downloadURL string) string {

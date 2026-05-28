@@ -108,15 +108,9 @@ func TestParseUpdateInfoStringGitHubReleasesZsync(t *testing.T) {
 }
 
 func TestParseUpdateInfoStringGitHubReleasesZsyncLatestTag(t *testing.T) {
-	originalResolver := defaultGitHubReleaseResolver
-	SetGitHubReleaseResolver(fakeGitHubReleaseResolver{latestTag: "v2.0.0"})
-	t.Cleanup(func() {
-		SetGitHubReleaseResolver(originalResolver)
-	})
-
 	info := "gh-releases-zsync|owner|repo|latest|*-x86_64.AppImage.zsync"
 
-	got, err := parseUpdateInfoString(info)
+	got, err := parseUpdateInfoStringWithResolver(info, fakeGitHubReleaseResolver{latestTag: "v2.0.0"})
 	if err != nil {
 		t.Fatalf("parseUpdateInfoString returned error: %v", err)
 	}
@@ -128,13 +122,7 @@ func TestParseUpdateInfoStringGitHubReleasesZsyncLatestTag(t *testing.T) {
 }
 
 func TestParseUpdateInfoStringGitHubReleasesZsyncLatestTagError(t *testing.T) {
-	originalResolver := defaultGitHubReleaseResolver
-	SetGitHubReleaseResolver(failingGitHubReleaseResolver{})
-	t.Cleanup(func() {
-		SetGitHubReleaseResolver(originalResolver)
-	})
-
-	_, err := parseUpdateInfoString("gh-releases-zsync|owner|repo|latest|*-x86_64.AppImage.zsync")
+	_, err := parseUpdateInfoStringWithResolver("gh-releases-zsync|owner|repo|latest|*-x86_64.AppImage.zsync", failingGitHubReleaseResolver{})
 	if err == nil {
 		t.Fatal("expected latest tag resolver error")
 	}
@@ -168,6 +156,10 @@ func TestParseUpdateInfoStringErrors(t *testing.T) {
 	}
 }
 
+func testZsyncUpdateCheck(upd *models.UpdateSource, localSHA1 string) (*UpdateData, error) {
+	return ZsyncUpdateCheckWithFetcher(upd, localSHA1, testZsyncMetadataFetcher{})
+}
+
 func TestZsyncUpdateCheckDerivesNormalizedVersionFromFilename(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(validZsyncMetadata(
@@ -177,7 +169,7 @@ func TestZsyncUpdateCheckDerivesNormalizedVersionFromFilename(t *testing.T) {
 	}))
 	defer server.Close()
 
-	update, err := ZsyncUpdateCheck(zsyncTestSource(server.URL+"/helium.AppImage.zsync"), strings.Repeat("a", 40))
+	update, err := testZsyncUpdateCheck(zsyncTestSource(server.URL+"/helium.AppImage.zsync"), strings.Repeat("a", 40))
 	if err != nil {
 		t.Fatalf("ZsyncUpdateCheck returned error: %v", err)
 	}
@@ -196,7 +188,7 @@ func TestZsyncUpdateCheckRejectsFailedHTTPStatus(t *testing.T) {
 	}))
 	defer server.Close()
 
-	update, err := ZsyncUpdateCheck(zsyncTestSource(server.URL+"/app.AppImage.zsync"), strings.Repeat("a", 40))
+	update, err := testZsyncUpdateCheck(zsyncTestSource(server.URL+"/app.AppImage.zsync"), strings.Repeat("a", 40))
 	if err == nil {
 		t.Fatal("expected status error")
 	}
@@ -222,7 +214,7 @@ func TestZsyncUpdateCheckUsesConfiguredHTTPClientTimeout(t *testing.T) {
 	defer server.Close()
 
 	start := time.Now()
-	update, err := ZsyncUpdateCheck(zsyncTestSource(server.URL+"/app.AppImage.zsync"), strings.Repeat("a", 40))
+	update, err := testZsyncUpdateCheck(zsyncTestSource(server.URL+"/app.AppImage.zsync"), strings.Repeat("a", 40))
 	elapsed := time.Since(start)
 	if err == nil {
 		t.Fatal("expected timeout error")
@@ -273,7 +265,7 @@ func TestZsyncUpdateCheckRejectsMalformedMetadata(t *testing.T) {
 			}))
 			defer server.Close()
 
-			update, err := ZsyncUpdateCheck(zsyncTestSource(server.URL+"/app.AppImage.zsync"), strings.Repeat("a", 40))
+			update, err := testZsyncUpdateCheck(zsyncTestSource(server.URL+"/app.AppImage.zsync"), strings.Repeat("a", 40))
 			if err == nil {
 				t.Fatal("expected malformed metadata error")
 			}
@@ -302,7 +294,7 @@ func TestZsyncUpdateCheckRejectsRedirectStatusWhenClientDoesNotFollow(t *testing
 	}))
 	defer server.Close()
 
-	update, err := ZsyncUpdateCheck(zsyncTestSource(server.URL+"/redirect.AppImage.zsync"), strings.Repeat("a", 40))
+	update, err := testZsyncUpdateCheck(zsyncTestSource(server.URL+"/redirect.AppImage.zsync"), strings.Repeat("a", 40))
 	if err == nil {
 		t.Fatal("expected redirect status error")
 	}
@@ -320,7 +312,7 @@ func TestZsyncUpdateCheckRejectsPartialMetadataResponse(t *testing.T) {
 	}))
 	defer server.Close()
 
-	update, err := ZsyncUpdateCheck(zsyncTestSource(server.URL+"/app.AppImage.zsync"), strings.Repeat("a", 40))
+	update, err := testZsyncUpdateCheck(zsyncTestSource(server.URL+"/app.AppImage.zsync"), strings.Repeat("a", 40))
 	if err == nil {
 		t.Fatal("expected partial metadata error")
 	}
@@ -338,7 +330,7 @@ func TestZsyncUpdateCheckRejectsOversizedMetadata(t *testing.T) {
 	}))
 	defer server.Close()
 
-	update, err := ZsyncUpdateCheck(zsyncTestSource(server.URL+"/app.AppImage.zsync"), strings.Repeat("a", 40))
+	update, err := testZsyncUpdateCheck(zsyncTestSource(server.URL+"/app.AppImage.zsync"), strings.Repeat("a", 40))
 	if err == nil {
 		t.Fatal("expected oversized metadata error")
 	}

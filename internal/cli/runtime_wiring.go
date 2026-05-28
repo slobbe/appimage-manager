@@ -30,8 +30,8 @@ import (
 )
 
 var runAppUpdateCheck = checkAppUpdate
-var runZsyncUpdateCheck = appupdate.ZsyncUpdateCheck
-var runGitHubReleaseUpdateCheck = appupdate.GitHubReleaseUpdateCheck
+var runZsyncUpdateCheck func(update *models.UpdateSource, localSHA1 string) (*appupdate.UpdateData, error)
+var runGitHubReleaseUpdateCheck func(update *models.UpdateSource, currentVersion, localSHA1 string) (*appupdate.GitHubReleaseUpdate, error)
 var discoveryBackends = func() []discovery.DiscoveryBackend {
 	return []discovery.DiscoveryBackend{
 		newGitHubDiscoveryBackend(runtimeSettings{NetworkTimeout: 30 * time.Second}),
@@ -448,12 +448,27 @@ func configureAppPorts(networkTimeout time.Duration) {
 	if readAppImageInfo == nil {
 		readAppImageInfo = appImageService.ReadAppImageInfo
 	}
-	updateInfoService := appupdate.NewService(appupdate.Service{UpdateInfoExtractor: updateInfoExtractorAdapter{}})
+	githubReleaseResolver := gitHubReleaseAdapter{client: github.Client{HTTPClient: apiClient}}
+	zsyncFetcher := zsyncMetadataFetcherAdapter{client: apiClient}
+	updateInfoService := appupdate.NewService(appupdate.Service{
+		UpdateInfoExtractor:   updateInfoExtractorAdapter{},
+		GitHubReleaseResolver: githubReleaseResolver,
+	})
 	if getAppImageUpdateInfo == nil {
 		getAppImageUpdateInfo = updateInfoService.GetUpdateInfo
 	}
+	if runZsyncUpdateCheck == nil {
+		runZsyncUpdateCheck = func(update *models.UpdateSource, localSHA1 string) (*appupdate.UpdateData, error) {
+			return appupdate.ZsyncUpdateCheckWithFetcher(update, localSHA1, zsyncFetcher)
+		}
+	}
+	if runGitHubReleaseUpdateCheck == nil {
+		runGitHubReleaseUpdateCheck = func(update *models.UpdateSource, currentVersion, localSHA1 string) (*appupdate.GitHubReleaseUpdate, error) {
+			return appupdate.GitHubReleaseUpdateCheckWithResolver(update, currentVersion, localSHA1, githubReleaseResolver, zsyncFetcher)
+		}
+	}
 	if resolveGitHubReleaseAsset == nil {
-		resolveGitHubReleaseAsset = gitHubReleaseAdapter{client: github.Client{HTTPClient: apiClient}}.ResolveReleaseAsset
+		resolveGitHubReleaseAsset = githubReleaseResolver.ResolveReleaseAsset
 	}
 	selfUpdater := selfUpdaterAdapter{client: apiClient}
 	upgradeService := appupgrade.NewService(appupgrade.Service{TempDir: config.TempDir, SelfUpdater: selfUpdater})
@@ -477,6 +492,18 @@ func sameFunc(a, b any) bool {
 
 func configureRepositoryStores() {
 	store := repositoryStore()
+	apiClient := runtimeDownloadHTTPClient()
+	githubReleaseResolver := gitHubReleaseAdapter{client: github.Client{HTTPClient: apiClient}}
+	appImageService := appimageapp.NewService(appimageapp.Service{
+		Paths:                appimagePathsFromConfig(config.CurrentPaths()),
+		Filesystem:           filesystemAdapter{},
+		Extractor:            appimageExtractorAdapter{},
+		DesktopEntryRewriter: desktopEntryRewriterAdapter{},
+	})
+	updateInfoService := appupdate.NewService(appupdate.Service{
+		UpdateInfoExtractor:   updateInfoExtractorAdapter{},
+		GitHubReleaseResolver: githubReleaseResolver,
+	})
 	integrateService := appintegrate.NewService(appintegrate.Service{
 		Store:                            store,
 		Filesystem:                       filesystemAdapter{},
@@ -484,6 +511,8 @@ func configureRepositoryStores() {
 		DesktopEntryValidator:            desktopEntryValidatorAdapter{},
 		DesktopIntegrationCacheRefresher: desktopIntegrationCacheRefresherAdapter{},
 		Paths:                            integratePathsFromConfig(config.CurrentPaths()),
+		AppImage:                         appImageService,
+		EmbeddedUpdateInfo:               updateInfoService.GetUpdateInfo,
 	})
 	removeService := appremove.NewService(appremove.Service{
 		Store:                     store,

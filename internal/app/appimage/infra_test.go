@@ -3,18 +3,19 @@ package appimage
 import (
 	"context"
 	"os"
-	"testing"
 
 	appimageinfra "github.com/slobbe/appimage-manager/internal/infra/appimage"
 	"github.com/slobbe/appimage-manager/internal/infra/desktop"
 	fsys "github.com/slobbe/appimage-manager/internal/infra/filesystem"
 )
 
-func TestMain(m *testing.M) {
-	SetFilesystem(testFilesystem{})
-	SetExtractor(testExtractor{})
-	SetDesktopEntryRewriter(testDesktopEntryRewriter{})
-	os.Exit(m.Run())
+func newTestService(paths Paths) Service {
+	return NewService(Service{
+		Paths:                paths,
+		Filesystem:           testFilesystem{},
+		Extractor:            testExtractor{},
+		DesktopEntryRewriter: testDesktopEntryRewriter{},
+	})
 }
 
 type testFilesystem struct{}

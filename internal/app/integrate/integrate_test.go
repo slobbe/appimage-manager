@@ -340,11 +340,7 @@ func TestIntegrateFromLocalFileReplacesEquivalentManagedAppWhenDesktopIDChanges(
 	stubDesktopValidationForTest(t)
 	stubIntegrationCacheRefreshForTest(t)
 
-	originalGetEmbeddedUpdateInfo := getEmbeddedUpdateInfo
-	t.Cleanup(func() {
-		getEmbeddedUpdateInfo = originalGetEmbeddedUpdateInfo
-	})
-	getEmbeddedUpdateInfo = func(string) (*appupdate.UpdateInfo, error) {
+	testService.EmbeddedUpdateInfo = func(string) (*appupdate.UpdateInfo, error) {
 		return &appupdate.UpdateInfo{
 			Kind:       models.UpdateZsync,
 			UpdateInfo: "zsync|https://example.com/t3-code.AppImage.zsync",

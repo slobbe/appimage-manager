@@ -24,6 +24,10 @@ func (t *rewriteHostTransport) RoundTrip(req *http.Request) (*http.Response, err
 	return t.next.RoundTrip(clone)
 }
 
+func testGitHubReleaseUpdateCheck(update *models.UpdateSource, currentVersion, localSHA1 string) (*GitHubReleaseUpdate, error) {
+	return GitHubReleaseUpdateCheckWithResolver(update, currentVersion, localSHA1, testGitHubReleaseResolver{}, testZsyncMetadataFetcher{})
+}
+
 func TestGitHubReleaseUpdateCheckNormalizesDecoratedTag(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`[
@@ -47,7 +51,7 @@ func TestGitHubReleaseUpdateCheckNormalizesDecoratedTag(t *testing.T) {
 		},
 	}
 
-	update, err := GitHubReleaseUpdateCheck(&models.UpdateSource{
+	update, err := testGitHubReleaseUpdateCheck(&models.UpdateSource{
 		Kind: models.UpdateGitHubRelease,
 		GitHubRelease: &models.GitHubReleaseUpdateSource{
 			Repo:  "owner/repo",
@@ -91,7 +95,7 @@ func TestGitHubReleaseUpdateCheckDetectsRealUpdateFromDecoratedTag(t *testing.T)
 		},
 	}
 
-	update, err := GitHubReleaseUpdateCheck(&models.UpdateSource{
+	update, err := testGitHubReleaseUpdateCheck(&models.UpdateSource{
 		Kind: models.UpdateGitHubRelease,
 		GitHubRelease: &models.GitHubReleaseUpdateSource{
 			Repo:  "owner/repo",
@@ -135,7 +139,7 @@ func TestGitHubReleaseUpdateCheckIgnoresPackagingSuffixInCurrentVersion(t *testi
 		},
 	}
 
-	update, err := GitHubReleaseUpdateCheck(&models.UpdateSource{
+	update, err := testGitHubReleaseUpdateCheck(&models.UpdateSource{
 		Kind: models.UpdateGitHubRelease,
 		GitHubRelease: &models.GitHubReleaseUpdateSource{
 			Repo:  "localsend/localsend",
@@ -200,7 +204,7 @@ func TestGitHubReleaseUpdateCheckUsesSiblingZsyncTransport(t *testing.T) {
 		next: server.Client().Transport,
 	}
 
-	update, err := GitHubReleaseUpdateCheck(&models.UpdateSource{
+	update, err := testGitHubReleaseUpdateCheck(&models.UpdateSource{
 		Kind: models.UpdateGitHubRelease,
 		GitHubRelease: &models.GitHubReleaseUpdateSource{
 			Repo:  "owner/repo",
@@ -266,7 +270,7 @@ func TestGitHubReleaseUpdateCheckIgnoresMissingSiblingZsync(t *testing.T) {
 		next: server.Client().Transport,
 	}
 
-	update, err := GitHubReleaseUpdateCheck(&models.UpdateSource{
+	update, err := testGitHubReleaseUpdateCheck(&models.UpdateSource{
 		Kind: models.UpdateGitHubRelease,
 		GitHubRelease: &models.GitHubReleaseUpdateSource{
 			Repo:  "owner/repo",
@@ -323,7 +327,7 @@ func TestGitHubReleaseUpdateCheckIgnoresMalformedSiblingZsync(t *testing.T) {
 		next: server.Client().Transport,
 	}
 
-	update, err := GitHubReleaseUpdateCheck(&models.UpdateSource{
+	update, err := testGitHubReleaseUpdateCheck(&models.UpdateSource{
 		Kind: models.UpdateGitHubRelease,
 		GitHubRelease: &models.GitHubReleaseUpdateSource{
 			Repo:  "owner/repo",
@@ -382,7 +386,7 @@ func TestGitHubReleaseUpdateCheckSkipsSiblingZsyncWhenUpToDate(t *testing.T) {
 		next: server.Client().Transport,
 	}
 
-	update, err := GitHubReleaseUpdateCheck(&models.UpdateSource{
+	update, err := testGitHubReleaseUpdateCheck(&models.UpdateSource{
 		Kind: models.UpdateGitHubRelease,
 		GitHubRelease: &models.GitHubReleaseUpdateSource{
 			Repo:  "owner/repo",

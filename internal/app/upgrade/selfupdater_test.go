@@ -11,20 +11,15 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"testing"
 )
 
 var (
+	upgradeHTTPClient        = &http.Client{}
 	upgradeShellCommand      = "/bin/sh"
 	upgradeExecutablePath    = os.Executable
 	upgradeEvalSymlinks      = filepath.EvalSymlinks
 	upgradeRunVersionCommand = runVersionCommandForTest
 )
-
-func TestMain(m *testing.M) {
-	SetSelfUpdater(testSelfUpdater{})
-	os.Exit(m.Run())
-}
 
 type testSelfUpdater struct{}
 

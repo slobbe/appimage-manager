@@ -19,24 +19,6 @@ type ExtractionData struct {
 	IconPath         string
 }
 
-var defaultService Service
-
-func ReadAppImageInfo(ctx context.Context, src string) (*AppInfo, error) {
-	return defaultService.ReadAppImageInfo(ctx, src)
-}
-
-func ExtractAppImage(ctx context.Context, src string) (*ExtractionData, error) {
-	return defaultService.ExtractAppImage(ctx, src)
-}
-
-func UpdateDesktopEntry(ctx context.Context, src string, execSrc string, iconSrc string) error {
-	return defaultService.UpdateDesktopEntry(ctx, src, execSrc, iconSrc)
-}
-
-func GetAppInfo(ctx context.Context, desktopSrc string) (*AppInfo, error) {
-	return defaultService.GetAppInfo(ctx, desktopSrc)
-}
-
 func (service Service) ReadAppImageInfo(ctx context.Context, src string) (*AppInfo, error) {
 	filesystem, extractor, _, err := service.requireDependencies()
 	if err != nil {

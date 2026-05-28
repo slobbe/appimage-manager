@@ -8,13 +8,10 @@ import (
 	"sync"
 
 	"github.com/slobbe/appimage-manager/internal/app/clock"
-	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
 	models "github.com/slobbe/appimage-manager/internal/domain"
 )
 
 type UpdateOverwritePrompt func(existing, incoming *models.UpdateSource) (bool, error)
-
-var getEmbeddedUpdateInfo = appupdate.GetUpdateInfo
 
 func IntegrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwrite UpdateOverwritePrompt) (*models.App, error) {
 	return Service{}.integrateFromLocalFile(ctx, src, confirmUpdateOverwrite, true, true)
@@ -75,13 +72,16 @@ func (service Service) integrateFromLocalFile(ctx context.Context, src string, c
 	}()
 
 	var updateFromAppImage *models.UpdateSource
-	if updateInfo, err := getEmbeddedUpdateInfo(extractionData.ExecPath); err == nil && updateInfo.Kind == models.UpdateZsync {
-		updateFromAppImage = &models.UpdateSource{
-			Kind: models.UpdateZsync,
-			Zsync: &models.ZsyncUpdateSource{
-				UpdateInfo: updateInfo.UpdateInfo,
-				Transport:  updateInfo.Transport,
-			},
+	if service.EmbeddedUpdateInfo != nil {
+		updateInfo, err := service.EmbeddedUpdateInfo(extractionData.ExecPath)
+		if err == nil && updateInfo.Kind == models.UpdateZsync {
+			updateFromAppImage = &models.UpdateSource{
+				Kind: models.UpdateZsync,
+				Zsync: &models.ZsyncUpdateSource{
+					UpdateInfo: updateInfo.UpdateInfo,
+					Transport:  updateInfo.Transport,
+				},
+			}
 		}
 	}
 

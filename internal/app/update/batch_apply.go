@@ -2,6 +2,7 @@ package update
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 
@@ -25,12 +26,13 @@ func ApplyManagedUpdates(ctx context.Context, pending []ManagedUpdate, apply Man
 	if len(pending) == 0 {
 		return nil
 	}
-	if apply == nil {
-		service := NewService(Service{})
-		apply = service.ApplyManagedUpdate
-	}
-
 	results := make([]ManagedApplyResult, len(pending))
+	if apply == nil {
+		for idx, item := range pending {
+			results[idx] = ManagedApplyResult{Index: idx, App: item.App, Error: fmt.Errorf("managed update apply service is not configured")}
+		}
+		return results
+	}
 	jobs := make(chan int, len(pending))
 	workerCount := ManagedApplyWorkerCount(len(pending))
 

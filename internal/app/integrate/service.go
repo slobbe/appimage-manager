@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	appimage "github.com/slobbe/appimage-manager/internal/app/appimage"
+	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
 	models "github.com/slobbe/appimage-manager/internal/domain"
 )
 
@@ -25,6 +26,7 @@ type Service struct {
 	IntegrateLocalFile               func(context.Context, string, UpdateOverwritePrompt) (*models.App, error)
 	IntegrateLocalFileNoCacheRefresh func(context.Context, string, UpdateOverwritePrompt) (*models.App, error)
 	ReintegrateExistingApp           func(context.Context, string) (*models.App, error)
+	EmbeddedUpdateInfo               func(string) (*appupdate.UpdateInfo, error)
 }
 
 func NewService(service Service) Service {

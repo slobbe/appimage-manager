@@ -26,10 +26,6 @@ type UpdateData struct {
 	AssetName         string
 }
 
-func ZsyncUpdateCheck(upd *models.UpdateSource, localSHA1 string) (*UpdateData, error) {
-	return ZsyncUpdateCheckWithFetcher(upd, localSHA1, defaultZsyncMetadataFetcher)
-}
-
 func ZsyncUpdateCheckWithFetcher(upd *models.UpdateSource, localSHA1 string, fetcher ZsyncMetadataFetcher) (*UpdateData, error) {
 	if upd.Kind != models.UpdateZsync || upd.Zsync == nil {
 		return nil, fmt.Errorf("no zsync update information")
@@ -72,20 +68,20 @@ func ZsyncUpdateCheckWithFetcher(upd *models.UpdateSource, localSHA1 string, fet
 	return &update, nil
 }
 
-func GetUpdateInfo(src string) (*UpdateInfo, error) {
-	return Service{UpdateInfoExtractor: defaultUpdateInfoExtractor}.GetUpdateInfo(src)
-}
-
 func (service Service) GetUpdateInfo(src string) (*UpdateInfo, error) {
 	info, err := service.extractUpdateInfo(src)
 	if err != nil {
 		return nil, err
 	}
 
-	return parseUpdateInfoString(info)
+	return parseUpdateInfoStringWithResolver(info, service.GitHubReleaseResolver)
 }
 
 func parseUpdateInfoString(info string) (*UpdateInfo, error) {
+	return parseUpdateInfoStringWithResolver(info, nil)
+}
+
+func parseUpdateInfoStringWithResolver(info string, resolver GitHubReleaseResolver) (*UpdateInfo, error) {
 	info = strings.TrimSpace(info)
 	if info == "" {
 		return nil, fmt.Errorf("empty update info")
@@ -119,7 +115,10 @@ func parseUpdateInfoString(info string) (*UpdateInfo, error) {
 		zsyncFile := parts[4]
 
 		if tag == "latest" {
-			latestTag, err := ResolveLatestGitHubReleaseTag(owner, repo)
+			if resolver == nil {
+				return nil, fmt.Errorf("github release resolver is not configured")
+			}
+			latestTag, err := resolver.ResolveLatestReleaseTag(owner, repo)
 			if err != nil {
 				return nil, err
 			}

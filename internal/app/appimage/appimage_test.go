@@ -46,7 +46,8 @@ func TestUpdateDesktopEntryRewritesExecAndIconInAllowedSections(t *testing.T) {
 	execPath := filepath.Join(dir, "My App.AppImage")
 	iconPath := filepath.Join(dir, "my-app.png")
 
-	if err := UpdateDesktopEntry(context.Background(), desktopPath, execPath, iconPath); err != nil {
+	service := newTestService(Paths{})
+	if err := service.UpdateDesktopEntry(context.Background(), desktopPath, execPath, iconPath); err != nil {
 		t.Fatalf("UpdateDesktopEntry returned error: %v", err)
 	}
 
@@ -96,7 +97,8 @@ func TestUpdateDesktopEntryRejectsNonAppImageExec(t *testing.T) {
 		t.Fatalf("failed to write test desktop file: %v", err)
 	}
 
-	err := UpdateDesktopEntry(context.Background(), desktopPath, filepath.Join(dir, "binary"), filepath.Join(dir, "icon.png"))
+	service := newTestService(Paths{})
+	err := service.UpdateDesktopEntry(context.Background(), desktopPath, filepath.Join(dir, "binary"), filepath.Join(dir, "icon.png"))
 	if err == nil {
 		t.Fatal("expected error for non-AppImage exec path")
 	}
@@ -119,7 +121,8 @@ func TestGetAppInfoNormalizesDecoratedVersion(t *testing.T) {
 		t.Fatalf("failed to write desktop file: %v", err)
 	}
 
-	appInfo, err := GetAppInfo(context.Background(), desktopPath)
+	service := newTestService(Paths{})
+	appInfo, err := service.GetAppInfo(context.Background(), desktopPath)
 	if err != nil {
 		t.Fatalf("GetAppInfo returned error: %v", err)
 	}
@@ -130,12 +133,12 @@ func TestGetAppInfoNormalizesDecoratedVersion(t *testing.T) {
 
 func TestExtractAppImageResolvesDesktopSymlinkSource(t *testing.T) {
 	tmp := t.TempDir()
-	setupExtractionConfigForTest(t, tmp)
+	service := newTestService(extractionTestPaths(tmp))
 
 	appImagePath := filepath.Join(tmp, "0ad-0.28.0-x86_64.AppImage")
 	writeFakeAppImageExtractor(t, appImagePath)
 
-	extractionData, err := ExtractAppImage(context.Background(), appImagePath)
+	extractionData, err := service.ExtractAppImage(context.Background(), appImagePath)
 	if err != nil {
 		t.Fatalf("ExtractAppImage returned error: %v", err)
 	}
@@ -148,7 +151,7 @@ func TestExtractAppImageResolvesDesktopSymlinkSource(t *testing.T) {
 		t.Fatalf("expected extracted desktop file to be materialized, got symlink: %s", extractionData.DesktopEntryPath)
 	}
 
-	appInfo, err := GetAppInfo(context.Background(), extractionData.DesktopEntryPath)
+	appInfo, err := service.GetAppInfo(context.Background(), extractionData.DesktopEntryPath)
 	if err != nil {
 		t.Fatalf("GetAppInfo returned error for extracted desktop file: %v", err)
 	}
@@ -159,12 +162,12 @@ func TestExtractAppImageResolvesDesktopSymlinkSource(t *testing.T) {
 
 func TestExtractAppImageReportsDesktopLookupFailure(t *testing.T) {
 	tmp := t.TempDir()
-	setupExtractionConfigForTest(t, tmp)
+	service := newTestService(extractionTestPaths(tmp))
 
 	appImagePath := filepath.Join(tmp, "missing-desktop.AppImage")
 	writeFakeAppImageExtractorWithoutDesktop(t, appImagePath)
 
-	_, err := ExtractAppImage(context.Background(), appImagePath)
+	_, err := service.ExtractAppImage(context.Background(), appImagePath)
 	if err == nil {
 		t.Fatal("expected extraction error when no desktop file is present")
 	}
@@ -175,7 +178,7 @@ func TestExtractAppImageReportsDesktopLookupFailure(t *testing.T) {
 
 func TestExtractAppImageReturnsPromptlyWhenContextCanceled(t *testing.T) {
 	tmp := t.TempDir()
-	setupExtractionConfigForTest(t, tmp)
+	service := newTestService(extractionTestPaths(tmp))
 
 	appImagePath := filepath.Join(tmp, "slow.AppImage")
 	writeSlowFakeAppImageExtractor(t, appImagePath)
@@ -183,7 +186,7 @@ func TestExtractAppImageReturnsPromptlyWhenContextCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		_, err := ExtractAppImage(ctx, appImagePath)
+		_, err := service.ExtractAppImage(ctx, appImagePath)
 		done <- err
 	}()
 
@@ -229,18 +232,11 @@ func TestLocateDesktopFileFallsBackToRecursiveSearch(t *testing.T) {
 	}
 }
 
-func setupExtractionConfigForTest(t *testing.T, tmp string) {
-	t.Helper()
-
-	originalPaths := defaultService.Paths
-	t.Cleanup(func() {
-		defaultService.Paths = originalPaths
-	})
-
-	SetPaths(Paths{
+func extractionTestPaths(tmp string) Paths {
+	return Paths{
 		AimDir:  filepath.Join(tmp, "aim"),
 		TempDir: filepath.Join(tmp, "cache", "tmp"),
-	})
+	}
 }
 
 func writeFakeAppImageExtractor(t *testing.T, dst string) {

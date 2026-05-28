@@ -46,12 +46,6 @@ type GitHubReleaseResolver interface {
 	ResolveLatestReleaseTag(owner, repo string) (string, error)
 }
 
-var defaultGitHubReleaseResolver GitHubReleaseResolver
-
-func GitHubReleaseUpdateCheck(update *models.UpdateSource, currentVersion, localSHA1 string) (*GitHubReleaseUpdate, error) {
-	return GitHubReleaseUpdateCheckWithResolver(update, currentVersion, localSHA1, defaultGitHubReleaseResolver, defaultZsyncMetadataFetcher)
-}
-
 func GitHubReleaseUpdateCheckWithResolver(update *models.UpdateSource, currentVersion, localSHA1 string, resolver GitHubReleaseResolver, fetcher ZsyncMetadataFetcher) (*GitHubReleaseUpdate, error) {
 	if update == nil || update.Kind != models.UpdateGitHubRelease || update.GitHubRelease == nil {
 		return nil, fmt.Errorf("invalid github release update source")
@@ -93,11 +87,4 @@ func resolveGitHubReleaseAsset(repoSlug, assetPattern string, resolver GitHubRel
 		return nil, fmt.Errorf("github release resolver is not configured")
 	}
 	return resolver.ResolveReleaseAsset(repoSlug, assetPattern)
-}
-
-func ResolveLatestGitHubReleaseTag(owner, repo string) (string, error) {
-	if defaultGitHubReleaseResolver == nil {
-		return "", fmt.Errorf("github release resolver is not configured")
-	}
-	return defaultGitHubReleaseResolver.ResolveLatestReleaseTag(owner, repo)
 }

@@ -15,6 +15,41 @@ type testLatestReleaseResponse struct {
 	TagName string `json:"tag_name"`
 }
 
+type fakeSelfUpdater struct {
+	fetchLatestReleaseTag func(context.Context, string) (string, error)
+	runInstallerScript    func(context.Context, string, func() (string, error)) error
+	resolveInstalledPath  func() (string, error)
+	readInstalledVersion  func(context.Context, string) (string, error)
+}
+
+func (f fakeSelfUpdater) FetchLatestReleaseTag(ctx context.Context, releaseURL string) (string, error) {
+	if f.fetchLatestReleaseTag != nil {
+		return f.fetchLatestReleaseTag(ctx, releaseURL)
+	}
+	return "", fmt.Errorf("fetch latest release tag not configured")
+}
+
+func (f fakeSelfUpdater) RunInstallerScript(ctx context.Context, scriptURL string, tempDir func() (string, error)) error {
+	if f.runInstallerScript != nil {
+		return f.runInstallerScript(ctx, scriptURL, tempDir)
+	}
+	return fmt.Errorf("run installer script not configured")
+}
+
+func (f fakeSelfUpdater) ResolveInstalledPath() (string, error) {
+	if f.resolveInstalledPath != nil {
+		return f.resolveInstalledPath()
+	}
+	return "", fmt.Errorf("resolve installed path not configured")
+}
+
+func (f fakeSelfUpdater) ReadInstalledVersion(ctx context.Context, binaryPath string) (string, error) {
+	if f.readInstalledVersion != nil {
+		return f.readInstalledVersion(ctx, binaryPath)
+	}
+	return "", fmt.Errorf("read installed version not configured")
+}
+
 func TestCheckForAimUpgradeReturnsUpdateWhenLatestIsNewer(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/releases/latest" {
@@ -26,17 +61,11 @@ func TestCheckForAimUpgradeReturnsUpdateWhenLatestIsNewer(t *testing.T) {
 	defer server.Close()
 
 	originalHTTPClient := upgradeHTTPClient
-	originalLatestReleaseURL := upgradeLatestReleaseURL
-	t.Cleanup(func() {
-		upgradeHTTPClient = originalHTTPClient
-		upgradeLatestReleaseURL = originalLatestReleaseURL
-	})
+	t.Cleanup(func() { upgradeHTTPClient = originalHTTPClient })
 	upgradeHTTPClient = server.Client()
-	upgradeLatestReleaseURL = func(string) string {
-		return server.URL + "/releases/latest"
-	}
+	service := NewService(Service{SelfUpdater: testSelfUpdater{}, LatestReleaseURL: func(string) string { return server.URL + "/releases/latest" }})
 
-	result, err := CheckForAimUpgrade(context.Background(), "0.12.4")
+	result, err := service.Check(context.Background(), "0.12.4")
 	if err != nil {
 		t.Fatalf("CheckForAimUpgrade returned error: %v", err)
 	}
@@ -61,17 +90,11 @@ func TestCheckForAimUpgradeReturnsNoUpdateWhenVersionsMatch(t *testing.T) {
 	defer server.Close()
 
 	originalHTTPClient := upgradeHTTPClient
-	originalLatestReleaseURL := upgradeLatestReleaseURL
-	t.Cleanup(func() {
-		upgradeHTTPClient = originalHTTPClient
-		upgradeLatestReleaseURL = originalLatestReleaseURL
-	})
+	t.Cleanup(func() { upgradeHTTPClient = originalHTTPClient })
 	upgradeHTTPClient = server.Client()
-	upgradeLatestReleaseURL = func(string) string {
-		return server.URL
-	}
+	service := NewService(Service{SelfUpdater: testSelfUpdater{}, LatestReleaseURL: func(string) string { return server.URL }})
 
-	result, err := CheckForAimUpgrade(context.Background(), "0.12.5")
+	result, err := service.Check(context.Background(), "0.12.5")
 	if err != nil {
 		t.Fatalf("CheckForAimUpgrade returned error: %v", err)
 	}
@@ -93,17 +116,11 @@ func TestCheckForAimUpgradeTreatsDevAsNonComparable(t *testing.T) {
 	defer server.Close()
 
 	originalHTTPClient := upgradeHTTPClient
-	originalLatestReleaseURL := upgradeLatestReleaseURL
-	t.Cleanup(func() {
-		upgradeHTTPClient = originalHTTPClient
-		upgradeLatestReleaseURL = originalLatestReleaseURL
-	})
+	t.Cleanup(func() { upgradeHTTPClient = originalHTTPClient })
 	upgradeHTTPClient = server.Client()
-	upgradeLatestReleaseURL = func(string) string {
-		return server.URL
-	}
+	service := NewService(Service{SelfUpdater: testSelfUpdater{}, LatestReleaseURL: func(string) string { return server.URL }})
 
-	result, err := CheckForAimUpgrade(context.Background(), "dev")
+	result, err := service.Check(context.Background(), "dev")
 	if err != nil {
 		t.Fatalf("CheckForAimUpgrade returned error: %v", err)
 	}
@@ -125,17 +142,11 @@ func TestCheckForAimUpgradeRejectsBadGitHubStatus(t *testing.T) {
 	defer server.Close()
 
 	originalHTTPClient := upgradeHTTPClient
-	originalLatestReleaseURL := upgradeLatestReleaseURL
-	t.Cleanup(func() {
-		upgradeHTTPClient = originalHTTPClient
-		upgradeLatestReleaseURL = originalLatestReleaseURL
-	})
+	t.Cleanup(func() { upgradeHTTPClient = originalHTTPClient })
 	upgradeHTTPClient = server.Client()
-	upgradeLatestReleaseURL = func(string) string {
-		return server.URL
-	}
+	service := NewService(Service{SelfUpdater: testSelfUpdater{}, LatestReleaseURL: func(string) string { return server.URL }})
 
-	_, err := CheckForAimUpgrade(context.Background(), "0.12.4")
+	_, err := service.Check(context.Background(), "0.12.4")
 	if err == nil {
 		t.Fatal("expected latest release request error")
 	}
@@ -145,57 +156,29 @@ func TestCheckForAimUpgradeRejectsBadGitHubStatus(t *testing.T) {
 }
 
 func TestUpgradeViaInstallerReturnsInstalledVersion(t *testing.T) {
-	originalRepoSlug := upgradeRepoSlug
-	originalInstallScriptURL := upgradeInstallScriptURL
-	originalRunInstallerScript := upgradeRunInstallerScript
-	originalExecutablePath := upgradeExecutablePath
-	originalEvalSymlinks := upgradeEvalSymlinks
-	originalRunVersionCommand := upgradeRunVersionCommand
-	t.Cleanup(func() {
-		upgradeRepoSlug = originalRepoSlug
-		upgradeInstallScriptURL = originalInstallScriptURL
-		upgradeRunInstallerScript = originalRunInstallerScript
-		upgradeExecutablePath = originalExecutablePath
-		upgradeEvalSymlinks = originalEvalSymlinks
-		upgradeRunVersionCommand = originalRunVersionCommand
-	})
-
-	upgradeRepoSlug = "test/repo"
-	upgradeInstallScriptURL = func(repoSlug string) string {
-		if repoSlug != "test/repo" {
-			t.Fatalf("unexpected repo slug %q", repoSlug)
-		}
-		return "https://raw.githubusercontent.com/test/repo/main/scripts/install.sh"
-	}
-
 	called := false
-	upgradeRunInstallerScript = func(_ context.Context, scriptURL string) error {
-		called = true
-		if scriptURL != "https://raw.githubusercontent.com/test/repo/main/scripts/install.sh" {
-			t.Fatalf("unexpected script URL %q", scriptURL)
-		}
-		return nil
+	updater := fakeSelfUpdater{
+		runInstallerScript: func(_ context.Context, scriptURL string, _ func() (string, error)) error {
+			called = true
+			if scriptURL != "https://raw.githubusercontent.com/test/repo/main/scripts/install.sh" {
+				t.Fatalf("unexpected script URL %q", scriptURL)
+			}
+			return nil
+		},
+		resolveInstalledPath: func() (string, error) { return "/opt/bin/aim", nil },
+		readInstalledVersion: func(ctx context.Context, binaryPath string) (string, error) {
+			if ctx == nil {
+				t.Fatal("expected non-nil context")
+			}
+			if binaryPath != "/opt/bin/aim" {
+				t.Fatalf("unexpected binary path %q", binaryPath)
+			}
+			return "0.12.5", nil
+		},
 	}
-	upgradeExecutablePath = func() (string, error) {
-		return "/tmp/aim", nil
-	}
-	upgradeEvalSymlinks = func(path string) (string, error) {
-		if path != "/tmp/aim" {
-			t.Fatalf("unexpected executable path %q", path)
-		}
-		return "/opt/bin/aim", nil
-	}
-	upgradeRunVersionCommand = func(ctx context.Context, binaryPath string) (string, error) {
-		if ctx == nil {
-			t.Fatal("expected non-nil context")
-		}
-		if binaryPath != "/opt/bin/aim" {
-			t.Fatalf("unexpected binary path %q", binaryPath)
-		}
-		return "0.12.5\n", nil
-	}
+	service := NewService(Service{RepoSlug: "test/repo", SelfUpdater: updater})
 
-	result, err := UpgradeViaInstaller(context.Background(), "0.12.4")
+	result, err := service.Upgrade(context.Background(), "0.12.4")
 	if err != nil {
 		t.Fatalf("UpgradeViaInstaller returned error: %v", err)
 	}
@@ -214,16 +197,8 @@ func TestUpgradeViaInstallerReturnsInstalledVersion(t *testing.T) {
 }
 
 func TestUpgradeViaInstallerHandlesNilContext(t *testing.T) {
-	originalRunInstallerScript := upgradeRunInstallerScript
-	originalExecutablePath := upgradeExecutablePath
-	originalRunVersionCommand := upgradeRunVersionCommand
-	t.Cleanup(func() {
-		upgradeRunInstallerScript = originalRunInstallerScript
-		upgradeExecutablePath = originalExecutablePath
-		upgradeRunVersionCommand = originalRunVersionCommand
-	})
-
-	upgradeRunInstallerScript = func(ctx context.Context, scriptURL string) error {
+	updater := fakeSelfUpdater{}
+	updater.runInstallerScript = func(ctx context.Context, scriptURL string, _ func() (string, error)) error {
 		if ctx == nil {
 			t.Fatal("expected non-nil context")
 		}
@@ -235,10 +210,10 @@ func TestUpgradeViaInstallerHandlesNilContext(t *testing.T) {
 		}
 		return nil
 	}
-	upgradeExecutablePath = func() (string, error) {
+	updater.resolveInstalledPath = func() (string, error) {
 		return "/tmp/aim", nil
 	}
-	upgradeRunVersionCommand = func(ctx context.Context, binaryPath string) (string, error) {
+	updater.readInstalledVersion = func(ctx context.Context, binaryPath string) (string, error) {
 		if ctx == nil {
 			t.Fatal("expected non-nil context")
 		}
@@ -248,7 +223,8 @@ func TestUpgradeViaInstallerHandlesNilContext(t *testing.T) {
 		return "0.12.5", nil
 	}
 
-	result, err := UpgradeViaInstaller(nil, "0.12.4")
+	service := NewService(Service{SelfUpdater: updater})
+	result, err := service.Upgrade(nil, "0.12.4")
 	if err != nil {
 		t.Fatalf("UpgradeViaInstaller returned error: %v", err)
 	}
@@ -258,26 +234,16 @@ func TestUpgradeViaInstallerHandlesNilContext(t *testing.T) {
 }
 
 func TestUpgradeViaInstallerFallsBackWhenVersionProbeFails(t *testing.T) {
-	originalRunInstallerScript := upgradeRunInstallerScript
-	originalExecutablePath := upgradeExecutablePath
-	originalRunVersionCommand := upgradeRunVersionCommand
-	t.Cleanup(func() {
-		upgradeRunInstallerScript = originalRunInstallerScript
-		upgradeExecutablePath = originalExecutablePath
-		upgradeRunVersionCommand = originalRunVersionCommand
-	})
+	updater := fakeSelfUpdater{
+		runInstallerScript:   func(context.Context, string, func() (string, error)) error { return nil },
+		resolveInstalledPath: func() (string, error) { return "/tmp/aim", nil },
+		readInstalledVersion: func(context.Context, string) (string, error) {
+			return "", fmt.Errorf("version probe failed")
+		},
+	}
+	service := NewService(Service{SelfUpdater: updater})
 
-	upgradeRunInstallerScript = func(context.Context, string) error {
-		return nil
-	}
-	upgradeExecutablePath = func() (string, error) {
-		return "/tmp/aim", nil
-	}
-	upgradeRunVersionCommand = func(context.Context, string) (string, error) {
-		return "", fmt.Errorf("version probe failed")
-	}
-
-	result, err := UpgradeViaInstaller(context.Background(), "0.12.4")
+	result, err := service.Upgrade(context.Background(), "0.12.4")
 	if err != nil {
 		t.Fatalf("UpgradeViaInstaller returned error: %v", err)
 	}
@@ -293,16 +259,12 @@ func TestUpgradeViaInstallerFallsBackWhenVersionProbeFails(t *testing.T) {
 }
 
 func TestUpgradeViaInstallerPropagatesInstallerFailure(t *testing.T) {
-	originalRunInstallerScript := upgradeRunInstallerScript
-	t.Cleanup(func() {
-		upgradeRunInstallerScript = originalRunInstallerScript
-	})
-
-	upgradeRunInstallerScript = func(context.Context, string) error {
+	updater := fakeSelfUpdater{runInstallerScript: func(context.Context, string, func() (string, error)) error {
 		return fmt.Errorf("installer failed")
-	}
+	}}
+	service := NewService(Service{SelfUpdater: updater})
 
-	result, err := UpgradeViaInstaller(context.Background(), "0.12.4")
+	result, err := service.Upgrade(context.Background(), "0.12.4")
 	if err == nil {
 		t.Fatal("expected installer failure")
 	}
@@ -316,15 +278,10 @@ func TestUpgradeViaInstallerPropagatesInstallerFailure(t *testing.T) {
 
 func TestReadInstalledAimVersionTrimsWhitespace(t *testing.T) {
 	originalRunVersionCommand := upgradeRunVersionCommand
-	t.Cleanup(func() {
-		upgradeRunVersionCommand = originalRunVersionCommand
-	})
+	t.Cleanup(func() { upgradeRunVersionCommand = originalRunVersionCommand })
+	upgradeRunVersionCommand = func(context.Context, string) (string, error) { return "0.12.5\n", nil }
 
-	upgradeRunVersionCommand = func(context.Context, string) (string, error) {
-		return "0.12.5\n", nil
-	}
-
-	version, err := readInstalledAimVersion(context.Background(), "/tmp/aim")
+	version, err := (testSelfUpdater{}).ReadInstalledVersion(context.Background(), "/tmp/aim")
 	if err != nil {
 		t.Fatalf("readInstalledAimVersion returned error: %v", err)
 	}
@@ -345,7 +302,7 @@ func TestRunInstallerScriptRejectsBadStatus(t *testing.T) {
 	})
 	upgradeHTTPClient = server.Client()
 
-	err := upgradeRunInstallerScript(context.Background(), server.URL)
+	err := (testSelfUpdater{}).RunInstallerScript(context.Background(), server.URL, func() (string, error) { return t.TempDir(), nil })
 	if err == nil {
 		t.Fatal("expected download status error")
 	}
@@ -355,7 +312,7 @@ func TestRunInstallerScriptRejectsBadStatus(t *testing.T) {
 }
 
 func TestRunInstallerScriptExecutesDownloadedScript(t *testing.T) {
-	setupSelfUpdatePathsForTest(t)
+	tempDir := setupSelfUpdatePathsForTest(t)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -372,13 +329,13 @@ func TestRunInstallerScriptExecutesDownloadedScript(t *testing.T) {
 	upgradeHTTPClient = server.Client()
 	upgradeShellCommand = "/bin/sh"
 
-	if err := upgradeRunInstallerScript(context.Background(), server.URL); err != nil {
+	if err := (testSelfUpdater{}).RunInstallerScript(context.Background(), server.URL, func() (string, error) { return tempDir, nil }); err != nil {
 		t.Fatalf("upgradeRunInstallerScript returned error: %v", err)
 	}
 }
 
 func TestRunInstallerScriptSurfacesFailureOutput(t *testing.T) {
-	setupSelfUpdatePathsForTest(t)
+	tempDir := setupSelfUpdatePathsForTest(t)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -395,7 +352,7 @@ func TestRunInstallerScriptSurfacesFailureOutput(t *testing.T) {
 	upgradeHTTPClient = server.Client()
 	upgradeShellCommand = "/bin/sh"
 
-	err := upgradeRunInstallerScript(context.Background(), server.URL)
+	err := (testSelfUpdater{}).RunInstallerScript(context.Background(), server.URL, func() (string, error) { return tempDir, nil })
 	if err == nil {
 		t.Fatal("expected execution failure")
 	}
@@ -407,16 +364,8 @@ func TestRunInstallerScriptSurfacesFailureOutput(t *testing.T) {
 	}
 }
 
-func setupSelfUpdatePathsForTest(t *testing.T) {
+func setupSelfUpdatePathsForTest(t *testing.T) string {
 	t.Helper()
 
-	originalPaths := defaultPaths
-	t.Cleanup(func() {
-		defaultPaths = originalPaths
-	})
-
-	tmp := t.TempDir()
-	SetPaths(Paths{
-		TempDir: filepath.Join(tmp, "cache", "tmp"),
-	})
+	return filepath.Join(t.TempDir(), "cache", "tmp")
 }
