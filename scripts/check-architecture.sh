@@ -44,7 +44,41 @@ check_layer_imports() {
 	done < "$packages_file"
 }
 
-check_cli_infra_imports() {
+is_allowed_cli_boundary_migration_file() {
+	case "$1" in
+		internal/cli/commands.go | \
+		internal/cli/output.go | \
+		internal/cli/package_sources.go | \
+		internal/cli/update_workflow.go)
+			return 0
+			;;
+		*)
+			return 1
+			;;
+	esac
+}
+
+is_forbidden_cli_boundary_import() {
+	case "$1" in
+		*'/internal/domain' | *'/internal/domain/'*)
+			return 0
+			;;
+		*'/internal/infra' | *'/internal/infra/'*)
+			return 0
+			;;
+		*'/internal/app/services' | *'/internal/app/services/'*)
+			return 1
+			;;
+		*'/internal/app' | *'/internal/app/'*)
+			return 0
+			;;
+		*)
+			return 1
+			;;
+	esac
+}
+
+check_cli_boundary_imports() {
 	for path in internal/cli/*.go; do
 		[ -e "$path" ] || continue
 		case "$path" in
@@ -53,16 +87,22 @@ check_cli_infra_imports() {
 				;;
 		esac
 
-		if grep -q '"[^"]*/internal/infra' "$path"; then
-			grep '"[^"]*/internal/infra' "$path" | while IFS= read -r import_line; do
-				append_violation "$path imports concrete infra outside runtime composition: $import_line"
-			done
-		fi
+		grep '"[^"]*/internal/\(app\|domain\|infra\)' "$path" | while IFS= read -r import_line; do
+			import_path=${import_line#*\"}
+			import_path=${import_path%%\"*}
+			if ! is_forbidden_cli_boundary_import "$import_path"; then
+				continue
+			fi
+			if is_allowed_cli_boundary_migration_file "$path"; then
+				continue
+			fi
+			append_violation "$path imports outside the CLI app-service boundary: $import_line"
+		done || true
 	done
 }
 
 check_layer_imports
-check_cli_infra_imports
+check_cli_boundary_imports
 
 if [ -s "$violations_file" ]; then
 	printf 'Architecture boundary violations:\n'
