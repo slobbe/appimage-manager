@@ -45,9 +45,13 @@ type UpdateService interface {
 	PlanUnsetSource(ctx context.Context, id string) (*DryRunPlan, error)
 }
 
+type AimUpgradeCheckResult = upgrade.AimUpgradeCheckResult
+
+type InstallerUpgradeResult = upgrade.InstallerUpgradeResult
+
 type UpgradeService interface {
-	Check(ctx context.Context, currentVersion string) (*upgrade.AimUpgradeCheckResult, error)
-	Upgrade(ctx context.Context, currentVersion string) (*upgrade.InstallerUpgradeResult, error)
+	Check(ctx context.Context, currentVersion string) (*AimUpgradeCheckResult, error)
+	Upgrade(ctx context.Context, currentVersion string) (*InstallerUpgradeResult, error)
 }
 
 type DiscoveryService interface {

@@ -120,3 +120,9 @@ Explicit production composition exceptions:
 - `internal/cli/runtime_wiring.go`
 
 Temporary migration exceptions are tracked in `scripts/check-architecture.sh` and should shrink over time.
+
+Current CLI test migration exceptions:
+
+- `internal/cli/commands_test.go` contains legacy integration-style command tests that still use domain, infra, and lower app packages.
+
+New normal CLI test files should use fake `internal/app/services` interfaces and should not import domain, infra, or lower app packages.

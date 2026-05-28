@@ -44,30 +44,58 @@ check_layer_imports() {
 	done < "$packages_file"
 }
 
-is_allowed_cli_boundary_migration_file() {
-	case "$1" in
-		internal/cli/commands.go | \
-		internal/cli/output.go | \
-		internal/cli/package_sources.go | \
-		internal/cli/update_workflow.go)
-			return 0
+is_allowed_cli_boundary_migration_import() {
+	path=$1
+	import_path=$2
+
+	case "$path" in
+		internal/cli/commands.go)
+			case "$import_path" in
+				*'/internal/app/update' | *'/internal/app/upgrade' | *'/internal/domain') return 0 ;;
+			esac
 			;;
-		*)
-			return 1
+		internal/cli/output.go)
+			case "$import_path" in
+				*'/internal/domain') return 0 ;;
+			esac
+			;;
+		internal/cli/package_sources.go)
+			case "$import_path" in
+				*'/internal/app/discovery' | *'/internal/domain') return 0 ;;
+			esac
+			;;
+		internal/cli/update_workflow.go)
+			case "$import_path" in
+				*'/internal/app/clock' | *'/internal/app/integrate' | *'/internal/app/update' | *'/internal/domain') return 0 ;;
+			esac
 			;;
 	esac
+
+	return 1
 }
 
-is_allowed_cli_test_boundary_migration_file() {
-	case "$1" in
-		internal/cli/commands_test.go | \
-		internal/cli/command_services_test.go)
-			return 0
-			;;
-		*)
-			return 1
+is_allowed_cli_test_boundary_migration_import() {
+	path=$1
+	import_path=$2
+
+	case "$path" in
+		internal/cli/commands_test.go)
+			case "$import_path" in
+				*'/internal/app/appimage' | \
+				*'/internal/app/discovery' | \
+				*'/internal/app/integrate' | \
+				*'/internal/app/update' | \
+				*'/internal/app/upgrade' | \
+				*'/internal/domain' | \
+				*'/internal/infra/config' | \
+				*'/internal/infra/download' | \
+				*'/internal/infra/filesystem' | \
+				*'/internal/infra/repository') return 0 ;;
+			esac
 			;;
 	esac
+
+	return 1
 }
 
 is_forbidden_cli_boundary_import() {
@@ -105,7 +133,7 @@ check_cli_boundary_imports() {
 			if ! is_forbidden_cli_boundary_import "$import_path"; then
 				continue
 			fi
-			if is_allowed_cli_boundary_migration_file "$path"; then
+			if is_allowed_cli_boundary_migration_import "$path" "$import_path"; then
 				continue
 			fi
 			append_violation "$path imports outside the CLI app-service boundary: $import_line"
@@ -123,7 +151,7 @@ check_cli_test_boundary_imports() {
 			if ! is_forbidden_cli_boundary_import "$import_path"; then
 				continue
 			fi
-			if is_allowed_cli_test_boundary_migration_file "$path"; then
+			if is_allowed_cli_test_boundary_migration_import "$path" "$import_path"; then
 				continue
 			fi
 			append_violation "$path imports outside the CLI test app-service boundary: $import_line"

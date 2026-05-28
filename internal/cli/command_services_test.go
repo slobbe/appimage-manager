@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	appservices "github.com/slobbe/appimage-manager/internal/app/services"
-	appupgrade "github.com/slobbe/appimage-manager/internal/app/upgrade"
 )
 
 func TestListCmdCallsListServiceWithParsedFilter(t *testing.T) {
@@ -56,18 +55,7 @@ func TestRemoveCmdUsesRemoveServiceAndLocker(t *testing.T) {
 }
 
 func TestUpgradeCmdCallsUpgradeService(t *testing.T) {
-	service := &recordingUpgradeService{
-		check: &appupgrade.AimUpgradeCheckResult{
-			CurrentVersion: "0.1.0",
-			LatestVersion:  "0.2.0",
-			HasUpdate:      true,
-			Comparable:     true,
-		},
-		upgrade: &appupgrade.InstallerUpgradeResult{
-			PreviousVersion:  "0.1.0",
-			InstalledVersion: "0.2.0",
-		},
-	}
+	service := &recordingUpgradeService{}
 	cmd := newUpgradeTestCommand()
 	ctx := withRuntimeServices(context.Background(), runtimeServices{Upgrade: service, Locker: noopLocker{}})
 
@@ -121,22 +109,20 @@ func (service *recordingRemoveService) PlanRemove(ctx context.Context, req appse
 type recordingUpgradeService struct {
 	checkCalls   int
 	upgradeCalls int
-	check        *appupgrade.AimUpgradeCheckResult
-	upgrade      *appupgrade.InstallerUpgradeResult
 }
 
-func (service *recordingUpgradeService) Check(ctx context.Context, currentVersion string) (*appupgrade.AimUpgradeCheckResult, error) {
+func (service *recordingUpgradeService) Check(ctx context.Context, currentVersion string) (*appservices.AimUpgradeCheckResult, error) {
 	_ = ctx
 	_ = currentVersion
 	service.checkCalls++
-	return service.check, nil
+	return nil, nil
 }
 
-func (service *recordingUpgradeService) Upgrade(ctx context.Context, currentVersion string) (*appupgrade.InstallerUpgradeResult, error) {
+func (service *recordingUpgradeService) Upgrade(ctx context.Context, currentVersion string) (*appservices.InstallerUpgradeResult, error) {
 	_ = ctx
 	_ = currentVersion
 	service.upgradeCalls++
-	return service.upgrade, nil
+	return nil, nil
 }
 
 type recordingLocker struct {
