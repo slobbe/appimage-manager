@@ -182,6 +182,14 @@ type DryRunPlan struct {
 	Action string
 	Target string
 	Values map[string]interface{}
+
+	TargetKind         string
+	App                *AppDetails
+	Package            *PackageView
+	AppImage           *AppImageInfoView
+	UpdateSourceChange *UpdateSourceChangeView
+	Paths              []string
+	DBWrite            bool
 }
 
 type InfoKind string
