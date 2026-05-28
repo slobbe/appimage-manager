@@ -58,6 +58,18 @@ is_allowed_cli_boundary_migration_file() {
 	esac
 }
 
+is_allowed_cli_test_boundary_migration_file() {
+	case "$1" in
+		internal/cli/commands_test.go | \
+		internal/cli/command_services_test.go)
+			return 0
+			;;
+		*)
+			return 1
+			;;
+	esac
+}
+
 is_forbidden_cli_boundary_import() {
 	case "$1" in
 		*'/internal/domain' | *'/internal/domain/'*)
@@ -101,8 +113,27 @@ check_cli_boundary_imports() {
 	done
 }
 
+check_cli_test_boundary_imports() {
+	for path in internal/cli/*_test.go; do
+		[ -e "$path" ] || continue
+
+		grep '"[^"]*/internal/\(app\|domain\|infra\)' "$path" | while IFS= read -r import_line; do
+			import_path=${import_line#*\"}
+			import_path=${import_path%%\"*}
+			if ! is_forbidden_cli_boundary_import "$import_path"; then
+				continue
+			fi
+			if is_allowed_cli_test_boundary_migration_file "$path"; then
+				continue
+			fi
+			append_violation "$path imports outside the CLI test app-service boundary: $import_line"
+		done || true
+	done
+}
+
 check_layer_imports
 check_cli_boundary_imports
+check_cli_test_boundary_imports
 
 if [ -s "$violations_file" ]; then
 	printf 'Architecture boundary violations:\n'
