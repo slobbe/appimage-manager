@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 
-	appimageapp "github.com/slobbe/appimage-manager/internal/app/appimage"
 	"github.com/slobbe/appimage-manager/internal/app/update"
 	"github.com/slobbe/appimage-manager/internal/app/upgrade"
 	"github.com/slobbe/appimage-manager/internal/domain"
@@ -36,8 +35,6 @@ type RemoveService interface {
 }
 
 type UpdateService interface {
-	Check(ctx context.Context, req UpdateCheckRequest) (*UpdateCheckResult, error)
-	Apply(ctx context.Context, req UpdateApplyRequest) (*UpdateApplyResult, error)
 	ApplyBatch(ctx context.Context, req UpdateApplyBatchRequest) (*UpdateApplyBatchResult, error)
 	SetSource(ctx context.Context, req UpdateSourceRequest) (*UpdateSourceResult, error)
 	UnsetSource(ctx context.Context, id string) (*UpdateSourceResult, error)
@@ -62,10 +59,6 @@ type StateLocker interface {
 	WithWriteLock(fn func() error) error
 }
 
-type Clock interface {
-	NowISO() string
-}
-
 type IntegrateLocalRequest struct {
 	Path                       string
 	ConfirmUpdateSourceReplace UpdateSourceReplaceConfirmer
@@ -83,9 +76,6 @@ type IntegrateTargetResult struct {
 	Kind      IntegrateTargetKind
 	App       *AppDetails
 	LocalPath string
-
-	// LegacyApp is a temporary migration bridge for workflows that still need domain apps.
-	LegacyApp *domain.App `json:"-"`
 }
 
 type InstallDirectURLRequest struct {
@@ -116,17 +106,6 @@ type RemoveRequest struct {
 	Unlink bool
 }
 
-type UpdateCheckRequest struct {
-	ID        string
-	CheckAll  bool
-	UseCache  bool
-	CheckOnly bool
-}
-
-type UpdateApplyRequest struct {
-	ID string
-}
-
 type UpdateApplyBatchRequest struct {
 	Pending     []update.ManagedUpdate
 	ReporterFor update.ManagedApplyReporterFactory
@@ -140,9 +119,6 @@ type UpdateSourceRequest struct {
 type AddResult struct {
 	Status string
 	App    *AppDetails
-
-	// LegacyApp is a temporary migration bridge for workflows that still need domain apps.
-	LegacyApp *domain.App `json:"-"`
 }
 
 type ListResult struct {
@@ -162,10 +138,8 @@ type InfoResult struct {
 
 	// Legacy fields are temporary migration bridges for update/add CLI workflows.
 	// Remove them when those workflows use domain-free app-service DTOs.
-	App                  *domain.App             `json:"-"`
-	AppImage             *appimageapp.AppInfo    `json:"-"`
-	Package              *domain.PackageMetadata `json:"-"`
-	LegacyEmbeddedUpdate *domain.UpdateSource    `json:"-"`
+	App                  *domain.App          `json:"-"`
+	LegacyEmbeddedUpdate *domain.UpdateSource `json:"-"`
 }
 
 type RemoveResult struct {
@@ -173,19 +147,6 @@ type RemoveResult struct {
 	App    *AppDetails
 	Unlink bool
 	Paths  []string
-}
-
-type UpdateCheckResult struct {
-	Apps []ManagedUpdateStatus
-}
-
-type UpdateApplyResult struct {
-	App    *AppDetails
-	Update *ManagedUpdateView
-
-	// Legacy fields are temporary migration bridges for update persistence/apply workflows.
-	LegacyApp    *domain.App           `json:"-"`
-	LegacyUpdate *update.ManagedUpdate `json:"-"`
 }
 
 type UpdateApplyBatchResult struct {
@@ -199,19 +160,6 @@ type UpdateSourceResult struct {
 	ID      string
 	Source  *UpdateSourceView
 	Changed bool
-
-	// LegacySource is a temporary migration bridge for workflows that still need domain update sources.
-	LegacySource *domain.UpdateSource `json:"-"`
-}
-
-type ManagedUpdateStatus struct {
-	App    *AppSummary
-	Update *ManagedUpdateView
-	Error  error
-
-	// Legacy fields are temporary migration bridges for update workflow internals.
-	LegacyApp    *domain.App           `json:"-"`
-	LegacyUpdate *update.ManagedUpdate `json:"-"`
 }
 
 type DryRunPlan struct {

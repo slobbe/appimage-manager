@@ -86,24 +86,6 @@ type GitHubReleaseUpdateView struct {
 	ReleaseKind string `json:"release_kind,omitempty"`
 }
 
-// UpdateSourceInput is the domain-free input shape for configuring update sources.
-type UpdateSourceInput struct {
-	Kind          string                          `json:"kind"`
-	Zsync         *ZsyncUpdateSourceInput         `json:"zsync,omitempty"`
-	GitHubRelease *GitHubReleaseUpdateSourceInput `json:"github_release,omitempty"`
-}
-
-type ZsyncUpdateSourceInput struct {
-	UpdateInfo string `json:"update_info"`
-	Transport  string `json:"transport,omitempty"`
-}
-
-type GitHubReleaseUpdateSourceInput struct {
-	Repo        string `json:"repo"`
-	Asset       string `json:"asset"`
-	ReleaseKind string `json:"release_kind,omitempty"`
-}
-
 // UpdateSourceChangeView describes a planned or completed update-source change.
 type UpdateSourceChangeView struct {
 	ID       string            `json:"id"`
@@ -169,25 +151,8 @@ type ManagedApplyResultView struct {
 	Error      string      `json:"error,omitempty"`
 }
 
-// ManagedApplyEventView is emitted by app services for CLI progress rendering.
-type ManagedApplyEventView struct {
-	AppID         string `json:"app_id,omitempty"`
-	Index         int    `json:"index,omitempty"`
-	Total         int    `json:"total,omitempty"`
-	Stage         string `json:"stage"`
-	Downloaded    int64  `json:"downloaded,omitempty"`
-	DownloadTotal int64  `json:"download_total,omitempty"`
-	DownloadName  string `json:"download_name,omitempty"`
-	Message       string `json:"message,omitempty"`
-	Version       string `json:"version,omitempty"`
-}
-
 func providerRefFromDomain(ref domain.PackageRef) ProviderRef {
 	return ProviderRef{Provider: strings.TrimSpace(ref.Kind), Ref: strings.TrimSpace(ref.ProviderRef)}
-}
-
-func (ref ProviderRef) domainPackageRef() domain.PackageRef {
-	return domain.PackageRef{Kind: strings.TrimSpace(ref.Provider), ProviderRef: strings.TrimSpace(ref.Ref)}
 }
 
 func appSummaryFromDomain(app *domain.App) *AppSummary {
@@ -281,24 +246,6 @@ func updateSourceViewFromDomain(source *domain.UpdateSource) *UpdateSourceView {
 	return view
 }
 
-func (input UpdateSourceInput) domainUpdateSource() *domain.UpdateSource {
-	source := &domain.UpdateSource{Kind: domain.UpdateKind(strings.TrimSpace(input.Kind))}
-	if input.Zsync != nil {
-		source.Zsync = &domain.ZsyncUpdateSource{
-			UpdateInfo: strings.TrimSpace(input.Zsync.UpdateInfo),
-			Transport:  strings.TrimSpace(input.Zsync.Transport),
-		}
-	}
-	if input.GitHubRelease != nil {
-		source.GitHubRelease = &domain.GitHubReleaseUpdateSource{
-			Repo:        strings.TrimSpace(input.GitHubRelease.Repo),
-			Asset:       strings.TrimSpace(input.GitHubRelease.Asset),
-			ReleaseKind: strings.TrimSpace(input.GitHubRelease.ReleaseKind),
-		}
-	}
-	return source
-}
-
 func packageViewFromDomain(metadata *domain.PackageMetadata) *PackageView {
 	if metadata == nil {
 		return nil
@@ -372,18 +319,4 @@ func managedApplyResultViewFromAppUpdate(result appupdate.ManagedApplyResult) Ma
 		view.Error = result.Error.Error()
 	}
 	return view
-}
-
-func managedApplyEventViewFromAppUpdate(event appupdate.ManagedApplyEvent) ManagedApplyEventView {
-	return ManagedApplyEventView{
-		AppID:         strings.TrimSpace(event.AppID),
-		Index:         event.Index,
-		Total:         event.Total,
-		Stage:         strings.TrimSpace(string(event.Stage)),
-		Downloaded:    event.Downloaded,
-		DownloadTotal: event.DownloadTotal,
-		DownloadName:  strings.TrimSpace(event.DownloadName),
-		Message:       strings.TrimSpace(event.Message),
-		Version:       strings.TrimSpace(event.Version),
-	}
 }

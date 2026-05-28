@@ -73,7 +73,7 @@ func (service BasicAddService) ResolveIntegrateTarget(ctx context.Context, input
 			if strings.TrimSpace(app.DesktopEntryLink) == "" {
 				kind = IntegrateTargetUnlinked
 			}
-			return &IntegrateTargetResult{Kind: kind, App: appDetailsFromDomain(app), LegacyApp: app}, nil
+			return &IntegrateTargetResult{Kind: kind, App: appDetailsFromDomain(app)}, nil
 		}
 	}
 
@@ -171,7 +171,7 @@ func (service BasicAddService) InstallPackageRef(ctx context.Context, req Instal
 }
 
 func addResultFromDomain(status string, app *domain.App) *AddResult {
-	return &AddResult{Status: strings.TrimSpace(status), App: appDetailsFromDomain(app), LegacyApp: app}
+	return &AddResult{Status: strings.TrimSpace(status), App: appDetailsFromDomain(app)}
 }
 
 func (service BasicAddService) PlanLocalIntegration(ctx context.Context, path string) (*DryRunPlan, error) {
@@ -321,7 +321,6 @@ func (service StoreInfoService) LocalAppImageInfo(ctx context.Context, path stri
 		Kind:                 InfoKindLocalAppImage,
 		AppImageInfo:         appImageInfoViewFromAppImageInfo(info),
 		EmbeddedUpdate:       updateSourceViewFromDomain(embedded),
-		AppImage:             info,
 		LegacyEmbeddedUpdate: embedded,
 	}, nil
 }
@@ -337,7 +336,6 @@ func (service StoreInfoService) PackageRefInfo(ctx context.Context, req PackageR
 	return &InfoResult{
 		Kind:        InfoKindPackage,
 		PackageView: packageViewFromDomain(metadata),
-		Package:     metadata,
 	}, nil
 }
 
@@ -444,14 +442,11 @@ func (service UpgradeWorkflowService) Upgrade(ctx context.Context, currentVersio
 	return service.UpgradeFunc(ctx, currentVersion)
 }
 
-type ManagedUpdateChecker func([]*domain.App, appupdate.ManagedCheckFunc) []appupdate.ManagedCheckResult
-
 type ManagedUpdateApplier func(context.Context, appupdate.ManagedUpdate, appupdate.ManagedApplyReporter) (*domain.App, error)
 
 type SourceUpdateService struct {
-	Store               AppStore
-	CheckManagedUpdates ManagedUpdateChecker
-	ApplyManagedUpdate  ManagedUpdateApplier
+	Store              AppStore
+	ApplyManagedUpdate ManagedUpdateApplier
 }
 
 func NewSourceUpdateService(store AppStore) SourceUpdateService {
@@ -460,80 +455,6 @@ func NewSourceUpdateService(store AppStore) SourceUpdateService {
 
 func NewSourceUpdateWorkflowService(service SourceUpdateService) SourceUpdateService {
 	return service
-}
-
-func (service SourceUpdateService) Check(ctx context.Context, req UpdateCheckRequest) (*UpdateCheckResult, error) {
-	_ = ctx
-	if service.Store == nil {
-		return nil, internalErrorf("app store is not configured")
-	}
-
-	apps := make([]*domain.App, 0)
-	if strings.TrimSpace(req.ID) != "" {
-		app, err := service.Store.GetApp(req.ID)
-		if err != nil {
-			return nil, err
-		}
-		apps = append(apps, app)
-	} else {
-		all, err := service.Store.GetAllApps()
-		if err != nil {
-			return nil, err
-		}
-		for _, app := range all {
-			if app != nil {
-				apps = append(apps, app)
-			}
-		}
-	}
-
-	check := service.CheckManagedUpdates
-	if check == nil {
-		check = appupdate.CheckManagedUpdates
-	}
-	checkResults := check(apps, nil)
-	statuses := make([]ManagedUpdateStatus, 0, len(checkResults))
-	for _, result := range checkResults {
-		statuses = append(statuses, ManagedUpdateStatus{
-			App:          appSummaryFromDomain(result.App),
-			Update:       managedUpdateViewFromAppUpdate(result.Update),
-			Error:        result.Error,
-			LegacyApp:    result.App,
-			LegacyUpdate: result.Update,
-		})
-	}
-	return &UpdateCheckResult{Apps: statuses}, nil
-}
-
-func (service SourceUpdateService) Apply(ctx context.Context, req UpdateApplyRequest) (*UpdateApplyResult, error) {
-	if service.Store == nil {
-		return nil, internalErrorf("app store is not configured")
-	}
-	apply := service.ApplyManagedUpdate
-	if apply == nil {
-		return nil, internalErrorf("update apply service is not configured")
-	}
-	app, err := service.Store.GetApp(req.ID)
-	if err != nil {
-		return nil, err
-	}
-	if app == nil {
-		return nil, Errorf(ErrorNotFound, "", "managed app %q was not found", req.ID)
-	}
-	checks := appupdate.CheckManagedUpdates([]*domain.App{app}, nil)
-	if len(checks) == 0 || checks[0].Update == nil || !checks[0].Update.Available {
-		return &UpdateApplyResult{App: appDetailsFromDomain(app), LegacyApp: app}, nil
-	}
-	updated, err := apply(ctx, *checks[0].Update, nil)
-	if err != nil {
-		return nil, err
-	}
-	return &UpdateApplyResult{
-		App:          appDetailsFromDomain(updated),
-		Update:       managedUpdateViewFromAppUpdate(checks[0].Update),
-		LegacyApp:    updated,
-		LegacyUpdate: checks[0].Update,
-	}, nil
 }
 
 func (service SourceUpdateService) ApplyBatch(ctx context.Context, req UpdateApplyBatchRequest) (*UpdateApplyBatchResult, error) {
@@ -567,7 +488,7 @@ func (service SourceUpdateService) SetSource(ctx context.Context, req UpdateSour
 	if err := service.Store.UpdateApp(app); err != nil {
 		return nil, err
 	}
-	return &UpdateSourceResult{ID: req.ID, Source: updateSourceViewFromDomain(req.Source), LegacySource: req.Source, Changed: true}, nil
+	return &UpdateSourceResult{ID: req.ID, Source: updateSourceViewFromDomain(req.Source), Changed: true}, nil
 }
 
 func (service SourceUpdateService) UnsetSource(ctx context.Context, id string) (*UpdateSourceResult, error) {

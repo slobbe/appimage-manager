@@ -12,7 +12,6 @@ import (
 	appupgrade "github.com/slobbe/appimage-manager/internal/app/upgrade"
 	"github.com/slobbe/appimage-manager/internal/domain"
 	"github.com/slobbe/appimage-manager/internal/infra/config"
-	"github.com/slobbe/appimage-manager/internal/infra/github"
 	"github.com/slobbe/appimage-manager/internal/infra/httpclient"
 	"github.com/spf13/cobra"
 	"golang.org/x/sys/unix"
@@ -364,8 +363,6 @@ func defaultRuntimeServicesForSettings(settings runtimeSettings) runtimeServices
 	discoveryService := appservices.NewDiscoveryWorkflowService(appservices.DiscoveryWorkflowService{BackendsFunc: discoveryBackends})
 	apiClient := httpclient.New(settings.NetworkTimeout)
 	selfUpdater := selfUpdaterAdapter{client: apiClient}
-	zsyncMetadataFetcher := zsyncMetadataFetcherAdapter{client: apiClient}
-	gitHubReleaseResolver := gitHubReleaseAdapter{client: github.Client{HTTPClient: apiClient}}
 	upgradeService := appupgrade.NewService(appupgrade.Service{
 		TempDir:     config.TempDir,
 		SelfUpdater: selfUpdater,
@@ -415,16 +412,6 @@ func defaultRuntimeServicesForSettings(settings runtimeSettings) runtimeServices
 		Remove: appservices.NewRemoveWorkflowService(appservices.RemoveWorkflowService{Store: store, RemoveFunc: removeManagedApp}),
 		Update: appservices.NewSourceUpdateWorkflowService(appservices.SourceUpdateService{
 			Store: store,
-			CheckManagedUpdates: func(apps []*domain.App, check appupdate.ManagedCheckFunc) []appupdate.ManagedCheckResult {
-				if check == nil {
-					checker := appupdate.NewManagedUpdateChecker(appupdate.ManagedUpdateChecker{
-						ZsyncMetadataFetcher:  zsyncMetadataFetcher,
-						GitHubReleaseResolver: gitHubReleaseResolver,
-					})
-					check = checker.Check
-				}
-				return appupdate.CheckManagedUpdates(apps, check)
-			},
 			ApplyManagedUpdate: func(ctx context.Context, update appupdate.ManagedUpdate, reporter appupdate.ManagedApplyReporter) (*domain.App, error) {
 				return runManagedApply(ctx, update, reporter)
 			},

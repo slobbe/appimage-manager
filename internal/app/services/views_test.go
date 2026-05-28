@@ -81,25 +81,6 @@ func TestPackageViewFromDomainMapsAssetCandidates(t *testing.T) {
 	}
 }
 
-func TestUpdateSourceInputConvertsToDomain(t *testing.T) {
-	input := UpdateSourceInput{
-		Kind: string(domain.UpdateGitHubRelease),
-		GitHubRelease: &GitHubReleaseUpdateSourceInput{
-			Repo:        " owner/repo ",
-			Asset:       " *.AppImage ",
-			ReleaseKind: " latest ",
-		},
-	}
-
-	source := input.domainUpdateSource()
-	if source.Kind != domain.UpdateGitHubRelease || source.GitHubRelease == nil {
-		t.Fatalf("unexpected source: %+v", source)
-	}
-	if source.GitHubRelease.Repo != "owner/repo" || source.GitHubRelease.Asset != "*.AppImage" || source.GitHubRelease.ReleaseKind != "latest" {
-		t.Fatalf("unexpected github source: %+v", source.GitHubRelease)
-	}
-}
-
 func TestManagedUpdateAndEventViews(t *testing.T) {
 	update := &appupdate.ManagedUpdate{
 		App:       &domain.App{ID: "app", Name: "App"},
@@ -124,14 +105,4 @@ func TestManagedUpdateAndEventViews(t *testing.T) {
 		t.Fatalf("unexpected managed apply result view: %+v", applyResult)
 	}
 
-	event := managedApplyEventViewFromAppUpdate(appupdate.ManagedApplyEvent{
-		AppID:         " app ",
-		Stage:         appupdate.ManagedApplyStageDownload,
-		Downloaded:    10,
-		DownloadTotal: 20,
-		DownloadName:  " app.AppImage ",
-	})
-	if event.AppID != "app" || event.Stage != "download" || event.DownloadName != "app.AppImage" {
-		t.Fatalf("unexpected managed apply event view: %+v", event)
-	}
 }
