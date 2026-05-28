@@ -359,7 +359,7 @@ func (service RemoveWorkflowService) Remove(ctx context.Context, req RemoveReque
 	if err != nil {
 		return nil, err
 	}
-	return &RemoveResult{App: app, Unlink: req.Unlink, Paths: RemoveDryRunValues(app, req.Unlink)["paths"].([]string)}, nil
+	return removeResultFromDomain(app, req.Unlink), nil
 }
 
 func (service RemoveWorkflowService) PlanRemove(ctx context.Context, req RemoveRequest) (*DryRunPlan, error) {
@@ -372,7 +372,16 @@ func (service RemoveWorkflowService) PlanRemove(ctx context.Context, req RemoveR
 		return nil, err
 	}
 	values := RemoveDryRunValues(app, req.Unlink)
-	return &DryRunPlan{Action: values["action"].(string), Target: app.ID, Values: values}, nil
+	result := removeResultFromDomain(app, req.Unlink)
+	return &DryRunPlan{
+		Action:     result.Action,
+		Target:     app.ID,
+		Values:     values,
+		TargetKind: "managed_app",
+		App:        result.App,
+		Paths:      result.Paths,
+		DBWrite:    !req.Unlink,
+	}, nil
 }
 
 type DiscoveryWorkflowService struct {
@@ -564,6 +573,18 @@ func RequireInstallablePackage(metadata *domain.PackageMetadata) (*domain.Packag
 		return nil, invalidInputErrorf("package metadata cannot be empty")
 	}
 	return nil, invalidInputErrorf("package is not installable: %s", strings.TrimSpace(metadata.InstallReason))
+}
+
+func removeResultFromDomain(app *domain.App, unlink bool) *RemoveResult {
+	values := RemoveDryRunValues(app, unlink)
+	paths, _ := values["paths"].([]string)
+	action, _ := values["action"].(string)
+	return &RemoveResult{
+		Action: action,
+		App:    appDetailsFromDomain(app),
+		Unlink: unlink,
+		Paths:  paths,
+	}
 }
 
 func RemoveDryRunValues(app *domain.App, unlink bool) map[string]interface{} {

@@ -6,7 +6,6 @@ import (
 
 	appservices "github.com/slobbe/appimage-manager/internal/app/services"
 	appupgrade "github.com/slobbe/appimage-manager/internal/app/upgrade"
-	"github.com/slobbe/appimage-manager/internal/domain"
 )
 
 func TestListCmdCallsListServiceWithParsedFilter(t *testing.T) {
@@ -35,7 +34,7 @@ func TestListCmdCallsListServiceWithParsedFilter(t *testing.T) {
 
 func TestRemoveCmdUsesRemoveServiceAndLocker(t *testing.T) {
 	remove := &recordingRemoveService{
-		result: &appservices.RemoveResult{App: &domain.App{ID: "app", Name: "App"}},
+		result: &appservices.RemoveResult{Action: "remove", App: &appservices.AppDetails{AppSummary: appservices.AppSummary{ID: "app", Name: "App"}}},
 	}
 	locker := &recordingLocker{}
 	cmd := newRemoveCommand()
@@ -112,7 +111,11 @@ func (service *recordingRemoveService) PlanRemove(ctx context.Context, req appse
 	_ = ctx
 	service.planCalls++
 	service.req = req
-	return &appservices.DryRunPlan{Values: appservices.RemoveDryRunValues(service.result.App, req.Unlink)}, nil
+	return &appservices.DryRunPlan{
+		Action: service.result.Action,
+		App:    service.result.App,
+		Paths:  service.result.Paths,
+	}, nil
 }
 
 type recordingUpgradeService struct {

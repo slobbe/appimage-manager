@@ -152,7 +152,8 @@ type InfoResult struct {
 }
 
 type RemoveResult struct {
-	App    *domain.App
+	Action string
+	App    *AppDetails
 	Unlink bool
 	Paths  []string
 }

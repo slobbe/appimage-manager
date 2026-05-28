@@ -370,12 +370,20 @@ func RemoveCmd(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return wrapManagedAppLookupError(id, err)
 		}
-		app, _ := plan.Values["app"].(*models.App)
 		if opts.JSON {
-			return printJSONSuccess(cmd, plan.Values)
+			return printJSONSuccess(cmd, map[string]interface{}{
+				"action": plan.Action,
+				"unlink": unlink,
+				"app":    plan.App,
+				"paths":  plan.Paths,
+			})
 		}
-		writeDataf(cmd, "Dry run: would %s %s [%s]\n", plan.Values["action"], app.Name, app.ID)
-		for _, path := range plan.Values["paths"].([]string) {
+		app := plan.App
+		if app == nil {
+			return softwareError(fmt.Errorf("remove dry-run plan missing app"))
+		}
+		writeDataf(cmd, "Dry run: would %s %s [%s]\n", plan.Action, app.Name, app.ID)
+		for _, path := range plan.Paths {
 			writeDataf(cmd, "  %s\n", path)
 		}
 		return nil
@@ -384,13 +392,11 @@ func RemoveCmd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	var app *models.App
+	var result *appservices.RemoveResult
 	err = withStateWriteLock(cmd, func() error {
 		logOperationf(cmd, "Removing %s", id)
-		result, removeErr := runtimeServicesFrom(cmd).Remove.Remove(cmd.Context(), appservices.RemoveRequest{ID: id, Unlink: unlink})
-		if result != nil {
-			app = result.App
-		}
+		var removeErr error
+		result, removeErr = runtimeServicesFrom(cmd).Remove.Remove(cmd.Context(), appservices.RemoveRequest{ID: id, Unlink: unlink})
 		return removeErr
 	})
 	if err != nil {
@@ -401,15 +407,18 @@ func RemoveCmd(cmd *cobra.Command, args []string) error {
 	if unlink {
 		label = "Unlinked"
 	}
+	if result == nil || result.App == nil {
+		return softwareError(fmt.Errorf("remove result missing app"))
+	}
 	if opts.JSON {
 		return printJSONSuccess(cmd, map[string]interface{}{
 			"action": strings.ToLower(label),
-			"app":    app,
-			"unlink": unlink,
-			"paths":  appservices.RemoveDryRunValues(app, unlink)["paths"],
+			"app":    result.App,
+			"unlink": result.Unlink,
+			"paths":  result.Paths,
 		})
 	}
-	printSuccess(cmd, fmt.Sprintf("%s: %s [%s]", label, app.Name, app.ID))
+	printSuccess(cmd, fmt.Sprintf("%s: %s [%s]", label, result.App.Name, result.App.ID))
 	return nil
 }
 
