@@ -73,7 +73,7 @@ func (service BasicAddService) ResolveIntegrateTarget(ctx context.Context, input
 			if strings.TrimSpace(app.DesktopEntryLink) == "" {
 				kind = IntegrateTargetUnlinked
 			}
-			return &IntegrateTargetResult{Kind: kind, App: app}, nil
+			return &IntegrateTargetResult{Kind: kind, App: appDetailsFromDomain(app), LegacyApp: app}, nil
 		}
 	}
 
@@ -107,7 +107,7 @@ func (service BasicAddService) IntegrateLocal(ctx context.Context, req Integrate
 	if err != nil {
 		return nil, err
 	}
-	return &AddResult{Status: "integrated", App: app}, nil
+	return addResultFromDomain("integrated", app), nil
 }
 
 func (service BasicAddService) Reintegrate(ctx context.Context, id string) (*AddResult, error) {
@@ -118,7 +118,7 @@ func (service BasicAddService) Reintegrate(ctx context.Context, id string) (*Add
 	if err != nil {
 		return nil, err
 	}
-	return &AddResult{Status: "reintegrated", App: app}, nil
+	return addResultFromDomain("reintegrated", app), nil
 }
 
 func (service BasicAddService) InstallDirectURL(ctx context.Context, req InstallDirectURLRequest) (*AddResult, error) {
@@ -129,7 +129,7 @@ func (service BasicAddService) InstallDirectURL(ctx context.Context, req Install
 	if err != nil {
 		return nil, err
 	}
-	return &AddResult{Status: "installed", App: app}, nil
+	return addResultFromDomain("installed", app), nil
 }
 
 func (service BasicAddService) InstallPackageRef(ctx context.Context, req InstallPackageRefRequest) (*AddResult, error) {
@@ -167,7 +167,11 @@ func (service BasicAddService) InstallPackageRef(ctx context.Context, req Instal
 	if err != nil {
 		return nil, err
 	}
-	return &AddResult{Status: "installed", App: app}, nil
+	return addResultFromDomain("installed", app), nil
+}
+
+func addResultFromDomain(status string, app *domain.App) *AddResult {
+	return &AddResult{Status: strings.TrimSpace(status), App: appDetailsFromDomain(app), LegacyApp: app}
 }
 
 func (service BasicAddService) PlanLocalIntegration(ctx context.Context, path string) (*DryRunPlan, error) {

@@ -102,6 +102,13 @@ func formatAppRef(app *models.App) string {
 	return fmt.Sprintf("%s %s [%s]", app.Name, displayVersion(app.Version), app.ID)
 }
 
+func formatAppDetailsRef(app *appservices.AppDetails) string {
+	if app == nil {
+		return "unknown"
+	}
+	return fmt.Sprintf("%s %s [%s]", app.Name, displayVersion(app.Version), app.ID)
+}
+
 func printManagedCheckFailures(cmd *cobra.Command, failures []managedCheckFailure) {
 	if len(failures) == 0 {
 		return

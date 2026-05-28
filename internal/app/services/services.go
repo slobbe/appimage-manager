@@ -77,8 +77,11 @@ const (
 
 type IntegrateTargetResult struct {
 	Kind      IntegrateTargetKind
-	App       *domain.App
+	App       *AppDetails
 	LocalPath string
+
+	// LegacyApp is a temporary migration bridge for workflows that still need domain apps.
+	LegacyApp *domain.App `json:"-"`
 }
 
 type InstallDirectURLRequest struct {
@@ -132,7 +135,10 @@ type UpdateSourceRequest struct {
 
 type AddResult struct {
 	Status string
-	App    *domain.App
+	App    *AppDetails
+
+	// LegacyApp is a temporary migration bridge for workflows that still need domain apps.
+	LegacyApp *domain.App `json:"-"`
 }
 
 type ListResult struct {

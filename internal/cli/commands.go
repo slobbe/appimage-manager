@@ -172,7 +172,7 @@ func runIntegrateTarget(ctx context.Context, cmd *cobra.Command, input string) e
 				"app":    target.App,
 			})
 		}
-		printSuccess(cmd, fmt.Sprintf("Already integrated: %s", formatAppRef(target.App)))
+		printSuccess(cmd, fmt.Sprintf("Already integrated: %s", formatAppDetailsRef(target.App)))
 		return nil
 	case appservices.IntegrateTargetUnlinked:
 		if opts.DryRun {
@@ -184,11 +184,17 @@ func runIntegrateTarget(ctx context.Context, cmd *cobra.Command, input string) e
 			if opts.JSON {
 				return printJSONSuccess(cmd, result)
 			}
+			if target.App == nil {
+				return softwareError(fmt.Errorf("reintegrate target missing app"))
+			}
 			writeDataf(cmd, "Dry run: would reintegrate %s [%s]\n", target.App.Name, target.App.ID)
 			return nil
 		}
 		if err := mustEnsureRuntimeDirs(); err != nil {
 			return err
+		}
+		if target.App == nil {
+			return softwareError(fmt.Errorf("reintegrate target missing app"))
 		}
 		result, err := runtimeServicesFrom(cmd).Add.Reintegrate(ctx, target.App.ID)
 		if err != nil {
@@ -201,7 +207,7 @@ func runIntegrateTarget(ctx context.Context, cmd *cobra.Command, input string) e
 				"app":    app,
 			})
 		}
-		printSuccess(cmd, fmt.Sprintf("Reintegrated: %s", formatAppRef(app)))
+		printSuccess(cmd, fmt.Sprintf("Reintegrated: %s", formatAppDetailsRef(app)))
 		return nil
 	case appservices.IntegrateTargetLocalFile:
 		if opts.DryRun {
@@ -229,7 +235,7 @@ func runIntegrateTarget(ctx context.Context, cmd *cobra.Command, input string) e
 			inputLabel = strings.TrimSpace(target.LocalPath)
 		}
 
-		app, err := runWithBusyIndicator(cmd, fmt.Sprintf("Integrating %s", inputLabel), func() (*models.App, error) {
+		app, err := runWithBusyIndicator(cmd, fmt.Sprintf("Integrating %s", inputLabel), func() (*appservices.AppDetails, error) {
 			result, err := runtimeServicesFrom(cmd).Add.IntegrateLocal(ctx, appservices.IntegrateLocalRequest{
 				Path: target.LocalPath,
 				ConfirmUpdateSourceReplace: updateSourceReplaceConfirmerFunc(func(existing, incoming *models.UpdateSource) (bool, error) {
@@ -252,7 +258,7 @@ func runIntegrateTarget(ctx context.Context, cmd *cobra.Command, input string) e
 				"app":    app,
 			})
 		}
-		printSuccess(cmd, fmt.Sprintf("Integrated: %s", formatAppRef(app)))
+		printSuccess(cmd, fmt.Sprintf("Integrated: %s", formatAppDetailsRef(app)))
 		return nil
 	default:
 		return softwareError(fmt.Errorf("unknown integrate target %q", input))
@@ -645,7 +651,7 @@ func runInstallTarget(ctx context.Context, cmd *cobra.Command, refArg string) er
 			"app":    app,
 		})
 	}
-	printSuccess(cmd, fmt.Sprintf("Installed: %s", formatAppRef(app)))
+	printSuccess(cmd, fmt.Sprintf("Installed: %s", formatAppDetailsRef(app)))
 	return nil
 }
 
@@ -715,7 +721,7 @@ func runInstallPackageRef(ctx context.Context, cmd *cobra.Command, ref models.Pa
 			"app":    app,
 		})
 	}
-	printSuccess(cmd, fmt.Sprintf("Installed: %s", formatAppRef(app)))
+	printSuccess(cmd, fmt.Sprintf("Installed: %s", formatAppDetailsRef(app)))
 	return nil
 }
 
