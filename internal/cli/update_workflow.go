@@ -10,8 +10,6 @@ import (
 	appservices "github.com/slobbe/appimage-manager/internal/app/services"
 	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
 	models "github.com/slobbe/appimage-manager/internal/domain"
-	"github.com/slobbe/appimage-manager/internal/infra/config"
-	"github.com/slobbe/appimage-manager/internal/infra/download"
 	"github.com/spf13/cobra"
 	"os"
 	"path/filepath"
@@ -218,7 +216,7 @@ func checkAppUpdate(app *models.App) (*pendingManagedUpdate, error) {
 var (
 	downloadManagedRemoteAsset = func(ctx context.Context, assetURL, destination string, interactive bool, onProgress func(int64, int64)) error {
 		return appupdate.Service{
-			TempDir:        config.TempDir,
+			TempDir:        runtimeTempDir(),
 			NowISO:         clock.NowISO,
 			StagedDownload: stagedDownloadAdapter{client: runtimeDownloadHTTPClient},
 		}.DownloadManagedUpdateAsset(ctx, assetURL, destination, onProgress)
@@ -228,7 +226,7 @@ var (
 
 func managedUpdateService() appupdate.Service {
 	return appupdate.Service{
-		TempDir:        config.TempDir,
+		TempDir:        runtimeTempDir(),
 		NowISO:         clock.NowISO,
 		Zsync:          runtimeZsyncRunner(),
 		StagedDownload: stagedDownloadAdapter{client: runtimeDownloadHTTPClient},
@@ -370,10 +368,7 @@ func downloadUpdateAssetWithDescription(ctx context.Context, assetURL, destinati
 	)
 
 	logOperationContextf(ctx, "HTTP GET %s", assetURL)
-	err := (download.StagedDownloader{
-		Client: runtimeDownloadHTTPClient(),
-		NowISO: clock.NowISO,
-	}).Download(ctx, assetURL, destination, func(event download.Progress) {
+	_, err := runtimeDownload(ctx, runtimeDownloadRequest{URL: assetURL, Destination: destination}, func(event runtimeDownloadProgress) {
 		delta := event.Downloaded - downloaded
 		downloaded = event.Downloaded
 		total = event.Total
@@ -398,7 +393,7 @@ func downloadUpdateAssetWithDescription(ctx context.Context, assetURL, destinati
 		}
 	})
 	if err != nil {
-		var statusErr *download.StatusError
+		var statusErr *runtimeDownloadStatusError
 		if errors.As(err, &statusErr) {
 			return withUserGuidance(
 				unavailableError(statusErr),
@@ -877,15 +872,15 @@ func collectManagedUpdateTargets(cmd *cobra.Command, targetID string) ([]*models
 }
 
 func stagedDownloadDir() string {
-	return filepath.Join(config.TempDir, "downloads")
+	return filepath.Join(runtimeTempDir(), "downloads")
 }
 
 func updateCheckCacheFilePath() string {
-	return filepath.Join(config.TempDir, "update-check-cache.json")
+	return filepath.Join(runtimeTempDir(), "update-check-cache.json")
 }
 
 func stableDownloadDestination(assetURL, nameHint string) (string, error) {
-	destination, err := download.StableDestination(stagedDownloadDir(), assetURL, nameHint)
+	destination, err := runtimeStableDownloadDestination(stagedDownloadDir(), assetURL, nameHint)
 	if err != nil {
 		return "", wrapWriteError(err)
 	}
@@ -893,7 +888,7 @@ func stableDownloadDestination(assetURL, nameHint string) (string, error) {
 }
 
 func removeStagedDownload(downloadPath string) {
-	download.RemoveStaged(downloadPath)
+	runtimeRemoveStagedDownload(downloadPath)
 }
 
 func loadUpdateCheckCache() (*appupdate.CheckCacheFile, error) {
@@ -917,7 +912,7 @@ func saveUpdateCheckCache(cache *appupdate.CheckCacheFile) error {
 	if cache == nil {
 		return nil
 	}
-	if err := runtimeEnsureDir(config.TempDir); err != nil {
+	if err := runtimeEnsureDir(runtimeTempDir()); err != nil {
 		return err
 	}
 	appupdate.NormalizeCheckCache(cache)

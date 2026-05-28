@@ -200,10 +200,10 @@ Use these as the remaining focused commits for the cleanup. Do not create compat
 - [x] `refactor(upgrade): remove default upgrade ports`
   - Remove default upgrade paths/self-updater package state.
   - Route upgrade checks and installer runs through explicit `upgrade.Service` dependencies.
-- [ ] `refactor(cli): isolate runtime composition wiring`
+- [x] `refactor(cli): isolate runtime composition wiring`
   - Move concrete infra adapter construction out of general CLI command files into a focused runtime/composition package or file set.
   - Keep CLI command handlers dependent on service interfaces and output helpers.
-- [ ] `test(architecture): tighten composition boundary if desired`
+- [x] `test(architecture): tighten composition boundary if desired`
   - Optionally add import-boundary tests that prevent command files from importing concrete infra while allowing the composition root to wire adapters.
 
 ## Definition of Done

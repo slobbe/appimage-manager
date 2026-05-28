@@ -3,6 +3,8 @@ package architecture_test
 import (
 	"bytes"
 	"encoding/json"
+	"go/parser"
+	"go/token"
 	"io"
 	"os"
 	"os/exec"
@@ -44,6 +46,44 @@ func TestLayerImportBoundaries(t *testing.T) {
 
 	if len(violations) > 0 {
 		t.Fatalf("layer import boundary violations:\n%s", strings.Join(violations, "\n"))
+	}
+}
+
+func TestCLIInfraImportsStayInRuntimeComposition(t *testing.T) {
+	root := repoRoot(t)
+	cliDir := filepath.Join(root, "internal", "cli")
+	entries, err := os.ReadDir(cliDir)
+	if err != nil {
+		t.Fatalf("read cli directory: %v", err)
+	}
+
+	allowedFiles := map[string]bool{
+		"runtime.go":        true,
+		"runtime_wiring.go": true,
+	}
+
+	var violations []string
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") || allowedFiles[name] {
+			continue
+		}
+
+		path := filepath.Join(cliDir, name)
+		file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
+		if err != nil {
+			t.Fatalf("parse %s imports: %v", name, err)
+		}
+		for _, imported := range file.Imports {
+			importPath := strings.Trim(imported.Path.Value, "\"")
+			if strings.Contains(importPath, "/internal/infra") {
+				violations = append(violations, filepath.ToSlash(filepath.Join("internal", "cli", name))+" imports "+importPath)
+			}
+		}
+	}
+
+	if len(violations) > 0 {
+		t.Fatalf("cli infra imports outside runtime composition files:\n%s", strings.Join(violations, "\n"))
 	}
 }
 

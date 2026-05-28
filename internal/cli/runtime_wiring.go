@@ -345,6 +345,18 @@ func runtimeRemoveFileIfExists(path string) error {
 	return fsys.RemoveFileIfExists(path)
 }
 
+func runtimeTempDir() string {
+	return config.TempDir
+}
+
+func runtimeStableDownloadDestination(dir, assetURL, nameHint string) (string, error) {
+	return download.StableDestination(dir, assetURL, nameHint)
+}
+
+func runtimeRemoveStagedDownload(downloadPath string) {
+	download.RemoveStaged(downloadPath)
+}
+
 func runtimeHasExtension(src string, ext string) bool {
 	return fsys.HasExtension(src, ext)
 }
