@@ -38,10 +38,10 @@ func (service RemoteInstallService) InstallDirectURL(ctx context.Context, req In
 
 func (service RemoteInstallService) InstallPackageMetadata(ctx context.Context, metadata *domain.PackageMetadata) (*domain.App, error) {
 	if metadata == nil {
-		return nil, fmt.Errorf("package metadata cannot be empty")
+		return nil, invalidInputErrorf("package metadata cannot be empty")
 	}
 	if metadata.Ref.Kind != domain.ProviderGitHub {
-		return nil, fmt.Errorf("unsupported add provider %q", metadata.Ref.Kind)
+		return nil, invalidInputErrorf("unsupported add provider %q", metadata.Ref.Kind)
 	}
 	repo := strings.TrimSpace(metadata.Ref.ProviderRef)
 	assetPattern := strings.TrimSpace(metadata.AssetPattern)
@@ -73,19 +73,19 @@ type remoteInstallRequest struct {
 
 func (service RemoteInstallService) install(ctx context.Context, req remoteInstallRequest) (*domain.App, error) {
 	if service.Filename == nil {
-		return nil, fmt.Errorf("remote install filename service is not configured")
+		return nil, internalErrorf("remote install filename service is not configured")
 	}
 	if service.StableDestination == nil {
-		return nil, fmt.Errorf("remote install destination service is not configured")
+		return nil, internalErrorf("remote install destination service is not configured")
 	}
 	if service.Download == nil {
-		return nil, fmt.Errorf("remote install downloader is not configured")
+		return nil, internalErrorf("remote install downloader is not configured")
 	}
 	if service.IntegrateLocalApp == nil {
-		return nil, fmt.Errorf("remote install integrator is not configured")
+		return nil, internalErrorf("remote install integrator is not configured")
 	}
 	if service.PersistApp == nil {
-		return nil, fmt.Errorf("remote install store is not configured")
+		return nil, internalErrorf("remote install store is not configured")
 	}
 
 	fileName := service.Filename(req.AssetName, req.DownloadURL)
@@ -102,7 +102,7 @@ func (service RemoteInstallService) install(ctx context.Context, req remoteInsta
 	}
 	if strings.TrimSpace(req.ExpectedSHA256) != "" {
 		if service.VerifySHA256 == nil {
-			return nil, fmt.Errorf("remote install hash verifier is not configured")
+			return nil, internalErrorf("remote install hash verifier is not configured")
 		}
 		if err := service.VerifySHA256(downloadPath, req.ExpectedSHA256); err != nil {
 			return nil, err

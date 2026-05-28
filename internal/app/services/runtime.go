@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"fmt"
 	"path/filepath"
 	"strings"
 
@@ -65,7 +64,7 @@ func (service BasicAddService) ResolveIntegrateTarget(ctx context.Context, input
 	_ = ctx
 	trimmed := strings.TrimSpace(input)
 	if trimmed == "" {
-		return nil, fmt.Errorf("missing required argument <Path/To.AppImage|id>")
+		return nil, invalidInputErrorf("missing required argument <Path/To.AppImage|id>")
 	}
 
 	if service.Store != nil {
@@ -79,10 +78,10 @@ func (service BasicAddService) ResolveIntegrateTarget(ctx context.Context, input
 	}
 
 	if strings.HasPrefix(trimmed, "https://") {
-		return nil, fmt.Errorf("remote sources are added with 'aim add'")
+		return nil, invalidInputErrorf("remote sources are added with 'aim add'")
 	}
 	if strings.HasPrefix(strings.ToLower(trimmed), "http://") {
-		return nil, fmt.Errorf("direct URLs must use https; use 'aim add --url https://...'")
+		return nil, invalidInputErrorf("direct URLs must use https; use 'aim add --url https://...'")
 	}
 
 	hasExtension := service.HasExtension
@@ -93,12 +92,12 @@ func (service BasicAddService) ResolveIntegrateTarget(ctx context.Context, input
 		return &IntegrateTargetResult{Kind: IntegrateTargetLocalFile, LocalPath: trimmed}, nil
 	}
 
-	return nil, fmt.Errorf("unknown argument %s", input)
+	return nil, invalidInputErrorf("unknown argument %s", input)
 }
 
 func (service BasicAddService) IntegrateLocal(ctx context.Context, req IntegrateLocalRequest) (*AddResult, error) {
 	if service.IntegrateLocalApp == nil {
-		return nil, fmt.Errorf("integrate local app service is not configured")
+		return nil, internalErrorf("integrate local app service is not configured")
 	}
 	var prompt appintegrate.UpdateOverwritePrompt
 	if req.ConfirmUpdateSourceReplace != nil {
@@ -113,7 +112,7 @@ func (service BasicAddService) IntegrateLocal(ctx context.Context, req Integrate
 
 func (service BasicAddService) Reintegrate(ctx context.Context, id string) (*AddResult, error) {
 	if service.ReintegrateApp == nil {
-		return nil, fmt.Errorf("reintegrate app service is not configured")
+		return nil, internalErrorf("reintegrate app service is not configured")
 	}
 	app, err := service.ReintegrateApp(ctx, id)
 	if err != nil {
@@ -124,7 +123,7 @@ func (service BasicAddService) Reintegrate(ctx context.Context, id string) (*Add
 
 func (service BasicAddService) InstallDirectURL(ctx context.Context, req InstallDirectURLRequest) (*AddResult, error) {
 	if service.InstallDirectURLApp == nil {
-		return nil, fmt.Errorf("direct URL install service is not configured")
+		return nil, internalErrorf("direct URL install service is not configured")
 	}
 	app, err := service.InstallDirectURLApp(ctx, req)
 	if err != nil {
@@ -135,14 +134,14 @@ func (service BasicAddService) InstallDirectURL(ctx context.Context, req Install
 
 func (service BasicAddService) InstallPackageRef(ctx context.Context, req InstallPackageRefRequest) (*AddResult, error) {
 	if service.Discovery == nil && req.ResolveMetadata == nil {
-		return nil, fmt.Errorf("discovery service is not configured")
+		return nil, internalErrorf("discovery service is not configured")
 	}
 	install := service.InstallPackageRefApp
 	if req.InstallPackage != nil {
 		install = req.InstallPackage
 	}
 	if install == nil {
-		return nil, fmt.Errorf("package install service is not configured")
+		return nil, internalErrorf("package install service is not configured")
 	}
 	var metadata *domain.PackageMetadata
 	var err error
@@ -173,7 +172,7 @@ func (service BasicAddService) InstallPackageRef(ctx context.Context, req Instal
 
 func (service BasicAddService) PlanLocalIntegration(ctx context.Context, path string) (*DryRunPlan, error) {
 	if service.AppImageInfo == nil {
-		return nil, fmt.Errorf("appimage info reader is not configured")
+		return nil, internalErrorf("appimage info reader is not configured")
 	}
 	info, err := service.AppImageInfo.ReadAppImageInfo(ctx, path)
 	if err != nil {
@@ -223,7 +222,7 @@ func (service BasicAddService) PlanPackageRefInstall(ctx context.Context, req In
 		return service.PlanPackageRefInstallFunc(ctx, req)
 	}
 	if service.Discovery == nil {
-		return nil, fmt.Errorf("discovery service is not configured")
+		return nil, internalErrorf("discovery service is not configured")
 	}
 	metadata, err := service.Discovery.ResolvePackage(ctx, PackageRefInfoRequest{Ref: req.Ref, AssetPattern: req.AssetPattern})
 	if err != nil {
@@ -249,7 +248,7 @@ func NewStoreListService(store AppStore) StoreListService {
 func (service StoreListService) List(ctx context.Context, req ListRequest) (*ListResult, error) {
 	_ = ctx
 	if service.Store == nil {
-		return nil, fmt.Errorf("app store is not configured")
+		return nil, internalErrorf("app store is not configured")
 	}
 	apps, err := service.Store.GetAllApps()
 	if err != nil {
@@ -286,7 +285,7 @@ func NewStoreInfoService(service StoreInfoService) StoreInfoService {
 func (service StoreInfoService) ManagedAppInfo(ctx context.Context, id string) (*InfoResult, error) {
 	_ = ctx
 	if service.Store == nil {
-		return nil, fmt.Errorf("app store is not configured")
+		return nil, internalErrorf("app store is not configured")
 	}
 	app, err := service.Store.GetApp(id)
 	if err != nil {
@@ -298,7 +297,7 @@ func (service StoreInfoService) ManagedAppInfo(ctx context.Context, id string) (
 
 func (service StoreInfoService) LocalAppImageInfo(ctx context.Context, path string) (*InfoResult, error) {
 	if service.AppImage == nil {
-		return nil, fmt.Errorf("appimage info reader is not configured")
+		return nil, internalErrorf("appimage info reader is not configured")
 	}
 	info, err := service.AppImage.ReadAppImageInfo(ctx, path)
 	if err != nil {
@@ -310,7 +309,7 @@ func (service StoreInfoService) LocalAppImageInfo(ctx context.Context, path stri
 
 func (service StoreInfoService) PackageRefInfo(ctx context.Context, req PackageRefInfoRequest) (*InfoResult, error) {
 	if service.Discovery == nil {
-		return nil, fmt.Errorf("discovery service is not configured")
+		return nil, internalErrorf("discovery service is not configured")
 	}
 	metadata, err := service.Discovery.ResolvePackage(ctx, req)
 	if err != nil {
@@ -321,14 +320,14 @@ func (service StoreInfoService) PackageRefInfo(ctx context.Context, req PackageR
 
 func (service StoreInfoService) embeddedUpdateSource(path string) (*domain.UpdateSource, error) {
 	if service.UpdateInfo == nil {
-		return nil, fmt.Errorf("update info reader is not configured")
+		return nil, internalErrorf("update info reader is not configured")
 	}
 	info, err := service.UpdateInfo.ReadUpdateInfo(strings.TrimSpace(path))
 	if err != nil {
 		return nil, err
 	}
 	if info == nil || info.Kind != domain.UpdateZsync {
-		return nil, fmt.Errorf("unsupported embedded update info")
+		return nil, internalErrorf("unsupported embedded update info")
 	}
 	return &domain.UpdateSource{
 		Kind: domain.UpdateZsync,
@@ -363,7 +362,7 @@ func (service RemoveWorkflowService) Remove(ctx context.Context, req RemoveReque
 func (service RemoveWorkflowService) PlanRemove(ctx context.Context, req RemoveRequest) (*DryRunPlan, error) {
 	_ = ctx
 	if service.Store == nil {
-		return nil, fmt.Errorf("app store is not configured")
+		return nil, internalErrorf("app store is not configured")
 	}
 	app, err := service.Store.GetApp(req.ID)
 	if err != nil {
@@ -401,14 +400,14 @@ func NewUpgradeWorkflowService(service UpgradeWorkflowService) UpgradeWorkflowSe
 
 func (service UpgradeWorkflowService) Check(ctx context.Context, currentVersion string) (*appupgrade.AimUpgradeCheckResult, error) {
 	if service.CheckFunc == nil {
-		return nil, fmt.Errorf("upgrade check service is not configured")
+		return nil, internalErrorf("upgrade check service is not configured")
 	}
 	return service.CheckFunc(ctx, currentVersion)
 }
 
 func (service UpgradeWorkflowService) Upgrade(ctx context.Context, currentVersion string) (*appupgrade.InstallerUpgradeResult, error) {
 	if service.UpgradeFunc == nil {
-		return nil, fmt.Errorf("upgrade installer service is not configured")
+		return nil, internalErrorf("upgrade installer service is not configured")
 	}
 	return service.UpgradeFunc(ctx, currentVersion)
 }
@@ -434,7 +433,7 @@ func NewSourceUpdateWorkflowService(service SourceUpdateService) SourceUpdateSer
 func (service SourceUpdateService) Check(ctx context.Context, req UpdateCheckRequest) (*UpdateCheckResult, error) {
 	_ = ctx
 	if service.Store == nil {
-		return nil, fmt.Errorf("app store is not configured")
+		return nil, internalErrorf("app store is not configured")
 	}
 
 	apps := make([]*domain.App, 0)
@@ -470,18 +469,18 @@ func (service SourceUpdateService) Check(ctx context.Context, req UpdateCheckReq
 
 func (service SourceUpdateService) Apply(ctx context.Context, req UpdateApplyRequest) (*UpdateApplyResult, error) {
 	if service.Store == nil {
-		return nil, fmt.Errorf("app store is not configured")
+		return nil, internalErrorf("app store is not configured")
 	}
 	apply := service.ApplyManagedUpdate
 	if apply == nil {
-		return nil, fmt.Errorf("update apply service is not configured")
+		return nil, internalErrorf("update apply service is not configured")
 	}
 	app, err := service.Store.GetApp(req.ID)
 	if err != nil {
 		return nil, err
 	}
 	if app == nil {
-		return nil, fmt.Errorf("managed app cannot be empty")
+		return nil, Errorf(ErrorNotFound, "", "managed app %q was not found", req.ID)
 	}
 	checks := appupdate.CheckManagedUpdates([]*domain.App{app}, nil)
 	if len(checks) == 0 || checks[0].Update == nil || !checks[0].Update.Available {
@@ -497,7 +496,7 @@ func (service SourceUpdateService) Apply(ctx context.Context, req UpdateApplyReq
 func (service SourceUpdateService) ApplyBatch(ctx context.Context, req UpdateApplyBatchRequest) (*UpdateApplyBatchResult, error) {
 	apply := service.ApplyManagedUpdate
 	if apply == nil {
-		return nil, fmt.Errorf("update apply service is not configured")
+		return nil, internalErrorf("update apply service is not configured")
 	}
 	results := appupdate.ApplyManagedUpdates(ctx, req.Pending, func(ctx context.Context, update appupdate.ManagedUpdate, reporter appupdate.ManagedApplyReporter) (*domain.App, error) {
 		return apply(ctx, update, reporter)
@@ -508,10 +507,10 @@ func (service SourceUpdateService) ApplyBatch(ctx context.Context, req UpdateApp
 func (service SourceUpdateService) SetSource(ctx context.Context, req UpdateSourceRequest) (*UpdateSourceResult, error) {
 	_ = ctx
 	if service.Store == nil {
-		return nil, fmt.Errorf("app store is not configured")
+		return nil, internalErrorf("app store is not configured")
 	}
 	if err := domain.ValidateUpdateSource(req.Source); err != nil {
-		return nil, err
+		return nil, NewError(ErrorInvalidInput, "", err)
 	}
 	app, err := service.Store.GetApp(req.ID)
 	if err != nil {
@@ -531,7 +530,7 @@ func (service SourceUpdateService) UnsetSource(ctx context.Context, id string) (
 func (service SourceUpdateService) PlanSetSource(ctx context.Context, req UpdateSourceRequest) (*DryRunPlan, error) {
 	_ = ctx
 	if service.Store == nil {
-		return nil, fmt.Errorf("app store is not configured")
+		return nil, internalErrorf("app store is not configured")
 	}
 	app, err := service.Store.GetApp(req.ID)
 	if err != nil {
@@ -544,7 +543,7 @@ func (service SourceUpdateService) PlanSetSource(ctx context.Context, req Update
 func (service SourceUpdateService) PlanUnsetSource(ctx context.Context, id string) (*DryRunPlan, error) {
 	_ = ctx
 	if service.Store == nil {
-		return nil, fmt.Errorf("app store is not configured")
+		return nil, internalErrorf("app store is not configured")
 	}
 	app, err := service.Store.GetApp(id)
 	if err != nil {
@@ -559,9 +558,9 @@ func RequireInstallablePackage(metadata *domain.PackageMetadata) (*domain.Packag
 		return metadata, nil
 	}
 	if metadata == nil {
-		return nil, fmt.Errorf("package metadata cannot be empty")
+		return nil, invalidInputErrorf("package metadata cannot be empty")
 	}
-	return nil, fmt.Errorf("package is not installable: %s", strings.TrimSpace(metadata.InstallReason))
+	return nil, invalidInputErrorf("package is not installable: %s", strings.TrimSpace(metadata.InstallReason))
 }
 
 func RemoveDryRunValues(app *domain.App, unlink bool) map[string]interface{} {
