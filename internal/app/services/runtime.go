@@ -255,20 +255,23 @@ func (service StoreListService) List(ctx context.Context, req ListRequest) (*Lis
 		return nil, err
 	}
 
-	selected := make([]*domain.App, 0, len(apps))
+	selected := make([]*AppDetails, 0, len(apps))
+	managedApps := make([]*domain.App, 0, len(apps))
 	for _, app := range apps {
 		if app == nil {
 			continue
 		}
 		integrated := strings.TrimSpace(app.DesktopEntryLink) != ""
 		if integrated && req.IncludeIntegrated {
-			selected = append(selected, app)
+			selected = append(selected, appDetailsFromDomain(app))
+			managedApps = append(managedApps, app)
 		}
 		if !integrated && req.IncludeUnlinked {
-			selected = append(selected, app)
+			selected = append(selected, appDetailsFromDomain(app))
+			managedApps = append(managedApps, app)
 		}
 	}
-	return &ListResult{Apps: selected}, nil
+	return &ListResult{Apps: selected, ManagedApps: managedApps}, nil
 }
 
 type StoreInfoService struct {

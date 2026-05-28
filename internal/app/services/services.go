@@ -136,7 +136,11 @@ type AddResult struct {
 }
 
 type ListResult struct {
-	Apps []*domain.App
+	Apps []*AppDetails
+
+	// ManagedApps is a temporary migration bridge for legacy update CLI workflow code.
+	// Remove it when update check/apply is moved fully behind domain-free app-service DTOs.
+	ManagedApps []*domain.App `json:"-"`
 }
 
 type InfoResult struct {

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	appservices "github.com/slobbe/appimage-manager/internal/app/services"
 	models "github.com/slobbe/appimage-manager/internal/domain"
 	"github.com/spf13/cobra"
 	"io"
@@ -107,7 +108,7 @@ type updateOutputRow struct {
 	LastCheckedAt   string `json:"last_checked_at,omitempty"`
 }
 
-func newListOutputRow(app *models.App) listOutputRow {
+func newListOutputRow(app *appservices.AppDetails) listOutputRow {
 	if app == nil {
 		return listOutputRow{}
 	}
@@ -115,7 +116,7 @@ func newListOutputRow(app *models.App) listOutputRow {
 		ID:              app.ID,
 		Name:            app.Name,
 		Version:         app.Version,
-		Integrated:      app.DesktopEntryLink != "",
+		Integrated:      app.Integrated,
 		ExecPath:        app.ExecPath,
 		UpdateAvailable: app.UpdateAvailable,
 		LatestVersion:   app.LatestVersion,
@@ -243,6 +244,20 @@ func sortAppsByID(apps map[string]*models.App) []*models.App {
 	return ordered
 }
 
+func sortAppDetailsByID(apps map[string]*appservices.AppDetails) []*appservices.AppDetails {
+	ids := make([]string, 0, len(apps))
+	for id := range apps {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+
+	ordered := make([]*appservices.AppDetails, 0, len(ids))
+	for _, id := range ids {
+		ordered = append(ordered, apps[id])
+	}
+	return ordered
+}
+
 func boolString(value bool) string {
 	if value {
 		return "true"
@@ -257,7 +272,7 @@ func writePlainRows(cmd *cobra.Command, header []string, rows [][]string) {
 	}
 }
 
-func writePlainList(cmd *cobra.Command, apps []*models.App) {
+func writePlainList(cmd *cobra.Command, apps []*appservices.AppDetails) {
 	rows := make([][]string, 0, len(apps))
 	for _, app := range apps {
 		rows = append(rows, newListOutputRow(app).plainRow())

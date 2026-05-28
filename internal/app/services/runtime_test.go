@@ -18,7 +18,7 @@ func TestStoreListServiceFiltersApps(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List returned error: %v", err)
 	}
-	if len(result.Apps) != 1 || result.Apps[0].ID != "integrated" {
+	if len(result.Apps) != 1 || result.Apps[0].ID != "integrated" || !result.Apps[0].Integrated {
 		t.Fatalf("List returned %+v, want integrated app only", result.Apps)
 	}
 }

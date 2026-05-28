@@ -443,7 +443,7 @@ func ListCmd(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	apps := make(map[string]*models.App, len(result.Apps))
+	apps := make(map[string]*appservices.AppDetails, len(result.Apps))
 	for _, app := range result.Apps {
 		if app != nil {
 			apps[app.ID] = app
@@ -466,11 +466,11 @@ func ListCmd(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	orderedApps := sortAppsByID(apps)
-	integratedRows := make([]*models.App, 0, len(apps))
-	unlinkedRows := make([]*models.App, 0, len(apps))
+	orderedApps := sortAppDetailsByID(apps)
+	integratedRows := make([]*appservices.AppDetails, 0, len(apps))
+	unlinkedRows := make([]*appservices.AppDetails, 0, len(apps))
 	for _, app := range orderedApps {
-		if len(app.DesktopEntryLink) > 0 {
+		if app.Integrated {
 			integratedRows = append(integratedRows, app)
 			continue
 		}
@@ -486,7 +486,7 @@ func ListCmd(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	selected := make([]*models.App, 0, len(orderedApps))
+	selected := make([]*appservices.AppDetails, 0, len(orderedApps))
 	switch {
 	case all:
 		selected = append(selected, integratedRows...)
@@ -1237,7 +1237,7 @@ func isHTTPSURL(value string) bool {
 
 const maxListNameColumnWidth = 28
 
-func listIDColumnWidth(groups ...[]*models.App) int {
+func listIDColumnWidth(groups ...[]*appservices.AppDetails) int {
 	width := len("ID")
 	for _, group := range groups {
 		for _, app := range group {
@@ -1253,7 +1253,7 @@ func listIDColumnWidth(groups ...[]*models.App) int {
 	return width
 }
 
-func listNameDisplayWidth(groups ...[]*models.App) int {
+func listNameDisplayWidth(groups ...[]*appservices.AppDetails) int {
 	width := len("App Name")
 	for _, group := range groups {
 		for _, app := range group {
@@ -1271,7 +1271,7 @@ func listNameDisplayWidth(groups ...[]*models.App) int {
 	return width
 }
 
-func formatListRow(app *models.App, idWidth, nameWidth int) string {
+func formatListRow(app *appservices.AppDetails, idWidth, nameWidth int) string {
 	if app == nil {
 		return ""
 	}

@@ -857,7 +857,7 @@ func collectManagedUpdateTargets(cmd *cobra.Command, targetID string) ([]*models
 		return nil, err
 	}
 
-	apps := append([]*models.App(nil), result.Apps...)
+	apps := append([]*models.App(nil), result.ManagedApps...)
 	sort.SliceStable(apps, func(i, j int) bool {
 		if apps[i] == nil {
 			return false

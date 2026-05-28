@@ -11,10 +11,8 @@ import (
 
 func TestListCmdCallsListServiceWithParsedFilter(t *testing.T) {
 	service := &recordingListService{
-		result: &appservices.ListResult{Apps: []*domain.App{{
-			ID:               "app",
-			Name:             "App",
-			DesktopEntryLink: "/tmp/app.desktop",
+		result: &appservices.ListResult{Apps: []*appservices.AppDetails{{
+			AppSummary: appservices.AppSummary{ID: "app", Name: "App", Integrated: true},
 		}}},
 	}
 	cmd := newListCommand()
