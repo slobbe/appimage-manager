@@ -230,20 +230,6 @@ func packageMetadataOutput(metadata *models.PackageMetadata) map[string]interfac
 	}
 }
 
-func sortAppsByID(apps map[string]*models.App) []*models.App {
-	ids := make([]string, 0, len(apps))
-	for id := range apps {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-
-	ordered := make([]*models.App, 0, len(ids))
-	for _, id := range ids {
-		ordered = append(ordered, apps[id])
-	}
-	return ordered
-}
-
 func sortAppDetailsByID(apps map[string]*appservices.AppDetails) []*appservices.AppDetails {
 	ids := make([]string, 0, len(apps))
 	for id := range apps {

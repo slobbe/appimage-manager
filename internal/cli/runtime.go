@@ -411,7 +411,14 @@ func defaultRuntimeServicesForSettings(settings runtimeSettings) runtimeServices
 		}),
 		Remove: appservices.NewRemoveWorkflowService(appservices.RemoveWorkflowService{Store: store, RemoveFunc: removeManagedApp}),
 		Update: appservices.NewSourceUpdateWorkflowService(appservices.SourceUpdateService{
-			Store: store,
+			Store:       store,
+			UpdateInfo:  appservices.UpdateInfoReaderFunc(getAppImageUpdateInfo),
+			PersistApps: addAppsBatch,
+			PersistApp:  addSingleApp,
+			RemoveApp:   removeManagedApp,
+			RefreshCaches: func(ctx context.Context) {
+				appintegrate.RefreshDesktopIntegrationCaches(ctx)
+			},
 			ApplyManagedUpdate: func(ctx context.Context, update appupdate.ManagedUpdate, reporter appupdate.ManagedApplyReporter) (*domain.App, error) {
 				return runManagedApply(ctx, update, reporter)
 			},

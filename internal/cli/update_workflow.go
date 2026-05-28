@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/slobbe/appimage-manager/internal/app/clock"
-	appintegrate "github.com/slobbe/appimage-manager/internal/app/integrate"
 	appservices "github.com/slobbe/appimage-manager/internal/app/services"
 	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
 	models "github.com/slobbe/appimage-manager/internal/domain"
@@ -188,7 +186,7 @@ func updateCheckMetadata(app *models.App, checked, available bool, latest string
 		return nil
 	}
 
-	lastCheckedAt := clock.NowISO()
+	lastCheckedAt := runtimeNowISO()
 
 	if err := updateCheckMetadataBatch([]checkMetadataUpdate{{
 		ID:            app.ID,
@@ -224,17 +222,16 @@ var (
 	downloadManagedRemoteAsset = func(ctx context.Context, assetURL, destination string, interactive bool, onProgress func(int64, int64)) error {
 		return appupdate.Service{
 			TempDir:        runtimeTempDir(),
-			NowISO:         clock.NowISO,
+			NowISO:         runtimeNowISO,
 			StagedDownload: stagedDownloadAdapter{client: runtimeDownloadHTTPClient},
 		}.DownloadManagedUpdateAsset(ctx, assetURL, destination, onProgress)
 	}
-	integrateManagedUpdate = appintegrate.IntegrateFromLocalFileWithoutCacheRefreshOrPersist
 )
 
 func managedUpdateService() appupdate.Service {
 	return appupdate.Service{
 		TempDir:        runtimeTempDir(),
-		NowISO:         clock.NowISO,
+		NowISO:         runtimeNowISO,
 		Zsync:          runtimeZsyncRunner(),
 		StagedDownload: stagedDownloadAdapter{client: runtimeDownloadHTTPClient},
 		HashVerifier:   hashVerifierAdapter{},
@@ -255,57 +252,6 @@ func applyZsyncUpdate(ctx context.Context, update pendingManagedUpdate, destinat
 	return rewriteZsyncFailure(appupdate.Service{
 		Zsync: runtimeZsyncRunner(),
 	}.ApplyManagedZsyncUpdate(ctx, update, destination))
-}
-
-func persistManagedAppliedApps(ctx context.Context, apps []*models.App) error {
-	if len(apps) == 0 {
-		return nil
-	}
-
-	if err := addAppsBatch(apps, true); err == nil {
-		return cleanupReplacedManagedApps(ctx, apps)
-	}
-
-	persistedApps := make([]*models.App, 0, len(apps))
-	fallbackErrors := make([]string, 0)
-	for _, app := range apps {
-		if app == nil {
-			continue
-		}
-		if err := addSingleApp(app, true); err != nil {
-			fallbackErrors = append(fallbackErrors, fmt.Sprintf("%s: %v", app.ID, err))
-			continue
-		}
-		persistedApps = append(persistedApps, app)
-	}
-
-	if len(fallbackErrors) > 0 {
-		return wrapWriteError(fmt.Errorf("failed to persist applied updates: %s", strings.Join(fallbackErrors, "; ")))
-	}
-
-	return cleanupReplacedManagedApps(ctx, persistedApps)
-}
-
-func cleanupReplacedManagedApps(ctx context.Context, apps []*models.App) error {
-	replaced := map[string]struct{}{}
-	for _, app := range apps {
-		if app == nil {
-			continue
-		}
-		replacesID := strings.TrimSpace(app.ReplacesID)
-		if replacesID == "" || replacesID == strings.TrimSpace(app.ID) {
-			continue
-		}
-		if _, seen := replaced[replacesID]; seen {
-			continue
-		}
-		replaced[replacesID] = struct{}{}
-		if _, err := removeManagedApp(ctx, replacesID, false); err != nil {
-			return wrapWriteError(fmt.Errorf("failed to remove superseded app %s: %w", replacesID, err))
-		}
-	}
-
-	return nil
 }
 
 func verifyDownloadedUpdate(downloadPath string, update pendingManagedUpdate) error {
@@ -576,7 +522,7 @@ func collectManagedUpdateRows(cmd *cobra.Command, cfg managedUpdateRunConfig) (m
 
 	metadataUpdates := make([]checkMetadataUpdate, 0, len(checkResults))
 	collection.rows = make([]updateOutputRow, 0, len(checkResults))
-	checkedAt := clock.NowISO()
+	checkedAt := runtimeNowISO()
 
 	for idx, result := range checkResults {
 		app := result.app
@@ -770,42 +716,37 @@ func applyManagedUpdates(ctx context.Context, cmd *cobra.Command, cfg managedUpd
 	var (
 		applyResults  []managedApplyResult
 		applyFailures int
-		appliedApps   []*models.App
+		appliedIDs    []string
 		persistErr    error
 	)
 
 	err := withStateWriteLock(cmd, func() error {
 		logOperationf(cmd, "Applying %d managed update(s)", len(collection.pending))
-		applyResults = runManagedApplies(ctx, cmd, collection.pending)
+		var applyErr error
+		applyResults, applyErr = runManagedApplies(ctx, cmd, collection.pending)
+		persistErr = applyErr
 		applyFailures = 0
-		appliedApps = make([]*models.App, 0, len(applyResults))
+		appliedIDs = make([]string, 0, len(applyResults))
 		for _, result := range applyResults {
 			if result.err != nil {
 				applyFailures++
 				continue
 			}
 			if result.updatedApp != nil {
-				appliedApps = append(appliedApps, result.updatedApp)
+				appliedIDs = append(appliedIDs, result.updatedApp.ID)
 				if idx, ok := collection.rowIndexByID[result.updatedApp.ID]; ok {
 					collection.rows[idx].Status = "updated"
 					collection.rows[idx].CurrentVersion = result.updatedApp.Version
 				}
 			}
 		}
-
-		if len(appliedApps) > 0 {
-			appintegrate.RefreshDesktopIntegrationCaches(ctx)
-		}
-
-		logOperationf(cmd, "Persisting applied updates")
-		persistErr = persistManagedAppliedApps(ctx, appliedApps)
 		return nil
 	})
 	if err != nil {
 		return err
 	}
-	if len(appliedApps) > 0 && cfg.checkCache != nil {
-		invalidateCachedManagedUpdates(cfg.checkCache, appliedAppIDs(appliedApps)...)
+	if len(appliedIDs) > 0 && cfg.checkCache != nil {
+		invalidateCachedManagedUpdates(cfg.checkCache, appliedIDs...)
 		if cacheErr := saveUpdateCheckCache(cfg.checkCache); cacheErr != nil {
 			return wrapWriteError(cacheErr)
 		}
@@ -851,20 +792,14 @@ func renderManagedUpdateRows(cmd *cobra.Command, opts runtimeOptions, rows []upd
 }
 
 func collectManagedUpdateTargets(cmd *cobra.Command, targetID string) ([]*models.App, error) {
-	if strings.TrimSpace(targetID) != "" {
-		info, err := runtimeServicesFrom(cmd).Info.ManagedAppInfo(cmd.Context(), targetID)
-		if err != nil {
+	apps, err := runtimeServicesFrom(cmd).Update.ManagedApps(cmd.Context(), targetID)
+	if err != nil {
+		if strings.TrimSpace(targetID) != "" {
 			return nil, wrapManagedAppLookupError(targetID, err)
 		}
-		return []*models.App{info.App}, nil
-	}
-
-	result, err := runtimeServicesFrom(cmd).List.List(cmd.Context(), appservices.ListRequest{IncludeIntegrated: true, IncludeUnlinked: true})
-	if err != nil {
 		return nil, err
 	}
 
-	apps := append([]*models.App(nil), result.ManagedApps...)
 	sort.SliceStable(apps, func(i, j int) bool {
 		if apps[i] == nil {
 			return false
@@ -936,22 +871,11 @@ func cachedManagedUpdateForApp(cache *appupdate.CheckCacheFile, app *models.App,
 }
 
 func setCachedManagedUpdate(cache *appupdate.CheckCacheFile, app *models.App, sourceKey string, update *pendingManagedUpdate) {
-	appupdate.SetCachedManagedUpdate(cache, app, sourceKey, update, clock.NowISO())
+	appupdate.SetCachedManagedUpdate(cache, app, sourceKey, update, runtimeNowISO())
 }
 
 func invalidateCachedManagedUpdates(cache *appupdate.CheckCacheFile, appIDs ...string) {
 	appupdate.InvalidateCachedManagedUpdates(cache, appIDs...)
-}
-
-func appliedAppIDs(apps []*models.App) []string {
-	ids := make([]string, 0, len(apps))
-	for _, app := range apps {
-		if app == nil || strings.TrimSpace(app.ID) == "" {
-			continue
-		}
-		ids = append(ids, strings.TrimSpace(app.ID))
-	}
-	return ids
 }
 
 var managedApplyRenderInterval = progressThrottleInterval
@@ -976,8 +900,8 @@ type managedApplyReporterFunc = appupdate.ManagedApplyReporterFunc
 
 type managedApplyResult struct {
 	index      int
-	app        *models.App
-	updatedApp *models.App
+	app        *appservices.AppSummary
+	updatedApp *appservices.AppDetails
 	err        error
 }
 
@@ -1005,9 +929,24 @@ type singleManagedApplyController struct {
 	downloadName  string
 }
 
-func runManagedApplies(ctx context.Context, cmd *cobra.Command, pending []pendingManagedUpdate) []managedApplyResult {
-	if len(pending) == 0 {
+func appSummaryFromDomainApp(app *models.App) *appservices.AppSummary {
+	if app == nil {
 		return nil
+	}
+	return &appservices.AppSummary{
+		ID:              strings.TrimSpace(app.ID),
+		Name:            strings.TrimSpace(app.Name),
+		Version:         strings.TrimSpace(app.Version),
+		Integrated:      strings.TrimSpace(app.DesktopEntryLink) != "",
+		UpdateAvailable: app.UpdateAvailable,
+		LatestVersion:   strings.TrimSpace(app.LatestVersion),
+		LastCheckedAt:   strings.TrimSpace(app.LastCheckedAt),
+	}
+}
+
+func runManagedApplies(ctx context.Context, cmd *cobra.Command, pending []pendingManagedUpdate) ([]managedApplyResult, error) {
+	if len(pending) == 0 {
+		return nil, nil
 	}
 
 	controller := newManagedApplyController(cmd, pending)
@@ -1019,22 +958,25 @@ func runManagedApplies(ctx context.Context, cmd *cobra.Command, pending []pendin
 			}), index, total, update)
 		},
 	})
-	appResults := []appupdate.ManagedApplyResult(nil)
+	views := []appservices.ManagedApplyResultView(nil)
 	if batch != nil {
-		appResults = batch.LegacyResults
+		views = batch.Results
 	}
-	if err != nil {
-		appResults = make([]appupdate.ManagedApplyResult, len(pending))
+	if batch == nil && err != nil {
+		views = make([]appservices.ManagedApplyResultView, len(pending))
 		for idx, update := range pending {
-			appResults[idx] = appupdate.ManagedApplyResult{Index: idx, App: update.App, Error: err}
+			views[idx] = appservices.ManagedApplyResultView{Index: idx, App: appSummaryFromDomainApp(update.App), Error: err.Error()}
 		}
 	}
-	results := make([]managedApplyResult, len(appResults))
-	for idx, result := range appResults {
-		results[idx] = managedApplyResult{index: result.Index, app: result.App, updatedApp: result.UpdatedApp, err: result.Error}
+	results := make([]managedApplyResult, len(views))
+	for idx, result := range views {
+		results[idx] = managedApplyResult{index: result.Index, app: result.App, updatedApp: result.UpdatedApp}
+		if strings.TrimSpace(result.Error) != "" {
+			results[idx].err = errors.New(result.Error)
+		}
 	}
 	controller.Finish(results)
-	return results
+	return results, err
 }
 
 func managedApplyWorkerCount(total int) int {

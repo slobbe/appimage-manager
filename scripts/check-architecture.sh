@@ -51,7 +51,7 @@ is_allowed_cli_boundary_migration_import() {
 	case "$path" in
 		internal/cli/commands.go)
 			case "$import_path" in
-				*'/internal/app/update' | *'/internal/app/upgrade' | *'/internal/domain') return 0 ;;
+				*'/internal/app/update' | *'/internal/domain') return 0 ;;
 			esac
 			;;
 		internal/cli/output.go)
@@ -66,7 +66,7 @@ is_allowed_cli_boundary_migration_import() {
 			;;
 		internal/cli/update_workflow.go)
 			case "$import_path" in
-				*'/internal/app/clock' | *'/internal/app/integrate' | *'/internal/app/update' | *'/internal/domain') return 0 ;;
+				*'/internal/app/update' | *'/internal/domain') return 0 ;;
 			esac
 			;;
 	esac

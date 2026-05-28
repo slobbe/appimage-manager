@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	appimageapp "github.com/slobbe/appimage-manager/internal/app/appimage"
+	"github.com/slobbe/appimage-manager/internal/app/clock"
 	"github.com/slobbe/appimage-manager/internal/app/discovery"
 	appintegrate "github.com/slobbe/appimage-manager/internal/app/integrate"
 	appremove "github.com/slobbe/appimage-manager/internal/app/remove"
@@ -42,6 +43,8 @@ var downloadRemoteAsset = downloadUpdateAsset
 var checkAimUpgrade func(context.Context, string) (*appupgrade.AimUpgradeCheckResult, error)
 var runUpgradeViaInstaller func(context.Context, string) (*appupgrade.InstallerUpgradeResult, error)
 var runManagedApply = applyManagedUpdate
+var integrateManagedUpdate = appintegrate.IntegrateFromLocalFileWithoutCacheRefreshOrPersist
+var runtimeNowISO = clock.NowISO
 var integrateExistingApp = appintegrate.IntegrateExisting
 var integrateLocalApp = appintegrate.IntegrateFromLocalFile
 var readAppImageInfo func(context.Context, string) (*appimageapp.AppInfo, error)

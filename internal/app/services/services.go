@@ -35,10 +35,14 @@ type RemoveService interface {
 }
 
 type UpdateService interface {
+	ManagedApps(ctx context.Context, targetID string) ([]*domain.App, error)
 	ApplyBatch(ctx context.Context, req UpdateApplyBatchRequest) (*UpdateApplyBatchResult, error)
+	EmbeddedSource(ctx context.Context, id string) (*UpdateSourceResult, error)
 	SetSource(ctx context.Context, req UpdateSourceRequest) (*UpdateSourceResult, error)
+	SetEmbeddedSource(ctx context.Context, id string) (*UpdateSourceResult, error)
 	UnsetSource(ctx context.Context, id string) (*UpdateSourceResult, error)
 	PlanSetSource(ctx context.Context, req UpdateSourceRequest) (*DryRunPlan, error)
+	PlanSetEmbeddedSource(ctx context.Context, id string) (*DryRunPlan, error)
 	PlanUnsetSource(ctx context.Context, id string) (*DryRunPlan, error)
 }
 
@@ -123,10 +127,6 @@ type AddResult struct {
 
 type ListResult struct {
 	Apps []*AppDetails
-
-	// ManagedApps is a temporary migration bridge for legacy update CLI workflow code.
-	// Remove it when update check/apply is moved fully behind domain-free app-service DTOs.
-	ManagedApps []*domain.App `json:"-"`
 }
 
 type InfoResult struct {
@@ -135,11 +135,6 @@ type InfoResult struct {
 	AppImageInfo   *AppImageInfoView
 	PackageView    *PackageView
 	EmbeddedUpdate *UpdateSourceView
-
-	// Legacy fields are temporary migration bridges for update/add CLI workflows.
-	// Remove them when those workflows use domain-free app-service DTOs.
-	App                  *domain.App          `json:"-"`
-	LegacyEmbeddedUpdate *domain.UpdateSource `json:"-"`
 }
 
 type RemoveResult struct {
@@ -151,9 +146,6 @@ type RemoveResult struct {
 
 type UpdateApplyBatchResult struct {
 	Results []ManagedApplyResultView
-
-	// LegacyResults is a temporary migration bridge for CLI persistence/progress handling.
-	LegacyResults []update.ManagedApplyResult `json:"-"`
 }
 
 type UpdateSourceResult struct {

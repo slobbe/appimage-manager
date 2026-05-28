@@ -6,7 +6,6 @@ import (
 	"fmt"
 	appservices "github.com/slobbe/appimage-manager/internal/app/services"
 	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
-	appupgrade "github.com/slobbe/appimage-manager/internal/app/upgrade"
 	models "github.com/slobbe/appimage-manager/internal/domain"
 	"github.com/spf13/cobra"
 	"net/url"
@@ -39,7 +38,7 @@ func runUpgrade(ctx context.Context, cmd *cobra.Command) error {
 	}
 
 	logOperationf(cmd, "Checking for aim updates")
-	checkResult, err := runWithBusyIndicator(cmd, progressCheckAimUpdates(), func() (*appupgrade.AimUpgradeCheckResult, error) {
+	checkResult, err := runWithBusyIndicator(cmd, progressCheckAimUpdates(), func() (*appservices.AimUpgradeCheckResult, error) {
 		return runtimeServicesFrom(cmd).Upgrade.Check(ctx, version)
 	})
 	if err != nil {
@@ -55,7 +54,7 @@ func runUpgrade(ctx context.Context, cmd *cobra.Command) error {
 	}
 
 	logOperationf(cmd, "Downloading and running the aim installer")
-	result, err := runWithBusyIndicator(cmd, progressUpgradeAim(), func() (*appupgrade.InstallerUpgradeResult, error) {
+	result, err := runWithBusyIndicator(cmd, progressUpgradeAim(), func() (*appservices.InstallerUpgradeResult, error) {
 		return runtimeServicesFrom(cmd).Upgrade.Upgrade(ctx, version)
 	})
 	if err != nil {
@@ -838,13 +837,6 @@ func inspectLocalAppImage(ctx context.Context, cmd *cobra.Command, src string) e
 	return nil
 }
 
-func updateSummaryOrNone(update *models.UpdateSource) string {
-	if update == nil || update.Kind == models.UpdateNone {
-		return "none"
-	}
-	return updateSummary(update)
-}
-
 func updateSourceViewSummaryOrNone(update *appservices.UpdateSourceView) string {
 	if update == nil || strings.TrimSpace(update.Kind) == string(models.UpdateNone) {
 		return "none"
@@ -874,6 +866,39 @@ func updateSourceViewFromAppDetails(app *appservices.AppDetails) *appservices.Up
 		return nil
 	}
 	return app.UpdateSource
+}
+
+func updateSourceViewIsNone(update *appservices.UpdateSourceView) bool {
+	return update == nil || strings.TrimSpace(update.Kind) == "" || strings.TrimSpace(update.Kind) == string(models.UpdateNone)
+}
+
+func updateSourceViewsEqual(left, right *appservices.UpdateSourceView) bool {
+	if updateSourceViewIsNone(left) && updateSourceViewIsNone(right) {
+		return true
+	}
+	if updateSourceViewIsNone(left) || updateSourceViewIsNone(right) {
+		return false
+	}
+	if strings.TrimSpace(left.Kind) != strings.TrimSpace(right.Kind) {
+		return false
+	}
+	switch strings.TrimSpace(left.Kind) {
+	case string(models.UpdateZsync):
+		if left.Zsync == nil || right.Zsync == nil {
+			return left.Zsync == nil && right.Zsync == nil
+		}
+		return strings.TrimSpace(left.Zsync.UpdateInfo) == strings.TrimSpace(right.Zsync.UpdateInfo) &&
+			strings.TrimSpace(left.Zsync.Transport) == strings.TrimSpace(right.Zsync.Transport)
+	case string(models.UpdateGitHubRelease):
+		if left.GitHubRelease == nil || right.GitHubRelease == nil {
+			return left.GitHubRelease == nil && right.GitHubRelease == nil
+		}
+		return strings.TrimSpace(left.GitHubRelease.Repo) == strings.TrimSpace(right.GitHubRelease.Repo) &&
+			strings.TrimSpace(left.GitHubRelease.Asset) == strings.TrimSpace(right.GitHubRelease.Asset) &&
+			strings.TrimSpace(left.GitHubRelease.ReleaseKind) == strings.TrimSpace(right.GitHubRelease.ReleaseKind)
+	default:
+		return true
+	}
 }
 
 func updateSourcePlanOutput(plan *appservices.DryRunPlan) map[string]interface{} {
@@ -1014,36 +1039,44 @@ func runUpdateSetMode(cmd *cobra.Command, id string) error {
 	}
 
 	var incomingSource *models.UpdateSource
+	var incomingView *appservices.UpdateSourceView
 	if !embedded {
 		incomingSource, err = resolveUpdateSourceFromSetFlags(cmd)
 		if err != nil {
 			return err
 		}
+		incomingView = appservices.UpdateSourceViewFromDomain(incomingSource)
 	}
 
 	info, err := runtimeServicesFrom(cmd).Info.ManagedAppInfo(cmd.Context(), id)
 	if err != nil {
 		return wrapManagedAppLookupError(id, err)
 	}
-	app := info.App
 	appDetails := info.AppDetails
+	currentSource := updateSourceViewFromAppDetails(appDetails)
 
 	if embedded {
 		if err := validateEmbeddedUpdateSetFlags(cmd); err != nil {
 			return err
 		}
 
-		incomingSource = info.LegacyEmbeddedUpdate
-		if incomingSource == nil || incomingSource.Kind == models.UpdateNone {
+		embeddedSource, err := runtimeServicesFrom(cmd).Update.EmbeddedSource(cmd.Context(), id)
+		if err != nil {
+			return err
+		}
+		if embeddedSource != nil {
+			incomingView = embeddedSource.Source
+		}
+		if updateSourceViewIsNone(incomingView) {
 			printWarning(cmd, warningNoEmbeddedSource())
-			if app.Update == nil || app.Update.Kind == models.UpdateNone {
+			if updateSourceViewIsNone(currentSource) {
 				if opts.JSON {
-					return printJSONSuccess(cmd, updateSourceChangeOutput("unset_update_source", id, &appservices.UpdateSourceChangeView{ID: id, Current: updateSourceViewFromAppDetails(appDetails)}, true))
+					return printJSONSuccess(cmd, updateSourceChangeOutput("unset_update_source", id, &appservices.UpdateSourceChangeView{ID: id, Current: currentSource}, true))
 				}
 				return nil
 			}
 
-			printCurrentValue(cmd, updateSummary(app.Update))
+			printCurrentValue(cmd, updateSourceViewSummaryOrNone(currentSource))
 			prompt := formatPrompt("Unset source for", id)
 			confirmed, err := confirmAction(cmd, prompt)
 			if err != nil {
@@ -1062,8 +1095,8 @@ func runUpdateSetMode(cmd *cobra.Command, id string) error {
 		}
 	}
 
-	if app.Update != nil && app.Update.Kind != models.UpdateNone && !models.UpdateSourcesEqual(app.Update, incomingSource) {
-		printCurrentIncoming(cmd, updateSummary(app.Update), updateSummary(incomingSource))
+	if !updateSourceViewIsNone(currentSource) && !updateSourceViewsEqual(currentSource, incomingView) {
+		printCurrentIncoming(cmd, updateSourceViewSummaryOrNone(currentSource), updateSourceViewSummaryOrNone(incomingView))
 		prompt := formatPrompt("Replace source for", id)
 		confirmed, err := confirmAction(cmd, prompt)
 		if err != nil {
@@ -1076,7 +1109,12 @@ func runUpdateSetMode(cmd *cobra.Command, id string) error {
 	}
 
 	if opts.DryRun {
-		plan, err := runtimeServicesFrom(cmd).Update.PlanSetSource(cmd.Context(), appservices.UpdateSourceRequest{ID: id, Source: incomingSource})
+		var plan *appservices.DryRunPlan
+		if embedded {
+			plan, err = runtimeServicesFrom(cmd).Update.PlanSetEmbeddedSource(cmd.Context(), id)
+		} else {
+			plan, err = runtimeServicesFrom(cmd).Update.PlanSetSource(cmd.Context(), appservices.UpdateSourceRequest{ID: id, Source: incomingSource})
+		}
 		if err != nil {
 			return err
 		}
@@ -1091,7 +1129,11 @@ func runUpdateSetMode(cmd *cobra.Command, id string) error {
 	if err := withStateWriteLock(cmd, func() error {
 		logOperationf(cmd, "Setting update source for %s", id)
 		var setErr error
-		setResult, setErr = runtimeServicesFrom(cmd).Update.SetSource(cmd.Context(), appservices.UpdateSourceRequest{ID: id, Source: incomingSource})
+		if embedded {
+			setResult, setErr = runtimeServicesFrom(cmd).Update.SetEmbeddedSource(cmd.Context(), id)
+		} else {
+			setResult, setErr = runtimeServicesFrom(cmd).Update.SetSource(cmd.Context(), appservices.UpdateSourceRequest{ID: id, Source: incomingSource})
+		}
 		if setErr != nil {
 			return wrapWriteError(setErr)
 		}
@@ -1123,7 +1165,8 @@ func runUpdateUnsetMode(cmd *cobra.Command, id string) error {
 	if err != nil {
 		return wrapManagedAppLookupError(id, err)
 	}
-	app := info.App
+	appDetails := info.AppDetails
+	currentSource := updateSourceViewFromAppDetails(appDetails)
 
 	if runtimeOptionsFrom(cmd).DryRun {
 		plan, err := runtimeServicesFrom(cmd).Update.PlanUnsetSource(cmd.Context(), id)
@@ -1137,14 +1180,11 @@ func runUpdateUnsetMode(cmd *cobra.Command, id string) error {
 		return nil
 	}
 
-	if app == nil {
-		return softwareError(fmt.Errorf("managed app cannot be empty"))
-	}
-	if app.Update == nil || app.Update.Kind == models.UpdateNone {
-		printSuccess(cmd, fmt.Sprintf("No update source configured for %s", app.ID))
+	if updateSourceViewIsNone(currentSource) {
+		printSuccess(cmd, fmt.Sprintf("No update source configured for %s", id))
 		return nil
 	}
-	printCurrentValue(cmd, updateSummary(app.Update))
+	printCurrentValue(cmd, updateSourceViewSummaryOrNone(currentSource))
 	prompt := formatPrompt("Unset source for", id)
 	confirmed, err := confirmAction(cmd, prompt)
 	if err != nil {

@@ -5548,120 +5548,6 @@ func TestManagedApplyWorkerCount(t *testing.T) {
 	}
 }
 
-func TestPersistManagedAppliedAppsUsesBatch(t *testing.T) {
-	originalBatch := addAppsBatch
-	originalSingle := addSingleApp
-	originalRemove := removeManagedApp
-	t.Cleanup(func() {
-		addAppsBatch = originalBatch
-		addSingleApp = originalSingle
-		removeManagedApp = originalRemove
-	})
-
-	var batchCalls int32
-	var singleCalls int32
-	addAppsBatch = func(apps []*models.App, overwrite bool) error {
-		atomic.AddInt32(&batchCalls, 1)
-		if !overwrite {
-			t.Fatalf("expected overwrite true")
-		}
-		if len(apps) != 2 {
-			t.Fatalf("len(apps) = %d, want 2", len(apps))
-		}
-		return nil
-	}
-	addSingleApp = func(*models.App, bool) error {
-		atomic.AddInt32(&singleCalls, 1)
-		return nil
-	}
-	removeManagedApp = func(context.Context, string, bool) (*models.App, error) {
-		t.Fatal("removeManagedApp should not be called without replacements")
-		return nil, nil
-	}
-
-	err := persistManagedAppliedApps(context.Background(), []*models.App{{ID: "a"}, {ID: "b"}})
-	if err != nil {
-		t.Fatalf("persistManagedAppliedApps returned error: %v", err)
-	}
-	if atomic.LoadInt32(&batchCalls) != 1 {
-		t.Fatalf("batch calls = %d, want 1", batchCalls)
-	}
-	if atomic.LoadInt32(&singleCalls) != 0 {
-		t.Fatalf("single calls = %d, want 0", singleCalls)
-	}
-}
-
-func TestPersistManagedAppliedAppsFallsBackToSingleWrites(t *testing.T) {
-	originalBatch := addAppsBatch
-	originalSingle := addSingleApp
-	originalRemove := removeManagedApp
-	t.Cleanup(func() {
-		addAppsBatch = originalBatch
-		addSingleApp = originalSingle
-		removeManagedApp = originalRemove
-	})
-
-	var singleCalls int32
-	addAppsBatch = func([]*models.App, bool) error {
-		return fmt.Errorf("batch failed")
-	}
-	addSingleApp = func(*models.App, bool) error {
-		atomic.AddInt32(&singleCalls, 1)
-		return nil
-	}
-	removeManagedApp = func(context.Context, string, bool) (*models.App, error) {
-		t.Fatal("removeManagedApp should not be called without replacements")
-		return nil, nil
-	}
-
-	err := persistManagedAppliedApps(context.Background(), []*models.App{{ID: "a"}, {ID: "b"}})
-	if err != nil {
-		t.Fatalf("persistManagedAppliedApps returned error: %v", err)
-	}
-	if atomic.LoadInt32(&singleCalls) != 2 {
-		t.Fatalf("single calls = %d, want 2", singleCalls)
-	}
-}
-
-func TestPersistManagedAppliedAppsRemovesSupersededApps(t *testing.T) {
-	originalBatch := addAppsBatch
-	originalSingle := addSingleApp
-	originalRemove := removeManagedApp
-	t.Cleanup(func() {
-		addAppsBatch = originalBatch
-		addSingleApp = originalSingle
-		removeManagedApp = originalRemove
-	})
-
-	addAppsBatch = func([]*models.App, bool) error {
-		return nil
-	}
-	addSingleApp = func(*models.App, bool) error {
-		t.Fatal("single fallback should not be used")
-		return nil
-	}
-
-	removed := make([]string, 0, 1)
-	removeManagedApp = func(_ context.Context, id string, unlink bool) (*models.App, error) {
-		if unlink {
-			t.Fatal("expected full removal for superseded app")
-		}
-		removed = append(removed, id)
-		return &models.App{ID: id}, nil
-	}
-
-	err := persistManagedAppliedApps(context.Background(), []*models.App{
-		{ID: "t3-code", ReplacesID: "t3-code-desktop"},
-		{ID: "other"},
-	})
-	if err != nil {
-		t.Fatalf("persistManagedAppliedApps returned error: %v", err)
-	}
-	if strings.Join(removed, ",") != "t3-code-desktop" {
-		t.Fatalf("removed ids = %q, want %q", strings.Join(removed, ","), "t3-code-desktop")
-	}
-}
-
 func TestBuildManagedUpdateMessage(t *testing.T) {
 	update := pendingManagedUpdate{
 		App: &models.App{
@@ -5847,8 +5733,8 @@ func TestBatchManagedApplyControllerFinishPrintsFailuresAndSummary(t *testing.T)
 		controller.Event(managedApplyEvent{Index: 0, AppID: "app-a", Stage: managedApplyStageDone})
 		controller.Event(managedApplyEvent{Index: 1, AppID: "app-b", Stage: managedApplyStageFailed})
 		controller.Finish([]managedApplyResult{
-			{index: 0, app: &models.App{ID: "app-a"}, updatedApp: &models.App{ID: "app-a", Version: "1.1.0"}},
-			{index: 1, app: &models.App{ID: "app-b"}, err: fmt.Errorf("boom")},
+			{index: 0, app: &appservices.AppSummary{ID: "app-a"}, updatedApp: &appservices.AppDetails{AppSummary: appservices.AppSummary{ID: "app-a", Version: "1.1.0"}}},
+			{index: 1, app: &appservices.AppSummary{ID: "app-b"}, err: fmt.Errorf("boom")},
 		})
 	})
 

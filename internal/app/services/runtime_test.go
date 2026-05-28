@@ -2,6 +2,8 @@ package services
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/slobbe/appimage-manager/internal/app/discovery"
@@ -53,6 +55,95 @@ func TestSourceUpdateServiceSetAndPlan(t *testing.T) {
 	}
 	if !result.Changed || result.Source == nil || result.Source.GitHubRelease == nil || store.apps["app"].Update != source {
 		t.Fatalf("SetSource result = %+v app = %+v", result, store.apps["app"])
+	}
+}
+
+func TestSourceUpdateServicePersistAppliedAppsUsesBatch(t *testing.T) {
+	var batchCalls int
+	var singleCalls int
+	service := SourceUpdateService{
+		PersistApps: func(apps []*domain.App, overwrite bool) error {
+			batchCalls++
+			if !overwrite {
+				t.Fatalf("expected overwrite true")
+			}
+			if len(apps) != 2 {
+				t.Fatalf("len(apps) = %d, want 2", len(apps))
+			}
+			return nil
+		},
+		PersistApp: func(*domain.App, bool) error {
+			singleCalls++
+			return nil
+		},
+		RemoveApp: func(context.Context, string, bool) (*domain.App, error) {
+			t.Fatal("RemoveApp should not be called without replacements")
+			return nil, nil
+		},
+	}
+
+	if err := service.persistAppliedApps(context.Background(), []*domain.App{{ID: "a"}, {ID: "b"}}); err != nil {
+		t.Fatalf("persistAppliedApps returned error: %v", err)
+	}
+	if batchCalls != 1 {
+		t.Fatalf("batch calls = %d, want 1", batchCalls)
+	}
+	if singleCalls != 0 {
+		t.Fatalf("single calls = %d, want 0", singleCalls)
+	}
+}
+
+func TestSourceUpdateServicePersistAppliedAppsFallsBackToSingleWrites(t *testing.T) {
+	var singleCalls int
+	service := SourceUpdateService{
+		PersistApps: func([]*domain.App, bool) error {
+			return fmt.Errorf("batch failed")
+		},
+		PersistApp: func(*domain.App, bool) error {
+			singleCalls++
+			return nil
+		},
+		RemoveApp: func(context.Context, string, bool) (*domain.App, error) {
+			t.Fatal("RemoveApp should not be called without replacements")
+			return nil, nil
+		},
+	}
+
+	if err := service.persistAppliedApps(context.Background(), []*domain.App{{ID: "a"}, {ID: "b"}}); err != nil {
+		t.Fatalf("persistAppliedApps returned error: %v", err)
+	}
+	if singleCalls != 2 {
+		t.Fatalf("single calls = %d, want 2", singleCalls)
+	}
+}
+
+func TestSourceUpdateServicePersistAppliedAppsRemovesSupersededApps(t *testing.T) {
+	removed := make([]string, 0, 1)
+	service := SourceUpdateService{
+		PersistApps: func([]*domain.App, bool) error {
+			return nil
+		},
+		PersistApp: func(*domain.App, bool) error {
+			t.Fatal("single fallback should not be used")
+			return nil
+		},
+		RemoveApp: func(_ context.Context, id string, unlink bool) (*domain.App, error) {
+			if unlink {
+				t.Fatal("expected full removal for superseded app")
+			}
+			removed = append(removed, id)
+			return &domain.App{ID: id}, nil
+		},
+	}
+
+	if err := service.persistAppliedApps(context.Background(), []*domain.App{
+		{ID: "t3-code", ReplacesID: "t3-code-desktop"},
+		{ID: "other"},
+	}); err != nil {
+		t.Fatalf("persistAppliedApps returned error: %v", err)
+	}
+	if strings.Join(removed, ",") != "t3-code-desktop" {
+		t.Fatalf("removed ids = %q, want %q", strings.Join(removed, ","), "t3-code-desktop")
 	}
 }
 

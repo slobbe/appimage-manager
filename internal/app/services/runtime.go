@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"strings"
 
@@ -260,7 +261,6 @@ func (service StoreListService) List(ctx context.Context, req ListRequest) (*Lis
 	}
 
 	selected := make([]*AppDetails, 0, len(apps))
-	managedApps := make([]*domain.App, 0, len(apps))
 	for _, app := range apps {
 		if app == nil {
 			continue
@@ -268,14 +268,12 @@ func (service StoreListService) List(ctx context.Context, req ListRequest) (*Lis
 		integrated := strings.TrimSpace(app.DesktopEntryLink) != ""
 		if integrated && req.IncludeIntegrated {
 			selected = append(selected, appDetailsFromDomain(app))
-			managedApps = append(managedApps, app)
 		}
 		if !integrated && req.IncludeUnlinked {
 			selected = append(selected, appDetailsFromDomain(app))
-			managedApps = append(managedApps, app)
 		}
 	}
-	return &ListResult{Apps: selected, ManagedApps: managedApps}, nil
+	return &ListResult{Apps: selected}, nil
 }
 
 type StoreInfoService struct {
@@ -300,11 +298,9 @@ func (service StoreInfoService) ManagedAppInfo(ctx context.Context, id string) (
 	}
 	embedded, _ := service.embeddedUpdateSource(app.ExecPath)
 	return &InfoResult{
-		Kind:                 InfoKindManagedApp,
-		AppDetails:           appDetailsFromDomain(app),
-		EmbeddedUpdate:       updateSourceViewFromDomain(embedded),
-		App:                  app,
-		LegacyEmbeddedUpdate: embedded,
+		Kind:           InfoKindManagedApp,
+		AppDetails:     appDetailsFromDomain(app),
+		EmbeddedUpdate: updateSourceViewFromDomain(embedded),
 	}, nil
 }
 
@@ -318,10 +314,9 @@ func (service StoreInfoService) LocalAppImageInfo(ctx context.Context, path stri
 	}
 	embedded, _ := service.embeddedUpdateSource(path)
 	return &InfoResult{
-		Kind:                 InfoKindLocalAppImage,
-		AppImageInfo:         appImageInfoViewFromAppImageInfo(info),
-		EmbeddedUpdate:       updateSourceViewFromDomain(embedded),
-		LegacyEmbeddedUpdate: embedded,
+		Kind:           InfoKindLocalAppImage,
+		AppImageInfo:   appImageInfoViewFromAppImageInfo(info),
+		EmbeddedUpdate: updateSourceViewFromDomain(embedded),
 	}, nil
 }
 
@@ -340,10 +335,14 @@ func (service StoreInfoService) PackageRefInfo(ctx context.Context, req PackageR
 }
 
 func (service StoreInfoService) embeddedUpdateSource(path string) (*domain.UpdateSource, error) {
-	if service.UpdateInfo == nil {
+	return readEmbeddedUpdateSource(service.UpdateInfo, path)
+}
+
+func readEmbeddedUpdateSource(reader UpdateInfoReader, path string) (*domain.UpdateSource, error) {
+	if reader == nil {
 		return nil, internalErrorf("update info reader is not configured")
 	}
-	info, err := service.UpdateInfo.ReadUpdateInfo(strings.TrimSpace(path))
+	info, err := reader.ReadUpdateInfo(strings.TrimSpace(path))
 	if err != nil {
 		return nil, err
 	}
@@ -446,7 +445,12 @@ type ManagedUpdateApplier func(context.Context, appupdate.ManagedUpdate, appupda
 
 type SourceUpdateService struct {
 	Store              AppStore
+	UpdateInfo         UpdateInfoReader
 	ApplyManagedUpdate ManagedUpdateApplier
+	PersistApps        func([]*domain.App, bool) error
+	PersistApp         func(*domain.App, bool) error
+	RemoveApp          func(context.Context, string, bool) (*domain.App, error)
+	RefreshCaches      func(context.Context)
 }
 
 func NewSourceUpdateService(store AppStore) SourceUpdateService {
@@ -457,19 +461,130 @@ func NewSourceUpdateWorkflowService(service SourceUpdateService) SourceUpdateSer
 	return service
 }
 
+func (service SourceUpdateService) ManagedApps(ctx context.Context, targetID string) ([]*domain.App, error) {
+	_ = ctx
+	if service.Store == nil {
+		return nil, internalErrorf("app store is not configured")
+	}
+	if strings.TrimSpace(targetID) != "" {
+		app, err := service.Store.GetApp(targetID)
+		if err != nil {
+			return nil, err
+		}
+		if app == nil {
+			return nil, Errorf(ErrorNotFound, "", "managed app %q was not found", targetID)
+		}
+		return []*domain.App{app}, nil
+	}
+	all, err := service.Store.GetAllApps()
+	if err != nil {
+		return nil, err
+	}
+	apps := make([]*domain.App, 0, len(all))
+	for _, app := range all {
+		if app != nil {
+			apps = append(apps, app)
+		}
+	}
+	return apps, nil
+}
+
 func (service SourceUpdateService) ApplyBatch(ctx context.Context, req UpdateApplyBatchRequest) (*UpdateApplyBatchResult, error) {
 	apply := service.ApplyManagedUpdate
 	if apply == nil {
 		return nil, internalErrorf("update apply service is not configured")
 	}
-	legacyResults := appupdate.ApplyManagedUpdates(ctx, req.Pending, func(ctx context.Context, update appupdate.ManagedUpdate, reporter appupdate.ManagedApplyReporter) (*domain.App, error) {
+	applyResults := appupdate.ApplyManagedUpdates(ctx, req.Pending, func(ctx context.Context, update appupdate.ManagedUpdate, reporter appupdate.ManagedApplyReporter) (*domain.App, error) {
 		return apply(ctx, update, reporter)
 	}, req.ReporterFor)
-	results := make([]ManagedApplyResultView, 0, len(legacyResults))
-	for _, result := range legacyResults {
+	results := make([]ManagedApplyResultView, 0, len(applyResults))
+	appliedApps := make([]*domain.App, 0, len(applyResults))
+	for _, result := range applyResults {
 		results = append(results, managedApplyResultViewFromAppUpdate(result))
+		if result.Error == nil && result.UpdatedApp != nil {
+			appliedApps = append(appliedApps, result.UpdatedApp)
+		}
 	}
-	return &UpdateApplyBatchResult{Results: results, LegacyResults: legacyResults}, nil
+	if len(appliedApps) > 0 && service.RefreshCaches != nil {
+		service.RefreshCaches(ctx)
+	}
+	if err := service.persistAppliedApps(ctx, appliedApps); err != nil {
+		return &UpdateApplyBatchResult{Results: results}, err
+	}
+	return &UpdateApplyBatchResult{Results: results}, nil
+}
+
+func (service SourceUpdateService) persistAppliedApps(ctx context.Context, apps []*domain.App) error {
+	if len(apps) == 0 {
+		return nil
+	}
+	if service.PersistApps != nil {
+		if err := service.PersistApps(apps, true); err == nil {
+			return service.cleanupReplacedApps(ctx, apps)
+		}
+	}
+	if service.PersistApp == nil {
+		return internalErrorf("app persistence service is not configured")
+	}
+	persistedApps := make([]*domain.App, 0, len(apps))
+	fallbackErrors := make([]string, 0)
+	for _, app := range apps {
+		if app == nil {
+			continue
+		}
+		if err := service.PersistApp(app, true); err != nil {
+			fallbackErrors = append(fallbackErrors, strings.TrimSpace(app.ID)+": "+err.Error())
+			continue
+		}
+		persistedApps = append(persistedApps, app)
+	}
+	if len(fallbackErrors) > 0 {
+		return fmt.Errorf("failed to persist applied updates: %s", strings.Join(fallbackErrors, "; "))
+	}
+	return service.cleanupReplacedApps(ctx, persistedApps)
+}
+
+func (service SourceUpdateService) cleanupReplacedApps(ctx context.Context, apps []*domain.App) error {
+	if service.RemoveApp == nil {
+		return nil
+	}
+	replaced := map[string]struct{}{}
+	for _, app := range apps {
+		if app == nil {
+			continue
+		}
+		replacesID := strings.TrimSpace(app.ReplacesID)
+		if replacesID == "" || replacesID == strings.TrimSpace(app.ID) {
+			continue
+		}
+		if _, seen := replaced[replacesID]; seen {
+			continue
+		}
+		replaced[replacesID] = struct{}{}
+		if _, err := service.RemoveApp(ctx, replacesID, false); err != nil {
+			return fmt.Errorf("failed to remove superseded app %s: %w", replacesID, err)
+		}
+	}
+	return nil
+}
+
+func (service SourceUpdateService) EmbeddedSource(ctx context.Context, id string) (*UpdateSourceResult, error) {
+	_ = ctx
+	if service.Store == nil {
+		return nil, internalErrorf("app store is not configured")
+	}
+	app, err := service.Store.GetApp(id)
+	if err != nil {
+		return nil, err
+	}
+	if app == nil {
+		return nil, Errorf(ErrorNotFound, "", "managed app %q was not found", id)
+	}
+	source, err := readEmbeddedUpdateSource(service.UpdateInfo, app.ExecPath)
+	if err != nil {
+		return &UpdateSourceResult{ID: id, Source: nil, Changed: false}, nil
+	}
+	return &UpdateSourceResult{ID: id, Source: updateSourceViewFromDomain(source), Changed: false}, nil
 }
 
 func (service SourceUpdateService) SetSource(ctx context.Context, req UpdateSourceRequest) (*UpdateSourceResult, error) {
@@ -489,6 +604,24 @@ func (service SourceUpdateService) SetSource(ctx context.Context, req UpdateSour
 		return nil, err
 	}
 	return &UpdateSourceResult{ID: req.ID, Source: updateSourceViewFromDomain(req.Source), Changed: true}, nil
+}
+
+func (service SourceUpdateService) SetEmbeddedSource(ctx context.Context, id string) (*UpdateSourceResult, error) {
+	if service.Store == nil {
+		return nil, internalErrorf("app store is not configured")
+	}
+	app, err := service.Store.GetApp(id)
+	if err != nil {
+		return nil, err
+	}
+	if app == nil {
+		return nil, Errorf(ErrorNotFound, "", "managed app %q was not found", id)
+	}
+	source, err := readEmbeddedUpdateSource(service.UpdateInfo, app.ExecPath)
+	if err != nil {
+		return nil, NewError(ErrorUnavailable, "", err)
+	}
+	return service.SetSource(ctx, UpdateSourceRequest{ID: id, Source: source})
 }
 
 func (service SourceUpdateService) UnsetSource(ctx context.Context, id string) (*UpdateSourceResult, error) {
@@ -517,6 +650,24 @@ func (service SourceUpdateService) PlanSetSource(ctx context.Context, req Update
 		},
 		DBWrite: true,
 	}, nil
+}
+
+func (service SourceUpdateService) PlanSetEmbeddedSource(ctx context.Context, id string) (*DryRunPlan, error) {
+	if service.Store == nil {
+		return nil, internalErrorf("app store is not configured")
+	}
+	app, err := service.Store.GetApp(id)
+	if err != nil {
+		return nil, err
+	}
+	if app == nil {
+		return nil, Errorf(ErrorNotFound, "", "managed app %q was not found", id)
+	}
+	source, err := readEmbeddedUpdateSource(service.UpdateInfo, app.ExecPath)
+	if err != nil {
+		return nil, NewError(ErrorUnavailable, "", err)
+	}
+	return service.PlanSetSource(ctx, UpdateSourceRequest{ID: id, Source: source})
 }
 
 func (service SourceUpdateService) PlanUnsetSource(ctx context.Context, id string) (*DryRunPlan, error) {

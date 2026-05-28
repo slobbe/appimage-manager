@@ -225,6 +225,10 @@ func sourceViewFromDomain(source domain.Source) *SourceView {
 	return view
 }
 
+func UpdateSourceViewFromDomain(source *domain.UpdateSource) *UpdateSourceView {
+	return updateSourceViewFromDomain(source)
+}
+
 func updateSourceViewFromDomain(source *domain.UpdateSource) *UpdateSourceView {
 	if source == nil {
 		return nil
