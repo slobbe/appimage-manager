@@ -157,14 +157,6 @@ func resolvePackageInfoWithProgress(cmd *cobra.Command, label string, resolve fu
 	return runWithBusyIndicator(cmd, fmt.Sprintf("Resolving package metadata for %s", label), resolve)
 }
 
-func requireInstallablePackageMetadata(metadata *models.PackageMetadata) (*models.PackageMetadata, error) {
-	metadata, err := appservices.RequireInstallablePackage(metadata)
-	if err != nil {
-		return nil, usageError(err)
-	}
-	return metadata, nil
-}
-
 func resolveGitHubAssetAmbiguity(cmd *cobra.Command, metadata *models.PackageMetadata) (*models.PackageMetadata, error) {
 	if metadata == nil || !metadata.AssetAmbiguous {
 		return metadata, nil
@@ -271,34 +263,6 @@ func packageViewAssetCandidateNames(candidates []appservices.AssetCandidateView)
 	return names
 }
 
-func resolveInstallablePackageMetadataFromTarget(ctx context.Context, cmd *cobra.Command, refArg string, target *installTarget, assetPattern string) (*models.PackageMetadata, error) {
-	metadata, err := resolvePackageMetadataWithProgress(cmd, installTargetLabel(target), func() (*models.PackageMetadata, error) {
-		return resolvePackageMetadataFromInput(ctx, refArg, assetPattern)
-	})
-	if err != nil {
-		return nil, err
-	}
-	metadata, err = requireInstallablePackageMetadata(metadata)
-	if err != nil {
-		return nil, err
-	}
-	return resolveGitHubAssetAmbiguity(cmd, metadata)
-}
-
-func resolveInstallablePackageMetadataFromRef(ctx context.Context, cmd *cobra.Command, ref models.PackageRef, assetPattern string) (*models.PackageMetadata, error) {
-	metadata, err := resolvePackageMetadataWithProgress(cmd, formatProviderRef(ref), func() (*models.PackageMetadata, error) {
-		return resolvePackageMetadataFromRef(ctx, ref, assetPattern)
-	})
-	if err != nil {
-		return nil, err
-	}
-	metadata, err = requireInstallablePackageMetadata(metadata)
-	if err != nil {
-		return nil, err
-	}
-	return resolveGitHubAssetAmbiguity(cmd, metadata)
-}
-
 func printPackageView(cmd *cobra.Command, metadata *appservices.PackageView) {
 	if metadata == nil {
 		return
@@ -333,39 +297,6 @@ func printPackageView(cmd *cobra.Command, metadata *appservices.PackageView) {
 
 	printSection(cmd, "Install Command")
 	writeDataf(cmd, "  %s\n", formatAddProviderViewCommand(metadata.Ref))
-}
-
-func printPackageMetadata(cmd *cobra.Command, metadata *models.PackageMetadata) {
-	printSection(cmd, metadata.Name)
-	writeDataf(cmd, "Provider: %s\n", strings.TrimSpace(metadata.Provider))
-	if providerRef := formatProviderRef(metadata.Ref); providerRef != "" {
-		writeDataf(cmd, "Provider ref: %s\n", providerRef)
-	}
-	if strings.TrimSpace(metadata.RepoURL) != "" {
-		writeDataf(cmd, "Source URL: %s\n", strings.TrimSpace(metadata.RepoURL))
-	}
-	if strings.TrimSpace(metadata.Summary) != "" {
-		writeDataf(cmd, "Summary: %s\n", strings.TrimSpace(metadata.Summary))
-	}
-
-	installable := strings.TrimSpace(metadata.InstallReason) == "" && metadata.Installable
-	writeDataf(cmd, "Installable: %s\n", yesNo(installable))
-
-	if !installable && strings.TrimSpace(metadata.InstallReason) != "" {
-		writeDataf(cmd, "Reason: %s\n", strings.TrimSpace(metadata.InstallReason))
-		return
-	}
-
-	if strings.TrimSpace(metadata.LatestVersion) != "" {
-		writeDataf(cmd, "Latest release: %s\n", displayVersion(metadata.LatestVersion))
-	}
-	if strings.TrimSpace(metadata.AssetName) != "" {
-		writeDataf(cmd, "Selected asset: %s\n", strings.TrimSpace(metadata.AssetName))
-	}
-	writeDataf(cmd, "Managed updates: yes\n")
-
-	printSection(cmd, "Install Command")
-	writeDataf(cmd, "  %s\n", formatAddProviderCommand(metadata.Ref))
 }
 
 func formatProviderRef(ref models.PackageRef) string {
@@ -413,20 +344,6 @@ func installTargetLabel(target *installTarget) string {
 	}
 
 	return "package"
-}
-
-func formatAddProviderCommand(ref models.PackageRef) string {
-	value := strings.TrimSpace(ref.ProviderRef)
-	if value == "" {
-		return "aim add"
-	}
-
-	switch ref.Kind {
-	case models.ProviderGitHub:
-		return "aim add --github " + value
-	default:
-		return "aim add"
-	}
 }
 
 func formatAddProviderViewCommand(ref appservices.ProviderRef) string {
