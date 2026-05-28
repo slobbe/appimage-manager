@@ -1,6 +1,7 @@
 BIN := ./bin/aim
 VERSION ?= 0.0.0-dev
 LDFLAGS := -X main.version=$(VERSION)
+GOVULNCHECK ?= $(shell go env GOPATH)/bin/govulncheck
 
 .PHONY: build
 build:
@@ -18,9 +19,13 @@ run:
 test:
 	go test ./...
 
+.PHONY: test-race
+test-race:
+	go test -race ./...
+
 .PHONY: test-architecture
 test-architecture:
-	go test ./internal/architecture
+	scripts/check-architecture.sh
 
 .PHONY: vet
 vet:
@@ -30,8 +35,22 @@ vet:
 fmt:
 	gofmt -w ./cmd ./internal
 
+.PHONY: vulncheck
+vulncheck:
+	"$(GOVULNCHECK)" ./...
+
+.PHONY: shellcheck
+shellcheck:
+	shellcheck scripts/*.sh
+
 .PHONY: check
 check: build test vet
+
+.PHONY: verify
+verify: check test-race test-architecture
+
+.PHONY: audit
+audit: vulncheck shellcheck
 
 .PHONY: clean
 clean:

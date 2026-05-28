@@ -27,9 +27,12 @@ make build-version VERSION=0.0.0-dev
 make run
 make test
 make test-architecture
+make test-race
 make vet
 make fmt
 make check
+make verify
+make audit
 make clean
 ```
 
@@ -52,6 +55,13 @@ make build-version VERSION=0.0.0-dev
 ```sh
 make run
 # equivalent: go run ./cmd/aim --help
+```
+
+### Verify
+
+```sh
+make verify
+# equivalent: make check && make test-race && make test-architecture
 ```
 
 ### Test
@@ -94,6 +104,19 @@ Before finalizing non-trivial changes, run:
 make check
 ```
 
+For broader pre-push verification, run:
+
+```sh
+make verify
+```
+
+Security/script audits are grouped separately because they require external tools such as
+`govulncheck` and `shellcheck`:
+
+```sh
+make audit
+```
+
 ### GoReleaser
 
 Check GoReleaser config:
@@ -124,7 +147,7 @@ cmd/aim
   -> internal/app          application/use-case layer
   -> internal/domain       domain model and rules
   -> internal/infra        infrastructure adapters
-  -> internal/architecture architecture tests
+  -> scripts/check-architecture.sh architecture boundary check
 ```
 
 ### Responsibilities
@@ -145,6 +168,7 @@ cmd/aim
 - Calls application services/use cases.
 - Should not contain business logic.
 - Should not perform infrastructure work directly when an app service or port should own it.
+- Regular command/workflow files should not import concrete `internal/infra` packages; keep concrete adapter construction in runtime/composition wiring such as `runtime.go` and `runtime_wiring.go`.
 
 #### `internal/app`
 
@@ -157,6 +181,8 @@ Typical responsibilities:
 - Coordinating domain rules and infrastructure adapters.
 - Returning errors rather than exiting the process.
 - Keeping behavior testable with fakes.
+- Returning structured result types so CLI can render text/JSON without app services knowing terminal formatting.
+- Owning transaction/workflow coordination: load app, decide with domain rules, call repository/downloader/filesystem ports, persist results, and refresh caches where appropriate.
 
 Current app areas include:
 
@@ -208,11 +234,11 @@ internal/infra/selfupdate
 internal/infra/zsync
 ```
 
-#### `internal/architecture`
+#### `scripts/check-architecture.sh`
 
-- Architecture tests.
+- Architecture boundary check.
 - Enforces import boundaries between layers.
-- Do not weaken these tests to make a refactor easier.
+- Do not weaken this check to make a refactor easier.
 
 ## Dependency Rules
 
@@ -245,12 +271,13 @@ infra -> cli
 ```
 
 Dependency injection and concrete adapter wiring should happen at the edge, primarily in
-`cmd/aim` and CLI/runtime wiring code.
+`cmd/aim` and CLI/runtime wiring code. Concrete infrastructure adapters should stay out of normal CLI command files; use runtime/composition wiring for adapter construction.
 
 These boundaries are enforced by:
 
 ```txt
-internal/architecture/import_boundaries_test.go
+scripts/check-architecture.sh
+make test-architecture
 ```
 
 If a change violates the architecture test, fix the dependency direction instead of
@@ -268,7 +295,16 @@ weakening the test.
 - Prefer standard library packages unless a dependency adds clear value.
 - Prefer composition over global mutable state.
 - Avoid package-level mutable state unless there is a strong reason.
+- Do not reintroduce app-layer package-level default ports or setters such as `SetFilesystem`, `SetGitHubReleaseResolver`, or `SetSelfUpdater`; pass explicit services/ports instead.
 - Keep behavior deterministic and easy to test.
+
+### Post-refactor service conventions
+
+- Keep command services shaped around CLI use cases: `AddService`, `ListService`, `InfoService`, `RemoveService`, `UpdateService`, `UpgradeService`, and `DiscoveryService`.
+- Keep app services explicit: construct services with dependencies rather than relying on package globals.
+- Use structured app results for CLI output and dry-run planning; CLI owns rendering, prompts, progress display, and friendly error text.
+- Keep state locking and persistence coordination behind app/runtime-level ports instead of embedding it directly in command handlers.
+- Keep direct URL install and managed package install as app-level workflows with explicit download, verify, integrate, persist, remove, and staged-file cleanup ports.
 
 ## Go Conventions
 
@@ -333,8 +369,8 @@ build: add local Makefile targets
 - Test domain behavior directly.
 - Test application services with fake ports/interfaces.
 - Test CLI behavior through command execution or command-level helpers.
-- Keep infrastructure tests focused on adapter behavior and edge cases.
-- Run architecture tests as part of `go test ./...`.
+- Keep infrastructure tests focused on adapter behavior and edge cases, such as filesystem, HTTP test servers, command execution fakes, repository persistence, and DTO mapping.
+- Run architecture checks with `make test-architecture`.
 
 Useful commands:
 
@@ -351,7 +387,7 @@ When modifying this repository:
 - Do not put business logic in `internal/cli` or `internal/infra`.
 - Do not bypass the `internal/app` layer from CLI code.
 - Keep `cmd/aim/main.go` minimal.
-- Respect the architecture boundaries enforced by `internal/architecture`.
+- Respect the architecture boundaries enforced by `scripts/check-architecture.sh`.
 - Do not add backwards-compatibility shims for old internal behavior.
 - Do not bypass GoReleaser for official release packaging.
 - Keep `.goreleaser.yaml`, `.github/workflows/release.yml`, and `scripts/release-prepare.sh` in sync when changing release artifacts.
@@ -363,6 +399,7 @@ When modifying this repository:
 - Run `make test` for meaningful code changes.
 - Run `make vet` before release-related or broad refactor work.
 - Run `make check` before finalizing non-trivial changes.
+- Run `make verify` before pushing broad refactors or release-preparation changes.
 
 ## Release Flow
 

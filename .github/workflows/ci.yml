@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  format:
+  quality:
     runs-on: ubuntu-latest
 
     steps:
@@ -23,7 +23,7 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Check gofmt
+      - name: Check formatting
         run: |
           unformatted="$(gofmt -l $(git ls-files "*.go"))"
           if [ -n "$unformatted" ]; then
@@ -31,7 +31,10 @@ jobs:
             exit 1
           fi
 
-  test:
+      - name: Verify build, tests, race, and vet
+        run: make verify
+
+  coverage:
     runs-on: ubuntu-latest
 
     steps:
@@ -43,9 +46,6 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-
-      - name: Run tests
-        run: go test ./...
 
       - name: Check coverage
         run: |
@@ -74,7 +74,7 @@ jobs:
           path: coverage.out
           if-no-files-found: error
 
-  race:
+  audit:
     runs-on: ubuntu-latest
 
     steps:
@@ -87,44 +87,14 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Run race tests
-        run: go test -race ./...
-
-  vet:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Run vet
-        run: go vet ./...
-
-  vulnerability:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Install govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@latest
-
-      - name: Run govulncheck
+      - name: Install audit tools
         run: |
-          "$(go env GOPATH)/bin/govulncheck" ./...
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+
+      - name: Run security and script audits
+        run: make audit
 
   goreleaser:
     runs-on: ubuntu-latest
@@ -147,18 +117,3 @@ jobs:
           distribution: goreleaser
           version: "~> v2"
           args: check
-
-  shellcheck:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install ShellCheck
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y shellcheck
-
-      - name: Run ShellCheck
-        run: shellcheck scripts/*.sh
