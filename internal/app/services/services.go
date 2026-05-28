@@ -186,8 +186,11 @@ type UpdateApplyBatchResult struct {
 
 type UpdateSourceResult struct {
 	ID      string
-	Source  *domain.UpdateSource
+	Source  *UpdateSourceView
 	Changed bool
+
+	// LegacySource is a temporary migration bridge for workflows that still need domain update sources.
+	LegacySource *domain.UpdateSource `json:"-"`
 }
 
 type ManagedUpdateStatus struct {

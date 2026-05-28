@@ -869,6 +869,41 @@ func updateSourceViewSummaryOrNone(update *appservices.UpdateSourceView) string 
 	}
 }
 
+func updateSourceViewFromAppDetails(app *appservices.AppDetails) *appservices.UpdateSourceView {
+	if app == nil {
+		return nil
+	}
+	return app.UpdateSource
+}
+
+func updateSourcePlanOutput(plan *appservices.DryRunPlan) map[string]interface{} {
+	if plan == nil {
+		return map[string]interface{}{}
+	}
+	return updateSourceChangeOutput(plan.Action, plan.Target, plan.UpdateSourceChange, plan.DBWrite)
+}
+
+func updateSourceChangeOutput(action, id string, change *appservices.UpdateSourceChangeView, dbWrite bool) map[string]interface{} {
+	result := map[string]interface{}{
+		"action":   strings.TrimSpace(action),
+		"id":       strings.TrimSpace(id),
+		"db_write": dbWrite,
+	}
+	if change == nil {
+		return result
+	}
+	if strings.TrimSpace(result["id"].(string)) == "" {
+		result["id"] = strings.TrimSpace(change.ID)
+	}
+	if change.Current != nil {
+		result["current_source"] = change.Current
+	}
+	if change.Incoming != nil {
+		result["incoming_source"] = change.Incoming
+	}
+	return result
+}
+
 func UpdateCmd(cmd *cobra.Command, args []string) error {
 	setID, err := flagString(cmd, "set")
 	if err != nil {
@@ -991,6 +1026,7 @@ func runUpdateSetMode(cmd *cobra.Command, id string) error {
 		return wrapManagedAppLookupError(id, err)
 	}
 	app := info.App
+	appDetails := info.AppDetails
 
 	if embedded {
 		if err := validateEmbeddedUpdateSetFlags(cmd); err != nil {
@@ -1002,7 +1038,7 @@ func runUpdateSetMode(cmd *cobra.Command, id string) error {
 			printWarning(cmd, warningNoEmbeddedSource())
 			if app.Update == nil || app.Update.Kind == models.UpdateNone {
 				if opts.JSON {
-					return printJSONSuccess(cmd, appservices.UpdateUnsetDryRunValues(id, app.Update))
+					return printJSONSuccess(cmd, updateSourceChangeOutput("unset_update_source", id, &appservices.UpdateSourceChangeView{ID: id, Current: updateSourceViewFromAppDetails(appDetails)}, true))
 				}
 				return nil
 			}
@@ -1044,32 +1080,37 @@ func runUpdateSetMode(cmd *cobra.Command, id string) error {
 		if err != nil {
 			return err
 		}
-		result := plan.Values
 		if opts.JSON {
-			return printJSONSuccess(cmd, result)
+			return printJSONSuccess(cmd, updateSourcePlanOutput(plan))
 		}
 		writeDataf(cmd, "Dry run: would set update source for %s\n", id)
 		return nil
 	}
 
+	var setResult *appservices.UpdateSourceResult
 	if err := withStateWriteLock(cmd, func() error {
 		logOperationf(cmd, "Setting update source for %s", id)
-		if _, err := runtimeServicesFrom(cmd).Update.SetSource(cmd.Context(), appservices.UpdateSourceRequest{ID: id, Source: incomingSource}); err != nil {
-			return wrapWriteError(err)
+		var setErr error
+		setResult, setErr = runtimeServicesFrom(cmd).Update.SetSource(cmd.Context(), appservices.UpdateSourceRequest{ID: id, Source: incomingSource})
+		if setErr != nil {
+			return wrapWriteError(setErr)
 		}
 		return nil
 	}); err != nil {
 		return err
 	}
 
+	if setResult == nil {
+		return softwareError(fmt.Errorf("set update source result missing"))
+	}
 	if opts.JSON {
 		return printJSONSuccess(cmd, map[string]interface{}{
 			"action": "set_update_source",
 			"id":     id,
-			"source": incomingSource,
+			"source": setResult.Source,
 		})
 	}
-	printSuccess(cmd, fmt.Sprintf("Update source set: %s", updateSummary(incomingSource)))
+	printSuccess(cmd, fmt.Sprintf("Update source set: %s", updateSourceViewSummaryOrNone(setResult.Source)))
 	return nil
 }
 
@@ -1089,9 +1130,8 @@ func runUpdateUnsetMode(cmd *cobra.Command, id string) error {
 		if err != nil {
 			return err
 		}
-		result := plan.Values
 		if runtimeOptionsFrom(cmd).JSON {
-			return printJSONSuccess(cmd, result)
+			return printJSONSuccess(cmd, updateSourcePlanOutput(plan))
 		}
 		writeDataf(cmd, "Dry run: would unset update source for %s\n", id)
 		return nil

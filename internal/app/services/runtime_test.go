@@ -43,12 +43,15 @@ func TestSourceUpdateServiceSetAndPlan(t *testing.T) {
 	if plan.Action != "set_update_source" || plan.Values["incoming_source"] != source {
 		t.Fatalf("unexpected plan: %+v", plan)
 	}
+	if plan.UpdateSourceChange == nil || plan.UpdateSourceChange.Incoming == nil || plan.UpdateSourceChange.Incoming.GitHubRelease == nil {
+		t.Fatalf("plan missing typed update source change: %+v", plan.UpdateSourceChange)
+	}
 
 	result, err := service.SetSource(context.Background(), UpdateSourceRequest{ID: "app", Source: source})
 	if err != nil {
 		t.Fatalf("SetSource returned error: %v", err)
 	}
-	if !result.Changed || store.apps["app"].Update != source {
+	if !result.Changed || result.Source == nil || result.Source.GitHubRelease == nil || store.apps["app"].Update != source {
 		t.Fatalf("SetSource result = %+v app = %+v", result, store.apps["app"])
 	}
 }

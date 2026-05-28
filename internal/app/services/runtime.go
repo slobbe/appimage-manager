@@ -552,7 +552,7 @@ func (service SourceUpdateService) SetSource(ctx context.Context, req UpdateSour
 	if err := service.Store.UpdateApp(app); err != nil {
 		return nil, err
 	}
-	return &UpdateSourceResult{ID: req.ID, Source: req.Source, Changed: true}, nil
+	return &UpdateSourceResult{ID: req.ID, Source: updateSourceViewFromDomain(req.Source), LegacySource: req.Source, Changed: true}, nil
 }
 
 func (service SourceUpdateService) UnsetSource(ctx context.Context, id string) (*UpdateSourceResult, error) {
@@ -569,7 +569,18 @@ func (service SourceUpdateService) PlanSetSource(ctx context.Context, req Update
 		return nil, err
 	}
 	values := UpdateSetDryRunValues(req.ID, app.Update, req.Source)
-	return &DryRunPlan{Action: "set_update_source", Target: req.ID, Values: values}, nil
+	return &DryRunPlan{
+		Action:     "set_update_source",
+		Target:     req.ID,
+		Values:     values,
+		TargetKind: "managed_app",
+		UpdateSourceChange: &UpdateSourceChangeView{
+			ID:       strings.TrimSpace(req.ID),
+			Current:  updateSourceViewFromDomain(app.Update),
+			Incoming: updateSourceViewFromDomain(req.Source),
+		},
+		DBWrite: true,
+	}, nil
 }
 
 func (service SourceUpdateService) PlanUnsetSource(ctx context.Context, id string) (*DryRunPlan, error) {
@@ -582,7 +593,17 @@ func (service SourceUpdateService) PlanUnsetSource(ctx context.Context, id strin
 		return nil, err
 	}
 	values := UpdateUnsetDryRunValues(id, app.Update)
-	return &DryRunPlan{Action: "unset_update_source", Target: id, Values: values}, nil
+	return &DryRunPlan{
+		Action:     "unset_update_source",
+		Target:     id,
+		Values:     values,
+		TargetKind: "managed_app",
+		UpdateSourceChange: &UpdateSourceChangeView{
+			ID:      strings.TrimSpace(id),
+			Current: updateSourceViewFromDomain(app.Update),
+		},
+		DBWrite: true,
+	}, nil
 }
 
 func RequireInstallablePackage(metadata *domain.PackageMetadata) (*domain.PackageMetadata, error) {
