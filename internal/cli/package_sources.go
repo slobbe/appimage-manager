@@ -153,6 +153,10 @@ func resolvePackageMetadataWithProgress(cmd *cobra.Command, label string, resolv
 	return runWithBusyIndicator(cmd, fmt.Sprintf("Resolving package metadata for %s", label), resolve)
 }
 
+func resolvePackageInfoWithProgress(cmd *cobra.Command, label string, resolve func() (*appservices.InfoResult, error)) (*appservices.InfoResult, error) {
+	return runWithBusyIndicator(cmd, fmt.Sprintf("Resolving package metadata for %s", label), resolve)
+}
+
 func requireInstallablePackageMetadata(metadata *models.PackageMetadata) (*models.PackageMetadata, error) {
 	metadata, err := appservices.RequireInstallablePackage(metadata)
 	if err != nil {
@@ -197,6 +201,42 @@ func resolveGitHubAssetAmbiguity(cmd *cobra.Command, metadata *models.PackageMet
 	return &resolved, nil
 }
 
+func resolvePackageViewAmbiguity(cmd *cobra.Command, metadata *appservices.PackageView) (*appservices.PackageView, error) {
+	if metadata == nil || !metadata.AssetAmbiguous {
+		return metadata, nil
+	}
+	if runtimeOptionsFrom(cmd).JSON || !canPromptForInput(cmd) {
+		return nil, usageError(fmt.Errorf("%s; use --asset to choose one of: %s", packageViewAssetAmbiguityReason(metadata), strings.Join(packageViewAssetCandidateNames(metadata.AssetCandidates), ", ")))
+	}
+
+	writeDataf(cmd, "Multiple AppImage assets match this release:\n")
+	for i, candidate := range metadata.AssetCandidates {
+		label := strings.TrimSpace(candidate.ArchLabel)
+		if label == "" {
+			label = "generic"
+		}
+		writeDataf(cmd, "  %d. %s (%s)\n", i+1, candidate.Name, label)
+	}
+	writeDataf(cmd, "\n")
+
+	value, err := readPromptedValue(cmd, fmt.Sprintf("Select asset [1-%d]: ", len(metadata.AssetCandidates)))
+	if err != nil {
+		return nil, err
+	}
+	index, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil || index < 1 || index > len(metadata.AssetCandidates) {
+		return nil, usageError(fmt.Errorf("invalid asset selection %q", value))
+	}
+
+	selected := metadata.AssetCandidates[index-1]
+	resolved := *metadata
+	resolved.AssetName = selected.Name
+	resolved.DownloadURL = selected.DownloadURL
+	resolved.AssetAmbiguous = false
+	resolved.AssetReason = ""
+	return &resolved, nil
+}
+
 func assetAmbiguityReason(metadata *models.PackageMetadata) string {
 	if metadata != nil && strings.TrimSpace(metadata.AssetReason) != "" {
 		return strings.TrimSpace(metadata.AssetReason)
@@ -204,7 +244,24 @@ func assetAmbiguityReason(metadata *models.PackageMetadata) string {
 	return "multiple assets match"
 }
 
+func packageViewAssetAmbiguityReason(metadata *appservices.PackageView) string {
+	if metadata != nil && strings.TrimSpace(metadata.AssetReason) != "" {
+		return strings.TrimSpace(metadata.AssetReason)
+	}
+	return "multiple assets match"
+}
+
 func assetCandidateNames(candidates []models.AssetCandidate) []string {
+	names := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		if strings.TrimSpace(candidate.Name) != "" {
+			names = append(names, candidate.Name)
+		}
+	}
+	return names
+}
+
+func packageViewAssetCandidateNames(candidates []appservices.AssetCandidateView) []string {
 	names := make([]string, 0, len(candidates))
 	for _, candidate := range candidates {
 		if strings.TrimSpace(candidate.Name) != "" {
@@ -240,6 +297,42 @@ func resolveInstallablePackageMetadataFromRef(ctx context.Context, cmd *cobra.Co
 		return nil, err
 	}
 	return resolveGitHubAssetAmbiguity(cmd, metadata)
+}
+
+func printPackageView(cmd *cobra.Command, metadata *appservices.PackageView) {
+	if metadata == nil {
+		return
+	}
+	printSection(cmd, metadata.Name)
+	writeDataf(cmd, "Provider: %s\n", strings.TrimSpace(metadata.Provider))
+	if providerRef := formatProviderViewRef(metadata.Ref); providerRef != "" {
+		writeDataf(cmd, "Provider ref: %s\n", providerRef)
+	}
+	if strings.TrimSpace(metadata.RepoURL) != "" {
+		writeDataf(cmd, "Source URL: %s\n", strings.TrimSpace(metadata.RepoURL))
+	}
+	if strings.TrimSpace(metadata.Summary) != "" {
+		writeDataf(cmd, "Summary: %s\n", strings.TrimSpace(metadata.Summary))
+	}
+
+	installable := strings.TrimSpace(metadata.InstallReason) == "" && metadata.Installable
+	writeDataf(cmd, "Installable: %s\n", yesNo(installable))
+
+	if !installable && strings.TrimSpace(metadata.InstallReason) != "" {
+		writeDataf(cmd, "Reason: %s\n", strings.TrimSpace(metadata.InstallReason))
+		return
+	}
+
+	if strings.TrimSpace(metadata.LatestVersion) != "" {
+		writeDataf(cmd, "Latest release: %s\n", displayVersion(metadata.LatestVersion))
+	}
+	if strings.TrimSpace(metadata.AssetName) != "" {
+		writeDataf(cmd, "Selected asset: %s\n", strings.TrimSpace(metadata.AssetName))
+	}
+	writeDataf(cmd, "Managed updates: yes\n")
+
+	printSection(cmd, "Install Command")
+	writeDataf(cmd, "  %s\n", formatAddProviderViewCommand(metadata.Ref))
 }
 
 func printPackageMetadata(cmd *cobra.Command, metadata *models.PackageMetadata) {
@@ -289,6 +382,20 @@ func formatProviderRef(ref models.PackageRef) string {
 	}
 }
 
+func formatProviderViewRef(ref appservices.ProviderRef) string {
+	value := strings.TrimSpace(ref.Ref)
+	if value == "" {
+		return ""
+	}
+
+	switch strings.TrimSpace(ref.Provider) {
+	case models.ProviderGitHub:
+		return "GitHub " + value
+	default:
+		return value
+	}
+}
+
 func installTargetLabel(target *installTarget) string {
 	if target == nil {
 		return "package"
@@ -315,6 +422,20 @@ func formatAddProviderCommand(ref models.PackageRef) string {
 	}
 
 	switch ref.Kind {
+	case models.ProviderGitHub:
+		return "aim add --github " + value
+	default:
+		return "aim add"
+	}
+}
+
+func formatAddProviderViewCommand(ref appservices.ProviderRef) string {
+	value := strings.TrimSpace(ref.Ref)
+	if value == "" {
+		return "aim add"
+	}
+
+	switch strings.TrimSpace(ref.Provider) {
 	case models.ProviderGitHub:
 		return "aim add --github " + value
 	default:

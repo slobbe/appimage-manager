@@ -145,10 +145,17 @@ type ListResult struct {
 
 type InfoResult struct {
 	Kind           InfoKind
-	App            *domain.App
-	AppImage       *appimageapp.AppInfo
-	Package        *domain.PackageMetadata
-	EmbeddedUpdate *domain.UpdateSource
+	AppDetails     *AppDetails
+	AppImageInfo   *AppImageInfoView
+	PackageView    *PackageView
+	EmbeddedUpdate *UpdateSourceView
+
+	// Legacy fields are temporary migration bridges for update/add CLI workflows.
+	// Remove them when those workflows use domain-free app-service DTOs.
+	App                  *domain.App             `json:"-"`
+	AppImage             *appimageapp.AppInfo    `json:"-"`
+	Package              *domain.PackageMetadata `json:"-"`
+	LegacyEmbeddedUpdate *domain.UpdateSource    `json:"-"`
 }
 
 type RemoveResult struct {

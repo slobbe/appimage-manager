@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
-	appimage "github.com/slobbe/appimage-manager/internal/app/appimage"
 	appservices "github.com/slobbe/appimage-manager/internal/app/services"
 	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
 	appupgrade "github.com/slobbe/appimage-manager/internal/app/upgrade"
@@ -579,24 +578,25 @@ func yesNo(value bool) string {
 }
 
 func runShowPackageRef(ctx context.Context, cmd *cobra.Command, ref models.PackageRef) error {
-	metadata, err := resolvePackageMetadataWithProgress(cmd, formatProviderRef(ref), func() (*models.PackageMetadata, error) {
-		return runtimeServicesFrom(cmd).Discovery.ResolvePackage(ctx, appservices.PackageRefInfoRequest{Ref: ref})
+	result, err := resolvePackageInfoWithProgress(cmd, formatProviderRef(ref), func() (*appservices.InfoResult, error) {
+		return runtimeServicesFrom(cmd).Info.PackageRefInfo(ctx, appservices.PackageRefInfoRequest{Ref: ref})
 	})
 	if err != nil {
 		return err
 	}
+	metadata := result.PackageView
 	if runtimeOptionsFrom(cmd).JSON {
 		return printJSONSuccess(cmd, map[string]interface{}{
 			"kind":     "package_metadata",
-			"metadata": packageMetadataOutput(metadata),
+			"metadata": metadata,
 		})
 	}
-	metadata, err = resolveGitHubAssetAmbiguity(cmd, metadata)
+	metadata, err = resolvePackageViewAmbiguity(cmd, metadata)
 	if err != nil {
 		return err
 	}
 
-	printPackageMetadata(cmd, metadata)
+	printPackageView(cmd, metadata)
 	return nil
 }
 
@@ -759,7 +759,7 @@ func inspectManagedApp(ctx context.Context, cmd *cobra.Command, id string) error
 	if err != nil {
 		return wrapManagedAppLookupError(id, err)
 	}
-	app := info.App
+	app := info.AppDetails
 	if app == nil {
 		return fmt.Errorf("managed app cannot be empty")
 	}
@@ -780,8 +780,8 @@ func inspectManagedApp(ctx context.Context, cmd *cobra.Command, id string) error
 	writeDataf(cmd, "Exec path: %s\n", strings.TrimSpace(app.ExecPath))
 
 	printSection(cmd, sectionUpdates)
-	writeDataf(cmd, "Configured source: %s\n", updateSummaryOrNone(app.Update))
-	writeDataf(cmd, "Embedded source: %s\n", updateSummaryOrNone(embeddedSource))
+	writeDataf(cmd, "Configured source: %s\n", updateSourceViewSummaryOrNone(app.UpdateSource))
+	writeDataf(cmd, "Embedded source: %s\n", updateSourceViewSummaryOrNone(embeddedSource))
 
 	printSection(cmd, sectionState)
 	writeDataf(cmd, "Update available: %s\n", yesNo(app.UpdateAvailable))
@@ -802,27 +802,14 @@ func inspectLocalAppImage(ctx context.Context, cmd *cobra.Command, src string) e
 		label = strings.TrimSpace(src)
 	}
 
-	result, err := runWithBusyIndicator(cmd, fmt.Sprintf("Inspecting %s", label), func() (*struct {
-		info           *appimage.AppInfo
-		embeddedSource *models.UpdateSource
-	}, error) {
-		infoResult, err := runtimeServicesFrom(cmd).Info.LocalAppImageInfo(ctx, src)
-		if err != nil {
-			return nil, err
-		}
-		return &struct {
-			info           *appimage.AppInfo
-			embeddedSource *models.UpdateSource
-		}{
-			info:           infoResult.AppImage,
-			embeddedSource: infoResult.EmbeddedUpdate,
-		}, nil
+	result, err := runWithBusyIndicator(cmd, fmt.Sprintf("Inspecting %s", label), func() (*appservices.InfoResult, error) {
+		return runtimeServicesFrom(cmd).Info.LocalAppImageInfo(ctx, src)
 	})
 	if err != nil {
 		return err
 	}
-	info := result.info
-	embeddedSource := result.embeddedSource
+	info := result.AppImageInfo
+	embeddedSource := result.EmbeddedUpdate
 
 	if runtimeOptionsFrom(cmd).JSON {
 		return printJSONSuccess(cmd, map[string]interface{}{
@@ -840,7 +827,7 @@ func inspectLocalAppImage(ctx context.Context, cmd *cobra.Command, src string) e
 	writeDataf(cmd, "Version: %s\n", displayVersion(info.Version))
 
 	printSection(cmd, sectionUpdates)
-	writeDataf(cmd, "Embedded source: %s\n", updateSummaryOrNone(embeddedSource))
+	writeDataf(cmd, "Embedded source: %s\n", updateSourceViewSummaryOrNone(embeddedSource))
 
 	return nil
 }
@@ -850,6 +837,30 @@ func updateSummaryOrNone(update *models.UpdateSource) string {
 		return "none"
 	}
 	return updateSummary(update)
+}
+
+func updateSourceViewSummaryOrNone(update *appservices.UpdateSourceView) string {
+	if update == nil || strings.TrimSpace(update.Kind) == string(models.UpdateNone) {
+		return "none"
+	}
+
+	switch strings.TrimSpace(update.Kind) {
+	case string(models.UpdateZsync):
+		if update.Zsync == nil {
+			return "zsync: <missing>"
+		}
+		if strings.TrimSpace(update.Zsync.UpdateInfo) != "" {
+			return fmt.Sprintf("zsync: %s", strings.TrimSpace(update.Zsync.UpdateInfo))
+		}
+		return "zsync"
+	case string(models.UpdateGitHubRelease):
+		if update.GitHubRelease == nil {
+			return "github: <missing>"
+		}
+		return fmt.Sprintf("github: %s, asset: %s", strings.TrimSpace(update.GitHubRelease.Repo), strings.TrimSpace(update.GitHubRelease.Asset))
+	default:
+		return strings.TrimSpace(update.Kind)
+	}
 }
 
 func UpdateCmd(cmd *cobra.Command, args []string) error {
@@ -980,7 +991,7 @@ func runUpdateSetMode(cmd *cobra.Command, id string) error {
 			return err
 		}
 
-		incomingSource = info.EmbeddedUpdate
+		incomingSource = info.LegacyEmbeddedUpdate
 		if incomingSource == nil || incomingSource.Kind == models.UpdateNone {
 			printWarning(cmd, warningNoEmbeddedSource())
 			if app.Update == nil || app.Update.Kind == models.UpdateNone {

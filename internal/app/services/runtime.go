@@ -295,7 +295,13 @@ func (service StoreInfoService) ManagedAppInfo(ctx context.Context, id string) (
 		return nil, err
 	}
 	embedded, _ := service.embeddedUpdateSource(app.ExecPath)
-	return &InfoResult{Kind: InfoKindManagedApp, App: app, EmbeddedUpdate: embedded}, nil
+	return &InfoResult{
+		Kind:                 InfoKindManagedApp,
+		AppDetails:           appDetailsFromDomain(app),
+		EmbeddedUpdate:       updateSourceViewFromDomain(embedded),
+		App:                  app,
+		LegacyEmbeddedUpdate: embedded,
+	}, nil
 }
 
 func (service StoreInfoService) LocalAppImageInfo(ctx context.Context, path string) (*InfoResult, error) {
@@ -307,7 +313,13 @@ func (service StoreInfoService) LocalAppImageInfo(ctx context.Context, path stri
 		return nil, err
 	}
 	embedded, _ := service.embeddedUpdateSource(path)
-	return &InfoResult{Kind: InfoKindLocalAppImage, AppImage: info, EmbeddedUpdate: embedded}, nil
+	return &InfoResult{
+		Kind:                 InfoKindLocalAppImage,
+		AppImageInfo:         appImageInfoViewFromAppImageInfo(info),
+		EmbeddedUpdate:       updateSourceViewFromDomain(embedded),
+		AppImage:             info,
+		LegacyEmbeddedUpdate: embedded,
+	}, nil
 }
 
 func (service StoreInfoService) PackageRefInfo(ctx context.Context, req PackageRefInfoRequest) (*InfoResult, error) {
@@ -318,7 +330,11 @@ func (service StoreInfoService) PackageRefInfo(ctx context.Context, req PackageR
 	if err != nil {
 		return nil, err
 	}
-	return &InfoResult{Kind: InfoKindPackage, Package: metadata}, nil
+	return &InfoResult{
+		Kind:        InfoKindPackage,
+		PackageView: packageViewFromDomain(metadata),
+		Package:     metadata,
+	}, nil
 }
 
 func (service StoreInfoService) embeddedUpdateSource(path string) (*domain.UpdateSource, error) {
