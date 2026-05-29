@@ -9,14 +9,7 @@ import (
 )
 
 type AddService interface {
-	ResolveIntegrateTarget(ctx context.Context, input string) (*IntegrateTargetResult, error)
-	IntegrateLocal(ctx context.Context, req IntegrateLocalRequest) (*AddResult, error)
-	Reintegrate(ctx context.Context, id string) (*AddResult, error)
-	InstallDirectURL(ctx context.Context, req InstallDirectURLRequest) (*AddResult, error)
-	InstallPackageRef(ctx context.Context, req InstallPackageRefRequest) (*AddResult, error)
-	PlanLocalIntegration(ctx context.Context, path string) (*DryRunPlan, error)
-	PlanDirectURLInstall(ctx context.Context, req InstallDirectURLRequest) (*DryRunPlan, error)
-	PlanPackageRefInstall(ctx context.Context, req InstallPackageRefRequest) (*DryRunPlan, error)
+	Add(ctx context.Context, req AddRequest) (*AddResult, error)
 }
 
 type ListService interface {
@@ -58,6 +51,24 @@ type DiscoveryService interface {
 
 type StateLocker interface {
 	WithWriteLock(fn func() error) error
+}
+
+type AddRequest struct {
+	Target AddTargetInput
+
+	DryRun bool
+
+	SHA256       string
+	AssetPattern string
+
+	ConfirmUpdateSourceReplace UpdateSourceReplaceConfirmer
+	ResolvePackageAmbiguity    PackageViewAmbiguityResolver
+}
+
+type AddTargetInput struct {
+	Positional string
+	URL        string
+	Provider   *ProviderRef
 }
 
 type IntegrateLocalRequest struct {
@@ -163,9 +174,24 @@ type UpdateSourceRequest struct {
 	Source *UpdateSourceInput
 }
 
+type AddAction string
+
+const (
+	AddActionIntegrate         AddAction = "integrate"
+	AddActionReintegrate       AddAction = "reintegrate"
+	AddActionInstall           AddAction = "install"
+	AddActionAlreadyIntegrated AddAction = "already_integrated"
+)
+
 type AddResult struct {
+	Action AddAction
 	Status string
-	App    *AppDetails
+
+	App     *AppDetails
+	Plan    *DryRunPlan
+	Package *PackageView
+
+	AlreadyIntegrated bool
 }
 
 type ListResult struct {

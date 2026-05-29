@@ -90,8 +90,8 @@ func TestAddCmdDryRunRoutesLocalAppImageToPlan(t *testing.T) {
 		t.Fatalf("AddCmd returned error: %v", err)
 	}
 
-	if service.resolveCalls != 2 {
-		t.Fatalf("ResolveIntegrateTarget calls = %d, want 2 for current command trace", service.resolveCalls)
+	if service.resolveCalls != 1 {
+		t.Fatalf("ResolveIntegrateTarget calls = %d, want 1", service.resolveCalls)
 	}
 	if service.planLocalPath != "/tmp/My.AppImage" {
 		t.Fatalf("PlanLocalIntegration path = %q", service.planLocalPath)
@@ -130,7 +130,7 @@ func TestAddCmdDryRunRoutesDirectURLToPlan(t *testing.T) {
 }
 
 func TestAddCmdDryRunRoutesPackageRefToPlan(t *testing.T) {
-	service := &recordingAddService{plan: &appservices.DryRunPlan{Values: map[string]interface{}{"target": "github:owner/repo"}}}
+	service := &recordingAddService{plan: &appservices.DryRunPlan{Values: map[string]interface{}{"target": "GitHub owner/repo"}}}
 	cmd, output := commandWithRuntimeForTest(newAddCommand(), runtimeOptions{DryRun: true}, runtimeServices{Add: service, Locker: noopLocker{}})
 	if err := cmd.Flags().Set("github", "owner/repo"); err != nil {
 		t.Fatalf("set github: %v", err)
@@ -350,6 +350,8 @@ func appDetails(id, name string, integrated bool) *appservices.AppDetails {
 }
 
 type recordingAddService struct {
+	addCalls            int
+	req                 appservices.AddRequest
 	resolveCalls        int
 	resolveTarget       *appservices.IntegrateTargetResult
 	integrateLocalCalls int
@@ -360,6 +362,57 @@ type recordingAddService struct {
 	planDirectReq       appservices.InstallDirectURLRequest
 	planPackageReq      appservices.InstallPackageRefRequest
 	plan                *appservices.DryRunPlan
+}
+
+func (service *recordingAddService) Add(ctx context.Context, req appservices.AddRequest) (*appservices.AddResult, error) {
+	service.addCalls++
+	service.req = req
+	if req.Target.Provider != nil {
+		planReq := appservices.InstallPackageRefRequest{Ref: *req.Target.Provider, AssetPattern: req.AssetPattern}
+		if req.DryRun {
+			plan, err := service.PlanPackageRefInstall(ctx, planReq)
+			if err != nil {
+				return nil, err
+			}
+			return &appservices.AddResult{Action: appservices.AddActionInstall, Status: "dry_run", Plan: plan}, nil
+		}
+		return service.InstallPackageRef(ctx, planReq)
+	}
+	if strings.TrimSpace(req.Target.URL) != "" {
+		directReq := appservices.InstallDirectURLRequest{URL: req.Target.URL, SHA256: req.SHA256}
+		if req.DryRun {
+			plan, err := service.PlanDirectURLInstall(ctx, directReq)
+			if err != nil {
+				return nil, err
+			}
+			return &appservices.AddResult{Action: appservices.AddActionInstall, Status: "dry_run", Plan: plan}, nil
+		}
+		return service.InstallDirectURL(ctx, directReq)
+	}
+	target, err := service.ResolveIntegrateTarget(ctx, req.Target.Positional)
+	if err != nil {
+		return nil, err
+	}
+	switch target.Kind {
+	case appservices.IntegrateTargetIntegrated:
+		return &appservices.AddResult{Action: appservices.AddActionAlreadyIntegrated, Status: "already_integrated", App: target.App, AlreadyIntegrated: true}, nil
+	case appservices.IntegrateTargetUnlinked:
+		if req.DryRun {
+			return &appservices.AddResult{Action: appservices.AddActionReintegrate, Status: "dry_run", App: target.App}, nil
+		}
+		return service.Reintegrate(ctx, target.App.ID)
+	case appservices.IntegrateTargetLocalFile:
+		if req.DryRun {
+			plan, err := service.PlanLocalIntegration(ctx, target.LocalPath)
+			if err != nil {
+				return nil, err
+			}
+			return &appservices.AddResult{Action: appservices.AddActionIntegrate, Status: "dry_run", Plan: plan}, nil
+		}
+		return service.IntegrateLocal(ctx, appservices.IntegrateLocalRequest{Path: target.LocalPath})
+	default:
+		return nil, errors.New("unknown target")
+	}
 }
 
 func (service *recordingAddService) ResolveIntegrateTarget(ctx context.Context, input string) (*appservices.IntegrateTargetResult, error) {

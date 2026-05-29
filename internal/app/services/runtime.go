@@ -63,6 +63,60 @@ func NewBasicAddService(service BasicAddService) BasicAddService {
 	return service
 }
 
+func (service BasicAddService) Add(ctx context.Context, req AddRequest) (*AddResult, error) {
+	if req.Target.Provider != nil {
+		installReq := InstallPackageRefRequest{Ref: *req.Target.Provider, AssetPattern: req.AssetPattern, ResolveViewAmbiguity: req.ResolvePackageAmbiguity}
+		if req.DryRun {
+			plan, err := service.PlanPackageRefInstall(ctx, installReq)
+			if err != nil {
+				return nil, err
+			}
+			return addPlanResult(AddActionInstall, plan), nil
+		}
+		return service.InstallPackageRef(ctx, installReq)
+	}
+
+	if strings.TrimSpace(req.Target.URL) != "" {
+		installReq := InstallDirectURLRequest{URL: req.Target.URL, SHA256: req.SHA256}
+		if req.DryRun {
+			plan, err := service.PlanDirectURLInstall(ctx, installReq)
+			if err != nil {
+				return nil, err
+			}
+			return addPlanResult(AddActionInstall, plan), nil
+		}
+		return service.InstallDirectURL(ctx, installReq)
+	}
+
+	target, err := service.ResolveIntegrateTarget(ctx, req.Target.Positional)
+	if err != nil {
+		return nil, err
+	}
+	switch target.Kind {
+	case IntegrateTargetIntegrated:
+		return &AddResult{Action: AddActionAlreadyIntegrated, Status: "already_integrated", App: target.App, AlreadyIntegrated: true}, nil
+	case IntegrateTargetUnlinked:
+		if target.App == nil {
+			return nil, internalErrorf("reintegrate target missing app")
+		}
+		if req.DryRun {
+			return &AddResult{Action: AddActionReintegrate, Status: "dry_run", App: target.App}, nil
+		}
+		return service.Reintegrate(ctx, target.App.ID)
+	case IntegrateTargetLocalFile:
+		if req.DryRun {
+			plan, err := service.PlanLocalIntegration(ctx, target.LocalPath)
+			if err != nil {
+				return nil, err
+			}
+			return addPlanResult(AddActionIntegrate, plan), nil
+		}
+		return service.IntegrateLocal(ctx, IntegrateLocalRequest{Path: target.LocalPath, ConfirmUpdateSourceReplace: req.ConfirmUpdateSourceReplace})
+	default:
+		return nil, internalErrorf("unknown add target kind %q", target.Kind)
+	}
+}
+
 func (service BasicAddService) ResolveIntegrateTarget(ctx context.Context, input string) (*IntegrateTargetResult, error) {
 	_ = ctx
 	trimmed := strings.TrimSpace(input)
@@ -171,7 +225,25 @@ func (service BasicAddService) InstallPackageRef(ctx context.Context, req Instal
 }
 
 func addResultFromDomain(status string, app *domain.App) *AddResult {
-	return &AddResult{Status: strings.TrimSpace(status), App: appDetailsFromDomain(app)}
+	result := &AddResult{Status: strings.TrimSpace(status), App: appDetailsFromDomain(app)}
+	switch result.Status {
+	case "integrated":
+		result.Action = AddActionIntegrate
+	case "reintegrated":
+		result.Action = AddActionReintegrate
+	case "installed":
+		result.Action = AddActionInstall
+	}
+	return result
+}
+
+func addPlanResult(action AddAction, plan *DryRunPlan) *AddResult {
+	result := &AddResult{Action: action, Status: "dry_run", Plan: plan}
+	if plan != nil {
+		result.App = plan.App
+		result.Package = plan.Package
+	}
+	return result
 }
 
 func (service BasicAddService) PlanLocalIntegration(ctx context.Context, path string) (*DryRunPlan, error) {

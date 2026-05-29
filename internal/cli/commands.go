@@ -72,25 +72,76 @@ func AddCmd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	run := func() error {
-		if selection.HasRef {
-			return runInstallPackageRef(cmd.Context(), cmd, selection.Ref)
+	assetPattern, err := flagString(cmd, "asset")
+	if err != nil {
+		return err
+	}
+	sha256, err := flagString(cmd, "sha256")
+	if err != nil {
+		return err
+	}
+	opts := runtimeOptionsFrom(cmd)
+	if strings.TrimSpace(selection.Positional) != "" {
+		if err := validateAddIntegrateFlags(cmd); err != nil {
+			return err
 		}
-		if strings.TrimSpace(selection.DirectURL) != "" {
-			return runInstallTarget(cmd.Context(), cmd, selection.DirectURL)
-		}
-		if _, err := runtimeServicesFrom(cmd).Add.ResolveIntegrateTarget(cmd.Context(), selection.Positional); err == nil {
-			if err := validateAddIntegrateFlags(cmd); err != nil {
-				return err
-			}
-			return runIntegrateTarget(cmd.Context(), cmd, selection.Positional)
-		}
-
-		return usageError(fmt.Errorf("unknown add target %q; expected <id> or <Path/To.AppImage>", selection.Positional))
+	}
+	if selection.HasRef && strings.TrimSpace(sha256) != "" {
+		return usageError(fmt.Errorf("--sha256 is only supported with direct https URLs"))
 	}
 
-	if runtimeOptionsFrom(cmd).DryRun {
+	var provider *appservices.ProviderRef
+	if selection.HasRef {
+		provider = &selection.Ref
+	}
+	req := appservices.AddRequest{
+		Target: appservices.AddTargetInput{
+			Positional: selection.Positional,
+			URL:        selection.DirectURL,
+			Provider:   provider,
+		},
+		DryRun:       opts.DryRun,
+		SHA256:       sha256,
+		AssetPattern: assetPattern,
+		ConfirmUpdateSourceReplace: updateSourceReplaceConfirmerFunc(func(existing, incoming *appservices.UpdateSourceView) (bool, error) {
+			printCurrentIncoming(cmd, updateSourceViewSummaryOrNone(existing), updateSourceViewSummaryOrNone(incoming))
+			prompt := formatPrompt("Replace source from", "AppImage metadata")
+			return confirmAction(cmd, prompt)
+		}),
+		ResolvePackageAmbiguity: packageAmbiguityResolverFunc(func(metadata *appservices.PackageView) (*appservices.PackageView, error) {
+			resolved, err := resolvePackageViewAmbiguity(cmd, metadata)
+			if err != nil {
+				return nil, err
+			}
+			if resolved != nil && strings.TrimSpace(resolved.AssetName) != "" {
+				writeDataf(cmd, "Integrating %s...\n", strings.TrimSpace(resolved.AssetName))
+			}
+			return resolved, nil
+		}),
+	}
+
+	run := func() error {
+		if !opts.DryRun && strings.TrimSpace(selection.DirectURL) != "" && strings.TrimSpace(sha256) == "" {
+			printWarning(cmd, "No SHA-256 provided; skipping checksum verification")
+		}
+		result, err := runAddRequest(cmd.Context(), cmd, selection, req)
+		if err != nil {
+			if !selection.HasRef && strings.TrimSpace(selection.DirectURL) == "" && strings.TrimSpace(selection.Positional) != "" {
+				if addTargetLooksRemote(selection.Positional) {
+					return positionalAddRemoteGuidance(selection.Positional)
+				}
+				return usageError(fmt.Errorf("unknown add target %q; expected <id> or <Path/To.AppImage>", selection.Positional))
+			}
+			return err
+		}
+		return renderAddResult(cmd, selection, result)
+	}
+
+	if opts.DryRun {
 		return run()
+	}
+	if err := mustEnsureRuntimeDirs(); err != nil {
+		return err
 	}
 	return withStateWriteLock(cmd, run)
 }
@@ -100,6 +151,111 @@ type addInputSelection struct {
 	DirectURL  string
 	Ref        appservices.ProviderRef
 	HasRef     bool
+}
+
+func runAddRequest(ctx context.Context, cmd *cobra.Command, selection addInputSelection, req appservices.AddRequest) (*appservices.AddResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if req.Target.Provider != nil {
+		label := appservices.FormatProviderRef(*req.Target.Provider)
+		if req.DryRun {
+			return resolveAddPlanWithProgress(cmd, label, func() (*appservices.AddResult, error) {
+				return runtimeServicesFrom(cmd).Add.Add(ctx, req)
+			})
+		}
+		return runWithBusyIndicator(cmd, fmt.Sprintf("Resolving package metadata for %s", label), func() (*appservices.AddResult, error) {
+			return runtimeServicesFrom(cmd).Add.Add(ctx, req)
+		})
+	}
+	if !req.DryRun && strings.TrimSpace(selection.Positional) != "" && runtimeHasExtension(selection.Positional, ".AppImage") {
+		inputLabel := strings.TrimSpace(filepath.Base(selection.Positional))
+		if inputLabel == "" || inputLabel == "." || inputLabel == string(filepath.Separator) {
+			inputLabel = strings.TrimSpace(selection.Positional)
+		}
+		return runWithBusyIndicator(cmd, fmt.Sprintf("Integrating %s", inputLabel), func() (*appservices.AddResult, error) {
+			return runtimeServicesFrom(cmd).Add.Add(ctx, req)
+		})
+	}
+	return runtimeServicesFrom(cmd).Add.Add(ctx, req)
+}
+
+func resolveAddPlanWithProgress(cmd *cobra.Command, label string, fn func() (*appservices.AddResult, error)) (*appservices.AddResult, error) {
+	return runWithBusyIndicator(cmd, fmt.Sprintf("Resolving package metadata for %s", label), fn)
+}
+
+func renderAddResult(cmd *cobra.Command, selection addInputSelection, result *appservices.AddResult) error {
+	if result == nil {
+		return softwareError(fmt.Errorf("add result cannot be empty"))
+	}
+	opts := runtimeOptionsFrom(cmd)
+	if result.Status == "dry_run" {
+		return renderAddDryRunResult(cmd, result)
+	}
+	if result.AlreadyIntegrated || result.Status == "already_integrated" {
+		if opts.JSON {
+			return printJSONSuccess(cmd, map[string]interface{}{"status": "already_integrated", "app": result.App})
+		}
+		printSuccess(cmd, fmt.Sprintf("Already integrated: %s", formatAppDetailsRef(result.App)))
+		return nil
+	}
+	status := strings.TrimSpace(result.Status)
+	if status == "" {
+		status = string(result.Action)
+	}
+	if opts.JSON {
+		return printJSONSuccess(cmd, map[string]interface{}{"status": status, "app": result.App})
+	}
+	switch status {
+	case "integrated":
+		printSuccess(cmd, fmt.Sprintf("Integrated: %s", formatAppDetailsRef(result.App)))
+	case "reintegrated":
+		printSuccess(cmd, fmt.Sprintf("Reintegrated: %s", formatAppDetailsRef(result.App)))
+	case "installed":
+		printSuccess(cmd, fmt.Sprintf("Installed: %s", formatAppDetailsRef(result.App)))
+	default:
+		return softwareError(fmt.Errorf("unknown add result status %q for target %q", status, selection.Positional))
+	}
+	return nil
+}
+
+func renderAddDryRunResult(cmd *cobra.Command, result *appservices.AddResult) error {
+	opts := runtimeOptionsFrom(cmd)
+	if result.Action == appservices.AddActionReintegrate {
+		payload := map[string]interface{}{"status": "dry_run", "action": "reintegrate", "app": result.App}
+		if opts.JSON {
+			return printJSONSuccess(cmd, payload)
+		}
+		if result.App == nil {
+			return softwareError(fmt.Errorf("reintegrate target missing app"))
+		}
+		writeDataf(cmd, "Dry run: would reintegrate %s [%s]\n", result.App.Name, result.App.ID)
+		return nil
+	}
+	plan := result.Plan
+	if plan == nil {
+		return softwareError(fmt.Errorf("add dry-run result missing plan"))
+	}
+	if opts.JSON {
+		return printJSONSuccess(cmd, plan.Values)
+	}
+	switch result.Action {
+	case appservices.AddActionIntegrate:
+		writeDataf(cmd, "Dry run: would integrate %s\n", plan.Values["input"])
+		if appID, ok := plan.Values["app_id"].(string); ok && appID != "" {
+			writeDataf(cmd, "  Managed ID: %s\n", appID)
+		}
+		if paths, ok := plan.Values["planned_paths"].([]string); ok {
+			for _, path := range paths {
+				writeDataf(cmd, "  %s\n", path)
+			}
+		}
+	case appservices.AddActionInstall:
+		writeDataf(cmd, "Dry run: would install %s\n", plan.Values["target"])
+	default:
+		return softwareError(fmt.Errorf("unknown add dry-run action %q", result.Action))
+	}
+	return nil
 }
 
 func resolveAddInput(cmd *cobra.Command, args []string) (addInputSelection, error) {
@@ -151,111 +307,12 @@ func resolveAddInput(cmd *cobra.Command, args []string) (addInputSelection, erro
 }
 
 func runIntegrateTarget(ctx context.Context, cmd *cobra.Command, input string) error {
-	target, err := runtimeServicesFrom(cmd).Add.ResolveIntegrateTarget(ctx, input)
+	req := appservices.AddRequest{Target: appservices.AddTargetInput{Positional: input}, DryRun: runtimeOptionsFrom(cmd).DryRun}
+	result, err := runAddRequest(ctx, cmd, addInputSelection{Positional: input}, req)
 	if err != nil {
 		return usageError(err)
 	}
-	opts := runtimeOptionsFrom(cmd)
-
-	switch target.Kind {
-	case appservices.IntegrateTargetIntegrated:
-		if opts.JSON {
-			return printJSONSuccess(cmd, map[string]interface{}{
-				"status": "already_integrated",
-				"app":    target.App,
-			})
-		}
-		printSuccess(cmd, fmt.Sprintf("Already integrated: %s", formatAppDetailsRef(target.App)))
-		return nil
-	case appservices.IntegrateTargetUnlinked:
-		if opts.DryRun {
-			result := map[string]interface{}{
-				"status": "dry_run",
-				"action": "reintegrate",
-				"app":    target.App,
-			}
-			if opts.JSON {
-				return printJSONSuccess(cmd, result)
-			}
-			if target.App == nil {
-				return softwareError(fmt.Errorf("reintegrate target missing app"))
-			}
-			writeDataf(cmd, "Dry run: would reintegrate %s [%s]\n", target.App.Name, target.App.ID)
-			return nil
-		}
-		if err := mustEnsureRuntimeDirs(); err != nil {
-			return err
-		}
-		if target.App == nil {
-			return softwareError(fmt.Errorf("reintegrate target missing app"))
-		}
-		result, err := runtimeServicesFrom(cmd).Add.Reintegrate(ctx, target.App.ID)
-		if err != nil {
-			return err
-		}
-		app := result.App
-		if opts.JSON {
-			return printJSONSuccess(cmd, map[string]interface{}{
-				"status": "reintegrated",
-				"app":    app,
-			})
-		}
-		printSuccess(cmd, fmt.Sprintf("Reintegrated: %s", formatAppDetailsRef(app)))
-		return nil
-	case appservices.IntegrateTargetLocalFile:
-		if opts.DryRun {
-			plan, err := runtimeServicesFrom(cmd).Add.PlanLocalIntegration(ctx, target.LocalPath)
-			if err != nil {
-				return err
-			}
-			if opts.JSON {
-				return printJSONSuccess(cmd, plan.Values)
-			}
-			writeDataf(cmd, "Dry run: would integrate %s\n", plan.Values["input"])
-			if appID, ok := plan.Values["app_id"].(string); ok && appID != "" {
-				writeDataf(cmd, "  Managed ID: %s\n", appID)
-			}
-			for _, path := range plan.Values["planned_paths"].([]string) {
-				writeDataf(cmd, "  %s\n", path)
-			}
-			return nil
-		}
-		if err := mustEnsureRuntimeDirs(); err != nil {
-			return err
-		}
-		inputLabel := strings.TrimSpace(filepath.Base(target.LocalPath))
-		if inputLabel == "" || inputLabel == "." || inputLabel == string(filepath.Separator) {
-			inputLabel = strings.TrimSpace(target.LocalPath)
-		}
-
-		app, err := runWithBusyIndicator(cmd, fmt.Sprintf("Integrating %s", inputLabel), func() (*appservices.AppDetails, error) {
-			result, err := runtimeServicesFrom(cmd).Add.IntegrateLocal(ctx, appservices.IntegrateLocalRequest{
-				Path: target.LocalPath,
-				ConfirmUpdateSourceReplace: updateSourceReplaceConfirmerFunc(func(existing, incoming *appservices.UpdateSourceView) (bool, error) {
-					printCurrentIncoming(cmd, updateSourceViewSummaryOrNone(existing), updateSourceViewSummaryOrNone(incoming))
-					prompt := formatPrompt("Replace source from", "AppImage metadata")
-					return confirmAction(cmd, prompt)
-				}),
-			})
-			if result == nil {
-				return nil, err
-			}
-			return result.App, err
-		})
-		if err != nil {
-			return err
-		}
-		if opts.JSON {
-			return printJSONSuccess(cmd, map[string]interface{}{
-				"status": "integrated",
-				"app":    app,
-			})
-		}
-		printSuccess(cmd, fmt.Sprintf("Integrated: %s", formatAppDetailsRef(app)))
-		return nil
-	default:
-		return softwareError(fmt.Errorf("unknown integrate target %q", input))
-	}
+	return renderAddResult(cmd, addInputSelection{Positional: input}, result)
 }
 
 type installTargetKind string
@@ -618,45 +675,20 @@ func runInstallTarget(ctx context.Context, cmd *cobra.Command, refArg string) er
 	if err := validateInstallTargetFlags(cmd, target); err != nil {
 		return err
 	}
-
 	sha256, err := flagString(cmd, "sha256")
 	if err != nil {
 		return err
 	}
-	opts := runtimeOptionsFrom(cmd)
-
-	if opts.DryRun {
-		plan, err := runtimeServicesFrom(cmd).Add.PlanDirectURLInstall(ctx, appservices.InstallDirectURLRequest{URL: target.URL, SHA256: sha256})
-		if err != nil {
-			return err
-		}
-		if opts.JSON {
-			return printJSONSuccess(cmd, plan.Values)
-		}
-		writeDataf(cmd, "Dry run: would install %s\n", plan.Values["target"])
-		return nil
-	}
-	if err := mustEnsureRuntimeDirs(); err != nil {
-		return err
-	}
-
-	if strings.TrimSpace(sha256) == "" {
+	if !runtimeOptionsFrom(cmd).DryRun && strings.TrimSpace(sha256) == "" {
 		printWarning(cmd, "No SHA-256 provided; skipping checksum verification")
 	}
-	result, err := runtimeServicesFrom(cmd).Add.InstallDirectURL(ctx, appservices.InstallDirectURLRequest{URL: target.URL, SHA256: sha256})
+	req := appservices.AddRequest{Target: appservices.AddTargetInput{URL: target.URL}, DryRun: runtimeOptionsFrom(cmd).DryRun, SHA256: sha256}
+	selection := addInputSelection{DirectURL: target.URL}
+	result, err := runAddRequest(ctx, cmd, selection, req)
 	if err != nil {
 		return err
 	}
-	app := result.App
-
-	if opts.JSON {
-		return printJSONSuccess(cmd, map[string]interface{}{
-			"status": "installed",
-			"app":    app,
-		})
-	}
-	printSuccess(cmd, fmt.Sprintf("Installed: %s", formatAppDetailsRef(app)))
-	return nil
+	return renderAddResult(cmd, selection, result)
 }
 
 func runInstallPackageRef(ctx context.Context, cmd *cobra.Command, ref appservices.ProviderRef) error {
@@ -671,54 +703,13 @@ func runInstallPackageRef(ctx context.Context, cmd *cobra.Command, ref appservic
 	if sha256 != "" {
 		return usageError(fmt.Errorf("--sha256 is only supported with direct https URLs"))
 	}
-	opts := runtimeOptionsFrom(cmd)
-
-	if opts.DryRun {
-		plan, err := resolvePackagePlanWithProgress(cmd, appservices.FormatProviderRef(ref), func() (*appservices.DryRunPlan, error) {
-			return runtimeServicesFrom(cmd).Add.PlanPackageRefInstall(ctx, appservices.InstallPackageRefRequest{Ref: ref, AssetPattern: assetPattern})
-		})
-		if err != nil {
-			return err
-		}
-		if opts.JSON {
-			return printJSONSuccess(cmd, plan.Values)
-		}
-		writeDataf(cmd, "Dry run: would install %s\n", appservices.FormatProviderRef(ref))
-		return nil
-	}
-	if err := mustEnsureRuntimeDirs(); err != nil {
-		return err
-	}
-
-	result, err := runWithBusyIndicator(cmd, fmt.Sprintf("Resolving package metadata for %s", appservices.FormatProviderRef(ref)), func() (*appservices.AddResult, error) {
-		return runtimeServicesFrom(cmd).Add.InstallPackageRef(ctx, appservices.InstallPackageRefRequest{
-			Ref:          ref,
-			AssetPattern: assetPattern,
-			ResolveViewAmbiguity: packageAmbiguityResolverFunc(func(metadata *appservices.PackageView) (*appservices.PackageView, error) {
-				resolved, err := resolvePackageViewAmbiguity(cmd, metadata)
-				if err != nil {
-					return nil, err
-				}
-				if resolved != nil && strings.TrimSpace(resolved.AssetName) != "" {
-					writeDataf(cmd, "Integrating %s...\n", strings.TrimSpace(resolved.AssetName))
-				}
-				return resolved, nil
-			}),
-		})
-	})
+	selection := addInputSelection{Ref: ref, HasRef: true}
+	req := appservices.AddRequest{Target: appservices.AddTargetInput{Provider: &ref}, DryRun: runtimeOptionsFrom(cmd).DryRun, AssetPattern: assetPattern}
+	result, err := runAddRequest(ctx, cmd, selection, req)
 	if err != nil {
 		return err
 	}
-	app := result.App
-
-	if opts.JSON {
-		return printJSONSuccess(cmd, map[string]interface{}{
-			"status": "installed",
-			"app":    app,
-		})
-	}
-	printSuccess(cmd, fmt.Sprintf("Installed: %s", formatAppDetailsRef(app)))
-	return nil
+	return renderAddResult(cmd, selection, result)
 }
 
 func commandSingleArg(args []string, usage string) (string, error) {
