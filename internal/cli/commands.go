@@ -519,24 +519,25 @@ func InfoCmd(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	if ok {
-		return runShowPackageRef(cmd.Context(), cmd, ref)
-	}
 
-	trimmed := strings.TrimSpace(input)
-	if trimmed == "" {
-		return usageError(fmt.Errorf("missing required argument <id|Path/To.AppImage>"))
+	var provider *appservices.ProviderRef
+	if ok {
+		provider = &ref
 	}
-	if runtimeHasExtension(trimmed, ".AppImage") {
-		return inspectLocalAppImage(cmd.Context(), cmd, trimmed)
+	result, err := loadInfoResult(cmd.Context(), cmd, appservices.InfoRequest{Input: input, Provider: provider})
+	if err != nil {
+		trimmed := strings.TrimSpace(input)
+		if provider == nil {
+			if refErr := positionalInfoRemoteGuidance(trimmed); refErr != nil {
+				return refErr
+			}
+			if trimmed != "" && !runtimeHasExtension(trimmed, ".AppImage") {
+				return usageError(fmt.Errorf("unknown info target %q; expected <id> or <Path/To.AppImage>", trimmed))
+			}
+		}
+		return err
 	}
-	if refErr := positionalInfoRemoteGuidance(trimmed); refErr != nil {
-		return refErr
-	}
-	if err := inspectManagedApp(cmd.Context(), cmd, trimmed); err != nil {
-		return usageError(fmt.Errorf("unknown info target %q; expected <id> or <Path/To.AppImage>", trimmed))
-	}
-	return nil
+	return renderInfoResult(cmd, input, result)
 }
 
 func yesNo(value bool) string {
@@ -546,13 +547,45 @@ func yesNo(value bool) string {
 	return "no"
 }
 
-func runShowPackageRef(ctx context.Context, cmd *cobra.Command, ref appservices.ProviderRef) error {
-	result, err := resolvePackageInfoWithProgress(cmd, appservices.FormatProviderRef(ref), func() (*appservices.InfoResult, error) {
-		return runtimeServicesFrom(cmd).Info.PackageRefInfo(ctx, appservices.PackageRefInfoRequest{Ref: ref})
-	})
-	if err != nil {
-		return err
+func loadInfoResult(ctx context.Context, cmd *cobra.Command, req appservices.InfoRequest) (*appservices.InfoResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
 	}
+	if req.Provider != nil {
+		label := appservices.FormatProviderRef(*req.Provider)
+		return resolvePackageInfoWithProgress(cmd, label, func() (*appservices.InfoResult, error) {
+			return runtimeServicesFrom(cmd).Info.Info(ctx, req)
+		})
+	}
+	if runtimeHasExtension(req.Input, ".AppImage") && !req.ManagedOnly {
+		label := strings.TrimSpace(filepath.Base(req.Input))
+		if label == "" || label == "." || label == string(filepath.Separator) {
+			label = strings.TrimSpace(req.Input)
+		}
+		return runWithBusyIndicator(cmd, fmt.Sprintf("Inspecting %s", label), func() (*appservices.InfoResult, error) {
+			return runtimeServicesFrom(cmd).Info.Info(ctx, req)
+		})
+	}
+	return runtimeServicesFrom(cmd).Info.Info(ctx, req)
+}
+
+func renderInfoResult(cmd *cobra.Command, input string, result *appservices.InfoResult) error {
+	if result == nil {
+		return softwareError(fmt.Errorf("info result cannot be empty"))
+	}
+	switch result.Kind {
+	case appservices.InfoKindManagedApp:
+		return renderManagedAppInfo(cmd, result)
+	case appservices.InfoKindLocalAppImage:
+		return renderLocalAppImageInfo(cmd, input, result)
+	case appservices.InfoKindPackage:
+		return renderPackageInfo(cmd, result)
+	default:
+		return softwareError(fmt.Errorf("unknown info result kind %q", result.Kind))
+	}
+}
+
+func renderPackageInfo(cmd *cobra.Command, result *appservices.InfoResult) error {
 	metadata := result.PackageView
 	if runtimeOptionsFrom(cmd).JSON {
 		return printJSONSuccess(cmd, map[string]interface{}{
@@ -560,13 +593,21 @@ func runShowPackageRef(ctx context.Context, cmd *cobra.Command, ref appservices.
 			"metadata": metadata,
 		})
 	}
+	var err error
 	metadata, err = resolvePackageViewAmbiguity(cmd, metadata)
 	if err != nil {
 		return err
 	}
-
 	printPackageView(cmd, metadata)
 	return nil
+}
+
+func runShowPackageRef(ctx context.Context, cmd *cobra.Command, ref appservices.ProviderRef) error {
+	result, err := loadInfoResult(ctx, cmd, appservices.InfoRequest{Provider: &ref})
+	if err != nil {
+		return err
+	}
+	return renderInfoResult(cmd, "", result)
 }
 
 func runInstallTarget(ctx context.Context, cmd *cobra.Command, refArg string) error {
@@ -715,11 +756,23 @@ func validateAddIntegrateFlags(cmd *cobra.Command) error {
 	return nil
 }
 
-func inspectManagedApp(ctx context.Context, cmd *cobra.Command, id string) error {
-	info, err := runtimeServicesFrom(cmd).Info.ManagedAppInfo(ctx, id)
+func managedAppInfo(ctx context.Context, cmd *cobra.Command, id string) (*appservices.InfoResult, error) {
+	info, err := loadInfoResult(ctx, cmd, appservices.InfoRequest{Input: id, ManagedOnly: true})
 	if err != nil {
-		return wrapManagedAppLookupError(id, err)
+		return nil, wrapManagedAppLookupError(id, err)
 	}
+	return info, nil
+}
+
+func inspectManagedApp(ctx context.Context, cmd *cobra.Command, id string) error {
+	info, err := managedAppInfo(ctx, cmd, id)
+	if err != nil {
+		return err
+	}
+	return renderManagedAppInfo(cmd, info)
+}
+
+func renderManagedAppInfo(cmd *cobra.Command, info *appservices.InfoResult) error {
 	app := info.AppDetails
 	if app == nil {
 		return fmt.Errorf("managed app cannot be empty")
@@ -753,22 +806,18 @@ func inspectManagedApp(ctx context.Context, cmd *cobra.Command, id string) error
 		writeDataf(cmd, "Last checked: %s\n", strings.TrimSpace(app.LastCheckedAt))
 	}
 
-	_ = ctx
 	return nil
 }
 
 func inspectLocalAppImage(ctx context.Context, cmd *cobra.Command, src string) error {
-	label := strings.TrimSpace(filepath.Base(src))
-	if label == "" || label == "." || label == string(filepath.Separator) {
-		label = strings.TrimSpace(src)
-	}
-
-	result, err := runWithBusyIndicator(cmd, fmt.Sprintf("Inspecting %s", label), func() (*appservices.InfoResult, error) {
-		return runtimeServicesFrom(cmd).Info.LocalAppImageInfo(ctx, src)
-	})
+	result, err := loadInfoResult(ctx, cmd, appservices.InfoRequest{Input: src})
 	if err != nil {
 		return err
 	}
+	return renderLocalAppImageInfo(cmd, src, result)
+}
+
+func renderLocalAppImageInfo(cmd *cobra.Command, src string, result *appservices.InfoResult) error {
 	info := result.AppImageInfo
 	embeddedSource := result.EmbeddedUpdate
 
@@ -1011,9 +1060,9 @@ func runUpdateSetMode(cmd *cobra.Command, id string) error {
 		incomingView = updateSourceViewFromInput(incomingSource)
 	}
 
-	info, err := runtimeServicesFrom(cmd).Info.ManagedAppInfo(cmd.Context(), id)
+	info, err := managedAppInfo(cmd.Context(), cmd, id)
 	if err != nil {
-		return wrapManagedAppLookupError(id, err)
+		return err
 	}
 	appDetails := info.AppDetails
 	currentSource := updateSourceViewFromAppDetails(appDetails)
@@ -1124,9 +1173,9 @@ func runUpdateUnsetMode(cmd *cobra.Command, id string) error {
 		return printConciseHelpError(cmd, "missing required input; pass --unset <id> to remove an update source")
 	}
 
-	info, err := runtimeServicesFrom(cmd).Info.ManagedAppInfo(cmd.Context(), id)
+	info, err := managedAppInfo(cmd.Context(), cmd, id)
 	if err != nil {
-		return wrapManagedAppLookupError(id, err)
+		return err
 	}
 	appDetails := info.AppDetails
 	currentSource := updateSourceViewFromAppDetails(appDetails)

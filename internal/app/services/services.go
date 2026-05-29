@@ -24,9 +24,7 @@ type ListService interface {
 }
 
 type InfoService interface {
-	ManagedAppInfo(ctx context.Context, id string) (*InfoResult, error)
-	LocalAppImageInfo(ctx context.Context, path string) (*InfoResult, error)
-	PackageRefInfo(ctx context.Context, req PackageRefInfoRequest) (*InfoResult, error)
+	Info(ctx context.Context, req InfoRequest) (*InfoResult, error)
 }
 
 type RemoveService interface {
@@ -96,6 +94,13 @@ type InstallPackageRefRequest struct {
 type PackageRefInfoRequest struct {
 	Ref          ProviderRef
 	AssetPattern string
+}
+
+type InfoRequest struct {
+	Input        string
+	Provider     *ProviderRef
+	AssetPattern string
+	ManagedOnly  bool
 }
 
 type ListRequest struct {

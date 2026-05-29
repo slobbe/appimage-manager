@@ -308,9 +308,9 @@ func TestInfoCmdRoutesManagedLocalAndPackageTargets(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			service := &recordingInfoService{
-				managed: &appservices.InfoResult{AppDetails: appDetails("app", "App", true)},
-				local:   &appservices.InfoResult{AppImageInfo: &appservices.AppImageInfoView{Name: "App", ID: "app", Version: "1.0.0"}},
-				pkg:     &appservices.InfoResult{PackageView: &appservices.PackageView{Name: "App", Provider: "GitHub", Ref: appservices.ProviderRef{Provider: appservices.ProviderGitHub, Ref: "owner/repo"}, LatestVersion: "1.0.0", Installable: true}},
+				managed: &appservices.InfoResult{Kind: appservices.InfoKindManagedApp, AppDetails: appDetails("app", "App", true)},
+				local:   &appservices.InfoResult{Kind: appservices.InfoKindLocalAppImage, AppImageInfo: &appservices.AppImageInfoView{Name: "App", ID: "app", Version: "1.0.0"}},
+				pkg:     &appservices.InfoResult{Kind: appservices.InfoKindPackage, PackageView: &appservices.PackageView{Name: "App", Provider: "GitHub", Ref: appservices.ProviderRef{Provider: appservices.ProviderGitHub, Ref: "owner/repo"}, LatestVersion: "1.0.0", Installable: true}},
 			}
 			cmd, output := commandWithRuntimeForTest(newInfoCommand(), runtimeOptions{}, runtimeServices{Info: service, Locker: noopLocker{}})
 			for name, value := range tt.flags {
@@ -471,25 +471,18 @@ type recordingInfoService struct {
 	pkg      *appservices.InfoResult
 }
 
-func (service *recordingInfoService) ManagedAppInfo(ctx context.Context, id string) (*appservices.InfoResult, error) {
+func (service *recordingInfoService) Info(ctx context.Context, req appservices.InfoRequest) (*appservices.InfoResult, error) {
 	_ = ctx
-	_ = id
+	if req.Provider != nil {
+		service.lastCall = "package"
+		return service.pkg, nil
+	}
+	if strings.HasSuffix(req.Input, ".AppImage") && !req.ManagedOnly {
+		service.lastCall = "local"
+		return service.local, nil
+	}
 	service.lastCall = "managed"
 	return service.managed, nil
-}
-
-func (service *recordingInfoService) LocalAppImageInfo(ctx context.Context, path string) (*appservices.InfoResult, error) {
-	_ = ctx
-	_ = path
-	service.lastCall = "local"
-	return service.local, nil
-}
-
-func (service *recordingInfoService) PackageRefInfo(ctx context.Context, req appservices.PackageRefInfoRequest) (*appservices.InfoResult, error) {
-	_ = ctx
-	_ = req
-	service.lastCall = "package"
-	return service.pkg, nil
 }
 
 type recordingUpgradeService struct {

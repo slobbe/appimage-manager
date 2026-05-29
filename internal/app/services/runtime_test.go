@@ -28,6 +28,61 @@ func TestStoreListServiceFiltersApps(t *testing.T) {
 	}
 }
 
+func TestStoreInfoServiceRoutesInfoRequests(t *testing.T) {
+	store := fakeAppStore{apps: map[string]*domain.App{
+		"managed": {ID: "managed", Name: "Managed App", ExecPath: "/apps/managed.AppImage"},
+	}}
+	service := StoreInfoService{
+		Store: store,
+		AppImage: AppImageInfoReaderFunc(func(ctx context.Context, path string) (*domain.AppInfo, error) {
+			_ = ctx
+			return &domain.AppInfo{ID: "local", Name: "Local App", Version: "1.0.0"}, nil
+		}),
+		Discovery: DiscoveryWorkflowService{Backends: []discovery.DiscoveryBackend{
+			fakeDiscoveryBackend{metadata: &domain.PackageMetadata{Name: "Package App", Ref: domain.PackageRef{Kind: domain.ProviderGitHub, ProviderRef: "owner/repo"}}},
+		}},
+	}
+
+	managed, err := service.Info(context.Background(), InfoRequest{Input: "managed"})
+	if err != nil {
+		t.Fatalf("managed Info returned error: %v", err)
+	}
+	if managed.Kind != InfoKindManagedApp || managed.AppDetails == nil || managed.AppDetails.ID != "managed" {
+		t.Fatalf("managed Info = %+v", managed)
+	}
+
+	local, err := service.Info(context.Background(), InfoRequest{Input: "/tmp/App.AppImage"})
+	if err != nil {
+		t.Fatalf("local Info returned error: %v", err)
+	}
+	if local.Kind != InfoKindLocalAppImage || local.AppImageInfo == nil || local.AppImageInfo.ID != "local" {
+		t.Fatalf("local Info = %+v", local)
+	}
+
+	provider := ProviderRef{Provider: ProviderGitHub, Ref: "owner/repo"}
+	pkg, err := service.Info(context.Background(), InfoRequest{Provider: &provider})
+	if err != nil {
+		t.Fatalf("package Info returned error: %v", err)
+	}
+	if pkg.Kind != InfoKindPackage || pkg.PackageView == nil || pkg.PackageView.Name != "Package App" {
+		t.Fatalf("package Info = %+v", pkg)
+	}
+}
+
+func TestStoreInfoServiceManagedOnlyTreatsAppImageLikeInputAsID(t *testing.T) {
+	service := StoreInfoService{Store: fakeAppStore{apps: map[string]*domain.App{
+		"managed.AppImage": {ID: "managed.AppImage", Name: "Managed App"},
+	}}}
+
+	result, err := service.Info(context.Background(), InfoRequest{Input: "managed.AppImage", ManagedOnly: true})
+	if err != nil {
+		t.Fatalf("Info returned error: %v", err)
+	}
+	if result.Kind != InfoKindManagedApp || result.AppDetails == nil || result.AppDetails.ID != "managed.AppImage" {
+		t.Fatalf("Info result = %+v", result)
+	}
+}
+
 func TestSourceUpdateServiceSetAndPlan(t *testing.T) {
 	store := fakeAppStore{apps: map[string]*domain.App{
 		"app": {ID: "app", Update: &domain.UpdateSource{Kind: domain.UpdateNone}},

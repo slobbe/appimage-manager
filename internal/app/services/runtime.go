@@ -309,7 +309,28 @@ func NewStoreInfoService(service StoreInfoService) StoreInfoService {
 	return service
 }
 
-func (service StoreInfoService) ManagedAppInfo(ctx context.Context, id string) (*InfoResult, error) {
+func (service StoreInfoService) Info(ctx context.Context, req InfoRequest) (*InfoResult, error) {
+	if req.Provider != nil {
+		return service.packageRefInfo(ctx, PackageRefInfoRequest{Ref: *req.Provider, AssetPattern: req.AssetPattern})
+	}
+
+	input := strings.TrimSpace(req.Input)
+	if input == "" {
+		return nil, invalidInputErrorf("missing required argument <id|Path/To.AppImage>")
+	}
+	if req.ManagedOnly {
+		return service.managedAppInfo(ctx, input)
+	}
+	if hasAppImageExtension(input) {
+		return service.localAppImageInfo(ctx, input)
+	}
+	if looksLikeInfoRemote(input) {
+		return nil, invalidInputErrorf("remote package lookups must use provider flags")
+	}
+	return service.managedAppInfo(ctx, input)
+}
+
+func (service StoreInfoService) managedAppInfo(ctx context.Context, id string) (*InfoResult, error) {
 	_ = ctx
 	if service.Store == nil {
 		return nil, internalErrorf("app store is not configured")
@@ -317,6 +338,9 @@ func (service StoreInfoService) ManagedAppInfo(ctx context.Context, id string) (
 	app, err := service.Store.GetApp(id)
 	if err != nil {
 		return nil, err
+	}
+	if app == nil {
+		return nil, Errorf(ErrorNotFound, "", "managed app %q was not found", id)
 	}
 	embedded, _ := service.embeddedUpdateSource(app.ExecPath)
 	return &InfoResult{
@@ -326,7 +350,7 @@ func (service StoreInfoService) ManagedAppInfo(ctx context.Context, id string) (
 	}, nil
 }
 
-func (service StoreInfoService) LocalAppImageInfo(ctx context.Context, path string) (*InfoResult, error) {
+func (service StoreInfoService) localAppImageInfo(ctx context.Context, path string) (*InfoResult, error) {
 	if service.AppImage == nil {
 		return nil, internalErrorf("appimage info reader is not configured")
 	}
@@ -342,7 +366,7 @@ func (service StoreInfoService) LocalAppImageInfo(ctx context.Context, path stri
 	}, nil
 }
 
-func (service StoreInfoService) PackageRefInfo(ctx context.Context, req PackageRefInfoRequest) (*InfoResult, error) {
+func (service StoreInfoService) packageRefInfo(ctx context.Context, req PackageRefInfoRequest) (*InfoResult, error) {
 	if service.Discovery == nil {
 		return nil, internalErrorf("discovery service is not configured")
 	}
@@ -354,6 +378,15 @@ func (service StoreInfoService) PackageRefInfo(ctx context.Context, req PackageR
 		Kind:        InfoKindPackage,
 		PackageView: packageViewFromDomain(metadata),
 	}, nil
+}
+
+func hasAppImageExtension(input string) bool {
+	return strings.EqualFold(filepath.Ext(strings.TrimSpace(input)), ".AppImage")
+}
+
+func looksLikeInfoRemote(input string) bool {
+	trimmed := strings.ToLower(strings.TrimSpace(input))
+	return strings.HasPrefix(trimmed, "http://") || strings.HasPrefix(trimmed, "https://")
 }
 
 func (service StoreInfoService) embeddedUpdateSource(path string) (*domain.UpdateSource, error) {
