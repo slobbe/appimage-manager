@@ -25,6 +25,7 @@ type RemoveService interface {
 }
 
 type UpdateService interface {
+	Update(ctx context.Context, req UpdateRequest) (*UpdateResult, error)
 	ManagedApps(ctx context.Context, targetID string) ([]*domain.App, error)
 	CheckManagedUpdates(ctx context.Context, req ManagedUpdateCheckRequest) (*ManagedUpdateCheckResult, error)
 	ApplyBatch(ctx context.Context, req UpdateApplyBatchRequest) (*UpdateApplyBatchResult, error)
@@ -141,6 +142,34 @@ type UpgradeRequest struct {
 	DryRun         bool
 }
 
+type UpdateMode string
+
+const (
+	UpdateModeManagedCheckApply UpdateMode = "managed_check_apply"
+	UpdateModeCheckOnly         UpdateMode = "check_only"
+)
+
+type UpdateRequest struct {
+	TargetID  string
+	Mode      UpdateMode
+	DryRun    bool
+	AutoApply bool
+	UseCache  bool
+
+	OnCacheHit   func(appID string)
+	ConfirmApply UpdateApplyConfirmer
+	ReporterFor  ManagedApplyReporterFactory
+}
+
+type UpdateApplyConfirmation struct {
+	TargetID string
+	Pending  []ManagedUpdateView
+}
+
+type UpdateApplyConfirmer interface {
+	ConfirmUpdateApply(UpdateApplyConfirmation) (bool, error)
+}
+
 type ManagedUpdateCheckRequest struct {
 	TargetID   string
 	DryRun     bool
@@ -226,6 +255,17 @@ type UpgradeResult struct {
 	InstalledVersion string
 	UpToDate         bool
 	Upgraded         bool
+}
+
+type UpdateResult struct {
+	Mode          UpdateMode
+	Rows          []ManagedUpdateCheckRow
+	Pending       []ManagedUpdateView
+	CheckFailures int
+	Failures      []ManagedCheckFailureView
+	Applied       []ManagedApplyResultView
+	ApplySkipped  bool
+	ApplyFailures int
 }
 
 type ManagedUpdateCheckResult struct {

@@ -232,64 +232,76 @@ type managedUpdateRunConfig struct {
 	opts      runtimeOptions
 }
 
-type managedUpdateCollection struct {
-	pending             []appservices.ManagedUpdateHandle
-	checkFailures       int
-	singleStatusPrinted bool
-	failures            []managedCheckFailure
-	rows                []updateOutputRow
-	rowIndexByID        map[string]int
-}
-
 func runManagedUpdate(ctx context.Context, cmd *cobra.Command, targetID string) error {
-	cfg, err := prepareManagedUpdateRun(cmd, targetID)
+	cfg, req, err := parseManagedUpdateRequest(cmd, targetID)
 	if err != nil {
 		return err
 	}
 
-	collection, err := collectManagedUpdateRows(cmd, cfg)
-	if err != nil {
-		return err
-	}
-
-	if cfg.targetID == "" && len(collection.failures) > 0 {
-		printManagedCheckFailures(cmd, collection.failures)
-	}
-
-	if len(collection.pending) == 0 {
-		return renderManagedUpdateNoPending(cmd, cfg, collection)
-	}
-
-	if cfg.checkOnly {
-		return renderManagedUpdateCheckOnly(cmd, cfg, collection.rows)
-	}
-
-	if cfg.opts.DryRun {
-		return renderManagedUpdateDryRun(cmd, cfg, collection.rows)
-	}
-
-	confirmed, err := confirmManagedUpdateApply(cmd, cfg, collection.pending)
-	if err != nil {
-		return err
-	}
-	if !confirmed {
-		for idx := range collection.rows {
-			if collection.rows[idx].Status == "update_available" {
-				collection.rows[idx].Status = "apply_skipped"
+	var controller managedApplyController
+	req.ConfirmApply = updateApplyConfirmerFunc(func(confirmation appservices.UpdateApplyConfirmation) (bool, error) {
+		printPendingManagedUpdates(cmd, cfg, confirmation.Pending, false)
+		return confirmManagedUpdateApply(cmd, cfg, confirmation.Pending)
+	})
+	req.ReporterFor = func(index, total int, update appservices.ManagedUpdateView) appservices.ManagedApplyReporter {
+		if controller == nil {
+			if total == 1 {
+				appID := ""
+				if update.App != nil {
+					appID = update.App.ID
+				}
+				controller = newSingleManagedApplyController(cmd, appID)
+			} else {
+				controller = newBatchManagedApplyController(cmd, total)
 			}
 		}
-		if handled, err := renderManagedUpdateRows(cmd, cfg.opts, collection.rows); handled || err != nil {
-			return err
+		return appservices.ManagedApplyReporterFunc(func(event appservices.ManagedApplyEvent) {
+			controller.Event(event)
+		})
+	}
+
+	result, err := runtimeServicesFrom(cmd).Update.Update(ctx, req)
+	if result != nil {
+		if controller != nil {
+			controller.Finish(managedApplyResultsFromViews(result.Applied))
+		} else if len(result.Applied) > 0 {
+			printManagedApplySummary(cmd, managedApplyResultsFromViews(result.Applied))
 		}
-		printWarning(cmd, "No updates applied")
-		return nil
 	}
-
-	if err := applyManagedUpdates(ctx, cmd, cfg, &collection); err != nil {
-		return err
+	if result != nil {
+		if renderErr := renderUpdateResult(cmd, cfg, result); renderErr != nil {
+			return renderErr
+		}
 	}
+	if err != nil {
+		return renderManagedUpdateError(cmd, cfg, result, err)
+	}
+	return nil
+}
 
-	return renderManagedUpdateResult(cmd, cfg.opts, collection.rows)
+type updateApplyConfirmerFunc func(appservices.UpdateApplyConfirmation) (bool, error)
+
+func (fn updateApplyConfirmerFunc) ConfirmUpdateApply(confirmation appservices.UpdateApplyConfirmation) (bool, error) {
+	return fn(confirmation)
+}
+
+func parseManagedUpdateRequest(cmd *cobra.Command, targetID string) (managedUpdateRunConfig, appservices.UpdateRequest, error) {
+	cfg, err := prepareManagedUpdateRun(cmd, targetID)
+	if err != nil {
+		return cfg, appservices.UpdateRequest{}, err
+	}
+	mode := appservices.UpdateModeManagedCheckApply
+	if cfg.checkOnly {
+		mode = appservices.UpdateModeCheckOnly
+	}
+	return cfg, appservices.UpdateRequest{
+		TargetID:   cfg.targetID,
+		Mode:       mode,
+		DryRun:     cfg.opts.DryRun,
+		AutoApply:  cfg.autoApply,
+		UseCache:   !cfg.opts.DryRun && runtimePrepared(cmd),
+		OnCacheHit: func(appID string) { logOperationf(cmd, "Reused cached update check for %s", appID) },
+	}, nil
 }
 
 func prepareManagedUpdateRun(cmd *cobra.Command, targetID string) (managedUpdateRunConfig, error) {
@@ -317,108 +329,174 @@ func prepareManagedUpdateRun(cmd *cobra.Command, targetID string) (managedUpdate
 	}, nil
 }
 
-func collectManagedUpdateRows(cmd *cobra.Command, cfg managedUpdateRunConfig) (managedUpdateCollection, error) {
-	collection := managedUpdateCollection{
-		failures:     make([]managedCheckFailure, 0),
-		rowIndexByID: map[string]int{},
-	}
-
-	result, err := runtimeServicesFrom(cmd).Update.CheckManagedUpdates(cmd.Context(), appservices.ManagedUpdateCheckRequest{
-		TargetID: cfg.targetID,
-		DryRun:   cfg.opts.DryRun,
-		UseCache: !cfg.opts.DryRun && runtimePrepared(cmd),
-		OnCacheHit: func(appID string) {
-			logOperationf(cmd, "Reused cached update check for %s", appID)
-		},
-	})
-	if err != nil {
-		if strings.TrimSpace(cfg.targetID) != "" && appservices.IsErrorKind(err, appservices.ErrorNotFound) {
-			return collection, wrapManagedAppLookupError(cfg.targetID, err)
-		}
-		return collection, wrapWriteError(err)
-	}
+func renderUpdateResult(cmd *cobra.Command, cfg managedUpdateRunConfig, result *appservices.UpdateResult) error {
 	if result == nil {
-		return collection, nil
-	}
-
-	collection.pending = append(collection.pending, result.PendingHandles...)
-	collection.checkFailures = result.CheckFailures
-	collection.rows = make([]updateOutputRow, 0, len(result.Rows))
-
-	for _, row := range result.Rows {
-		outputRow := newUpdateOutputRow(row.App, row.Update, row.Status, row.CheckedAt)
-		collection.rows = append(collection.rows, outputRow)
-		if strings.TrimSpace(outputRow.ID) != "" {
-			collection.rowIndexByID[outputRow.ID] = len(collection.rows) - 1
-		}
-
-		if row.Status == "check_failed" {
-			if cfg.targetID != "" {
-				return collection, withUserGuidance(
-					tempFailError(errors.New(row.Error)),
-					fmt.Sprintf("Can't check updates for %s.", outputRow.ID),
-					fmt.Sprintf("Rerun with 'aim update %s --debug' to see more detail.", outputRow.ID),
-				)
-			}
-			collection.failures = append(collection.failures, managedCheckFailure{
-				AppID:  outputRow.ID,
-				Reason: rewriteBatchCheckFailure(outputRow.ID, errors.New(row.Error)),
-			})
-			continue
-		}
-
-		if cfg.targetID != "" && !shouldUseStructuredOutput(cmd) {
-			switch row.Status {
-			case "no_update_source":
-				printSuccess(cmd, fmt.Sprintf("No update source configured for %s", outputRow.ID))
-				collection.singleStatusPrinted = true
-			case "no_update_information":
-				printSuccess(cmd, fmt.Sprintf("No update information for %s", outputRow.ID))
-				collection.singleStatusPrinted = true
-			case "up_to_date":
-				printSuccess(cmd, fmt.Sprintf("Up to date: %s %s", outputRow.ID, displayVersion(outputRow.CurrentVersion)))
-				collection.singleStatusPrinted = true
-			}
-		}
-
-		if row.Status != "update_available" || row.Update == nil {
-			continue
-		}
-		msg := buildManagedUpdateMessage(*row.Update, cfg.checkOnly)
-		if cfg.targetID == "" {
-			transition := strings.TrimSpace(updateVersionTransition(*row.Update))
-			if transition == "" {
-				transition = "unknown"
-			}
-			msg = fmt.Sprintf("[%s] %s", outputRow.ID, transition)
-		}
-		printWarning(cmd, msg)
-		if cfg.checkOnly {
-			writeLogf(cmd, "  Download: %s\n", row.Update.URL)
-			if showManagedUpdateAsset(row.Update.Asset) {
-				writeLogf(cmd, "  Asset: %s\n", strings.TrimSpace(row.Update.Asset))
-			}
-		}
-	}
-
-	return collection, nil
-}
-
-func renderManagedUpdateNoPending(cmd *cobra.Command, cfg managedUpdateRunConfig, collection managedUpdateCollection) error {
-	if cfg.targetID != "" && collection.singleStatusPrinted {
 		return nil
 	}
-
-	if handled, err := renderManagedUpdateRows(cmd, cfg.opts, collection.rows); handled || err != nil {
-		return err
+	rows := updateOutputRowsFromResult(result)
+	failures := managedCheckFailuresFromViews(result.Failures)
+	if cfg.targetID == "" && len(failures) > 0 {
+		printManagedCheckFailures(cmd, failures)
+	}
+	if cfg.targetID != "" {
+		if err := renderSingleTargetCheckFailure(cmd, cfg, result, rows); err != nil {
+			return err
+		}
 	}
 
-	if collection.checkFailures > 0 {
+	switch {
+	case len(result.Pending) == 0:
+		return renderUpdateNoPending(cmd, cfg, result, rows)
+	case result.Mode == appservices.UpdateModeCheckOnly:
+		printPendingManagedUpdates(cmd, cfg, result.Pending, true)
+		return renderManagedUpdateCheckOnly(cmd, cfg, rows)
+	case cfg.opts.DryRun:
+		printPendingManagedUpdates(cmd, cfg, result.Pending, false)
+		return renderManagedUpdateDryRun(cmd, cfg, rows)
+	case result.ApplySkipped:
+		if handled, err := renderManagedUpdateRows(cmd, cfg.opts, rows); handled || err != nil {
+			return err
+		}
+		printWarning(cmd, "No updates applied")
+		return nil
+	default:
+		return renderManagedUpdateResult(cmd, cfg.opts, rows)
+	}
+}
+
+func updateOutputRowsFromResult(result *appservices.UpdateResult) []updateOutputRow {
+	if result == nil {
+		return nil
+	}
+	rows := make([]updateOutputRow, 0, len(result.Rows))
+	for _, row := range result.Rows {
+		rows = append(rows, newUpdateOutputRow(row.App, row.Update, row.Status, row.CheckedAt))
+	}
+	return rows
+}
+
+func managedCheckFailuresFromViews(failures []appservices.ManagedCheckFailureView) []managedCheckFailure {
+	result := make([]managedCheckFailure, 0, len(failures))
+	for _, failure := range failures {
+		result = append(result, managedCheckFailure{AppID: failure.AppID, Reason: rewriteBatchCheckFailure(failure.AppID, errors.New(failure.Reason))})
+	}
+	return result
+}
+
+func renderSingleTargetCheckFailure(cmd *cobra.Command, cfg managedUpdateRunConfig, result *appservices.UpdateResult, rows []updateOutputRow) error {
+	if strings.TrimSpace(cfg.targetID) == "" || result == nil {
+		return nil
+	}
+	for idx, row := range result.Rows {
+		if row.Status != "check_failed" {
+			continue
+		}
+		id := cfg.targetID
+		if idx < len(rows) && strings.TrimSpace(rows[idx].ID) != "" {
+			id = rows[idx].ID
+		}
+		return withUserGuidance(
+			tempFailError(errors.New(row.Error)),
+			fmt.Sprintf("Can't check updates for %s.", id),
+			fmt.Sprintf("Rerun with 'aim update %s --debug' to see more detail.", id),
+		)
+	}
+	return nil
+}
+
+func renderUpdateNoPending(cmd *cobra.Command, cfg managedUpdateRunConfig, result *appservices.UpdateResult, rows []updateOutputRow) error {
+	if cfg.targetID != "" {
+		for _, row := range rows {
+			switch row.Status {
+			case "no_update_source":
+				printSuccess(cmd, fmt.Sprintf("No update source configured for %s", row.ID))
+				return nil
+			case "no_update_information":
+				printSuccess(cmd, fmt.Sprintf("No update information for %s", row.ID))
+				return nil
+			case "up_to_date":
+				printSuccess(cmd, fmt.Sprintf("Up to date: %s %s", row.ID, displayVersion(row.CurrentVersion)))
+				return nil
+			}
+		}
+	}
+	if handled, err := renderManagedUpdateRows(cmd, cfg.opts, rows); handled || err != nil {
+		return err
+	}
+	if result != nil && result.CheckFailures > 0 {
 		printWarning(cmd, "No updates applied; some checks failed")
 		return nil
 	}
 	printSuccess(cmd, "All apps are up to date")
 	return nil
+}
+
+func printPendingManagedUpdates(cmd *cobra.Command, cfg managedUpdateRunConfig, pending []appservices.ManagedUpdateView, checkOnly bool) {
+	for _, update := range pending {
+		msg := buildManagedUpdateMessage(update, checkOnly)
+		if cfg.targetID == "" && update.App != nil {
+			transition := strings.TrimSpace(updateVersionTransition(update))
+			if transition == "" {
+				transition = "unknown"
+			}
+			msg = fmt.Sprintf("[%s] %s", update.App.ID, transition)
+		}
+		printWarning(cmd, msg)
+		if checkOnly {
+			writeLogf(cmd, "  Download: %s\n", update.URL)
+			if showManagedUpdateAsset(update.Asset) {
+				writeLogf(cmd, "  Asset: %s\n", strings.TrimSpace(update.Asset))
+			}
+		}
+	}
+}
+
+func printManagedApplySummary(cmd *cobra.Command, results []managedApplyResult) {
+	failures := 0
+	successes := 0
+	for _, result := range results {
+		if result.err != nil {
+			failures++
+			appID := "<unknown>"
+			if result.app != nil && strings.TrimSpace(result.app.ID) != "" {
+				appID = result.app.ID
+			}
+			printError(cmd, fmt.Sprintf("Failed: %s: %v", appID, result.err))
+			continue
+		}
+		if result.updatedApp != nil {
+			successes++
+		}
+	}
+	summary := fmt.Sprintf("Updated %d app(s); %d failed", successes, failures)
+	if failures > 0 {
+		printWarning(cmd, summary)
+		return
+	}
+	printSuccess(cmd, summary)
+}
+
+func managedApplyResultsFromViews(views []appservices.ManagedApplyResultView) []managedApplyResult {
+	results := make([]managedApplyResult, 0, len(views))
+	for _, view := range views {
+		result := managedApplyResult{index: view.Index, app: view.App, updatedApp: view.UpdatedApp}
+		if strings.TrimSpace(view.Error) != "" {
+			result.err = errors.New(view.Error)
+		}
+		results = append(results, result)
+	}
+	return results
+}
+
+func renderManagedUpdateError(cmd *cobra.Command, cfg managedUpdateRunConfig, result *appservices.UpdateResult, err error) error {
+	_ = cmd
+	if strings.TrimSpace(cfg.targetID) != "" && appservices.IsErrorKind(err, appservices.ErrorNotFound) {
+		return wrapManagedAppLookupError(cfg.targetID, err)
+	}
+	if result != nil && result.ApplyFailures > 0 {
+		return tempFailError(err)
+	}
+	return wrapWriteError(err)
 }
 
 func renderManagedUpdateCheckOnly(cmd *cobra.Command, cfg managedUpdateRunConfig, rows []updateOutputRow) error {
@@ -442,7 +520,7 @@ func renderManagedUpdateDryRun(cmd *cobra.Command, cfg managedUpdateRunConfig, r
 	return nil
 }
 
-func confirmManagedUpdateApply(cmd *cobra.Command, cfg managedUpdateRunConfig, pending []appservices.ManagedUpdateHandle) (bool, error) {
+func confirmManagedUpdateApply(cmd *cobra.Command, cfg managedUpdateRunConfig, pending []appservices.ManagedUpdateView) (bool, error) {
 	if cfg.autoApply {
 		return true, nil
 	}
@@ -453,55 +531,6 @@ func confirmManagedUpdateApply(cmd *cobra.Command, cfg managedUpdateRunConfig, p
 	}
 
 	return confirmAction(cmd, prompt)
-}
-
-func applyManagedUpdates(ctx context.Context, cmd *cobra.Command, cfg managedUpdateRunConfig, collection *managedUpdateCollection) error {
-	var (
-		applyResults  []managedApplyResult
-		applyFailures int
-		appliedIDs    []string
-		persistErr    error
-	)
-
-	err := withStateWriteLock(cmd, func() error {
-		logOperationf(cmd, "Applying %d managed update(s)", len(collection.pending))
-		var applyErr error
-		applyResults, applyErr = runManagedApplies(ctx, cmd, collection.pending)
-		persistErr = applyErr
-		applyFailures = 0
-		appliedIDs = make([]string, 0, len(applyResults))
-		for _, result := range applyResults {
-			if result.err != nil {
-				applyFailures++
-				continue
-			}
-			if result.updatedApp != nil {
-				appliedIDs = append(appliedIDs, result.updatedApp.ID)
-				if idx, ok := collection.rowIndexByID[result.updatedApp.ID]; ok {
-					collection.rows[idx].Status = "updated"
-					collection.rows[idx].CurrentVersion = result.updatedApp.Version
-				}
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-	_ = appliedIDs
-
-	if applyFailures > 0 {
-		if persistErr != nil {
-			return wrapWriteError(fmt.Errorf("%d update(s) failed; failed to persist applied updates: %w", applyFailures, persistErr))
-		}
-		return tempFailError(fmt.Errorf("%d update(s) failed", applyFailures))
-	}
-
-	if persistErr != nil {
-		return wrapWriteError(persistErr)
-	}
-
-	return nil
 }
 
 func renderManagedUpdateResult(cmd *cobra.Command, opts runtimeOptions, rows []updateOutputRow) error {
@@ -580,52 +609,6 @@ type singleManagedApplyController struct {
 	downloaded    int64
 	downloadTotal int64
 	downloadName  string
-}
-
-func runManagedApplies(ctx context.Context, cmd *cobra.Command, pending []appservices.ManagedUpdateHandle) ([]managedApplyResult, error) {
-	if len(pending) == 0 {
-		return nil, nil
-	}
-
-	controller := newManagedApplyController(cmd, pending)
-	batch, err := runtimeServicesFrom(cmd).Update.ApplyBatch(ctx, appservices.UpdateApplyBatchRequest{
-		Pending: pending,
-		ReporterFor: func(index, total int, update appservices.ManagedUpdateView) appservices.ManagedApplyReporter {
-			return appservices.ManagedApplyReporterFunc(func(event appservices.ManagedApplyEvent) {
-				controller.Event(event)
-			})
-		},
-	})
-	views := []appservices.ManagedApplyResultView(nil)
-	if batch != nil {
-		views = batch.Results
-	}
-	if batch == nil && err != nil {
-		views = make([]appservices.ManagedApplyResultView, len(pending))
-		for idx, update := range pending {
-			views[idx] = appservices.ManagedApplyResultView{Index: idx, App: update.View.App, Error: err.Error()}
-		}
-	}
-	results := make([]managedApplyResult, len(views))
-	for idx, result := range views {
-		results[idx] = managedApplyResult{index: result.Index, app: result.App, updatedApp: result.UpdatedApp}
-		if strings.TrimSpace(result.Error) != "" {
-			results[idx].err = errors.New(result.Error)
-		}
-	}
-	controller.Finish(results)
-	return results, err
-}
-
-func newManagedApplyController(cmd *cobra.Command, pending []appservices.ManagedUpdateHandle) managedApplyController {
-	if len(pending) == 1 {
-		appID := ""
-		if pending[0].View.App != nil {
-			appID = strings.TrimSpace(pending[0].View.App.ID)
-		}
-		return newSingleManagedApplyController(cmd, appID)
-	}
-	return newBatchManagedApplyController(cmd, len(pending))
 }
 
 func newBatchManagedApplyController(cmd *cobra.Command, total int) *batchManagedApplyController {

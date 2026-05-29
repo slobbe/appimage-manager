@@ -996,7 +996,6 @@ func TestUpdateCmdCharacterizesCheckDryRunNoPendingDeclinedAppliedAndFailure(t *
 			applyResult:    &appservices.UpdateApplyBatchResult{Results: []appservices.ManagedApplyResultView{{Index: 0, App: pendingApp, UpdatedApp: appDetails("app", "App", true)}}},
 			wantCheckReq:   appservices.ManagedUpdateCheckRequest{UseCache: true},
 			wantApplyCalls: 1,
-			wantLock:       true,
 			wantOutput:     []string{"Updated 1 app(s); 0 failed", "updated"},
 		},
 		{
@@ -6912,11 +6911,80 @@ func newUpgradeTestCommand() *cobra.Command {
 }
 
 type recordingUpdateService struct {
+	updateReq   appservices.UpdateRequest
 	checkReq    appservices.ManagedUpdateCheckRequest
 	checkResult *appservices.ManagedUpdateCheckResult
 	applyReq    appservices.UpdateApplyBatchRequest
 	applyResult *appservices.UpdateApplyBatchResult
 	applyCalls  int
+}
+
+func (service *recordingUpdateService) Update(ctx context.Context, req appservices.UpdateRequest) (*appservices.UpdateResult, error) {
+	service.updateReq = req
+	check, err := service.CheckManagedUpdates(ctx, appservices.ManagedUpdateCheckRequest{
+		TargetID:   req.TargetID,
+		DryRun:     req.DryRun,
+		UseCache:   req.UseCache,
+		OnCacheHit: req.OnCacheHit,
+	})
+	if err != nil {
+		return nil, err
+	}
+	result := &appservices.UpdateResult{Mode: req.Mode}
+	if check != nil {
+		result.Rows = append(result.Rows, check.Rows...)
+		result.Pending = append(result.Pending, check.Pending...)
+		for _, handle := range check.PendingHandles {
+			result.Pending = append(result.Pending, handle.View)
+		}
+		result.CheckFailures = check.CheckFailures
+		result.Failures = append(result.Failures, check.Failures...)
+	}
+	if len(result.Pending) == 0 || req.Mode == appservices.UpdateModeCheckOnly {
+		return result, nil
+	}
+	if req.DryRun {
+		for idx := range result.Rows {
+			if result.Rows[idx].Status == "update_available" {
+				result.Rows[idx].Status = "dry_run_pending"
+			}
+		}
+		return result, nil
+	}
+	confirmed := req.AutoApply
+	if !confirmed && req.ConfirmApply != nil {
+		confirmed, err = req.ConfirmApply.ConfirmUpdateApply(appservices.UpdateApplyConfirmation{TargetID: req.TargetID, Pending: result.Pending})
+		if err != nil {
+			return result, err
+		}
+	}
+	if !confirmed {
+		for idx := range result.Rows {
+			if result.Rows[idx].Status == "update_available" {
+				result.Rows[idx].Status = "apply_skipped"
+			}
+		}
+		result.ApplySkipped = true
+		return result, nil
+	}
+	apply, err := service.ApplyBatch(ctx, appservices.UpdateApplyBatchRequest{Pending: check.PendingHandles, ReporterFor: req.ReporterFor})
+	if apply != nil {
+		result.Applied = apply.Results
+		for _, applied := range apply.Results {
+			if strings.TrimSpace(applied.Error) != "" {
+				result.ApplyFailures++
+				continue
+			}
+			if applied.UpdatedApp != nil {
+				for idx := range result.Rows {
+					if result.Rows[idx].App != nil && result.Rows[idx].App.ID == applied.UpdatedApp.ID {
+						result.Rows[idx].Status = "updated"
+					}
+				}
+			}
+		}
+	}
+	return result, err
 }
 
 func (service *recordingUpdateService) ManagedApps(ctx context.Context, targetID string) ([]*models.App, error) {

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/slobbe/appimage-manager/internal/app/discovery"
+	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
 	"github.com/slobbe/appimage-manager/internal/domain"
 )
 
@@ -137,6 +138,62 @@ func TestAddWorkflowServiceInstallsPackageRefViaDiscoveryAndInstaller(t *testing
 	}
 	if result == nil || result.Action != AddActionInstall || result.Status != "installed" || result.App == nil || result.App.ID != "package" {
 		t.Fatalf("Add result = %+v", result)
+	}
+}
+
+func TestSourceUpdateServiceUpdateDryRunMarksPendingWithoutApplying(t *testing.T) {
+	store := fakeAppStore{apps: map[string]*domain.App{"app": {ID: "app", Name: "App", Version: "1.0.0"}}}
+	var applyCalls int
+	service := SourceUpdateService{
+		Store: store,
+		CheckManagedUpdate: func(app *domain.App) (*appupdate.ManagedUpdate, error) {
+			return &appupdate.ManagedUpdate{App: app, Available: true, Latest: "2.0.0", URL: "https://example.com/App.AppImage"}, nil
+		},
+		ApplyManagedUpdate: func(context.Context, appupdate.ManagedUpdate, appupdate.ManagedApplyReporter) (*domain.App, error) {
+			applyCalls++
+			return nil, nil
+		},
+	}
+
+	result, err := service.Update(context.Background(), UpdateRequest{DryRun: true})
+	if err != nil {
+		t.Fatalf("Update returned error: %v", err)
+	}
+	if applyCalls != 0 {
+		t.Fatalf("apply calls = %d, want 0", applyCalls)
+	}
+	if result == nil || len(result.Rows) != 1 || result.Rows[0].Status != "dry_run_pending" || len(result.Pending) != 1 {
+		t.Fatalf("Update result = %+v", result)
+	}
+}
+
+func TestSourceUpdateServiceUpdateAppliesWithLockerAndReconcilesRows(t *testing.T) {
+	store := fakeAppStore{apps: map[string]*domain.App{"app": {ID: "app", Name: "App", Version: "1.0.0"}}}
+	locker := &fakeStateLocker{}
+	service := SourceUpdateService{
+		Store:  store,
+		Locker: locker,
+		CheckManagedUpdate: func(app *domain.App) (*appupdate.ManagedUpdate, error) {
+			return &appupdate.ManagedUpdate{App: app, Available: true, Latest: "2.0.0", URL: "https://example.com/App.AppImage"}, nil
+		},
+		ApplyManagedUpdate: func(ctx context.Context, update appupdate.ManagedUpdate, reporter appupdate.ManagedApplyReporter) (*domain.App, error) {
+			_ = ctx
+			_ = update
+			_ = reporter
+			return &domain.App{ID: "app", Name: "App", Version: "2.0.0"}, nil
+		},
+		PersistApp: func(*domain.App, bool) error { return nil },
+	}
+
+	result, err := service.Update(context.Background(), UpdateRequest{AutoApply: true})
+	if err != nil {
+		t.Fatalf("Update returned error: %v", err)
+	}
+	if !locker.called {
+		t.Fatal("expected update apply to use locker")
+	}
+	if result == nil || len(result.Applied) != 1 || len(result.Rows) != 1 || result.Rows[0].Status != "updated" || result.Rows[0].App.Version != "2.0.0" {
+		t.Fatalf("Update result = %+v", result)
 	}
 }
 
@@ -399,6 +456,15 @@ func (store fakeAppStore) GetAllApps() (map[string]*domain.App, error) {
 func (store fakeAppStore) UpdateApp(app *domain.App) error {
 	store.apps[app.ID] = app
 	return nil
+}
+
+type fakeStateLocker struct {
+	called bool
+}
+
+func (locker *fakeStateLocker) WithWriteLock(fn func() error) error {
+	locker.called = true
+	return fn()
 }
 
 type fakeRemoteInstaller struct {

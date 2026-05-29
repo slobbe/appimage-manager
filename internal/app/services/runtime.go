@@ -587,6 +587,7 @@ type CheckMetadataUpdate struct {
 
 type SourceUpdateService struct {
 	Store                AppStore
+	Locker               StateLocker
 	UpdateInfo           UpdateInfoReader
 	CheckManagedUpdate   ManagedUpdateChecker
 	LoadCheckCache       func() (*appupdate.CheckCacheFile, error)
@@ -607,6 +608,125 @@ func NewSourceUpdateService(store AppStore) SourceUpdateService {
 
 func NewSourceUpdateWorkflowService(service SourceUpdateService) SourceUpdateService {
 	return service
+}
+
+func (service SourceUpdateService) Update(ctx context.Context, req UpdateRequest) (*UpdateResult, error) {
+	mode := req.Mode
+	if mode == "" {
+		mode = UpdateModeManagedCheckApply
+	}
+	check, err := service.CheckManagedUpdates(ctx, ManagedUpdateCheckRequest{
+		TargetID:   req.TargetID,
+		DryRun:     req.DryRun,
+		UseCache:   req.UseCache,
+		OnCacheHit: req.OnCacheHit,
+	})
+	if err != nil {
+		return nil, err
+	}
+	result := updateResultFromManagedCheck(mode, check)
+	if len(result.Pending) == 0 || mode == UpdateModeCheckOnly {
+		return result, nil
+	}
+	if req.DryRun {
+		markUpdateRows(result.Rows, "update_available", "dry_run_pending")
+		return result, nil
+	}
+
+	confirmed := req.AutoApply
+	if !confirmed && req.ConfirmApply != nil {
+		confirmed, err = req.ConfirmApply.ConfirmUpdateApply(UpdateApplyConfirmation{TargetID: req.TargetID, Pending: result.Pending})
+		if err != nil {
+			return result, err
+		}
+	}
+	if !confirmed {
+		markUpdateRows(result.Rows, "update_available", "apply_skipped")
+		result.ApplySkipped = true
+		return result, nil
+	}
+
+	apply, err := service.applyBatchWithOptionalLock(ctx, UpdateApplyBatchRequest{Pending: check.PendingHandles, ReporterFor: req.ReporterFor})
+	if apply != nil {
+		result.Applied = apply.Results
+		result.ApplyFailures = countApplyFailures(apply.Results)
+		service.reconcileAppliedUpdateRows(result.Rows, apply.Results)
+	}
+	if err != nil {
+		return result, err
+	}
+	if result.ApplyFailures > 0 {
+		return result, Errorf(ErrorUnavailable, "", "%d update(s) failed", result.ApplyFailures)
+	}
+	return result, nil
+}
+
+func updateResultFromManagedCheck(mode UpdateMode, check *ManagedUpdateCheckResult) *UpdateResult {
+	result := &UpdateResult{Mode: mode}
+	if check == nil {
+		return result
+	}
+	result.Rows = append(result.Rows, check.Rows...)
+	result.Pending = append(result.Pending, check.Pending...)
+	result.CheckFailures = check.CheckFailures
+	result.Failures = append(result.Failures, check.Failures...)
+	return result
+}
+
+func markUpdateRows(rows []ManagedUpdateCheckRow, from, to string) {
+	for idx := range rows {
+		if rows[idx].Status == from {
+			rows[idx].Status = to
+		}
+	}
+}
+
+func countApplyFailures(results []ManagedApplyResultView) int {
+	failures := 0
+	for _, result := range results {
+		if strings.TrimSpace(result.Error) != "" {
+			failures++
+		}
+	}
+	return failures
+}
+
+func (service SourceUpdateService) applyBatchWithOptionalLock(ctx context.Context, req UpdateApplyBatchRequest) (*UpdateApplyBatchResult, error) {
+	if service.Locker == nil {
+		return service.ApplyBatch(ctx, req)
+	}
+	var result *UpdateApplyBatchResult
+	var applyErr error
+	err := service.Locker.WithWriteLock(func() error {
+		result, applyErr = service.ApplyBatch(ctx, req)
+		return nil
+	})
+	if err != nil {
+		return result, err
+	}
+	return result, applyErr
+}
+
+func (service SourceUpdateService) reconcileAppliedUpdateRows(rows []ManagedUpdateCheckRow, results []ManagedApplyResultView) {
+	rowIndexByID := make(map[string]int, len(rows))
+	for idx, row := range rows {
+		if row.App != nil && strings.TrimSpace(row.App.ID) != "" {
+			rowIndexByID[strings.TrimSpace(row.App.ID)] = idx
+		}
+	}
+	for _, apply := range results {
+		if strings.TrimSpace(apply.Error) != "" || apply.UpdatedApp == nil {
+			continue
+		}
+		idx, ok := rowIndexByID[strings.TrimSpace(apply.UpdatedApp.ID)]
+		if !ok {
+			continue
+		}
+		rows[idx].Status = "updated"
+		if rows[idx].App != nil {
+			rows[idx].App.Version = strings.TrimSpace(apply.UpdatedApp.Version)
+		}
+	}
 }
 
 func (service SourceUpdateService) ManagedApps(ctx context.Context, targetID string) ([]*domain.App, error) {

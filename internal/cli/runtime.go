@@ -523,6 +523,7 @@ func defaultRuntimeServicesForSettings(settings runtimeSettings) runtimeServices
 		Remove: appservices.NewRemoveWorkflowService(appservices.RemoveWorkflowService{Store: store, RemoveFunc: removeManagedApp}),
 		Update: appservices.NewSourceUpdateWorkflowService(appservices.SourceUpdateService{
 			Store:                store,
+			Locker:               stateFileLocker{},
 			UpdateInfo:           appservices.UpdateInfoReaderFunc(getAppImageUpdateInfo),
 			CheckManagedUpdate:   runAppUpdateCheck,
 			LoadCheckCache:       loadUpdateCheckCache,
