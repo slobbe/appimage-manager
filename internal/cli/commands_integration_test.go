@@ -47,7 +47,7 @@ func seedRepositoryApps(t *testing.T, dbPath string, apps map[string]*models.App
 	return nil
 }
 
-func TestResolveIntegrateTarget(t *testing.T) {
+func TestAddWorkflowServiceRoutesPositionalTargets(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "apps.json")
 
@@ -71,15 +71,15 @@ func TestResolveIntegrateTarget(t *testing.T) {
 	}
 
 	tests := []struct {
-		name      string
-		input     string
-		expect    appservices.IntegrateTargetKind
-		wantError bool
-		errText   string
+		name       string
+		input      string
+		wantAction appservices.AddAction
+		wantError  bool
+		errText    string
 	}{
-		{name: "local appimage path", input: "/tmp/MyApp.AppImage", expect: appservices.IntegrateTargetLocalFile},
-		{name: "integrated id", input: "integrated", expect: appservices.IntegrateTargetIntegrated},
-		{name: "unlinked id", input: "unlinked", expect: appservices.IntegrateTargetUnlinked},
+		{name: "local appimage path", input: "/tmp/MyApp.AppImage", wantAction: appservices.AddActionIntegrate},
+		{name: "integrated id", input: "integrated", wantAction: appservices.AddActionAlreadyIntegrated},
+		{name: "unlinked id", input: "unlinked", wantAction: appservices.AddActionReintegrate},
 		{name: "direct url rejected", input: "https://example.com/MyApp.AppImage", wantError: true, errText: "remote sources are added with 'aim add'"},
 		{name: "github repo rejected", input: "github:owner/repo", wantError: true, errText: "unknown argument github:owner/repo"},
 		{name: "http rejected", input: "http://example.com/MyApp.AppImage", wantError: true, errText: "direct URLs must use https; use 'aim add --url https://...'"},
@@ -90,28 +90,33 @@ func TestResolveIntegrateTarget(t *testing.T) {
 	service := appservices.NewAddWorkflowService(appservices.AddWorkflowService{
 		Store:        repo.NewStore(dbPath),
 		HasExtension: runtimeHasExtension,
+		AppImageInfo: appservices.AppImageInfoReaderFunc(func(ctx context.Context, path string) (*appimage.AppInfo, error) {
+			_ = ctx
+			_ = path
+			return &appimage.AppInfo{ID: "my-app", Name: "My App", Version: "1.0.0"}, nil
+		}),
 	})
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := service.ResolveIntegrateTarget(context.Background(), tt.input)
+			got, err := service.Add(context.Background(), appservices.AddRequest{Target: appservices.AddTargetInput{Positional: tt.input}, DryRun: true})
 			if tt.wantError {
 				if err == nil {
-					t.Fatalf("resolveIntegrateTarget(%q) expected error", tt.input)
+					t.Fatalf("Add(%q) expected error", tt.input)
 				}
 				if tt.errText != "" && !strings.Contains(err.Error(), tt.errText) {
-					t.Fatalf("resolveIntegrateTarget(%q) error = %q, want substring %q", tt.input, err.Error(), tt.errText)
+					t.Fatalf("Add(%q) error = %q, want substring %q", tt.input, err.Error(), tt.errText)
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("resolveIntegrateTarget(%q) returned error: %v", tt.input, err)
+				t.Fatalf("Add(%q) returned error: %v", tt.input, err)
 			}
 			if got == nil {
-				t.Fatalf("resolveIntegrateTarget(%q) returned nil target", tt.input)
+				t.Fatalf("Add(%q) returned nil result", tt.input)
 			}
-			if got.Kind != tt.expect {
-				t.Fatalf("resolveIntegrateTarget(%q) kind = %q, want %q", tt.input, got.Kind, tt.expect)
+			if got.Action != tt.wantAction {
+				t.Fatalf("Add(%q) action = %q, want %q", tt.input, got.Action, tt.wantAction)
 			}
 		})
 	}

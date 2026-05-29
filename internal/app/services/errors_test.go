@@ -36,7 +36,7 @@ func TestNewErrorDefaultsToInternalKind(t *testing.T) {
 }
 
 func TestSemanticErrorsFromServices(t *testing.T) {
-	_, err := (AddWorkflowService{}).ResolveIntegrateTarget(context.Background(), "")
+	_, err := (AddWorkflowService{}).resolveIntegrateTarget(context.Background(), "")
 	if !IsErrorKind(err, ErrorInvalidInput) {
 		t.Fatalf("ResolveIntegrateTarget error kind = %v, want invalid input", err)
 	}

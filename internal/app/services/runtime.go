@@ -65,7 +65,7 @@ func (service AddWorkflowService) Add(ctx context.Context, req AddRequest) (*Add
 	if req.Target.Provider != nil {
 		installReq := InstallPackageRefRequest{Ref: *req.Target.Provider, AssetPattern: req.AssetPattern, ResolveViewAmbiguity: req.ResolvePackageAmbiguity}
 		if req.DryRun {
-			plan, err := service.PlanPackageRefInstall(ctx, installReq)
+			plan, err := service.planPackageRefInstall(ctx, installReq)
 			if err != nil {
 				return nil, err
 			}
@@ -77,7 +77,7 @@ func (service AddWorkflowService) Add(ctx context.Context, req AddRequest) (*Add
 	if strings.TrimSpace(req.Target.URL) != "" {
 		installReq := InstallDirectURLRequest{URL: req.Target.URL, SHA256: req.SHA256}
 		if req.DryRun {
-			plan, err := service.PlanDirectURLInstall(ctx, installReq)
+			plan, err := service.planDirectURLInstall(ctx, installReq)
 			if err != nil {
 				return nil, err
 			}
@@ -86,7 +86,7 @@ func (service AddWorkflowService) Add(ctx context.Context, req AddRequest) (*Add
 		return service.installDirectURL(ctx, installReq)
 	}
 
-	target, err := service.ResolveIntegrateTarget(ctx, req.Target.Positional)
+	target, err := service.resolveIntegrateTarget(ctx, req.Target.Positional)
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +103,7 @@ func (service AddWorkflowService) Add(ctx context.Context, req AddRequest) (*Add
 		return service.reintegrate(ctx, target.App.ID)
 	case IntegrateTargetLocalFile:
 		if req.DryRun {
-			plan, err := service.PlanLocalIntegration(ctx, target.LocalPath)
+			plan, err := service.planLocalIntegration(ctx, target.LocalPath)
 			if err != nil {
 				return nil, err
 			}
@@ -115,7 +115,7 @@ func (service AddWorkflowService) Add(ctx context.Context, req AddRequest) (*Add
 	}
 }
 
-func (service AddWorkflowService) ResolveIntegrateTarget(ctx context.Context, input string) (*IntegrateTargetResult, error) {
+func (service AddWorkflowService) resolveIntegrateTarget(ctx context.Context, input string) (*IntegrateTargetResult, error) {
 	_ = ctx
 	trimmed := strings.TrimSpace(input)
 	if trimmed == "" {
@@ -240,7 +240,7 @@ func addPlanResult(action AddAction, plan *DryRunPlan) *AddResult {
 	return result
 }
 
-func (service AddWorkflowService) PlanLocalIntegration(ctx context.Context, path string) (*DryRunPlan, error) {
+func (service AddWorkflowService) planLocalIntegration(ctx context.Context, path string) (*DryRunPlan, error) {
 	if service.AppImageInfo == nil {
 		return nil, internalErrorf("appimage info reader is not configured")
 	}
@@ -274,7 +274,7 @@ func (service AddWorkflowService) PlanLocalIntegration(ctx context.Context, path
 	return &DryRunPlan{Action: "integrate", Target: path, Values: values}, nil
 }
 
-func (service AddWorkflowService) PlanDirectURLInstall(ctx context.Context, req InstallDirectURLRequest) (*DryRunPlan, error) {
+func (service AddWorkflowService) planDirectURLInstall(ctx context.Context, req InstallDirectURLRequest) (*DryRunPlan, error) {
 	_ = ctx
 	values := map[string]interface{}{
 		"action":          "install",
@@ -287,7 +287,7 @@ func (service AddWorkflowService) PlanDirectURLInstall(ctx context.Context, req 
 	return &DryRunPlan{Action: "install", Target: req.URL, Values: values}, nil
 }
 
-func (service AddWorkflowService) PlanPackageRefInstall(ctx context.Context, req InstallPackageRefRequest) (*DryRunPlan, error) {
+func (service AddWorkflowService) planPackageRefInstall(ctx context.Context, req InstallPackageRefRequest) (*DryRunPlan, error) {
 	if service.Discovery == nil {
 		return nil, internalErrorf("discovery service is not configured")
 	}

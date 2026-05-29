@@ -755,14 +755,6 @@ func managedAppInfo(ctx context.Context, cmd *cobra.Command, id string) (*appser
 	return info, nil
 }
 
-func inspectManagedApp(ctx context.Context, cmd *cobra.Command, id string) error {
-	info, err := managedAppInfo(ctx, cmd, id)
-	if err != nil {
-		return err
-	}
-	return renderManagedAppInfo(cmd, info)
-}
-
 func renderManagedAppInfo(cmd *cobra.Command, info *appservices.InfoResult) error {
 	app := info.AppDetails
 	if app == nil {
@@ -864,44 +856,8 @@ func updateSourceViewFromAppDetails(app *appservices.AppDetails) *appservices.Up
 	return app.UpdateSource
 }
 
-func updateSourceViewFromInput(input *appservices.UpdateSourceInput) *appservices.UpdateSourceView {
-	if input == nil {
-		return nil
-	}
-	return &appservices.UpdateSourceView{Kind: input.Kind, Zsync: input.Zsync, GitHubRelease: input.GitHubRelease}
-}
-
 func updateSourceViewIsNone(update *appservices.UpdateSourceView) bool {
 	return update == nil || strings.TrimSpace(update.Kind) == "" || strings.TrimSpace(update.Kind) == appservices.UpdateKindNone
-}
-
-func updateSourceViewsEqual(left, right *appservices.UpdateSourceView) bool {
-	if updateSourceViewIsNone(left) && updateSourceViewIsNone(right) {
-		return true
-	}
-	if updateSourceViewIsNone(left) || updateSourceViewIsNone(right) {
-		return false
-	}
-	if strings.TrimSpace(left.Kind) != strings.TrimSpace(right.Kind) {
-		return false
-	}
-	switch strings.TrimSpace(left.Kind) {
-	case appservices.UpdateKindZsync:
-		if left.Zsync == nil || right.Zsync == nil {
-			return left.Zsync == nil && right.Zsync == nil
-		}
-		return strings.TrimSpace(left.Zsync.UpdateInfo) == strings.TrimSpace(right.Zsync.UpdateInfo) &&
-			strings.TrimSpace(left.Zsync.Transport) == strings.TrimSpace(right.Zsync.Transport)
-	case appservices.UpdateKindGitHubRelease:
-		if left.GitHubRelease == nil || right.GitHubRelease == nil {
-			return left.GitHubRelease == nil && right.GitHubRelease == nil
-		}
-		return strings.TrimSpace(left.GitHubRelease.Repo) == strings.TrimSpace(right.GitHubRelease.Repo) &&
-			strings.TrimSpace(left.GitHubRelease.Asset) == strings.TrimSpace(right.GitHubRelease.Asset) &&
-			strings.TrimSpace(left.GitHubRelease.ReleaseKind) == strings.TrimSpace(right.GitHubRelease.ReleaseKind)
-	default:
-		return true
-	}
 }
 
 func updateSourcePlanOutput(plan *appservices.DryRunPlan) map[string]interface{} {
@@ -1116,7 +1072,11 @@ func renderUpdateSourceModeResult(cmd *cobra.Command, id string, result *appserv
 		return nil
 	}
 	if result.SourceUnchanged {
-		if result.NoEmbeddedSource && updateSourceViewIsNone(sourceChangeCurrent(result.SourceChange)) {
+		var currentSource *appservices.UpdateSourceView
+		if result.SourceChange != nil {
+			currentSource = result.SourceChange.Current
+		}
+		if result.NoEmbeddedSource && updateSourceViewIsNone(currentSource) {
 			if opts.JSON {
 				return printJSONSuccess(cmd, updateSourceChangeOutput("unset_update_source", id, result.SourceChange, true))
 			}
@@ -1148,13 +1108,6 @@ func renderUpdateSourceModeResult(cmd *cobra.Command, id string, result *appserv
 	}
 	printSuccess(cmd, fmt.Sprintf("Update source set: %s", updateSourceViewSummaryOrNone(result.Source.Source)))
 	return nil
-}
-
-func sourceChangeCurrent(change *appservices.UpdateSourceChangeView) *appservices.UpdateSourceView {
-	if change == nil {
-		return nil
-	}
-	return change.Current
 }
 
 func resolveUpdateSourceFromSetFlags(cmd *cobra.Command) (*appservices.UpdateSourceInput, error) {
