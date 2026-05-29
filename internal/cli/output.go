@@ -206,6 +206,16 @@ func updatePlainHeader() []string {
 	return []string{"id", "current_version", "latest_version", "status", "source_kind"}
 }
 
+func appDetailsByID(apps []*appservices.AppDetails) map[string]*appservices.AppDetails {
+	byID := make(map[string]*appservices.AppDetails, len(apps))
+	for _, app := range apps {
+		if app != nil {
+			byID[app.ID] = app
+		}
+	}
+	return byID
+}
+
 func sortAppDetailsByID(apps map[string]*appservices.AppDetails) []*appservices.AppDetails {
 	ids := make([]string, 0, len(apps))
 	for id := range apps {

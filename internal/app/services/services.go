@@ -100,9 +100,16 @@ type PackageRefInfoRequest struct {
 }
 
 type ListRequest struct {
-	IncludeIntegrated bool
-	IncludeUnlinked   bool
+	Filter ListFilter
 }
+
+type ListFilter string
+
+const (
+	ListAll        ListFilter = "all"
+	ListIntegrated ListFilter = "integrated"
+	ListUnlinked   ListFilter = "unlinked"
+)
 
 type RemoveRequest struct {
 	ID     string
@@ -153,7 +160,10 @@ type AddResult struct {
 }
 
 type ListResult struct {
-	Apps []*AppDetails
+	Apps            []*AppDetails
+	TotalCount      int
+	IntegratedCount int
+	UnlinkedCount   int
 }
 
 type InfoResult struct {

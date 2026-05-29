@@ -261,20 +261,41 @@ func (service StoreListService) List(ctx context.Context, req ListRequest) (*Lis
 		return nil, err
 	}
 
-	selected := make([]*AppDetails, 0, len(apps))
+	filter := req.Filter
+	if filter == "" {
+		filter = ListAll
+	}
+
+	result := &ListResult{Apps: make([]*AppDetails, 0, len(apps))}
 	for _, app := range apps {
 		if app == nil {
 			continue
 		}
+		result.TotalCount++
 		integrated := strings.TrimSpace(app.DesktopEntryLink) != ""
-		if integrated && req.IncludeIntegrated {
-			selected = append(selected, appDetailsFromDomain(app))
+		if integrated {
+			result.IntegratedCount++
+		} else {
+			result.UnlinkedCount++
 		}
-		if !integrated && req.IncludeUnlinked {
-			selected = append(selected, appDetailsFromDomain(app))
+		if listFilterIncludes(filter, integrated) {
+			result.Apps = append(result.Apps, appDetailsFromDomain(app))
 		}
 	}
-	return &ListResult{Apps: selected}, nil
+	return result, nil
+}
+
+func listFilterIncludes(filter ListFilter, integrated bool) bool {
+	switch filter {
+	case "", ListAll:
+		return true
+	case ListIntegrated:
+		return integrated
+	case ListUnlinked:
+		return !integrated
+	default:
+		return true
+	}
 }
 
 type StoreInfoService struct {

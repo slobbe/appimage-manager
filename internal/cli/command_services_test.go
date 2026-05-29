@@ -30,8 +30,8 @@ func TestListCmdCallsListServiceWithParsedFilter(t *testing.T) {
 	if service.calls != 1 {
 		t.Fatalf("List calls = %d, want 1", service.calls)
 	}
-	if !service.req.IncludeIntegrated || !service.req.IncludeUnlinked {
-		t.Fatalf("List request = %+v, want command to load both states for rendering", service.req)
+	if service.req.Filter != appservices.ListIntegrated {
+		t.Fatalf("List request filter = %q, want %q", service.req.Filter, appservices.ListIntegrated)
 	}
 }
 
@@ -425,7 +425,27 @@ func (service *recordingListService) List(ctx context.Context, req appservices.L
 	_ = ctx
 	service.calls++
 	service.req = req
-	return service.result, nil
+	if service.result == nil {
+		return nil, nil
+	}
+	result := &appservices.ListResult{
+		Apps:       make([]*appservices.AppDetails, 0, len(service.result.Apps)),
+		TotalCount: len(service.result.Apps),
+	}
+	for _, app := range service.result.Apps {
+		if app == nil {
+			continue
+		}
+		if app.Integrated {
+			result.IntegratedCount++
+		} else {
+			result.UnlinkedCount++
+		}
+		if req.Filter == "" || req.Filter == appservices.ListAll || (req.Filter == appservices.ListIntegrated && app.Integrated) || (req.Filter == appservices.ListUnlinked && !app.Integrated) {
+			result.Apps = append(result.Apps, app)
+		}
+	}
+	return result, nil
 }
 
 type recordingRemoveService struct {

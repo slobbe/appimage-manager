@@ -16,12 +16,15 @@ func TestStoreListServiceFiltersApps(t *testing.T) {
 		"unlinked":   {ID: "unlinked"},
 	}}
 
-	result, err := (StoreListService{Store: store}).List(context.Background(), ListRequest{IncludeIntegrated: true})
+	result, err := (StoreListService{Store: store}).List(context.Background(), ListRequest{Filter: ListIntegrated})
 	if err != nil {
 		t.Fatalf("List returned error: %v", err)
 	}
 	if len(result.Apps) != 1 || result.Apps[0].ID != "integrated" || !result.Apps[0].Integrated {
 		t.Fatalf("List returned %+v, want integrated app only", result.Apps)
+	}
+	if result.TotalCount != 2 || result.IntegratedCount != 1 || result.UnlinkedCount != 1 {
+		t.Fatalf("List counts = total %d integrated %d unlinked %d, want 2/1/1", result.TotalCount, result.IntegratedCount, result.UnlinkedCount)
 	}
 }
 

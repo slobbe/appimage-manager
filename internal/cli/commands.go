@@ -430,22 +430,22 @@ func ListCmd(cmd *cobra.Command, args []string) error {
 		all = true
 	}
 
-	result, err := runtimeServicesFrom(cmd).List.List(cmd.Context(), appservices.ListRequest{
-		IncludeIntegrated: true,
-		IncludeUnlinked:   true,
-	})
+	filter := appservices.ListAll
+	if integrated {
+		filter = appservices.ListIntegrated
+	}
+	if unlinked {
+		filter = appservices.ListUnlinked
+	}
+
+	result, err := runtimeServicesFrom(cmd).List.List(cmd.Context(), appservices.ListRequest{Filter: filter})
 	if err != nil {
 		return err
 	}
-	apps := make(map[string]*appservices.AppDetails, len(result.Apps))
-	for _, app := range result.Apps {
-		if app != nil {
-			apps[app.ID] = app
-		}
-	}
 
 	opts := runtimeOptionsFrom(cmd)
-	if len(apps) == 0 {
+	selected := sortAppDetailsByID(appDetailsByID(result.Apps))
+	if len(selected) == 0 {
 		if opts.JSON {
 			return printJSONSuccess(cmd, []listOutputRow{})
 		}
@@ -456,39 +456,26 @@ func ListCmd(cmd *cobra.Command, args []string) error {
 			writePlainList(cmd, nil)
 			return nil
 		}
+		if filter == appservices.ListIntegrated && result.TotalCount > 0 {
+			printSuccess(cmd, "No integrated apps")
+			return nil
+		}
+		if filter == appservices.ListUnlinked && result.TotalCount > 0 {
+			printSuccess(cmd, "No unlinked apps")
+			return nil
+		}
 		printSuccess(cmd, "No managed apps")
 		return nil
 	}
 
-	orderedApps := sortAppDetailsByID(apps)
-	integratedRows := make([]*appservices.AppDetails, 0, len(apps))
-	unlinkedRows := make([]*appservices.AppDetails, 0, len(apps))
-	for _, app := range orderedApps {
+	integratedRows := make([]*appservices.AppDetails, 0, len(selected))
+	unlinkedRows := make([]*appservices.AppDetails, 0, len(selected))
+	for _, app := range selected {
 		if app.Integrated {
 			integratedRows = append(integratedRows, app)
 			continue
 		}
 		unlinkedRows = append(unlinkedRows, app)
-	}
-
-	if integrated && len(integratedRows) == 0 {
-		printSuccess(cmd, "No integrated apps")
-		return nil
-	}
-	if unlinked && len(unlinkedRows) == 0 {
-		printSuccess(cmd, "No unlinked apps")
-		return nil
-	}
-
-	selected := make([]*appservices.AppDetails, 0, len(orderedApps))
-	switch {
-	case all:
-		selected = append(selected, integratedRows...)
-		selected = append(selected, unlinkedRows...)
-	case integrated:
-		selected = append(selected, integratedRows...)
-	case unlinked:
-		selected = append(selected, unlinkedRows...)
 	}
 
 	if opts.JSON {
