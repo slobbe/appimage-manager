@@ -369,6 +369,17 @@ func NewRemoveWorkflowService(service RemoveWorkflowService) RemoveWorkflowServi
 }
 
 func (service RemoveWorkflowService) Remove(ctx context.Context, req RemoveRequest) (*RemoveResult, error) {
+	if req.DryRun {
+		if service.Store == nil {
+			return nil, internalErrorf("app store is not configured")
+		}
+		app, err := service.Store.GetApp(req.ID)
+		if err != nil {
+			return nil, err
+		}
+		return removeResultFromDomain(app, req.Unlink), nil
+	}
+
 	remove := service.RemoveFunc
 	if remove == nil {
 		remove = appremove.Remove
@@ -378,28 +389,6 @@ func (service RemoveWorkflowService) Remove(ctx context.Context, req RemoveReque
 		return nil, err
 	}
 	return removeResultFromDomain(app, req.Unlink), nil
-}
-
-func (service RemoveWorkflowService) PlanRemove(ctx context.Context, req RemoveRequest) (*DryRunPlan, error) {
-	_ = ctx
-	if service.Store == nil {
-		return nil, internalErrorf("app store is not configured")
-	}
-	app, err := service.Store.GetApp(req.ID)
-	if err != nil {
-		return nil, err
-	}
-	values := RemoveDryRunValues(app, req.Unlink)
-	result := removeResultFromDomain(app, req.Unlink)
-	return &DryRunPlan{
-		Action:     result.Action,
-		Target:     app.ID,
-		Values:     values,
-		TargetKind: "managed_app",
-		App:        result.App,
-		Paths:      result.Paths,
-		DBWrite:    !req.Unlink,
-	}, nil
 }
 
 type DiscoveryWorkflowService struct {

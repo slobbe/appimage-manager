@@ -192,7 +192,7 @@ func TestAddCmdReintegrateAndAlreadyIntegratedDoNotTakeWriteLockInDryRun(t *test
 	}
 }
 
-func TestRemoveCmdDryRunUsesPlanWithoutWriteLock(t *testing.T) {
+func TestRemoveCmdDryRunUsesRemoveServiceWithoutWriteLock(t *testing.T) {
 	remove := &recordingRemoveService{
 		result: &appservices.RemoveResult{Action: "remove", App: appDetails("app", "App", true), Paths: []string{"/tmp/app.AppImage"}},
 	}
@@ -203,8 +203,11 @@ func TestRemoveCmdDryRunUsesPlanWithoutWriteLock(t *testing.T) {
 		t.Fatalf("RemoveCmd returned error: %v", err)
 	}
 
-	if remove.planCalls != 1 || remove.calls != 0 {
-		t.Fatalf("remove calls = plan %d remove %d, want 1/0", remove.planCalls, remove.calls)
+	if remove.calls != 1 {
+		t.Fatalf("Remove calls = %d, want 1", remove.calls)
+	}
+	if !remove.req.DryRun {
+		t.Fatalf("Remove request = %+v, want dry-run", remove.req)
 	}
 	if locker.called {
 		t.Fatal("dry-run remove should not use write lock")
@@ -426,10 +429,9 @@ func (service *recordingListService) List(ctx context.Context, req appservices.L
 }
 
 type recordingRemoveService struct {
-	calls     int
-	planCalls int
-	req       appservices.RemoveRequest
-	result    *appservices.RemoveResult
+	calls  int
+	req    appservices.RemoveRequest
+	result *appservices.RemoveResult
 }
 
 func (service *recordingRemoveService) Remove(ctx context.Context, req appservices.RemoveRequest) (*appservices.RemoveResult, error) {
@@ -437,17 +439,6 @@ func (service *recordingRemoveService) Remove(ctx context.Context, req appservic
 	service.calls++
 	service.req = req
 	return service.result, nil
-}
-
-func (service *recordingRemoveService) PlanRemove(ctx context.Context, req appservices.RemoveRequest) (*appservices.DryRunPlan, error) {
-	_ = ctx
-	service.planCalls++
-	service.req = req
-	return &appservices.DryRunPlan{
-		Action: service.result.Action,
-		App:    service.result.App,
-		Paths:  service.result.Paths,
-	}, nil
 }
 
 type recordingInfoService struct {

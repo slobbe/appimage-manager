@@ -164,6 +164,53 @@ func TestDiscoveryWorkflowServiceUsesConfiguredBackends(t *testing.T) {
 	}
 }
 
+func TestRemoveWorkflowServiceDryRunUsesStoreWithoutRemoving(t *testing.T) {
+	var removeCalls int
+	service := RemoveWorkflowService{
+		Store: fakeAppStore{apps: map[string]*domain.App{
+			"app": {ID: "app", Name: "App", ExecPath: "/apps/app/app.AppImage", DesktopEntryLink: "/applications/app.desktop"},
+		}},
+		RemoveFunc: func(context.Context, string, bool) (*domain.App, error) {
+			removeCalls++
+			return nil, nil
+		},
+	}
+
+	result, err := service.Remove(context.Background(), RemoveRequest{ID: "app", DryRun: true})
+	if err != nil {
+		t.Fatalf("Remove returned error: %v", err)
+	}
+	if removeCalls != 0 {
+		t.Fatalf("remove calls = %d, want 0", removeCalls)
+	}
+	if result == nil || result.Action != "remove" || result.App == nil || result.App.ID != "app" || len(result.Paths) == 0 {
+		t.Fatalf("Remove dry-run result = %+v", result)
+	}
+}
+
+func TestRemoveWorkflowServiceRemoveUsesRemoveFunc(t *testing.T) {
+	var gotID string
+	var gotUnlink bool
+	service := RemoveWorkflowService{
+		RemoveFunc: func(_ context.Context, id string, unlink bool) (*domain.App, error) {
+			gotID = id
+			gotUnlink = unlink
+			return &domain.App{ID: id, Name: "App"}, nil
+		},
+	}
+
+	result, err := service.Remove(context.Background(), RemoveRequest{ID: "app", Unlink: true})
+	if err != nil {
+		t.Fatalf("Remove returned error: %v", err)
+	}
+	if gotID != "app" || !gotUnlink {
+		t.Fatalf("RemoveFunc args = id %q unlink %v, want app/true", gotID, gotUnlink)
+	}
+	if result == nil || result.Action != "unlink" || result.App == nil || result.App.ID != "app" {
+		t.Fatalf("Remove result = %+v", result)
+	}
+}
+
 func TestRemoveDryRunValues(t *testing.T) {
 	app := &domain.App{
 		ID:               "app",

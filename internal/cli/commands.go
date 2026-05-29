@@ -358,48 +358,41 @@ func RemoveCmd(cmd *cobra.Command, args []string) error {
 	}
 
 	opts := runtimeOptionsFrom(cmd)
-	if opts.DryRun {
-		return runCommand(cmd, commandRunOptions{}, func(ctx context.Context) (*appservices.DryRunPlan, error) {
-			plan, err := runtimeServicesFrom(cmd).Remove.PlanRemove(ctx, appservices.RemoveRequest{ID: id, Unlink: unlink})
-			if err != nil {
-				return nil, wrapManagedAppLookupError(id, err)
-			}
-			return plan, nil
-		}, func(plan *appservices.DryRunPlan) error {
-			if opts.JSON {
-				return printJSONSuccess(cmd, map[string]interface{}{
-					"action": plan.Action,
-					"unlink": unlink,
-					"app":    plan.App,
-					"paths":  plan.Paths,
-				})
-			}
-			app := plan.App
-			if app == nil {
-				return softwareError(fmt.Errorf("remove dry-run plan missing app"))
-			}
-			writeDataf(cmd, "Dry run: would %s %s [%s]\n", plan.Action, app.Name, app.ID)
-			for _, path := range plan.Paths {
-				writeDataf(cmd, "  %s\n", path)
-			}
-			return nil
-		})
-	}
-
-	return runCommand(cmd, commandRunOptions{RequiresRuntimeDirs: true, RequiresWriteLock: true}, func(ctx context.Context) (*appservices.RemoveResult, error) {
-		logOperationf(cmd, "Removing %s", id)
-		result, err := runtimeServicesFrom(cmd).Remove.Remove(ctx, appservices.RemoveRequest{ID: id, Unlink: unlink})
+	return runCommand(cmd, commandRunOptions{RequiresRuntimeDirs: !opts.DryRun, RequiresWriteLock: !opts.DryRun}, func(ctx context.Context) (*appservices.RemoveResult, error) {
+		if !opts.DryRun {
+			logOperationf(cmd, "Removing %s", id)
+		}
+		result, err := runtimeServicesFrom(cmd).Remove.Remove(ctx, appservices.RemoveRequest{ID: id, Unlink: unlink, DryRun: opts.DryRun})
 		if err != nil {
 			return nil, wrapManagedAppLookupError(id, err)
 		}
 		return result, nil
 	}, func(result *appservices.RemoveResult) error {
+		if result == nil || result.App == nil {
+			if opts.DryRun {
+				return softwareError(fmt.Errorf("remove dry-run plan missing app"))
+			}
+			return softwareError(fmt.Errorf("remove result missing app"))
+		}
+		if opts.DryRun {
+			if opts.JSON {
+				return printJSONSuccess(cmd, map[string]interface{}{
+					"action": result.Action,
+					"unlink": unlink,
+					"app":    result.App,
+					"paths":  result.Paths,
+				})
+			}
+			writeDataf(cmd, "Dry run: would %s %s [%s]\n", result.Action, result.App.Name, result.App.ID)
+			for _, path := range result.Paths {
+				writeDataf(cmd, "  %s\n", path)
+			}
+			return nil
+		}
+
 		label := "Removed"
 		if unlink {
 			label = "Unlinked"
-		}
-		if result == nil || result.App == nil {
-			return softwareError(fmt.Errorf("remove result missing app"))
 		}
 		if opts.JSON {
 			return printJSONSuccess(cmd, map[string]interface{}{

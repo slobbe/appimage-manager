@@ -31,7 +31,6 @@ type InfoService interface {
 
 type RemoveService interface {
 	Remove(ctx context.Context, req RemoveRequest) (*RemoveResult, error)
-	PlanRemove(ctx context.Context, req RemoveRequest) (*DryRunPlan, error)
 }
 
 type UpdateService interface {
@@ -108,6 +107,7 @@ type ListRequest struct {
 type RemoveRequest struct {
 	ID     string
 	Unlink bool
+	DryRun bool
 }
 
 type ManagedUpdateCheckRequest struct {
