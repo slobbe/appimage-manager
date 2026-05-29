@@ -11,25 +11,26 @@ Completed:
 - [x] Removed `UpdateApplyBatchResult.LegacyResults`.
 - [x] Moved applied-update persistence and superseded-app cleanup behind `internal/app/services.SourceUpdateService`.
 - [x] Removed direct `internal/app/clock` and `internal/app/integrate` imports from `internal/cli/update_workflow.go`.
+- [x] Removed `internal/domain` and `internal/app/update` imports from `internal/cli/commands.go`.
+- [x] Removed `internal/domain` imports from `internal/cli/output.go`.
+- [x] Removed `internal/domain` and `internal/app/discovery` imports from `internal/cli/package_sources.go`.
+- [x] Removed `internal/domain` and `internal/app/update` imports from `internal/cli/update_workflow.go`.
 - [x] Tightened the architecture allowlist for removed seams.
 
 Remaining allowlisted production CLI files:
 
-- `internal/cli/commands.go`
-- `internal/cli/output.go`
-- `internal/cli/package_sources.go`
-- `internal/cli/update_workflow.go`
+- None.
 
 The goal is to make regular CLI files depend only on `internal/app/services` plus presentation/framework packages. Runtime composition files such as `runtime.go` and `runtime_wiring.go` may continue wiring concrete app/infra/domain dependencies.
 
 ## Target State
 
-- [ ] Normal CLI command/workflow files do not import `internal/domain`.
-- [ ] Normal CLI command/workflow files do not import lower-level `internal/app/*` packages except `internal/app/services`.
-- [ ] CLI constructs domain-free request DTOs and receives domain-free result DTOs.
-- [ ] App services own workflow coordination, persistence, cache updates, and domain conversion.
-- [ ] CLI owns only argument parsing, prompts, progress display, output rendering, and user-facing error text.
-- [ ] `scripts/check-architecture.sh` has no migration allowlist for production CLI files, except true runtime/composition exceptions.
+- [x] Normal CLI command/workflow files do not import `internal/domain`.
+- [x] Normal CLI command/workflow files do not import lower-level `internal/app/*` packages except `internal/app/services`.
+- [x] CLI constructs domain-free request DTOs and receives domain-free result DTOs.
+- [x] App services own workflow coordination, persistence, cache updates, and domain conversion.
+- [x] CLI owns only argument parsing, prompts, progress display, output rendering, and user-facing error text.
+- [x] `scripts/check-architecture.sh` has no migration allowlist for production CLI files, except true runtime/composition exceptions.
 
 ## Cleanup Plan
 
@@ -44,22 +45,22 @@ Current reasons:
 
 Tasks:
 
-- [ ] Introduce/finish domain-free app-service input DTOs for package refs.
+- [x] Introduce/finish domain-free app-service input DTOs for package refs.
   - Candidate types already present/nearby: `ProviderRef`, `PackageView`.
   - Add request DTOs if needed, e.g. `PackageRefInput` or use `ProviderRef` consistently.
-- [ ] Move `resolveUpdateSourceFromSetFlags` output from `*domain.UpdateSource` to an app-service input DTO.
-- [ ] Add app-service conversion/validation for update source input.
-- [ ] Change `UpdateSourceRequest` to accept domain-free source input or add a separate `SetSourceInputRequest`.
-- [ ] Move update-source equality/summary helpers that need domain constants behind app-service view helpers or use string-only constants in CLI.
-- [ ] Replace `appupdate.ManagedUpdateDownloadFilename` usage with an app-service wrapper/helper if still needed from CLI.
-- [ ] Remove `internal/domain` and `internal/app/update` imports from `internal/cli/commands.go`.
-- [ ] Remove the `commands.go` allowlist entry from `scripts/check-architecture.sh`.
+- [x] Move `resolveUpdateSourceFromSetFlags` output from `*domain.UpdateSource` to an app-service input DTO.
+- [x] Add app-service conversion/validation for update source input.
+- [x] Change `UpdateSourceRequest` to accept domain-free source input or add a separate `SetSourceInputRequest`.
+- [x] Move update-source equality/summary helpers that need domain constants behind app-service view helpers or use string-only constants in CLI.
+- [x] Replace `appupdate.ManagedUpdateDownloadFilename` usage with an app-service wrapper/helper if still needed from CLI.
+- [x] Remove `internal/domain` and `internal/app/update` imports from `internal/cli/commands.go`.
+- [x] Remove the `commands.go` allowlist entry from `scripts/check-architecture.sh`.
 
 Validation:
 
-- [ ] `go test ./internal/cli`
-- [ ] `go test ./internal/app/services`
-- [ ] `make test-architecture`
+- [x] `go test ./internal/cli`
+- [x] `go test ./internal/app/services`
+- [x] `make test-architecture`
 
 ### 2. Remove `internal/domain` from `internal/cli/output.go`
 
@@ -70,16 +71,16 @@ Current reasons:
 
 Tasks:
 
-- [ ] Change update row construction to accept `appservices.AppSummary` / `AppDetails` and `ManagedUpdateView`.
-- [ ] Move any remaining domain package metadata JSON rendering to `PackageView`.
-- [ ] Replace `packageMetadataOutput` with a `PackageView`-based output helper or remove it if callers are migrated.
-- [ ] Remove `internal/domain` import from `internal/cli/output.go`.
-- [ ] Remove the `output.go` allowlist entry from `scripts/check-architecture.sh`.
+- [x] Change update row construction to accept `appservices.AppSummary` / `AppDetails` and `ManagedUpdateView`.
+- [x] Move any remaining domain package metadata JSON rendering to `PackageView`.
+- [x] Replace `packageMetadataOutput` with a `PackageView`-based output helper or remove it if callers are migrated.
+- [x] Remove `internal/domain` import from `internal/cli/output.go`.
+- [x] Remove the `output.go` allowlist entry from `scripts/check-architecture.sh`.
 
 Validation:
 
-- [ ] `go test ./internal/cli`
-- [ ] `make test-architecture`
+- [x] `go test ./internal/cli`
+- [x] `make test-architecture`
 
 ### 3. Remove `internal/domain` and `internal/app/discovery` from `internal/cli/package_sources.go`
 
@@ -91,19 +92,19 @@ Current reasons:
 
 Tasks:
 
-- [ ] Move package ref parsing into app services, or expose it through `internal/app/services`.
-- [ ] Move package metadata resolution for add/info/dry-run into `DiscoveryService` / `AddService` calls.
-- [ ] Replace `resolvePackageMetadataFromRef` and `resolvePackageMetadataFromInput` with app-service methods returning `PackageView` or install-ready app-service DTOs.
-- [ ] Convert ambiguity resolution to operate on `PackageView` or app-service input/output only.
-- [ ] Remove remaining domain-based package helper functions.
-- [ ] Remove `internal/domain` and `internal/app/discovery` imports from `internal/cli/package_sources.go`.
-- [ ] Remove the `package_sources.go` allowlist entry from `scripts/check-architecture.sh`.
+- [x] Move package ref parsing into app services, or expose it through `internal/app/services`.
+- [x] Move package metadata resolution for add/info/dry-run into `DiscoveryService` / `AddService` calls.
+- [x] Replace `resolvePackageMetadataFromRef` and `resolvePackageMetadataFromInput` with app-service methods returning `PackageView` or install-ready app-service DTOs.
+- [x] Convert ambiguity resolution to operate on `PackageView` or app-service input/output only.
+- [x] Remove remaining domain-based package helper functions.
+- [x] Remove `internal/domain` and `internal/app/discovery` imports from `internal/cli/package_sources.go`.
+- [x] Remove the `package_sources.go` allowlist entry from `scripts/check-architecture.sh`.
 
 Validation:
 
-- [ ] `go test ./internal/cli`
-- [ ] `go test ./internal/app/services`
-- [ ] `make test-architecture`
+- [x] `go test ./internal/cli`
+- [x] `go test ./internal/app/services`
+- [x] `make test-architecture`
 
 ### 4. Remove `internal/domain` and `internal/app/update` from `internal/cli/update_workflow.go`
 
@@ -116,49 +117,49 @@ Current reasons:
 
 Tasks:
 
-- [ ] Add an app-service check workflow that returns domain-free update rows/statuses and pending update handles/views.
-- [ ] Move update-check cache read/write/invalidation coordination behind app/runtime ports.
-- [ ] Move check metadata persistence behind app-service coordination.
-- [ ] Convert `managedUpdateRunConfig` to hold app-service requests/results instead of domain apps and app-update values.
-- [ ] Convert `managedUpdateCollection.pending` away from `[]appupdate.ManagedUpdate` in CLI.
-- [ ] Convert progress event/reporting types to app-service DTOs or callbacks so CLI does not import `internal/app/update`.
-- [ ] Remove `pendingManagedUpdate`, `managedCheckResult`, and app-update aliases from CLI.
-- [ ] Remove `internal/domain` and `internal/app/update` imports from `internal/cli/update_workflow.go`.
-- [ ] Remove the `update_workflow.go` allowlist entry from `scripts/check-architecture.sh`.
+- [x] Add an app-service check workflow that returns domain-free update rows/statuses and pending update handles/views.
+- [x] Move update-check cache read/write/invalidation coordination behind app/runtime ports.
+- [x] Move check metadata persistence behind app-service coordination.
+- [x] Convert `managedUpdateRunConfig` to hold app-service requests/results instead of domain apps and app-update values.
+- [x] Convert `managedUpdateCollection.pending` away from `[]appupdate.ManagedUpdate` in CLI.
+- [x] Convert progress event/reporting types to app-service DTOs or callbacks so CLI does not import `internal/app/update`.
+- [x] Remove `pendingManagedUpdate`, `managedCheckResult`, and app-update aliases from CLI.
+- [x] Remove `internal/domain` and `internal/app/update` imports from `internal/cli/update_workflow.go`.
+- [x] Remove the `update_workflow.go` allowlist entry from `scripts/check-architecture.sh`.
 
 Validation:
 
-- [ ] `go test ./internal/app/services`
-- [ ] `go test ./internal/app/update`
-- [ ] `go test ./internal/cli`
-- [ ] `make test-architecture`
-- [ ] `make check`
+- [x] `go test ./internal/app/services`
+- [x] `go test ./internal/app/update`
+- [x] `go test ./internal/cli`
+- [x] `make test-architecture`
+- [x] `make check`
 
 ### 5. Migrate legacy CLI tests and shrink test allowlist
 
 Current reason:
 
-- `internal/cli/commands_test.go` remains a broad legacy/integration-style test file and is still allowlisted for direct domain/app/infra imports.
+- `internal/cli/commands_integration_test.go` remains a broad integration-style test file and is still allowlisted for direct domain/app/infra imports.
 
 Tasks:
 
-- [ ] Split app-service-bound command tests into focused tests using fake `internal/app/services`.
-- [ ] Keep true integration/wiring tests separate and explicit.
-- [ ] Reduce `commands_test.go` imports by moving domain/app/infra setup to app/service or runtime-wiring tests where appropriate.
-- [ ] Remove or narrow the `commands_test.go` test allowlist in `scripts/check-architecture.sh`.
+- [x] Split app-service-bound command tests into focused tests using fake `internal/app/services`.
+- [x] Keep true integration/wiring tests separate and explicit.
+- [x] Reduce `commands_test.go` imports by moving domain/app/infra setup to app/service or runtime-wiring tests where appropriate.
+- [x] Remove or narrow the `commands_test.go` test allowlist in `scripts/check-architecture.sh`.
 
 Validation:
 
-- [ ] `go test ./internal/cli`
-- [ ] `make test-architecture`
+- [x] `go test ./internal/cli`
+- [x] `make test-architecture`
 
 ## Final Acceptance Criteria
 
-- [ ] `grep` for normal production CLI imports shows only `internal/app/services` among internal layers, excluding `runtime.go` and `runtime_wiring.go`.
-- [ ] `scripts/check-architecture.sh` has no production CLI migration allowlist entries.
-- [ ] No app-service result types contain hidden domain legacy bridge fields.
-- [ ] `make test-architecture` passes.
-- [ ] `make check` passes.
+- [x] `grep` for normal production CLI imports shows only `internal/app/services` among internal layers, excluding `runtime.go` and `runtime_wiring.go`.
+- [x] `scripts/check-architecture.sh` has no production CLI migration allowlist entries.
+- [x] No app-service result types contain hidden domain legacy bridge fields.
+- [x] `make test-architecture` passes.
+- [x] `make check` passes.
 
 Useful commands:
 

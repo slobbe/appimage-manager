@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	appservices "github.com/slobbe/appimage-manager/internal/app/services"
-	models "github.com/slobbe/appimage-manager/internal/domain"
 	"github.com/spf13/cobra"
 	"io"
 	"net"
@@ -141,7 +140,7 @@ func listCSVHeader() []string {
 	return []string{"id", "name", "version", "integrated", "exec_path", "update_available", "latest_version", "last_checked_at"}
 }
 
-func newUpdateOutputRow(app *models.App, update *pendingManagedUpdate, status, checkedAt string) updateOutputRow {
+func newUpdateOutputRow(app *appservices.AppSummary, update *appservices.ManagedUpdateView, status, checkedAt string) updateOutputRow {
 	row := updateOutputRow{
 		Status:        status,
 		LastCheckedAt: checkedAt,
@@ -156,7 +155,7 @@ func newUpdateOutputRow(app *models.App, update *pendingManagedUpdate, status, c
 		row.UpdateAvailable = update.Available && update.URL != ""
 		row.DownloadURL = update.URL
 		row.Asset = update.Asset
-		row.SourceKind = string(update.FromKind)
+		row.SourceKind = update.FromKind
 	}
 	return row
 }
@@ -205,29 +204,6 @@ func (row updateOutputRow) plainRow() []string {
 
 func updatePlainHeader() []string {
 	return []string{"id", "current_version", "latest_version", "status", "source_kind"}
-}
-
-func packageMetadataOutput(metadata *models.PackageMetadata) map[string]interface{} {
-	if metadata == nil {
-		return nil
-	}
-	return map[string]interface{}{
-		"name":             metadata.Name,
-		"provider":         metadata.Provider,
-		"ref":              metadata.Ref,
-		"repo_url":         metadata.RepoURL,
-		"latest_version":   metadata.LatestVersion,
-		"asset_name":       metadata.AssetName,
-		"asset_pattern":    metadata.AssetPattern,
-		"download_url":     metadata.DownloadURL,
-		"asset_candidates": metadata.AssetCandidates,
-		"asset_ambiguous":  metadata.AssetAmbiguous,
-		"asset_reason":     metadata.AssetReason,
-		"installable":      metadata.Installable,
-		"install_reason":   metadata.InstallReason,
-		"release_tag":      metadata.ReleaseTag,
-		"summary":          metadata.Summary,
-	}
 }
 
 func sortAppDetailsByID(apps map[string]*appservices.AppDetails) []*appservices.AppDetails {

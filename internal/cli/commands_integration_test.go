@@ -2391,11 +2391,11 @@ func TestResolveUpdateSourceFromSetFlags(t *testing.T) {
 			if source == nil {
 				t.Fatal("expected source")
 			}
-			if source.Kind != tt.expect {
+			if source.Kind != string(tt.expect) {
 				t.Fatalf("source.Kind = %q, want %q", source.Kind, tt.expect)
 			}
 			switch source.Kind {
-			case models.UpdateGitHubRelease:
+			case string(models.UpdateGitHubRelease):
 				if source.GitHubRelease == nil || source.GitHubRelease.Asset != tt.asset {
 					t.Fatalf("github asset = %q, want %q", source.GitHubRelease.Asset, tt.asset)
 				}
@@ -3648,8 +3648,8 @@ func TestManagedUpdateJSONOutput(t *testing.T) {
 	t.Cleanup(func() {
 		runAppUpdateCheck = originalCheck
 	})
-	runAppUpdateCheck = func(app *models.App) (*pendingManagedUpdate, error) {
-		return &pendingManagedUpdate{
+	runAppUpdateCheck = func(app *models.App) (*appupdate.ManagedUpdate, error) {
+		return &appupdate.ManagedUpdate{
 			App:       app,
 			Available: true,
 			URL:       "https://example.com/MyApp.AppImage",
@@ -4063,7 +4063,7 @@ func TestApplyManagedUpdateMissingZsyncRewritesError(t *testing.T) {
 		return nil, nil
 	}
 
-	err := applyZsyncUpdate(context.Background(), pendingManagedUpdate{
+	err := applyZsyncUpdate(context.Background(), appupdate.ManagedUpdate{
 		App:      &models.App{ID: "my-app", ExecPath: "/tmp/current.AppImage"},
 		ZsyncURL: "https://example.com/MyApp.AppImage.zsync",
 	}, filepath.Join(t.TempDir(), "out.AppImage"))
@@ -4085,7 +4085,7 @@ func TestVerifyDownloadedUpdateChecksumMismatchRewritesError(t *testing.T) {
 		t.Fatalf("failed to write file: %v", err)
 	}
 
-	err := verifyDownloadedUpdate(path, pendingManagedUpdate{
+	err := verifyDownloadedUpdate(path, appupdate.ManagedUpdate{
 		ExpectedSHA256: strings.Repeat("a", 64),
 	})
 	if err == nil {
@@ -4744,8 +4744,8 @@ func TestRunManagedUpdateSingleUpToDatePrintedOnce(t *testing.T) {
 	t.Cleanup(func() {
 		runAppUpdateCheck = originalCheck
 	})
-	runAppUpdateCheck = func(app *models.App) (*pendingManagedUpdate, error) {
-		return &pendingManagedUpdate{
+	runAppUpdateCheck = func(app *models.App) (*appupdate.ManagedUpdate, error) {
+		return &appupdate.ManagedUpdate{
 			App:       app,
 			Available: false,
 			FromKind:  models.UpdateGitHubRelease,
@@ -4787,7 +4787,7 @@ func TestRunManagedUpdateSingleNoSourceConfigured(t *testing.T) {
 	t.Cleanup(func() {
 		runAppUpdateCheck = originalCheck
 	})
-	runAppUpdateCheck = func(*models.App) (*pendingManagedUpdate, error) {
+	runAppUpdateCheck = func(*models.App) (*appupdate.ManagedUpdate, error) {
 		return nil, nil
 	}
 
@@ -4838,7 +4838,7 @@ func TestRunManagedUpdateBatchContinuesOnCheckFailure(t *testing.T) {
 	t.Cleanup(func() {
 		runAppUpdateCheck = originalCheck
 	})
-	runAppUpdateCheck = func(app *models.App) (*pendingManagedUpdate, error) {
+	runAppUpdateCheck = func(app *models.App) (*appupdate.ManagedUpdate, error) {
 		if app.ID == "app-a" {
 			return nil, fmt.Errorf("boom")
 		}
@@ -4889,7 +4889,7 @@ func TestRunManagedUpdateSingleCheckFailureRewritesError(t *testing.T) {
 	t.Cleanup(func() {
 		runAppUpdateCheck = originalCheck
 	})
-	runAppUpdateCheck = func(*models.App) (*pendingManagedUpdate, error) {
+	runAppUpdateCheck = func(*models.App) (*appupdate.ManagedUpdate, error) {
 		return nil, fmt.Errorf("boom")
 	}
 
@@ -4931,8 +4931,8 @@ func TestRunManagedUpdateBatchAllUpToDateSummary(t *testing.T) {
 	t.Cleanup(func() {
 		runAppUpdateCheck = originalCheck
 	})
-	runAppUpdateCheck = func(app *models.App) (*pendingManagedUpdate, error) {
-		return &pendingManagedUpdate{App: app, Available: false}, nil
+	runAppUpdateCheck = func(app *models.App) (*appupdate.ManagedUpdate, error) {
+		return &appupdate.ManagedUpdate{App: app, Available: false}, nil
 	}
 
 	cmd := newManagedUpdateTestCommand(t, map[string]string{"check-only": "true"})
@@ -4970,8 +4970,8 @@ func TestRunManagedUpdateCheckOnlyShowsDownloadAndAsset(t *testing.T) {
 	t.Cleanup(func() {
 		runAppUpdateCheck = originalCheck
 	})
-	runAppUpdateCheck = func(app *models.App) (*pendingManagedUpdate, error) {
-		return &pendingManagedUpdate{
+	runAppUpdateCheck = func(app *models.App) (*appupdate.ManagedUpdate, error) {
+		return &appupdate.ManagedUpdate{
 			App:       app,
 			Label:     "Update available",
 			Available: true,
@@ -5019,8 +5019,8 @@ func TestRunManagedUpdateSinglePromptText(t *testing.T) {
 	t.Cleanup(func() {
 		runAppUpdateCheck = originalCheck
 	})
-	runAppUpdateCheck = func(app *models.App) (*pendingManagedUpdate, error) {
-		return &pendingManagedUpdate{
+	runAppUpdateCheck = func(app *models.App) (*appupdate.ManagedUpdate, error) {
+		return &appupdate.ManagedUpdate{
 			App:       app,
 			Label:     "Update available",
 			Available: true,
@@ -5065,8 +5065,8 @@ func TestRunManagedUpdateBatchPromptText(t *testing.T) {
 	t.Cleanup(func() {
 		runAppUpdateCheck = originalCheck
 	})
-	runAppUpdateCheck = func(app *models.App) (*pendingManagedUpdate, error) {
-		return &pendingManagedUpdate{
+	runAppUpdateCheck = func(app *models.App) (*appupdate.ManagedUpdate, error) {
+		return &appupdate.ManagedUpdate{
 			App:       app,
 			Label:     "Update available",
 			Available: true,
@@ -5176,7 +5176,7 @@ func TestCheckAppUpdateZsyncUsesNormalizedVersionWhenAvailable(t *testing.T) {
 		t.Fatalf("Latest = %q, want %q", result.Latest, "0.10.6.1")
 	}
 
-	msg := buildManagedUpdateMessage(*result, false)
+	msg := buildManagedUpdateMessage(testManagedUpdateView(*result), false)
 	if !strings.Contains(msg, "[helium] v0.10.5.1 -> v0.10.6.1") {
 		t.Fatalf("expected normalized version transition, got:\n%s", msg)
 	}
@@ -5260,7 +5260,7 @@ func TestCheckAppUpdateZsyncFallsBackToUnknownWithoutNormalizedVersion(t *testin
 		t.Fatalf("Latest = %q, want empty", result.Latest)
 	}
 
-	msg := buildManagedUpdateMessage(*result, false)
+	msg := buildManagedUpdateMessage(testManagedUpdateView(*result), false)
 	if !strings.Contains(msg, "[helium] v0.10.5.1 -> unknown") {
 		t.Fatalf("expected unknown fallback, got:\n%s", msg)
 	}
@@ -5303,7 +5303,7 @@ func TestCheckAppUpdateGitHubDisplaysNormalizedLatest(t *testing.T) {
 		t.Fatalf("Latest = %q, want %q", result.Latest, "3.202.0")
 	}
 
-	msg := buildManagedUpdateMessage(*result, false)
+	msg := buildManagedUpdateMessage(testManagedUpdateView(*result), false)
 	if !strings.Contains(msg, "[standard-notes] v3.201.19 -> v3.202.0") {
 		t.Fatalf("expected normalized version transition, got:\n%s", msg)
 	}
@@ -5373,7 +5373,7 @@ func TestRunManagedChecksPreservesInputOrder(t *testing.T) {
 		runAppUpdateCheck = originalCheck
 	})
 
-	runAppUpdateCheck = func(app *models.App) (*pendingManagedUpdate, error) {
+	runAppUpdateCheck = func(app *models.App) (*appupdate.ManagedUpdate, error) {
 		switch app.ID {
 		case "a":
 			time.Sleep(40 * time.Millisecond)
@@ -5383,7 +5383,7 @@ func TestRunManagedChecksPreservesInputOrder(t *testing.T) {
 			time.Sleep(20 * time.Millisecond)
 		}
 
-		return &pendingManagedUpdate{
+		return &appupdate.ManagedUpdate{
 			App:       app,
 			Available: false,
 			FromKind:  models.UpdateNone,
@@ -5402,10 +5402,10 @@ func TestRunManagedChecksPreservesInputOrder(t *testing.T) {
 	}
 
 	for i, app := range apps {
-		if results[i].app == nil || results[i].app.ID != app.ID {
-			t.Fatalf("results[%d].app.ID = %q, want %q", i, results[i].app.ID, app.ID)
+		if results[i].App == nil || results[i].App.ID != app.ID {
+			t.Fatalf("results[%d].app.ID = %q, want %q", i, results[i].App.ID, app.ID)
 		}
-		if results[i].update == nil || results[i].update.App == nil || results[i].update.App.ID != app.ID {
+		if results[i].Update == nil || results[i].Update.App == nil || results[i].Update.App.ID != app.ID {
 			t.Fatalf("results[%d].update app mismatch", i)
 		}
 	}
@@ -5418,9 +5418,9 @@ func TestRunManagedChecksDeduplicatesEquivalentInputs(t *testing.T) {
 	})
 
 	var calls int32
-	runAppUpdateCheck = func(app *models.App) (*pendingManagedUpdate, error) {
+	runAppUpdateCheck = func(app *models.App) (*appupdate.ManagedUpdate, error) {
 		atomic.AddInt32(&calls, 1)
-		return &pendingManagedUpdate{
+		return &appupdate.ManagedUpdate{
 			App:       app,
 			Available: false,
 			FromKind:  models.UpdateGitHubRelease,
@@ -5459,10 +5459,10 @@ func TestRunManagedChecksDeduplicatesEquivalentInputs(t *testing.T) {
 	if atomic.LoadInt32(&calls) != 1 {
 		t.Fatalf("runAppUpdateCheck calls = %d, want 1", calls)
 	}
-	if results[0].update == nil || results[1].update == nil {
+	if results[0].Update == nil || results[1].Update == nil {
 		t.Fatal("expected updates in both results")
 	}
-	if results[0].update.App == results[1].update.App {
+	if results[0].Update.App == results[1].Update.App {
 		t.Fatal("expected distinct app pointers per deduplicated result")
 	}
 }
@@ -5474,9 +5474,9 @@ func TestRunManagedChecksDoesNotDeduplicateDifferentLocalVersion(t *testing.T) {
 	})
 
 	var calls int32
-	runAppUpdateCheck = func(app *models.App) (*pendingManagedUpdate, error) {
+	runAppUpdateCheck = func(app *models.App) (*appupdate.ManagedUpdate, error) {
 		atomic.AddInt32(&calls, 1)
-		return &pendingManagedUpdate{
+		return &appupdate.ManagedUpdate{
 			App:       app,
 			Available: false,
 			FromKind:  models.UpdateGitHubRelease,
@@ -5521,9 +5521,9 @@ func TestManagedCheckWorkerCount(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		got := managedCheckWorkerCount(tt.input)
+		got := appupdate.ManagedCheckWorkerCount(tt.input)
 		if got != tt.expect {
-			t.Fatalf("managedCheckWorkerCount(%d) = %d, want %d", tt.input, got, tt.expect)
+			t.Fatalf("appupdate.ManagedCheckWorkerCount(%d) = %d, want %d", tt.input, got, tt.expect)
 		}
 	}
 }
@@ -5541,15 +5541,15 @@ func TestManagedApplyWorkerCount(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		got := managedApplyWorkerCount(tt.input)
+		got := appupdate.ManagedApplyWorkerCount(tt.input)
 		if got != tt.expect {
-			t.Fatalf("managedApplyWorkerCount(%d) = %d, want %d", tt.input, got, tt.expect)
+			t.Fatalf("appupdate.ManagedApplyWorkerCount(%d) = %d, want %d", tt.input, got, tt.expect)
 		}
 	}
 }
 
 func TestBuildManagedUpdateMessage(t *testing.T) {
-	update := pendingManagedUpdate{
+	update := appupdate.ManagedUpdate{
 		App: &models.App{
 			ID:      "obsidian",
 			Version: "1.11.6-linux-x86_64",
@@ -5560,7 +5560,7 @@ func TestBuildManagedUpdateMessage(t *testing.T) {
 		Asset:  "Obsidian-1.11.7.AppImage",
 	}
 
-	msgManaged := buildManagedUpdateMessage(update, false)
+	msgManaged := buildManagedUpdateMessage(testManagedUpdateView(update), false)
 	if strings.Contains(msgManaged, "Download:") {
 		t.Fatalf("managed update message should not include manual download hint: %s", msgManaged)
 	}
@@ -5568,7 +5568,7 @@ func TestBuildManagedUpdateMessage(t *testing.T) {
 		t.Fatalf("managed update message should include version transition: %s", msgManaged)
 	}
 
-	msgCheckOnly := buildManagedUpdateMessage(update, true)
+	msgCheckOnly := buildManagedUpdateMessage(testManagedUpdateView(update), true)
 	if msgCheckOnly != msgManaged {
 		t.Fatalf("check-only message should use the same summary line, got %q want %q", msgCheckOnly, msgManaged)
 	}
@@ -5588,12 +5588,12 @@ func TestFormatAppRefNormalizesPlatformSuffixedVersion(t *testing.T) {
 }
 
 func TestUpdateVersionTransitionUnknownLatest(t *testing.T) {
-	update := pendingManagedUpdate{
+	update := appupdate.ManagedUpdate{
 		App:    &models.App{Version: "2.0.0"},
 		Latest: "",
 	}
 
-	transition := updateVersionTransition(update)
+	transition := updateVersionTransition(testManagedUpdateView(update))
 	if transition != "v2.0.0 -> unknown" {
 		t.Fatalf("updateVersionTransition = %q", transition)
 	}
@@ -5730,8 +5730,8 @@ func TestManagedApplyAggregateDescription(t *testing.T) {
 func TestBatchManagedApplyControllerFinishPrintsFailuresAndSummary(t *testing.T) {
 	output := captureStdout(t, func() {
 		controller := newBatchManagedApplyController(&cobra.Command{}, 2)
-		controller.Event(managedApplyEvent{Index: 0, AppID: "app-a", Stage: managedApplyStageDone})
-		controller.Event(managedApplyEvent{Index: 1, AppID: "app-b", Stage: managedApplyStageFailed})
+		controller.Event(appservices.ManagedApplyEvent{Index: 0, AppID: "app-a", Stage: appservices.ManagedApplyStageDone})
+		controller.Event(appservices.ManagedApplyEvent{Index: 1, AppID: "app-b", Stage: appservices.ManagedApplyStageFailed})
 		controller.Finish([]managedApplyResult{
 			{index: 0, app: &appservices.AppSummary{ID: "app-a"}, updatedApp: &appservices.AppDetails{AppSummary: appservices.AppSummary{ID: "app-a", Version: "1.1.0"}}},
 			{index: 1, app: &appservices.AppSummary{ID: "app-b"}, err: fmt.Errorf("boom")},
@@ -5769,8 +5769,8 @@ func TestRunManagedUpdateUsesUnifiedApplyUIForSingleApp(t *testing.T) {
 		t.Fatalf("failed to write test DB: %v", err)
 	}
 
-	runAppUpdateCheck = func(app *models.App) (*pendingManagedUpdate, error) {
-		return &pendingManagedUpdate{
+	runAppUpdateCheck = func(app *models.App) (*appupdate.ManagedUpdate, error) {
+		return &appupdate.ManagedUpdate{
 			App:       app,
 			Label:     "Update available",
 			Available: true,
@@ -5778,11 +5778,11 @@ func TestRunManagedUpdateUsesUnifiedApplyUIForSingleApp(t *testing.T) {
 			URL:       "https://example.com/MyApp.AppImage",
 		}, nil
 	}
-	runManagedApply = func(ctx context.Context, update pendingManagedUpdate, reporter managedApplyReporter) (*models.App, error) {
-		emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageDownload, Downloaded: 1024, DownloadTotal: 2048})
-		emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageVerify})
-		emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageIntegrate})
-		emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageDone, Version: "1.1.0"})
+	runManagedApply = func(ctx context.Context, update appupdate.ManagedUpdate, reporter appservices.ManagedApplyReporter) (*models.App, error) {
+		emitManagedApplyEvent(reporter, appservices.ManagedApplyEvent{Stage: appservices.ManagedApplyStageDownload, Downloaded: 1024, DownloadTotal: 2048})
+		emitManagedApplyEvent(reporter, appservices.ManagedApplyEvent{Stage: appservices.ManagedApplyStageVerify})
+		emitManagedApplyEvent(reporter, appservices.ManagedApplyEvent{Stage: appservices.ManagedApplyStageIntegrate})
+		emitManagedApplyEvent(reporter, appservices.ManagedApplyEvent{Stage: appservices.ManagedApplyStageDone, Version: "1.1.0"})
 		return &models.App{ID: update.App.ID, Version: "1.1.0"}, nil
 	}
 
@@ -5864,13 +5864,13 @@ func TestDownloadUpdateAssetWithDescriptionPrintsFilenameLabel(t *testing.T) {
 func TestSingleManagedApplyControllerKeepsSpinnerUntilByteProgressArrives(t *testing.T) {
 	controller := newSingleManagedApplyController(&cobra.Command{}, "my-app")
 
-	controller.Event(managedApplyEvent{Stage: managedApplyStageQueued})
-	controller.Event(managedApplyEvent{Stage: managedApplyStageDownload, Downloaded: 0, DownloadTotal: 0})
+	controller.Event(appservices.ManagedApplyEvent{Stage: appservices.ManagedApplyStageQueued})
+	controller.Event(appservices.ManagedApplyEvent{Stage: appservices.ManagedApplyStageDownload, Downloaded: 0, DownloadTotal: 0})
 	if controller.handleMode != progressModeSpinner {
 		t.Fatalf("handleMode after initial download event = %v, want %v", controller.handleMode, progressModeSpinner)
 	}
 
-	controller.Event(managedApplyEvent{Stage: managedApplyStageDownload, Downloaded: 1024, DownloadTotal: 2048})
+	controller.Event(appservices.ManagedApplyEvent{Stage: appservices.ManagedApplyStageDownload, Downloaded: 1024, DownloadTotal: 2048})
 	if controller.handleMode != progressModeBytes {
 		t.Fatalf("handleMode after byte progress = %v, want %v", controller.handleMode, progressModeBytes)
 	}
@@ -5879,8 +5879,8 @@ func TestSingleManagedApplyControllerKeepsSpinnerUntilByteProgressArrives(t *tes
 func TestSingleManagedApplyControllerUsesDownloadFilename(t *testing.T) {
 	controller := newSingleManagedApplyController(&cobra.Command{}, "my-app")
 
-	controller.Event(managedApplyEvent{
-		Stage:         managedApplyStageDownload,
+	controller.Event(appservices.ManagedApplyEvent{
+		Stage:         appservices.ManagedApplyStageDownload,
 		Downloaded:    1024,
 		DownloadTotal: 2048,
 		DownloadName:  "My-App-v0.1.0-amd64.AppImage",
@@ -5898,8 +5898,8 @@ func TestSingleManagedApplyControllerUsesDownloadFilename(t *testing.T) {
 func TestSingleManagedApplyControllerFallsBackToAppIDForDownloadLabel(t *testing.T) {
 	controller := newSingleManagedApplyController(&cobra.Command{}, "my-app")
 
-	controller.Event(managedApplyEvent{
-		Stage:         managedApplyStageDownload,
+	controller.Event(appservices.ManagedApplyEvent{
+		Stage:         appservices.ManagedApplyStageDownload,
 		Downloaded:    1024,
 		DownloadTotal: 2048,
 	})
@@ -5936,8 +5936,8 @@ func TestRunManagedUpdateAppliesConcurrentlyWithMaxFiveWorkers(t *testing.T) {
 		t.Fatalf("failed to write test DB: %v", err)
 	}
 
-	runAppUpdateCheck = func(app *models.App) (*pendingManagedUpdate, error) {
-		return &pendingManagedUpdate{
+	runAppUpdateCheck = func(app *models.App) (*appupdate.ManagedUpdate, error) {
+		return &appupdate.ManagedUpdate{
 			App:       app,
 			Label:     "Update available",
 			Available: true,
@@ -5948,7 +5948,7 @@ func TestRunManagedUpdateAppliesConcurrentlyWithMaxFiveWorkers(t *testing.T) {
 
 	var current int32
 	var observedMax int32
-	runManagedApply = func(ctx context.Context, update pendingManagedUpdate, reporter managedApplyReporter) (*models.App, error) {
+	runManagedApply = func(ctx context.Context, update appupdate.ManagedUpdate, reporter appservices.ManagedApplyReporter) (*models.App, error) {
 		active := atomic.AddInt32(&current, 1)
 		for {
 			max := atomic.LoadInt32(&observedMax)
@@ -5961,7 +5961,7 @@ func TestRunManagedUpdateAppliesConcurrentlyWithMaxFiveWorkers(t *testing.T) {
 		}
 		time.Sleep(25 * time.Millisecond)
 		atomic.AddInt32(&current, -1)
-		emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageDone, Version: "2.0.0"})
+		emitManagedApplyEvent(reporter, appservices.ManagedApplyEvent{Stage: appservices.ManagedApplyStageDone, Version: "2.0.0"})
 		return &models.App{ID: update.App.ID, Version: "2.0.0"}, nil
 	}
 
@@ -6001,8 +6001,8 @@ func TestRunManagedUpdateAllowsConcurrentDownloadStages(t *testing.T) {
 		t.Fatalf("failed to write test DB: %v", err)
 	}
 
-	runAppUpdateCheck = func(app *models.App) (*pendingManagedUpdate, error) {
-		return &pendingManagedUpdate{
+	runAppUpdateCheck = func(app *models.App) (*appupdate.ManagedUpdate, error) {
+		return &appupdate.ManagedUpdate{
 			App:       app,
 			Available: true,
 			URL:       "https://example.com/" + app.ID + ".AppImage",
@@ -6013,8 +6013,8 @@ func TestRunManagedUpdateAllowsConcurrentDownloadStages(t *testing.T) {
 	release := make(chan struct{})
 	var activeDownloads int32
 	var observedMax int32
-	runManagedApply = func(ctx context.Context, update pendingManagedUpdate, reporter managedApplyReporter) (*models.App, error) {
-		emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageDownload, Downloaded: 512, DownloadTotal: 1024})
+	runManagedApply = func(ctx context.Context, update appupdate.ManagedUpdate, reporter appservices.ManagedApplyReporter) (*models.App, error) {
+		emitManagedApplyEvent(reporter, appservices.ManagedApplyEvent{Stage: appservices.ManagedApplyStageDownload, Downloaded: 512, DownloadTotal: 1024})
 
 		active := atomic.AddInt32(&activeDownloads, 1)
 		for {
@@ -6031,7 +6031,7 @@ func TestRunManagedUpdateAllowsConcurrentDownloadStages(t *testing.T) {
 		<-release
 		atomic.AddInt32(&activeDownloads, -1)
 
-		emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageDone, Version: "2.0.0"})
+		emitManagedApplyEvent(reporter, appservices.ManagedApplyEvent{Stage: appservices.ManagedApplyStageDone, Version: "2.0.0"})
 		return &models.App{ID: update.App.ID, Version: "2.0.0"}, nil
 	}
 
@@ -6093,17 +6093,17 @@ func TestRunManagedUpdatePersistsSuccessesInPendingOrder(t *testing.T) {
 		t.Fatalf("failed to write test DB: %v", err)
 	}
 
-	runAppUpdateCheck = func(app *models.App) (*pendingManagedUpdate, error) {
-		return &pendingManagedUpdate{App: app, Available: true, URL: "https://example.com/" + app.ID + ".AppImage"}, nil
+	runAppUpdateCheck = func(app *models.App) (*appupdate.ManagedUpdate, error) {
+		return &appupdate.ManagedUpdate{App: app, Available: true, URL: "https://example.com/" + app.ID + ".AppImage"}, nil
 	}
-	runManagedApply = func(ctx context.Context, update pendingManagedUpdate, reporter managedApplyReporter) (*models.App, error) {
+	runManagedApply = func(ctx context.Context, update appupdate.ManagedUpdate, reporter appservices.ManagedApplyReporter) (*models.App, error) {
 		switch update.App.ID {
 		case "app-a":
 			time.Sleep(30 * time.Millisecond)
 		case "app-b":
 			time.Sleep(10 * time.Millisecond)
 		}
-		emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageDone, Version: "2.0.0"})
+		emitManagedApplyEvent(reporter, appservices.ManagedApplyEvent{Stage: appservices.ManagedApplyStageDone, Version: "2.0.0"})
 		return &models.App{ID: update.App.ID, Version: "2.0.0"}, nil
 	}
 
@@ -6153,15 +6153,15 @@ func TestRunManagedUpdateContinuesAfterApplyFailure(t *testing.T) {
 		t.Fatalf("failed to write test DB: %v", err)
 	}
 
-	runAppUpdateCheck = func(app *models.App) (*pendingManagedUpdate, error) {
-		return &pendingManagedUpdate{App: app, Available: true, URL: "https://example.com/" + app.ID + ".AppImage"}, nil
+	runAppUpdateCheck = func(app *models.App) (*appupdate.ManagedUpdate, error) {
+		return &appupdate.ManagedUpdate{App: app, Available: true, URL: "https://example.com/" + app.ID + ".AppImage"}, nil
 	}
-	runManagedApply = func(ctx context.Context, update pendingManagedUpdate, reporter managedApplyReporter) (*models.App, error) {
+	runManagedApply = func(ctx context.Context, update appupdate.ManagedUpdate, reporter appservices.ManagedApplyReporter) (*models.App, error) {
 		if update.App.ID == "app-a" {
-			emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageFailed, Message: "boom"})
+			emitManagedApplyEvent(reporter, appservices.ManagedApplyEvent{Stage: appservices.ManagedApplyStageFailed, Message: "boom"})
 			return nil, fmt.Errorf("boom")
 		}
-		emitManagedApplyEvent(reporter, managedApplyEvent{Stage: managedApplyStageDone, Version: "2.0.0"})
+		emitManagedApplyEvent(reporter, appservices.ManagedApplyEvent{Stage: appservices.ManagedApplyStageDone, Version: "2.0.0"})
 		return &models.App{ID: update.App.ID, Version: "2.0.0"}, nil
 	}
 
@@ -6263,7 +6263,7 @@ func TestApplyManagedUpdateUsesZsyncWhenAvailable(t *testing.T) {
 	}
 
 	reporter := &recordedManagedApplyReporter{}
-	_, err := applyManagedUpdate(context.Background(), pendingManagedUpdate{
+	_, err := applyManagedUpdate(context.Background(), appupdate.ManagedUpdate{
 		App:          &models.App{ID: "my-app", ExecPath: currentPath},
 		URL:          "https://example.com/MyApp.AppImage",
 		Asset:        "MyApp.AppImage",
@@ -6287,11 +6287,11 @@ func TestApplyManagedUpdateUsesZsyncWhenAvailable(t *testing.T) {
 		t.Fatalf("expected zsync call to include zsync url, got %v", call)
 	}
 	assertManagedApplyStages(t, reporter.events,
-		managedApplyStageQueued,
-		managedApplyStageZsync,
-		managedApplyStageVerify,
-		managedApplyStageIntegrate,
-		managedApplyStageDone,
+		appservices.ManagedApplyStageQueued,
+		appservices.ManagedApplyStageZsync,
+		appservices.ManagedApplyStageVerify,
+		appservices.ManagedApplyStageIntegrate,
+		appservices.ManagedApplyStageDone,
 	)
 }
 
@@ -6326,7 +6326,7 @@ func TestApplyManagedUpdateFallsBackWhenZsyncMissing(t *testing.T) {
 	}
 
 	reporter := &recordedManagedApplyReporter{}
-	_, err := applyManagedUpdate(context.Background(), pendingManagedUpdate{
+	_, err := applyManagedUpdate(context.Background(), appupdate.ManagedUpdate{
 		App:          &models.App{ID: "my-app", ExecPath: "/tmp/current.AppImage"},
 		URL:          "https://example.com/MyApp.AppImage",
 		Asset:        "MyApp.AppImage",
@@ -6340,13 +6340,13 @@ func TestApplyManagedUpdateFallsBackWhenZsyncMissing(t *testing.T) {
 		t.Fatalf("download calls = %d, want 1", downloadCalls)
 	}
 	assertManagedApplyStages(t, reporter.events,
-		managedApplyStageQueued,
-		managedApplyStageZsync,
-		managedApplyStageDownload,
-		managedApplyStageDownload,
-		managedApplyStageVerify,
-		managedApplyStageIntegrate,
-		managedApplyStageDone,
+		appservices.ManagedApplyStageQueued,
+		appservices.ManagedApplyStageZsync,
+		appservices.ManagedApplyStageDownload,
+		appservices.ManagedApplyStageDownload,
+		appservices.ManagedApplyStageVerify,
+		appservices.ManagedApplyStageIntegrate,
+		appservices.ManagedApplyStageDone,
 	)
 }
 
@@ -6386,7 +6386,7 @@ func TestApplyManagedUpdateFallsBackWhenZsyncFails(t *testing.T) {
 	}
 
 	reporter := &recordedManagedApplyReporter{}
-	_, err := applyManagedUpdate(context.Background(), pendingManagedUpdate{
+	_, err := applyManagedUpdate(context.Background(), appupdate.ManagedUpdate{
 		App:          &models.App{ID: "my-app", ExecPath: "/tmp/current.AppImage"},
 		URL:          "https://example.com/MyApp.AppImage",
 		Asset:        "MyApp.AppImage",
@@ -6400,13 +6400,13 @@ func TestApplyManagedUpdateFallsBackWhenZsyncFails(t *testing.T) {
 		t.Fatalf("download calls = %d, want 1", downloadCalls)
 	}
 	assertManagedApplyStages(t, reporter.events,
-		managedApplyStageQueued,
-		managedApplyStageZsync,
-		managedApplyStageDownload,
-		managedApplyStageDownload,
-		managedApplyStageVerify,
-		managedApplyStageIntegrate,
-		managedApplyStageDone,
+		appservices.ManagedApplyStageQueued,
+		appservices.ManagedApplyStageZsync,
+		appservices.ManagedApplyStageDownload,
+		appservices.ManagedApplyStageDownload,
+		appservices.ManagedApplyStageVerify,
+		appservices.ManagedApplyStageIntegrate,
+		appservices.ManagedApplyStageDone,
 	)
 }
 
@@ -6439,7 +6439,7 @@ func TestApplyManagedUpdateWithoutZsyncUsesFullDownload(t *testing.T) {
 	}
 
 	reporter := &recordedManagedApplyReporter{}
-	_, err := applyManagedUpdate(context.Background(), pendingManagedUpdate{
+	_, err := applyManagedUpdate(context.Background(), appupdate.ManagedUpdate{
 		App:   &models.App{ID: "my-app", ExecPath: "/tmp/current.AppImage"},
 		URL:   "https://example.com/MyApp.AppImage",
 		Asset: "MyApp.AppImage",
@@ -6451,12 +6451,12 @@ func TestApplyManagedUpdateWithoutZsyncUsesFullDownload(t *testing.T) {
 		t.Fatalf("download calls = %d, want 1", downloadCalls)
 	}
 	assertManagedApplyStages(t, reporter.events,
-		managedApplyStageQueued,
-		managedApplyStageDownload,
-		managedApplyStageDownload,
-		managedApplyStageVerify,
-		managedApplyStageIntegrate,
-		managedApplyStageDone,
+		appservices.ManagedApplyStageQueued,
+		appservices.ManagedApplyStageDownload,
+		appservices.ManagedApplyStageDownload,
+		appservices.ManagedApplyStageVerify,
+		appservices.ManagedApplyStageIntegrate,
+		appservices.ManagedApplyStageDone,
 	)
 }
 
@@ -6496,7 +6496,7 @@ func TestVerifyDownloadedUpdateWithBothHashes(t *testing.T) {
 		t.Fatalf("failed to compute hashes: %v", err)
 	}
 
-	err = verifyDownloadedUpdate(path, pendingManagedUpdate{ExpectedSHA256: sha256sum, ExpectedSHA1: sha1sum})
+	err = verifyDownloadedUpdate(path, appupdate.ManagedUpdate{ExpectedSHA256: sha256sum, ExpectedSHA1: sha1sum})
 	if err != nil {
 		t.Fatalf("verifyDownloadedUpdate returned error: %v", err)
 	}
@@ -6508,7 +6508,7 @@ func TestVerifyDownloadedUpdateWithBothHashesMismatch(t *testing.T) {
 		t.Fatalf("failed to write file: %v", err)
 	}
 
-	err := verifyDownloadedUpdate(path, pendingManagedUpdate{
+	err := verifyDownloadedUpdate(path, appupdate.ManagedUpdate{
 		ExpectedSHA256: strings.Repeat("a", 64),
 		ExpectedSHA1:   strings.Repeat("b", 40),
 	})
@@ -6563,18 +6563,55 @@ func TestUpdateSetPromptText(t *testing.T) {
 	}
 }
 
-type recordedManagedApplyReporter struct {
-	events []managedApplyEvent
+func runManagedChecks(apps []*models.App) []appupdate.ManagedCheckResult {
+	return appupdate.CheckManagedUpdates(apps, runAppUpdateCheck)
 }
 
-func (r *recordedManagedApplyReporter) Event(event managedApplyEvent) {
+func testManagedUpdateView(update appupdate.ManagedUpdate) appservices.ManagedUpdateView {
+	view := appservices.ManagedUpdateView{
+		URL:            strings.TrimSpace(update.URL),
+		Asset:          strings.TrimSpace(update.Asset),
+		Label:          strings.TrimSpace(update.Label),
+		Available:      update.Available,
+		Latest:         strings.TrimSpace(update.Latest),
+		ExpectedSHA1:   strings.TrimSpace(update.ExpectedSHA1),
+		ExpectedSHA256: strings.TrimSpace(update.ExpectedSHA256),
+		Transport:      strings.TrimSpace(update.Transport),
+		ZsyncURL:       strings.TrimSpace(update.ZsyncURL),
+		FromKind:       strings.TrimSpace(string(update.FromKind)),
+	}
+	if update.App != nil {
+		view.App = &appservices.AppSummary{
+			ID:              strings.TrimSpace(update.App.ID),
+			Name:            strings.TrimSpace(update.App.Name),
+			Version:         strings.TrimSpace(update.App.Version),
+			Integrated:      strings.TrimSpace(update.App.DesktopEntryLink) != "",
+			UpdateAvailable: update.App.UpdateAvailable,
+			LatestVersion:   strings.TrimSpace(update.App.LatestVersion),
+			LastCheckedAt:   strings.TrimSpace(update.App.LastCheckedAt),
+		}
+	}
+	return view
+}
+
+func emitManagedApplyEvent(reporter appservices.ManagedApplyReporter, event appservices.ManagedApplyEvent) {
+	if reporter != nil {
+		reporter.Event(event)
+	}
+}
+
+type recordedManagedApplyReporter struct {
+	events []appservices.ManagedApplyEvent
+}
+
+func (r *recordedManagedApplyReporter) Event(event appservices.ManagedApplyEvent) {
 	r.events = append(r.events, event)
 }
 
-func assertManagedApplyStages(t *testing.T, events []managedApplyEvent, want ...managedApplyStage) {
+func assertManagedApplyStages(t *testing.T, events []appservices.ManagedApplyEvent, want ...appservices.ManagedApplyStage) {
 	t.Helper()
 
-	got := make([]managedApplyStage, 0, len(events))
+	got := make([]appservices.ManagedApplyStage, 0, len(events))
 	for _, event := range events {
 		got = append(got, event.Stage)
 	}

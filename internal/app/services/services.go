@@ -36,6 +36,7 @@ type RemoveService interface {
 
 type UpdateService interface {
 	ManagedApps(ctx context.Context, targetID string) ([]*domain.App, error)
+	CheckManagedUpdates(ctx context.Context, req ManagedUpdateCheckRequest) (*ManagedUpdateCheckResult, error)
 	ApplyBatch(ctx context.Context, req UpdateApplyBatchRequest) (*UpdateApplyBatchResult, error)
 	EmbeddedSource(ctx context.Context, id string) (*UpdateSourceResult, error)
 	SetSource(ctx context.Context, req UpdateSourceRequest) (*UpdateSourceResult, error)
@@ -88,15 +89,14 @@ type InstallDirectURLRequest struct {
 }
 
 type InstallPackageRefRequest struct {
-	Ref              domain.PackageRef
-	AssetPattern     string
-	ResolveMetadata  func(context.Context, domain.PackageRef, string) (*domain.PackageMetadata, error)
-	ResolveAmbiguity PackageAmbiguityResolver
-	InstallPackage   func(context.Context, *domain.PackageMetadata) (*domain.App, error)
+	Ref                  ProviderRef
+	AssetPattern         string
+	ResolveViewAmbiguity PackageViewAmbiguityResolver
+	InstallPackage       func(context.Context, *domain.PackageMetadata) (*domain.App, error)
 }
 
 type PackageRefInfoRequest struct {
-	Ref          domain.PackageRef
+	Ref          ProviderRef
 	AssetPattern string
 }
 
@@ -110,14 +110,41 @@ type RemoveRequest struct {
 	Unlink bool
 }
 
+type ManagedUpdateCheckRequest struct {
+	TargetID   string
+	DryRun     bool
+	UseCache   bool
+	OnCacheHit func(appID string)
+}
+
+type ManagedApplyStage = update.ManagedApplyStage
+
+const (
+	ManagedApplyStageQueued    ManagedApplyStage = update.ManagedApplyStageQueued
+	ManagedApplyStageZsync     ManagedApplyStage = update.ManagedApplyStageZsync
+	ManagedApplyStageDownload  ManagedApplyStage = update.ManagedApplyStageDownload
+	ManagedApplyStageVerify    ManagedApplyStage = update.ManagedApplyStageVerify
+	ManagedApplyStageIntegrate ManagedApplyStage = update.ManagedApplyStageIntegrate
+	ManagedApplyStageDone      ManagedApplyStage = update.ManagedApplyStageDone
+	ManagedApplyStageFailed    ManagedApplyStage = update.ManagedApplyStageFailed
+)
+
+type ManagedApplyEvent = update.ManagedApplyEvent
+
+type ManagedApplyReporter = update.ManagedApplyReporter
+
+type ManagedApplyReporterFunc = update.ManagedApplyReporterFunc
+
+type ManagedApplyReporterFactory func(index, total int, update ManagedUpdateView) ManagedApplyReporter
+
 type UpdateApplyBatchRequest struct {
-	Pending     []update.ManagedUpdate
-	ReporterFor update.ManagedApplyReporterFactory
+	Pending     []ManagedUpdateHandle
+	ReporterFor ManagedApplyReporterFactory
 }
 
 type UpdateSourceRequest struct {
 	ID     string
-	Source *domain.UpdateSource
+	Source *UpdateSourceInput
 }
 
 type AddResult struct {
@@ -142,6 +169,27 @@ type RemoveResult struct {
 	App    *AppDetails
 	Unlink bool
 	Paths  []string
+}
+
+type ManagedUpdateCheckResult struct {
+	Rows           []ManagedUpdateCheckRow
+	Pending        []ManagedUpdateView
+	PendingHandles []ManagedUpdateHandle `json:"-"`
+	CheckFailures  int
+	Failures       []ManagedCheckFailureView
+}
+
+type ManagedUpdateCheckRow struct {
+	App       *AppSummary        `json:"app,omitempty"`
+	Update    *ManagedUpdateView `json:"update,omitempty"`
+	Status    string             `json:"status"`
+	CheckedAt string             `json:"checked_at,omitempty"`
+	Error     string             `json:"error,omitempty"`
+}
+
+type ManagedCheckFailureView struct {
+	AppID  string `json:"app_id,omitempty"`
+	Reason string `json:"reason"`
 }
 
 type UpdateApplyBatchResult struct {
@@ -177,9 +225,9 @@ const (
 )
 
 type UpdateSourceReplaceConfirmer interface {
-	ConfirmUpdateSourceReplace(existing, incoming *domain.UpdateSource) (bool, error)
+	ConfirmUpdateSourceReplace(existing, incoming *UpdateSourceView) (bool, error)
 }
 
-type PackageAmbiguityResolver interface {
-	ResolvePackageAmbiguity(metadata *domain.PackageMetadata) (*domain.PackageMetadata, error)
+type PackageViewAmbiguityResolver interface {
+	ResolvePackageViewAmbiguity(metadata *PackageView) (*PackageView, error)
 }

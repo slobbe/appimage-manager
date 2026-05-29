@@ -5,8 +5,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	appservices "github.com/slobbe/appimage-manager/internal/app/services"
-	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
-	models "github.com/slobbe/appimage-manager/internal/domain"
 	"github.com/spf13/cobra"
 	"net/url"
 	"path/filepath"
@@ -104,7 +102,7 @@ func AddCmd(cmd *cobra.Command, args []string) error {
 type addInputSelection struct {
 	Positional string
 	DirectURL  string
-	Ref        models.PackageRef
+	Ref        appservices.ProviderRef
 	HasRef     bool
 }
 
@@ -237,8 +235,8 @@ func runIntegrateTarget(ctx context.Context, cmd *cobra.Command, input string) e
 		app, err := runWithBusyIndicator(cmd, fmt.Sprintf("Integrating %s", inputLabel), func() (*appservices.AppDetails, error) {
 			result, err := runtimeServicesFrom(cmd).Add.IntegrateLocal(ctx, appservices.IntegrateLocalRequest{
 				Path: target.LocalPath,
-				ConfirmUpdateSourceReplace: updateSourceReplaceConfirmerFunc(func(existing, incoming *models.UpdateSource) (bool, error) {
-					printCurrentIncoming(cmd, updateSummary(existing), updateSummary(incoming))
+				ConfirmUpdateSourceReplace: updateSourceReplaceConfirmerFunc(func(existing, incoming *appservices.UpdateSourceView) (bool, error) {
+					printCurrentIncoming(cmd, updateSourceViewSummaryOrNone(existing), updateSourceViewSummaryOrNone(incoming))
 					prompt := formatPrompt("Replace source from", "AppImage metadata")
 					return confirmAction(cmd, prompt)
 				}),
@@ -331,19 +329,10 @@ func validateInstallTargetFlags(cmd *cobra.Command, target *installTarget) error
 	return nil
 }
 
-type packageAmbiguityResolverFunc func(*models.PackageMetadata) (*models.PackageMetadata, error)
+type packageAmbiguityResolverFunc func(*appservices.PackageView) (*appservices.PackageView, error)
 
-func (fn packageAmbiguityResolverFunc) ResolvePackageAmbiguity(metadata *models.PackageMetadata) (*models.PackageMetadata, error) {
+func (fn packageAmbiguityResolverFunc) ResolvePackageViewAmbiguity(metadata *appservices.PackageView) (*appservices.PackageView, error) {
 	return fn(metadata)
-}
-
-func planPackageRefInstall(ctx context.Context, req appservices.InstallPackageRefRequest) (*appservices.DryRunPlan, error) {
-	metadata, err := resolvePackageMetadataFromRef(ctx, req.Ref, req.AssetPattern)
-	if err != nil {
-		return nil, err
-	}
-	values := map[string]interface{}{"action": "install", "target": formatProviderRef(req.Ref), "provider": req.Ref, "metadata": packageMetadataOutput(metadata)}
-	return &appservices.DryRunPlan{Action: "install", Target: formatProviderRef(req.Ref), Values: values}, nil
 }
 
 func isSHA256Hex(value string) bool {
@@ -582,8 +571,8 @@ func yesNo(value bool) string {
 	return "no"
 }
 
-func runShowPackageRef(ctx context.Context, cmd *cobra.Command, ref models.PackageRef) error {
-	result, err := resolvePackageInfoWithProgress(cmd, formatProviderRef(ref), func() (*appservices.InfoResult, error) {
+func runShowPackageRef(ctx context.Context, cmd *cobra.Command, ref appservices.ProviderRef) error {
+	result, err := resolvePackageInfoWithProgress(cmd, appservices.FormatProviderRef(ref), func() (*appservices.InfoResult, error) {
 		return runtimeServicesFrom(cmd).Info.PackageRefInfo(ctx, appservices.PackageRefInfoRequest{Ref: ref})
 	})
 	if err != nil {
@@ -654,7 +643,7 @@ func runInstallTarget(ctx context.Context, cmd *cobra.Command, refArg string) er
 	return nil
 }
 
-func runInstallPackageRef(ctx context.Context, cmd *cobra.Command, ref models.PackageRef) error {
+func runInstallPackageRef(ctx context.Context, cmd *cobra.Command, ref appservices.ProviderRef) error {
 	assetPattern, err := flagString(cmd, "asset")
 	if err != nil {
 		return err
@@ -669,45 +658,37 @@ func runInstallPackageRef(ctx context.Context, cmd *cobra.Command, ref models.Pa
 	opts := runtimeOptionsFrom(cmd)
 
 	if opts.DryRun {
-		metadata, err := resolvePackageMetadataWithProgress(cmd, formatProviderRef(ref), func() (*models.PackageMetadata, error) {
-			return resolvePackageMetadataFromRef(ctx, ref, assetPattern)
+		plan, err := resolvePackagePlanWithProgress(cmd, appservices.FormatProviderRef(ref), func() (*appservices.DryRunPlan, error) {
+			return runtimeServicesFrom(cmd).Add.PlanPackageRefInstall(ctx, appservices.InstallPackageRefRequest{Ref: ref, AssetPattern: assetPattern})
 		})
 		if err != nil {
 			return err
 		}
 		if opts.JSON {
-			return printJSONSuccess(cmd, map[string]interface{}{
-				"action":   "install",
-				"target":   formatProviderRef(ref),
-				"provider": ref,
-				"metadata": packageMetadataOutput(metadata),
-			})
+			return printJSONSuccess(cmd, plan.Values)
 		}
-		writeDataf(cmd, "Dry run: would install %s\n", formatProviderRef(ref))
+		writeDataf(cmd, "Dry run: would install %s\n", appservices.FormatProviderRef(ref))
 		return nil
 	}
 	if err := mustEnsureRuntimeDirs(); err != nil {
 		return err
 	}
 
-	result, err := runtimeServicesFrom(cmd).Add.InstallPackageRef(ctx, appservices.InstallPackageRefRequest{
-		Ref:          ref,
-		AssetPattern: assetPattern,
-		ResolveMetadata: func(ctx context.Context, ref models.PackageRef, assetPattern string) (*models.PackageMetadata, error) {
-			return resolvePackageMetadataWithProgress(cmd, formatProviderRef(ref), func() (*models.PackageMetadata, error) {
-				return resolvePackageMetadataFromRef(ctx, ref, assetPattern)
-			})
-		},
-		ResolveAmbiguity: packageAmbiguityResolverFunc(func(metadata *models.PackageMetadata) (*models.PackageMetadata, error) {
-			resolved, err := resolveGitHubAssetAmbiguity(cmd, metadata)
-			if err != nil {
-				return nil, err
-			}
-			if resolved != nil && strings.TrimSpace(resolved.AssetName) != "" {
-				writeDataf(cmd, "Integrating %s...\n", strings.TrimSpace(resolved.AssetName))
-			}
-			return resolved, nil
-		}),
+	result, err := runWithBusyIndicator(cmd, fmt.Sprintf("Resolving package metadata for %s", appservices.FormatProviderRef(ref)), func() (*appservices.AddResult, error) {
+		return runtimeServicesFrom(cmd).Add.InstallPackageRef(ctx, appservices.InstallPackageRefRequest{
+			Ref:          ref,
+			AssetPattern: assetPattern,
+			ResolveViewAmbiguity: packageAmbiguityResolverFunc(func(metadata *appservices.PackageView) (*appservices.PackageView, error) {
+				resolved, err := resolvePackageViewAmbiguity(cmd, metadata)
+				if err != nil {
+					return nil, err
+				}
+				if resolved != nil && strings.TrimSpace(resolved.AssetName) != "" {
+					writeDataf(cmd, "Integrating %s...\n", strings.TrimSpace(resolved.AssetName))
+				}
+				return resolved, nil
+			}),
+		})
 	})
 	if err != nil {
 		return err
@@ -838,12 +819,12 @@ func inspectLocalAppImage(ctx context.Context, cmd *cobra.Command, src string) e
 }
 
 func updateSourceViewSummaryOrNone(update *appservices.UpdateSourceView) string {
-	if update == nil || strings.TrimSpace(update.Kind) == string(models.UpdateNone) {
+	if update == nil || strings.TrimSpace(update.Kind) == appservices.UpdateKindNone {
 		return "none"
 	}
 
 	switch strings.TrimSpace(update.Kind) {
-	case string(models.UpdateZsync):
+	case appservices.UpdateKindZsync:
 		if update.Zsync == nil {
 			return "zsync: <missing>"
 		}
@@ -851,7 +832,7 @@ func updateSourceViewSummaryOrNone(update *appservices.UpdateSourceView) string 
 			return fmt.Sprintf("zsync: %s", strings.TrimSpace(update.Zsync.UpdateInfo))
 		}
 		return "zsync"
-	case string(models.UpdateGitHubRelease):
+	case appservices.UpdateKindGitHubRelease:
 		if update.GitHubRelease == nil {
 			return "github: <missing>"
 		}
@@ -868,8 +849,15 @@ func updateSourceViewFromAppDetails(app *appservices.AppDetails) *appservices.Up
 	return app.UpdateSource
 }
 
+func updateSourceViewFromInput(input *appservices.UpdateSourceInput) *appservices.UpdateSourceView {
+	if input == nil {
+		return nil
+	}
+	return &appservices.UpdateSourceView{Kind: input.Kind, Zsync: input.Zsync, GitHubRelease: input.GitHubRelease}
+}
+
 func updateSourceViewIsNone(update *appservices.UpdateSourceView) bool {
-	return update == nil || strings.TrimSpace(update.Kind) == "" || strings.TrimSpace(update.Kind) == string(models.UpdateNone)
+	return update == nil || strings.TrimSpace(update.Kind) == "" || strings.TrimSpace(update.Kind) == appservices.UpdateKindNone
 }
 
 func updateSourceViewsEqual(left, right *appservices.UpdateSourceView) bool {
@@ -883,13 +871,13 @@ func updateSourceViewsEqual(left, right *appservices.UpdateSourceView) bool {
 		return false
 	}
 	switch strings.TrimSpace(left.Kind) {
-	case string(models.UpdateZsync):
+	case appservices.UpdateKindZsync:
 		if left.Zsync == nil || right.Zsync == nil {
 			return left.Zsync == nil && right.Zsync == nil
 		}
 		return strings.TrimSpace(left.Zsync.UpdateInfo) == strings.TrimSpace(right.Zsync.UpdateInfo) &&
 			strings.TrimSpace(left.Zsync.Transport) == strings.TrimSpace(right.Zsync.Transport)
-	case string(models.UpdateGitHubRelease):
+	case appservices.UpdateKindGitHubRelease:
 		if left.GitHubRelease == nil || right.GitHubRelease == nil {
 			return left.GitHubRelease == nil && right.GitHubRelease == nil
 		}
@@ -1038,14 +1026,14 @@ func runUpdateSetMode(cmd *cobra.Command, id string) error {
 		return err
 	}
 
-	var incomingSource *models.UpdateSource
+	var incomingSource *appservices.UpdateSourceInput
 	var incomingView *appservices.UpdateSourceView
 	if !embedded {
 		incomingSource, err = resolveUpdateSourceFromSetFlags(cmd)
 		if err != nil {
 			return err
 		}
-		incomingView = appservices.UpdateSourceViewFromDomain(incomingSource)
+		incomingView = updateSourceViewFromInput(incomingSource)
 	}
 
 	info, err := runtimeServicesFrom(cmd).Info.ManagedAppInfo(cmd.Context(), id)
@@ -1208,7 +1196,7 @@ func runUpdateUnsetMode(cmd *cobra.Command, id string) error {
 	return nil
 }
 
-func resolveUpdateSourceFromSetFlags(cmd *cobra.Command) (*models.UpdateSource, error) {
+func resolveUpdateSourceFromSetFlags(cmd *cobra.Command) (*appservices.UpdateSourceInput, error) {
 	githubRepo, err := flagString(cmd, "github")
 	if err != nil {
 		return nil, err
@@ -1244,17 +1232,13 @@ func resolveUpdateSourceFromSetFlags(cmd *cobra.Command) (*models.UpdateSource, 
 		if assetPattern == "" {
 			assetPattern = defaultReleaseAssetPattern
 		}
-		source := &models.UpdateSource{
-			Kind: models.UpdateGitHubRelease,
-			GitHubRelease: &models.GitHubReleaseUpdateSource{
-				Repo:  ref.ProviderRef,
+		return &appservices.UpdateSourceInput{
+			Kind: appservices.UpdateKindGitHubRelease,
+			GitHubRelease: &appservices.GitHubReleaseUpdateView{
+				Repo:  ref.Ref,
 				Asset: assetPattern,
 			},
-		}
-		if err := models.ValidateUpdateSource(source); err != nil {
-			return nil, usageError(err)
-		}
-		return source, nil
+		}, nil
 	}
 
 	if zsyncURL != "" {
@@ -1264,31 +1248,19 @@ func resolveUpdateSourceFromSetFlags(cmd *cobra.Command) (*models.UpdateSource, 
 		if !isHTTPSURL(zsyncURL) {
 			return nil, usageError(fmt.Errorf("--zsync must be a valid https URL"))
 		}
-		source := &models.UpdateSource{
-			Kind: models.UpdateZsync,
-			Zsync: &models.ZsyncUpdateSource{
+		return &appservices.UpdateSourceInput{
+			Kind: appservices.UpdateKindZsync,
+			Zsync: &appservices.ZsyncUpdateSourceView{
 				UpdateInfo: "zsync|" + zsyncURL,
 				Transport:  "zsync",
 			},
-		}
-		if err := models.ValidateUpdateSource(source); err != nil {
-			return nil, usageError(err)
-		}
-		return source, nil
+		}, nil
 	}
 
 	if assetPattern != "" {
 		return nil, usageError(fmt.Errorf("--asset is only supported with --github"))
 	}
 	return nil, usageError(fmt.Errorf("missing update source; set one of --github, --zsync, or --embedded"))
-}
-
-type pendingManagedUpdate = appupdate.ManagedUpdate
-
-type managedCheckResult struct {
-	app    *models.App
-	update *pendingManagedUpdate
-	err    error
 }
 
 type managedCheckFailure struct {
@@ -1308,7 +1280,7 @@ func displayVersion(value string) string {
 		return "dev"
 	}
 
-	if normalized := models.NormalizeComparableVersion(v); normalized != "" {
+	if normalized := appservices.NormalizeComparableVersion(v); normalized != "" {
 		v = normalized
 	}
 
@@ -1324,7 +1296,7 @@ func displayVersion(value string) string {
 }
 
 func updateDownloadFilename(assetName, downloadURL string) string {
-	return appupdate.ManagedUpdateDownloadFilename(assetName, downloadURL)
+	return appservices.ManagedUpdateDownloadFilename(assetName, downloadURL)
 }
 
 func isHTTPSURL(value string) bool {
@@ -1406,38 +1378,4 @@ func truncateForDisplay(value string, width int) string {
 	}
 
 	return string(runes[:width-3]) + "..."
-}
-
-func buildInstallDryRunPlan(ctx context.Context, cmd *cobra.Command, refArg string, target *installTarget, assetPattern, sha256 string) (map[string]interface{}, error) {
-	if target == nil {
-		return nil, fmt.Errorf("missing install target")
-	}
-
-	switch target.Kind {
-	case installTargetDirectURL:
-		return map[string]interface{}{
-			"action":          "install",
-			"target":          strings.TrimSpace(target.URL),
-			"target_kind":     string(target.Kind),
-			"expected_sha256": strings.TrimSpace(sha256),
-			"download_url":    strings.TrimSpace(target.URL),
-			"db_write":        true,
-		}, nil
-	case installTargetGitHub:
-		metadata, err := resolvePackageMetadataWithProgress(cmd, installTargetLabel(target), func() (*models.PackageMetadata, error) {
-			return resolvePackageMetadataFromInput(ctx, refArg, assetPattern)
-		})
-		if err != nil {
-			return nil, err
-		}
-		return map[string]interface{}{
-			"action":      "install",
-			"target":      installTargetLabel(target),
-			"target_kind": string(target.Kind),
-			"metadata":    packageMetadataOutput(metadata),
-			"db_write":    true,
-		}, nil
-	default:
-		return nil, fmt.Errorf("unsupported add target")
-	}
 }

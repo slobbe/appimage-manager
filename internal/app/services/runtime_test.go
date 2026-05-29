@@ -29,9 +29,9 @@ func TestSourceUpdateServiceSetAndPlan(t *testing.T) {
 	store := fakeAppStore{apps: map[string]*domain.App{
 		"app": {ID: "app", Update: &domain.UpdateSource{Kind: domain.UpdateNone}},
 	}}
-	source := &domain.UpdateSource{
-		Kind: domain.UpdateGitHubRelease,
-		GitHubRelease: &domain.GitHubReleaseUpdateSource{
+	source := &UpdateSourceInput{
+		Kind: UpdateKindGitHubRelease,
+		GitHubRelease: &GitHubReleaseUpdateView{
 			Repo:  "owner/repo",
 			Asset: "*.AppImage",
 		},
@@ -42,7 +42,7 @@ func TestSourceUpdateServiceSetAndPlan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PlanSetSource returned error: %v", err)
 	}
-	if plan.Action != "set_update_source" || plan.Values["incoming_source"] != source {
+	if plan.Action != "set_update_source" {
 		t.Fatalf("unexpected plan: %+v", plan)
 	}
 	if plan.UpdateSourceChange == nil || plan.UpdateSourceChange.Incoming == nil || plan.UpdateSourceChange.Incoming.GitHubRelease == nil {
@@ -53,7 +53,7 @@ func TestSourceUpdateServiceSetAndPlan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SetSource returned error: %v", err)
 	}
-	if !result.Changed || result.Source == nil || result.Source.GitHubRelease == nil || store.apps["app"].Update != source {
+	if !result.Changed || result.Source == nil || result.Source.GitHubRelease == nil || store.apps["app"].Update == nil || store.apps["app"].Update.GitHubRelease == nil {
 		t.Fatalf("SetSource result = %+v app = %+v", result, store.apps["app"])
 	}
 }
@@ -154,7 +154,7 @@ func TestDiscoveryWorkflowServiceUsesConfiguredBackends(t *testing.T) {
 	}}
 
 	got, err := service.ResolvePackage(context.Background(), PackageRefInfoRequest{
-		Ref: domain.PackageRef{Kind: domain.ProviderGitHub, ProviderRef: "owner/repo"},
+		Ref: ProviderRef{Provider: ProviderGitHub, Ref: "owner/repo"},
 	})
 	if err != nil {
 		t.Fatalf("ResolvePackage returned error: %v", err)

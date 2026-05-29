@@ -44,42 +44,14 @@ check_layer_imports() {
 	done < "$packages_file"
 }
 
-is_allowed_cli_boundary_migration_import() {
-	path=$1
-	import_path=$2
 
-	case "$path" in
-		internal/cli/commands.go)
-			case "$import_path" in
-				*'/internal/app/update' | *'/internal/domain') return 0 ;;
-			esac
-			;;
-		internal/cli/output.go)
-			case "$import_path" in
-				*'/internal/domain') return 0 ;;
-			esac
-			;;
-		internal/cli/package_sources.go)
-			case "$import_path" in
-				*'/internal/app/discovery' | *'/internal/domain') return 0 ;;
-			esac
-			;;
-		internal/cli/update_workflow.go)
-			case "$import_path" in
-				*'/internal/app/update' | *'/internal/domain') return 0 ;;
-			esac
-			;;
-	esac
-
-	return 1
-}
 
 is_allowed_cli_test_boundary_migration_import() {
 	path=$1
 	import_path=$2
 
 	case "$path" in
-		internal/cli/commands_test.go)
+		internal/cli/commands_integration_test.go)
 			case "$import_path" in
 				*'/internal/app/appimage' | \
 				*'/internal/app/discovery' | \
@@ -131,9 +103,6 @@ check_cli_boundary_imports() {
 			import_path=${import_line#*\"}
 			import_path=${import_path%%\"*}
 			if ! is_forbidden_cli_boundary_import "$import_path"; then
-				continue
-			fi
-			if is_allowed_cli_boundary_migration_import "$path" "$import_path"; then
 				continue
 			fi
 			append_violation "$path imports outside the CLI app-service boundary: $import_line"

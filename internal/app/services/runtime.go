@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
+	"time"
 
 	appimageapp "github.com/slobbe/appimage-manager/internal/app/appimage"
 	"github.com/slobbe/appimage-manager/internal/app/discovery"
@@ -102,7 +104,9 @@ func (service BasicAddService) IntegrateLocal(ctx context.Context, req Integrate
 	}
 	var prompt appintegrate.UpdateOverwritePrompt
 	if req.ConfirmUpdateSourceReplace != nil {
-		prompt = req.ConfirmUpdateSourceReplace.ConfirmUpdateSourceReplace
+		prompt = func(existing, incoming *domain.UpdateSource) (bool, error) {
+			return req.ConfirmUpdateSourceReplace.ConfirmUpdateSourceReplace(updateSourceViewFromDomain(existing), updateSourceViewFromDomain(incoming))
+		}
 	}
 	app, err := service.IntegrateLocalApp(ctx, req.Path, prompt)
 	if err != nil {
@@ -134,7 +138,7 @@ func (service BasicAddService) InstallDirectURL(ctx context.Context, req Install
 }
 
 func (service BasicAddService) InstallPackageRef(ctx context.Context, req InstallPackageRefRequest) (*AddResult, error) {
-	if service.Discovery == nil && req.ResolveMetadata == nil {
+	if service.Discovery == nil {
 		return nil, internalErrorf("discovery service is not configured")
 	}
 	install := service.InstallPackageRefApp
@@ -144,13 +148,7 @@ func (service BasicAddService) InstallPackageRef(ctx context.Context, req Instal
 	if install == nil {
 		return nil, internalErrorf("package install service is not configured")
 	}
-	var metadata *domain.PackageMetadata
-	var err error
-	if req.ResolveMetadata != nil {
-		metadata, err = req.ResolveMetadata(ctx, req.Ref, req.AssetPattern)
-	} else {
-		metadata, err = service.Discovery.ResolvePackage(ctx, PackageRefInfoRequest{Ref: req.Ref, AssetPattern: req.AssetPattern})
-	}
+	metadata, err := service.Discovery.ResolvePackage(ctx, PackageRefInfoRequest{Ref: req.Ref, AssetPattern: req.AssetPattern})
 	if err != nil {
 		return nil, err
 	}
@@ -158,11 +156,12 @@ func (service BasicAddService) InstallPackageRef(ctx context.Context, req Instal
 	if err != nil {
 		return nil, err
 	}
-	if req.ResolveAmbiguity != nil {
-		metadata, err = req.ResolveAmbiguity.ResolvePackageAmbiguity(metadata)
+	if req.ResolveViewAmbiguity != nil {
+		resolved, err := req.ResolveViewAmbiguity.ResolvePackageViewAmbiguity(packageViewFromDomain(metadata))
 		if err != nil {
 			return nil, err
 		}
+		applyPackageViewSelection(metadata, resolved)
 	}
 	app, err := install(ctx, metadata)
 	if err != nil {
@@ -233,13 +232,15 @@ func (service BasicAddService) PlanPackageRefInstall(ctx context.Context, req In
 	if err != nil {
 		return nil, err
 	}
+	target := FormatProviderRef(req.Ref)
 	values := map[string]interface{}{
 		"action":   "install",
-		"target":   domain.FormatPackageRef(req.Ref),
+		"target":   target,
 		"provider": req.Ref,
-		"metadata": metadata,
+		"metadata": packageViewFromDomain(metadata),
+		"db_write": true,
 	}
-	return &DryRunPlan{Action: "install", Target: domain.FormatPackageRef(req.Ref), Values: values}, nil
+	return &DryRunPlan{Action: "install", Target: target, Values: values, TargetKind: "package", Package: packageViewFromDomain(metadata), DBWrite: true}, nil
 }
 
 type StoreListService struct {
@@ -415,7 +416,7 @@ func (service DiscoveryWorkflowService) ResolvePackage(ctx context.Context, req 
 	if service.BackendsFunc != nil {
 		backends = service.BackendsFunc()
 	}
-	return discovery.NewService(backends...).Resolve(ctx, req.Ref, req.AssetPattern)
+	return discovery.NewService(backends...).Resolve(ctx, providerRefToDomain(req.Ref), req.AssetPattern)
 }
 
 type UpgradeWorkflowService struct {
@@ -442,15 +443,30 @@ func (service UpgradeWorkflowService) Upgrade(ctx context.Context, currentVersio
 }
 
 type ManagedUpdateApplier func(context.Context, appupdate.ManagedUpdate, appupdate.ManagedApplyReporter) (*domain.App, error)
+type ManagedUpdateChecker = appupdate.ManagedCheckFunc
+
+type CheckMetadataUpdate struct {
+	ID            string
+	Checked       bool
+	Available     bool
+	Latest        string
+	LastCheckedAt string
+}
 
 type SourceUpdateService struct {
-	Store              AppStore
-	UpdateInfo         UpdateInfoReader
-	ApplyManagedUpdate ManagedUpdateApplier
-	PersistApps        func([]*domain.App, bool) error
-	PersistApp         func(*domain.App, bool) error
-	RemoveApp          func(context.Context, string, bool) (*domain.App, error)
-	RefreshCaches      func(context.Context)
+	Store                AppStore
+	UpdateInfo           UpdateInfoReader
+	CheckManagedUpdate   ManagedUpdateChecker
+	LoadCheckCache       func() (*appupdate.CheckCacheFile, error)
+	SaveCheckCache       func(*appupdate.CheckCacheFile) error
+	PersistCheckMetadata func([]CheckMetadataUpdate) error
+	InvalidateCheckCache func([]string) error
+	ApplyManagedUpdate   ManagedUpdateApplier
+	PersistApps          func([]*domain.App, bool) error
+	PersistApp           func(*domain.App, bool) error
+	RemoveApp            func(context.Context, string, bool) (*domain.App, error)
+	RefreshCaches        func(context.Context)
+	NowISO               func() string
 }
 
 func NewSourceUpdateService(store AppStore) SourceUpdateService {
@@ -462,6 +478,10 @@ func NewSourceUpdateWorkflowService(service SourceUpdateService) SourceUpdateSer
 }
 
 func (service SourceUpdateService) ManagedApps(ctx context.Context, targetID string) ([]*domain.App, error) {
+	return service.managedApps(ctx, targetID)
+}
+
+func (service SourceUpdateService) managedApps(ctx context.Context, targetID string) ([]*domain.App, error) {
 	_ = ctx
 	if service.Store == nil {
 		return nil, internalErrorf("app store is not configured")
@@ -486,7 +506,160 @@ func (service SourceUpdateService) ManagedApps(ctx context.Context, targetID str
 			apps = append(apps, app)
 		}
 	}
+	sort.SliceStable(apps, func(i, j int) bool {
+		if apps[i] == nil {
+			return false
+		}
+		if apps[j] == nil {
+			return true
+		}
+		return strings.TrimSpace(apps[i].ID) < strings.TrimSpace(apps[j].ID)
+	})
 	return apps, nil
+}
+
+func (service SourceUpdateService) CheckManagedUpdates(ctx context.Context, req ManagedUpdateCheckRequest) (*ManagedUpdateCheckResult, error) {
+	apps, err := service.managedApps(ctx, req.TargetID)
+	if err != nil {
+		return nil, err
+	}
+
+	cache, err := service.loadManagedUpdateCache(req)
+	if err != nil {
+		return nil, err
+	}
+
+	checkResults := service.runManagedChecksWithCache(apps, cache, req)
+	checkedAt := service.nowISO()
+	metadataUpdates := make([]CheckMetadataUpdate, 0, len(checkResults))
+	result := &ManagedUpdateCheckResult{
+		Rows:           make([]ManagedUpdateCheckRow, 0, len(checkResults)),
+		Pending:        make([]ManagedUpdateView, 0),
+		PendingHandles: make([]ManagedUpdateHandle, 0),
+		Failures:       make([]ManagedCheckFailureView, 0),
+	}
+
+	for idx, checkResult := range checkResults {
+		app := checkResult.App
+		update := checkResult.Update
+		if checkResult.Error != nil {
+			if !req.DryRun && app != nil {
+				metadataUpdates = append(metadataUpdates, CheckMetadataUpdate{
+					ID:            app.ID,
+					Checked:       false,
+					Available:     app.UpdateAvailable,
+					Latest:        app.LatestVersion,
+					LastCheckedAt: checkedAt,
+				})
+			}
+			result.Rows = append(result.Rows, ManagedUpdateCheckRow{App: appSummaryFromDomain(app), Update: managedUpdateViewFromAppUpdate(update), Status: "check_failed", CheckedAt: checkedAt, Error: checkResult.Error.Error()})
+			result.CheckFailures++
+			result.Failures = append(result.Failures, ManagedCheckFailureView{AppID: appID(app), Reason: checkResult.Error.Error()})
+			if strings.TrimSpace(req.TargetID) != "" {
+				break
+			}
+			continue
+		}
+
+		if !req.DryRun && app != nil && cache != nil {
+			appupdate.SetCachedManagedUpdate(cache, app, appupdate.ManagedCheckCacheKey(app, idx), update, checkedAt)
+		}
+
+		if update == nil {
+			status := "no_update_information"
+			if app == nil || app.Update == nil || app.Update.Kind == domain.UpdateNone {
+				status = "no_update_source"
+			}
+			result.Rows = append(result.Rows, ManagedUpdateCheckRow{App: appSummaryFromDomain(app), Status: status, CheckedAt: checkedAt})
+			continue
+		}
+
+		if !req.DryRun && app != nil {
+			metadataUpdates = append(metadataUpdates, CheckMetadataUpdate{
+				ID:            app.ID,
+				Checked:       true,
+				Available:     update.Available,
+				Latest:        update.Latest,
+				LastCheckedAt: checkedAt,
+			})
+		}
+
+		status := "up_to_date"
+		if strings.TrimSpace(update.URL) != "" {
+			status = "update_available"
+			if handle := managedUpdateHandleFromAppUpdate(update); handle != nil {
+				result.Pending = append(result.Pending, handle.View)
+				result.PendingHandles = append(result.PendingHandles, *handle)
+			}
+		}
+		result.Rows = append(result.Rows, ManagedUpdateCheckRow{App: appSummaryFromDomain(app), Update: managedUpdateViewFromAppUpdate(update), Status: status, CheckedAt: checkedAt})
+	}
+
+	if !req.DryRun {
+		if err := service.persistCheckMetadata(metadataUpdates); err != nil {
+			return result, err
+		}
+		if cache != nil && service.SaveCheckCache != nil {
+			if err := service.SaveCheckCache(cache); err != nil {
+				return result, err
+			}
+		}
+	}
+	return result, nil
+}
+
+func (service SourceUpdateService) loadManagedUpdateCache(req ManagedUpdateCheckRequest) (*appupdate.CheckCacheFile, error) {
+	if req.DryRun || !req.UseCache || service.LoadCheckCache == nil {
+		return nil, nil
+	}
+	return service.LoadCheckCache()
+}
+
+func (service SourceUpdateService) runManagedChecksWithCache(apps []*domain.App, cache *appupdate.CheckCacheFile, req ManagedUpdateCheckRequest) []appupdate.ManagedCheckResult {
+	if cache == nil {
+		return appupdate.CheckManagedUpdates(apps, service.CheckManagedUpdate)
+	}
+	results := make([]appupdate.ManagedCheckResult, len(apps))
+	toCheck := make([]*domain.App, 0, len(apps))
+	toCheckIndices := make([]int, 0, len(apps))
+	for idx, app := range apps {
+		key := appupdate.ManagedCheckCacheKey(app, idx)
+		if cached, ok := appupdate.CachedManagedUpdateForApp(cache, app, key, time.Now(), appupdate.DefaultCheckCacheTTL); ok {
+			results[idx] = appupdate.ManagedCheckResult{App: app, Update: cached}
+			if req.OnCacheHit != nil && app != nil {
+				req.OnCacheHit(strings.TrimSpace(app.ID))
+			}
+			continue
+		}
+		toCheck = append(toCheck, app)
+		toCheckIndices = append(toCheckIndices, idx)
+	}
+	fresh := appupdate.CheckManagedUpdates(toCheck, service.CheckManagedUpdate)
+	for idx, result := range fresh {
+		results[toCheckIndices[idx]] = result
+	}
+	return results
+}
+
+func (service SourceUpdateService) persistCheckMetadata(updates []CheckMetadataUpdate) error {
+	if len(updates) == 0 || service.PersistCheckMetadata == nil {
+		return nil
+	}
+	return service.PersistCheckMetadata(updates)
+}
+
+func (service SourceUpdateService) nowISO() string {
+	if service.NowISO != nil {
+		return strings.TrimSpace(service.NowISO())
+	}
+	return time.Now().UTC().Format(time.RFC3339)
+}
+
+func appID(app *domain.App) string {
+	if app == nil {
+		return ""
+	}
+	return strings.TrimSpace(app.ID)
 }
 
 func (service SourceUpdateService) ApplyBatch(ctx context.Context, req UpdateApplyBatchRequest) (*UpdateApplyBatchResult, error) {
@@ -494,9 +667,22 @@ func (service SourceUpdateService) ApplyBatch(ctx context.Context, req UpdateApp
 	if apply == nil {
 		return nil, internalErrorf("update apply service is not configured")
 	}
-	applyResults := appupdate.ApplyManagedUpdates(ctx, req.Pending, func(ctx context.Context, update appupdate.ManagedUpdate, reporter appupdate.ManagedApplyReporter) (*domain.App, error) {
+	pending := make([]appupdate.ManagedUpdate, 0, len(req.Pending))
+	for _, handle := range req.Pending {
+		pending = append(pending, handle.update)
+	}
+	applyResults := appupdate.ApplyManagedUpdates(ctx, pending, func(ctx context.Context, update appupdate.ManagedUpdate, reporter appupdate.ManagedApplyReporter) (*domain.App, error) {
 		return apply(ctx, update, reporter)
-	}, req.ReporterFor)
+	}, func(index, total int, update appupdate.ManagedUpdate) appupdate.ManagedApplyReporter {
+		if req.ReporterFor == nil {
+			return nil
+		}
+		view := managedUpdateViewFromAppUpdate(&update)
+		if view == nil {
+			view = &ManagedUpdateView{}
+		}
+		return appupdate.WithManagedApplyEventDefaults(req.ReporterFor(index, total, *view), index, total, update)
+	})
 	results := make([]ManagedApplyResultView, 0, len(applyResults))
 	appliedApps := make([]*domain.App, 0, len(applyResults))
 	for _, result := range applyResults {
@@ -511,7 +697,26 @@ func (service SourceUpdateService) ApplyBatch(ctx context.Context, req UpdateApp
 	if err := service.persistAppliedApps(ctx, appliedApps); err != nil {
 		return &UpdateApplyBatchResult{Results: results}, err
 	}
+	if err := service.invalidateAppliedUpdateCache(appliedApps); err != nil {
+		return &UpdateApplyBatchResult{Results: results}, err
+	}
 	return &UpdateApplyBatchResult{Results: results}, nil
+}
+
+func (service SourceUpdateService) invalidateAppliedUpdateCache(apps []*domain.App) error {
+	if len(apps) == 0 || service.InvalidateCheckCache == nil {
+		return nil
+	}
+	ids := make([]string, 0, len(apps))
+	for _, app := range apps {
+		if id := appID(app); id != "" {
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	return service.InvalidateCheckCache(ids)
 }
 
 func (service SourceUpdateService) persistAppliedApps(ctx context.Context, apps []*domain.App) error {
@@ -592,18 +797,19 @@ func (service SourceUpdateService) SetSource(ctx context.Context, req UpdateSour
 	if service.Store == nil {
 		return nil, internalErrorf("app store is not configured")
 	}
-	if err := domain.ValidateUpdateSource(req.Source); err != nil {
+	source := updateSourceInputToDomain(req.Source)
+	if err := domain.ValidateUpdateSource(source); err != nil {
 		return nil, NewError(ErrorInvalidInput, "", err)
 	}
 	app, err := service.Store.GetApp(req.ID)
 	if err != nil {
 		return nil, err
 	}
-	app.Update = req.Source
+	app.Update = source
 	if err := service.Store.UpdateApp(app); err != nil {
 		return nil, err
 	}
-	return &UpdateSourceResult{ID: req.ID, Source: updateSourceViewFromDomain(req.Source), Changed: true}, nil
+	return &UpdateSourceResult{ID: req.ID, Source: updateSourceViewFromDomain(source), Changed: true}, nil
 }
 
 func (service SourceUpdateService) SetEmbeddedSource(ctx context.Context, id string) (*UpdateSourceResult, error) {
@@ -621,11 +827,11 @@ func (service SourceUpdateService) SetEmbeddedSource(ctx context.Context, id str
 	if err != nil {
 		return nil, NewError(ErrorUnavailable, "", err)
 	}
-	return service.SetSource(ctx, UpdateSourceRequest{ID: id, Source: source})
+	return service.SetSource(ctx, UpdateSourceRequest{ID: id, Source: updateSourceInputFromDomain(source)})
 }
 
 func (service SourceUpdateService) UnsetSource(ctx context.Context, id string) (*UpdateSourceResult, error) {
-	return service.SetSource(ctx, UpdateSourceRequest{ID: id, Source: &domain.UpdateSource{Kind: domain.UpdateNone}})
+	return service.SetSource(ctx, UpdateSourceRequest{ID: id, Source: &UpdateSourceInput{Kind: UpdateKindNone}})
 }
 
 func (service SourceUpdateService) PlanSetSource(ctx context.Context, req UpdateSourceRequest) (*DryRunPlan, error) {
@@ -637,7 +843,8 @@ func (service SourceUpdateService) PlanSetSource(ctx context.Context, req Update
 	if err != nil {
 		return nil, err
 	}
-	values := UpdateSetDryRunValues(req.ID, app.Update, req.Source)
+	source := updateSourceInputToDomain(req.Source)
+	values := UpdateSetDryRunValues(req.ID, app.Update, source)
 	return &DryRunPlan{
 		Action:     "set_update_source",
 		Target:     req.ID,
@@ -646,7 +853,7 @@ func (service SourceUpdateService) PlanSetSource(ctx context.Context, req Update
 		UpdateSourceChange: &UpdateSourceChangeView{
 			ID:       strings.TrimSpace(req.ID),
 			Current:  updateSourceViewFromDomain(app.Update),
-			Incoming: updateSourceViewFromDomain(req.Source),
+			Incoming: updateSourceViewFromDomain(source),
 		},
 		DBWrite: true,
 	}, nil
@@ -667,7 +874,7 @@ func (service SourceUpdateService) PlanSetEmbeddedSource(ctx context.Context, id
 	if err != nil {
 		return nil, NewError(ErrorUnavailable, "", err)
 	}
-	return service.PlanSetSource(ctx, UpdateSourceRequest{ID: id, Source: source})
+	return service.PlanSetSource(ctx, UpdateSourceRequest{ID: id, Source: updateSourceInputFromDomain(source)})
 }
 
 func (service SourceUpdateService) PlanUnsetSource(ctx context.Context, id string) (*DryRunPlan, error) {
@@ -691,6 +898,57 @@ func (service SourceUpdateService) PlanUnsetSource(ctx context.Context, id strin
 		},
 		DBWrite: true,
 	}, nil
+}
+
+func ParseGitHubProviderRef(value string) (ProviderRef, error) {
+	ref, err := discovery.ParseGitHubRepoValue(value)
+	if err != nil {
+		return ProviderRef{}, err
+	}
+	return providerRefFromDomain(ref), nil
+}
+
+func ParsePackageProviderRefURL(value string) (ProviderRef, error) {
+	ref, err := discovery.ParsePackageRefURL(value)
+	if err != nil {
+		return ProviderRef{}, err
+	}
+	return providerRefFromDomain(ref), nil
+}
+
+func FormatProviderRef(ref ProviderRef) string {
+	value := strings.TrimSpace(ref.Ref)
+	if value == "" {
+		return ""
+	}
+	switch strings.TrimSpace(ref.Provider) {
+	case ProviderGitHub:
+		return "GitHub " + value
+	default:
+		return value
+	}
+}
+
+func NormalizeComparableVersion(value string) string {
+	return domain.NormalizeComparableVersion(value)
+}
+
+func ManagedUpdateDownloadFilename(assetName, downloadURL string) string {
+	return appupdate.ManagedUpdateDownloadFilename(assetName, downloadURL)
+}
+
+func applyPackageViewSelection(metadata *domain.PackageMetadata, view *PackageView) {
+	if metadata == nil || view == nil {
+		return
+	}
+	if strings.TrimSpace(view.AssetName) != "" {
+		metadata.AssetName = strings.TrimSpace(view.AssetName)
+	}
+	if strings.TrimSpace(view.DownloadURL) != "" {
+		metadata.DownloadURL = strings.TrimSpace(view.DownloadURL)
+	}
+	metadata.AssetAmbiguous = view.AssetAmbiguous
+	metadata.AssetReason = strings.TrimSpace(view.AssetReason)
 }
 
 func RequireInstallablePackage(metadata *domain.PackageMetadata) (*domain.PackageMetadata, error) {

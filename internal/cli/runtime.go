@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	appimageapp "github.com/slobbe/appimage-manager/internal/app/appimage"
@@ -39,6 +40,124 @@ type runtimeSettingsContextKey struct{}
 
 type runtimeSettings struct {
 	NetworkTimeout time.Duration
+}
+
+func formatAppRef(app *domain.App) string {
+	if app == nil {
+		return "unknown"
+	}
+	return fmt.Sprintf("%s %s [%s]", app.Name, displayVersion(app.Version), app.ID)
+}
+
+func checkAppUpdate(app *domain.App) (*appupdate.ManagedUpdate, error) {
+	update, err := appupdate.NewManagedUpdateChecker(appupdate.ManagedUpdateChecker{
+		ZsyncCheck:         runZsyncUpdateCheck,
+		GitHubReleaseCheck: runGitHubReleaseUpdateCheck,
+	}).Check(app)
+	if err != nil {
+		return nil, softwareError(err)
+	}
+	return update, nil
+}
+
+var (
+	downloadManagedRemoteAsset = func(ctx context.Context, assetURL, destination string, interactive bool, onProgress func(int64, int64)) error {
+		return appupdate.Service{
+			TempDir:        runtimeTempDir(),
+			NowISO:         runtimeNowISO,
+			StagedDownload: stagedDownloadAdapter{client: runtimeDownloadHTTPClient},
+		}.DownloadManagedUpdateAsset(ctx, assetURL, destination, onProgress)
+	}
+)
+
+func managedUpdateService() appupdate.Service {
+	return appupdate.Service{
+		TempDir:        runtimeTempDir(),
+		NowISO:         runtimeNowISO,
+		Zsync:          runtimeZsyncRunner(),
+		StagedDownload: stagedDownloadAdapter{client: runtimeDownloadHTTPClient},
+		HashVerifier:   hashVerifierAdapter{},
+		DownloadAsset: func(ctx context.Context, assetURL, destination string, onProgress func(downloaded, total int64)) error {
+			return downloadManagedRemoteAsset(ctx, assetURL, destination, false, onProgress)
+		},
+		Integrate: func(ctx context.Context, src string, confirm func(existing, incoming *domain.UpdateSource) (bool, error)) (*domain.App, error) {
+			return integrateManagedUpdate(ctx, src, confirm)
+		},
+	}
+}
+
+func applyManagedUpdate(ctx context.Context, update appupdate.ManagedUpdate, reporter appservices.ManagedApplyReporter) (*domain.App, error) {
+	return managedUpdateService().ApplyManagedUpdate(ctx, update, reporter)
+}
+
+func applyZsyncUpdate(ctx context.Context, update appupdate.ManagedUpdate, destination string) error {
+	return rewriteZsyncFailure(appupdate.Service{
+		Zsync: runtimeZsyncRunner(),
+	}.ApplyManagedZsyncUpdate(ctx, update, destination))
+}
+
+func verifyDownloadedUpdate(downloadPath string, update appupdate.ManagedUpdate) error {
+	service := appupdate.NewService(appupdate.Service{HashVerifier: hashVerifierAdapter{}})
+	return rewriteChecksumError(service.VerifyDownloadedUpdate(downloadPath, update))
+}
+
+func updateCheckMetadata(app *domain.App, checked, available bool, latest string) error {
+	if app == nil {
+		return nil
+	}
+	lastCheckedAt := runtimeNowISO()
+	if err := updateCheckMetadataBatch([]appservices.CheckMetadataUpdate{{
+		ID:            app.ID,
+		Checked:       checked,
+		Available:     available,
+		Latest:        latest,
+		LastCheckedAt: lastCheckedAt,
+	}}); err != nil {
+		return wrapWriteError(err)
+	}
+	if checked {
+		app.UpdateAvailable = available
+		app.LatestVersion = strings.TrimSpace(latest)
+	}
+	app.LastCheckedAt = lastCheckedAt
+	return nil
+}
+
+func loadUpdateCheckCache() (*appupdate.CheckCacheFile, error) {
+	path := updateCheckCacheFilePath()
+	data, ok, err := runtimeReadFileIfExists(path)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return appupdate.NewCheckCacheFile(), nil
+	}
+
+	var cache appupdate.CheckCacheFile
+	if err := json.Unmarshal(data, &cache); err != nil {
+		return nil, err
+	}
+	return appupdate.NormalizeCheckCache(&cache), nil
+}
+
+func saveUpdateCheckCache(cache *appupdate.CheckCacheFile) error {
+	if cache == nil {
+		return nil
+	}
+	if err := runtimeEnsureDir(runtimeTempDir()); err != nil {
+		return err
+	}
+	appupdate.NormalizeCheckCache(cache)
+
+	data, err := json.MarshalIndent(cache, "", "  ")
+	if err != nil {
+		return err
+	}
+	return runtimeWriteAtomicFile(updateCheckCacheFilePath(), data, 0o644)
+}
+
+func invalidateCachedManagedUpdates(cache *appupdate.CheckCacheFile, appIDs ...string) {
+	appupdate.InvalidateCachedManagedUpdates(cache, appIDs...)
 }
 
 type commandJSONEnvelope struct {
@@ -348,9 +467,9 @@ type runtimeServices struct {
 	Locker    appservices.StateLocker
 }
 
-type updateSourceReplaceConfirmerFunc func(existing, incoming *domain.UpdateSource) (bool, error)
+type updateSourceReplaceConfirmerFunc func(existing, incoming *appservices.UpdateSourceView) (bool, error)
 
-func (fn updateSourceReplaceConfirmerFunc) ConfirmUpdateSourceReplace(existing, incoming *domain.UpdateSource) (bool, error) {
+func (fn updateSourceReplaceConfirmerFunc) ConfirmUpdateSourceReplace(existing, incoming *appservices.UpdateSourceView) (bool, error) {
 	return fn(existing, incoming)
 }
 
@@ -375,7 +494,7 @@ func defaultRuntimeServicesForSettings(settings runtimeSettings) runtimeServices
 			return downloadRemoteAsset(ctx, assetURL, destination, isTerminalStderr())
 		},
 		VerifySHA256: func(path, expectedSHA256 string) error {
-			return verifyDownloadedUpdate(path, pendingManagedUpdate{ExpectedSHA256: expectedSHA256})
+			return verifyDownloadedUpdate(path, appupdate.ManagedUpdate{ExpectedSHA256: expectedSHA256})
 		},
 		IntegrateLocalApp: integrateLocalApp,
 		PersistApp:        addSingleApp,
@@ -394,9 +513,6 @@ func defaultRuntimeServicesForSettings(settings runtimeSettings) runtimeServices
 			InstallPackageRefApp: func(ctx context.Context, metadata *domain.PackageMetadata) (*domain.App, error) {
 				return remoteInstallService.InstallPackageMetadata(ctx, metadata)
 			},
-			PlanPackageRefInstallFunc: func(ctx context.Context, req appservices.InstallPackageRefRequest) (*appservices.DryRunPlan, error) {
-				return planPackageRefInstall(ctx, req)
-			},
 			Discovery:    discoveryService,
 			AppImageInfo: appservices.AppImageInfoReaderFunc(readAppImageInfo),
 			AimDir:       config.AimDir,
@@ -411,16 +527,27 @@ func defaultRuntimeServicesForSettings(settings runtimeSettings) runtimeServices
 		}),
 		Remove: appservices.NewRemoveWorkflowService(appservices.RemoveWorkflowService{Store: store, RemoveFunc: removeManagedApp}),
 		Update: appservices.NewSourceUpdateWorkflowService(appservices.SourceUpdateService{
-			Store:       store,
-			UpdateInfo:  appservices.UpdateInfoReaderFunc(getAppImageUpdateInfo),
-			PersistApps: addAppsBatch,
-			PersistApp:  addSingleApp,
-			RemoveApp:   removeManagedApp,
+			Store:                store,
+			UpdateInfo:           appservices.UpdateInfoReaderFunc(getAppImageUpdateInfo),
+			CheckManagedUpdate:   runAppUpdateCheck,
+			LoadCheckCache:       loadUpdateCheckCache,
+			SaveCheckCache:       saveUpdateCheckCache,
+			PersistCheckMetadata: updateCheckMetadataBatch,
+			InvalidateCheckCache: func(ids []string) error {
+				cache, err := loadUpdateCheckCache()
+				if err != nil {
+					return err
+				}
+				invalidateCachedManagedUpdates(cache, ids...)
+				return saveUpdateCheckCache(cache)
+			},
+			ApplyManagedUpdate: runManagedApply,
+			PersistApps:        addAppsBatch,
+			PersistApp:         addSingleApp,
+			RemoveApp:          removeManagedApp,
+			NowISO:             runtimeNowISO,
 			RefreshCaches: func(ctx context.Context) {
 				appintegrate.RefreshDesktopIntegrationCaches(ctx)
-			},
-			ApplyManagedUpdate: func(ctx context.Context, update appupdate.ManagedUpdate, reporter appupdate.ManagedApplyReporter) (*domain.App, error) {
-				return runManagedApply(ctx, update, reporter)
 			},
 		}),
 		Upgrade: appservices.NewUpgradeWorkflowService(appservices.UpgradeWorkflowService{

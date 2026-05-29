@@ -68,6 +68,14 @@ type GitHubReleaseSourceView struct {
 	DownloadedAt string `json:"downloaded_at,omitempty"`
 }
 
+const (
+	ProviderGitHub = domain.ProviderGitHub
+
+	UpdateKindNone          = string(domain.UpdateNone)
+	UpdateKindZsync         = string(domain.UpdateZsync)
+	UpdateKindGitHubRelease = string(domain.UpdateGitHubRelease)
+)
+
 // UpdateSourceView is the domain-free representation of a managed app update source.
 type UpdateSourceView struct {
 	Kind          string                   `json:"kind"`
@@ -84,6 +92,13 @@ type GitHubReleaseUpdateView struct {
 	Repo        string `json:"repo"`
 	Asset       string `json:"asset"`
 	ReleaseKind string `json:"release_kind,omitempty"`
+}
+
+// UpdateSourceInput is the domain-free request DTO for setting update sources.
+type UpdateSourceInput struct {
+	Kind          string                   `json:"kind"`
+	Zsync         *ZsyncUpdateSourceView   `json:"zsync,omitempty"`
+	GitHubRelease *GitHubReleaseUpdateView `json:"github_release,omitempty"`
 }
 
 // UpdateSourceChangeView describes a planned or completed update-source change.
@@ -128,6 +143,12 @@ type AppImageInfoView struct {
 	Version     string `json:"version"`
 }
 
+// ManagedUpdateHandle is an opaque handle for applying a checked managed update.
+type ManagedUpdateHandle struct {
+	View   ManagedUpdateView `json:"view"`
+	update appupdate.ManagedUpdate
+}
+
 // ManagedUpdateView describes a pending managed update without exposing lower app types.
 type ManagedUpdateView struct {
 	App            *AppSummary `json:"app,omitempty"`
@@ -153,6 +174,39 @@ type ManagedApplyResultView struct {
 
 func providerRefFromDomain(ref domain.PackageRef) ProviderRef {
 	return ProviderRef{Provider: strings.TrimSpace(ref.Kind), Ref: strings.TrimSpace(ref.ProviderRef)}
+}
+
+func providerRefToDomain(ref ProviderRef) domain.PackageRef {
+	return domain.PackageRef{Kind: strings.TrimSpace(ref.Provider), ProviderRef: strings.TrimSpace(ref.Ref)}
+}
+
+func updateSourceInputToDomain(input *UpdateSourceInput) *domain.UpdateSource {
+	if input == nil {
+		return nil
+	}
+	source := &domain.UpdateSource{Kind: domain.UpdateKind(strings.TrimSpace(input.Kind))}
+	if input.Zsync != nil {
+		source.Zsync = &domain.ZsyncUpdateSource{
+			UpdateInfo: strings.TrimSpace(input.Zsync.UpdateInfo),
+			Transport:  strings.TrimSpace(input.Zsync.Transport),
+		}
+	}
+	if input.GitHubRelease != nil {
+		source.GitHubRelease = &domain.GitHubReleaseUpdateSource{
+			Repo:        strings.TrimSpace(input.GitHubRelease.Repo),
+			Asset:       strings.TrimSpace(input.GitHubRelease.Asset),
+			ReleaseKind: strings.TrimSpace(input.GitHubRelease.ReleaseKind),
+		}
+	}
+	return source
+}
+
+func updateSourceInputFromDomain(source *domain.UpdateSource) *UpdateSourceInput {
+	view := updateSourceViewFromDomain(source)
+	if view == nil {
+		return nil
+	}
+	return &UpdateSourceInput{Kind: view.Kind, Zsync: view.Zsync, GitHubRelease: view.GitHubRelease}
 }
 
 func appSummaryFromDomain(app *domain.App) *AppSummary {
@@ -292,6 +346,14 @@ func appImageInfoViewFromAppImageInfo(info *appimageapp.AppInfo) *AppImageInfoVi
 		DesktopStem: strings.TrimSpace(info.DesktopStem),
 		Version:     strings.TrimSpace(info.Version),
 	}
+}
+
+func managedUpdateHandleFromAppUpdate(update *appupdate.ManagedUpdate) *ManagedUpdateHandle {
+	view := managedUpdateViewFromAppUpdate(update)
+	if update == nil || view == nil {
+		return nil
+	}
+	return &ManagedUpdateHandle{View: *view, update: *update}
 }
 
 func managedUpdateViewFromAppUpdate(update *appupdate.ManagedUpdate) *ManagedUpdateView {

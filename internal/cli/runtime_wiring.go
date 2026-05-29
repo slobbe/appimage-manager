@@ -9,6 +9,7 @@ import (
 	"github.com/slobbe/appimage-manager/internal/app/discovery"
 	appintegrate "github.com/slobbe/appimage-manager/internal/app/integrate"
 	appremove "github.com/slobbe/appimage-manager/internal/app/remove"
+	appservices "github.com/slobbe/appimage-manager/internal/app/services"
 	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
 	appupgrade "github.com/slobbe/appimage-manager/internal/app/upgrade"
 	models "github.com/slobbe/appimage-manager/internal/domain"
@@ -546,14 +547,6 @@ func configureRepositoryStores() {
 	}
 }
 
-type checkMetadataUpdate struct {
-	ID            string
-	Checked       bool
-	Available     bool
-	Latest        string
-	LastCheckedAt string
-}
-
 func defaultAddAppsBatch(apps []*models.App, overwrite bool) error {
 	return repositoryStore().AddAppsBatch(apps, overwrite)
 }
@@ -574,7 +567,7 @@ func updateManagedApp(app *models.App) error {
 	return repositoryStore().UpdateApp(app)
 }
 
-func updateCheckMetadataBatch(updates []checkMetadataUpdate) error {
+func updateCheckMetadataBatch(updates []appservices.CheckMetadataUpdate) error {
 	repositoryUpdates := make([]repo.CheckMetadataUpdate, 0, len(updates))
 	for _, update := range updates {
 		repositoryUpdates = append(repositoryUpdates, repo.CheckMetadataUpdate{
