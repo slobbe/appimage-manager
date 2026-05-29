@@ -210,23 +210,23 @@ func TestSourceUpdateServiceSetAndPlan(t *testing.T) {
 	}
 	service := SourceUpdateService{Store: store}
 
-	plan, err := service.PlanSetSource(context.Background(), UpdateSourceRequest{ID: "app", Source: source})
+	planResult, err := service.Update(context.Background(), UpdateRequest{TargetID: "app", Mode: UpdateModeSetSource, Source: source, DryRun: true})
 	if err != nil {
-		t.Fatalf("PlanSetSource returned error: %v", err)
+		t.Fatalf("Update dry-run set source returned error: %v", err)
 	}
-	if plan.Action != "set_update_source" {
-		t.Fatalf("unexpected plan: %+v", plan)
+	if planResult.Plan == nil || planResult.Plan.Action != "set_update_source" {
+		t.Fatalf("unexpected plan result: %+v", planResult)
 	}
-	if plan.UpdateSourceChange == nil || plan.UpdateSourceChange.Incoming == nil || plan.UpdateSourceChange.Incoming.GitHubRelease == nil {
-		t.Fatalf("plan missing typed update source change: %+v", plan.UpdateSourceChange)
+	if planResult.SourceChange == nil || planResult.SourceChange.Incoming == nil || planResult.SourceChange.Incoming.GitHubRelease == nil {
+		t.Fatalf("plan missing typed update source change: %+v", planResult.SourceChange)
 	}
 
-	result, err := service.SetSource(context.Background(), UpdateSourceRequest{ID: "app", Source: source})
+	result, err := service.Update(context.Background(), UpdateRequest{TargetID: "app", Mode: UpdateModeSetSource, Source: source})
 	if err != nil {
-		t.Fatalf("SetSource returned error: %v", err)
+		t.Fatalf("Update set source returned error: %v", err)
 	}
-	if !result.Changed || result.Source == nil || result.Source.GitHubRelease == nil || store.apps["app"].Update == nil || store.apps["app"].Update.GitHubRelease == nil {
-		t.Fatalf("SetSource result = %+v app = %+v", result, store.apps["app"])
+	if result.Source == nil || !result.Source.Changed || result.Source.Source == nil || result.Source.Source.GitHubRelease == nil || store.apps["app"].Update == nil || store.apps["app"].Update.GitHubRelease == nil {
+		t.Fatalf("Update result = %+v app = %+v", result, store.apps["app"])
 	}
 }
 

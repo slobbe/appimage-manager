@@ -6921,7 +6921,7 @@ type recordingUpdateService struct {
 
 func (service *recordingUpdateService) Update(ctx context.Context, req appservices.UpdateRequest) (*appservices.UpdateResult, error) {
 	service.updateReq = req
-	check, err := service.CheckManagedUpdates(ctx, appservices.ManagedUpdateCheckRequest{
+	check, err := service.checkManagedUpdates(ctx, appservices.ManagedUpdateCheckRequest{
 		TargetID:   req.TargetID,
 		DryRun:     req.DryRun,
 		UseCache:   req.UseCache,
@@ -6967,7 +6967,7 @@ func (service *recordingUpdateService) Update(ctx context.Context, req appservic
 		result.ApplySkipped = true
 		return result, nil
 	}
-	apply, err := service.ApplyBatch(ctx, appservices.UpdateApplyBatchRequest{Pending: check.PendingHandles, ReporterFor: req.ReporterFor})
+	apply, err := service.applyBatch(ctx, appservices.UpdateApplyBatchRequest{Pending: check.PendingHandles, ReporterFor: req.ReporterFor})
 	if apply != nil {
 		result.Applied = apply.Results
 		for _, applied := range apply.Results {
@@ -6987,65 +6987,17 @@ func (service *recordingUpdateService) Update(ctx context.Context, req appservic
 	return result, err
 }
 
-func (service *recordingUpdateService) ManagedApps(ctx context.Context, targetID string) ([]*models.App, error) {
-	_ = ctx
-	_ = targetID
-	return nil, nil
-}
-
-func (service *recordingUpdateService) CheckManagedUpdates(ctx context.Context, req appservices.ManagedUpdateCheckRequest) (*appservices.ManagedUpdateCheckResult, error) {
+func (service *recordingUpdateService) checkManagedUpdates(ctx context.Context, req appservices.ManagedUpdateCheckRequest) (*appservices.ManagedUpdateCheckResult, error) {
 	_ = ctx
 	service.checkReq = req
 	return service.checkResult, nil
 }
 
-func (service *recordingUpdateService) ApplyBatch(ctx context.Context, req appservices.UpdateApplyBatchRequest) (*appservices.UpdateApplyBatchResult, error) {
+func (service *recordingUpdateService) applyBatch(ctx context.Context, req appservices.UpdateApplyBatchRequest) (*appservices.UpdateApplyBatchResult, error) {
 	_ = ctx
 	service.applyCalls++
 	service.applyReq = req
 	return service.applyResult, nil
-}
-
-func (service *recordingUpdateService) EmbeddedSource(ctx context.Context, id string) (*appservices.UpdateSourceResult, error) {
-	_ = ctx
-	_ = id
-	return nil, nil
-}
-
-func (service *recordingUpdateService) SetSource(ctx context.Context, req appservices.UpdateSourceRequest) (*appservices.UpdateSourceResult, error) {
-	_ = ctx
-	_ = req
-	return nil, nil
-}
-
-func (service *recordingUpdateService) SetEmbeddedSource(ctx context.Context, id string) (*appservices.UpdateSourceResult, error) {
-	_ = ctx
-	_ = id
-	return nil, nil
-}
-
-func (service *recordingUpdateService) UnsetSource(ctx context.Context, id string) (*appservices.UpdateSourceResult, error) {
-	_ = ctx
-	_ = id
-	return nil, nil
-}
-
-func (service *recordingUpdateService) PlanSetSource(ctx context.Context, req appservices.UpdateSourceRequest) (*appservices.DryRunPlan, error) {
-	_ = ctx
-	_ = req
-	return nil, nil
-}
-
-func (service *recordingUpdateService) PlanSetEmbeddedSource(ctx context.Context, id string) (*appservices.DryRunPlan, error) {
-	_ = ctx
-	_ = id
-	return nil, nil
-}
-
-func (service *recordingUpdateService) PlanUnsetSource(ctx context.Context, id string) (*appservices.DryRunPlan, error) {
-	_ = ctx
-	_ = id
-	return nil, nil
 }
 
 func newAddTestCommand() *cobra.Command {

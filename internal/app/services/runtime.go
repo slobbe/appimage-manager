@@ -621,7 +621,7 @@ func (service SourceUpdateService) Update(ctx context.Context, req UpdateRequest
 	case UpdateModeUnsetSource:
 		return service.updateUnsetSource(ctx, req)
 	}
-	check, err := service.CheckManagedUpdates(ctx, ManagedUpdateCheckRequest{
+	check, err := service.checkManagedUpdates(ctx, ManagedUpdateCheckRequest{
 		TargetID:   req.TargetID,
 		DryRun:     req.DryRun,
 		UseCache:   req.UseCache,
@@ -709,7 +709,7 @@ func (service SourceUpdateService) updateSetSource(ctx context.Context, req Upda
 		}
 	}
 	if req.DryRun {
-		plan, err := service.PlanSetSource(ctx, UpdateSourceRequest{ID: id, Source: incoming})
+		plan, err := service.planSetSource(ctx, updateSourceRequest{ID: id, Source: incoming})
 		if err != nil {
 			return nil, err
 		}
@@ -718,7 +718,7 @@ func (service SourceUpdateService) updateSetSource(ctx context.Context, req Upda
 	var sourceResult *UpdateSourceResult
 	err = service.withOptionalWriteLock(func() error {
 		var setErr error
-		sourceResult, setErr = service.SetSource(ctx, UpdateSourceRequest{ID: id, Source: incoming})
+		sourceResult, setErr = service.setSource(ctx, updateSourceRequest{ID: id, Source: incoming})
 		return setErr
 	})
 	if err != nil {
@@ -743,7 +743,7 @@ func (service SourceUpdateService) updateUnsetSource(ctx context.Context, req Up
 		return &UpdateResult{Mode: UpdateModeUnsetSource, Source: &UpdateSourceResult{ID: id, Source: current, Changed: false}, SourceChange: change, SourceUnchanged: true, NoEmbeddedSource: req.UseEmbeddedSource}, nil
 	}
 	if req.DryRun {
-		plan, err := service.PlanUnsetSource(ctx, id)
+		plan, err := service.planUnsetSource(ctx, id)
 		if err != nil {
 			return nil, err
 		}
@@ -761,7 +761,7 @@ func (service SourceUpdateService) updateUnsetSource(ctx context.Context, req Up
 	var sourceResult *UpdateSourceResult
 	err = service.withOptionalWriteLock(func() error {
 		var unsetErr error
-		sourceResult, unsetErr = service.UnsetSource(ctx, id)
+		sourceResult, unsetErr = service.unsetSource(ctx, id)
 		return unsetErr
 	})
 	if err != nil {
@@ -848,12 +848,12 @@ func countApplyFailures(results []ManagedApplyResultView) int {
 
 func (service SourceUpdateService) applyBatchWithOptionalLock(ctx context.Context, req UpdateApplyBatchRequest) (*UpdateApplyBatchResult, error) {
 	if service.Locker == nil {
-		return service.ApplyBatch(ctx, req)
+		return service.applyBatch(ctx, req)
 	}
 	var result *UpdateApplyBatchResult
 	var applyErr error
 	err := service.Locker.WithWriteLock(func() error {
-		result, applyErr = service.ApplyBatch(ctx, req)
+		result, applyErr = service.applyBatch(ctx, req)
 		return nil
 	})
 	if err != nil {
@@ -882,10 +882,6 @@ func (service SourceUpdateService) reconcileAppliedUpdateRows(rows []ManagedUpda
 			rows[idx].App.Version = strings.TrimSpace(apply.UpdatedApp.Version)
 		}
 	}
-}
-
-func (service SourceUpdateService) ManagedApps(ctx context.Context, targetID string) ([]*domain.App, error) {
-	return service.managedApps(ctx, targetID)
 }
 
 func (service SourceUpdateService) managedApps(ctx context.Context, targetID string) ([]*domain.App, error) {
@@ -925,7 +921,7 @@ func (service SourceUpdateService) managedApps(ctx context.Context, targetID str
 	return apps, nil
 }
 
-func (service SourceUpdateService) CheckManagedUpdates(ctx context.Context, req ManagedUpdateCheckRequest) (*ManagedUpdateCheckResult, error) {
+func (service SourceUpdateService) checkManagedUpdates(ctx context.Context, req ManagedUpdateCheckRequest) (*ManagedUpdateCheckResult, error) {
 	apps, err := service.managedApps(ctx, req.TargetID)
 	if err != nil {
 		return nil, err
@@ -1069,7 +1065,7 @@ func appID(app *domain.App) string {
 	return strings.TrimSpace(app.ID)
 }
 
-func (service SourceUpdateService) ApplyBatch(ctx context.Context, req UpdateApplyBatchRequest) (*UpdateApplyBatchResult, error) {
+func (service SourceUpdateService) applyBatch(ctx context.Context, req UpdateApplyBatchRequest) (*UpdateApplyBatchResult, error) {
 	apply := service.ApplyManagedUpdate
 	if apply == nil {
 		return nil, internalErrorf("update apply service is not configured")
@@ -1180,26 +1176,7 @@ func (service SourceUpdateService) cleanupReplacedApps(ctx context.Context, apps
 	return nil
 }
 
-func (service SourceUpdateService) EmbeddedSource(ctx context.Context, id string) (*UpdateSourceResult, error) {
-	_ = ctx
-	if service.Store == nil {
-		return nil, internalErrorf("app store is not configured")
-	}
-	app, err := service.Store.GetApp(id)
-	if err != nil {
-		return nil, err
-	}
-	if app == nil {
-		return nil, Errorf(ErrorNotFound, "", "managed app %q was not found", id)
-	}
-	source, err := readEmbeddedUpdateSource(service.UpdateInfo, app.ExecPath)
-	if err != nil {
-		return &UpdateSourceResult{ID: id, Source: nil, Changed: false}, nil
-	}
-	return &UpdateSourceResult{ID: id, Source: updateSourceViewFromDomain(source), Changed: false}, nil
-}
-
-func (service SourceUpdateService) SetSource(ctx context.Context, req UpdateSourceRequest) (*UpdateSourceResult, error) {
+func (service SourceUpdateService) setSource(ctx context.Context, req updateSourceRequest) (*UpdateSourceResult, error) {
 	_ = ctx
 	if service.Store == nil {
 		return nil, internalErrorf("app store is not configured")
@@ -1219,29 +1196,11 @@ func (service SourceUpdateService) SetSource(ctx context.Context, req UpdateSour
 	return &UpdateSourceResult{ID: req.ID, Source: updateSourceViewFromDomain(source), Changed: true}, nil
 }
 
-func (service SourceUpdateService) SetEmbeddedSource(ctx context.Context, id string) (*UpdateSourceResult, error) {
-	if service.Store == nil {
-		return nil, internalErrorf("app store is not configured")
-	}
-	app, err := service.Store.GetApp(id)
-	if err != nil {
-		return nil, err
-	}
-	if app == nil {
-		return nil, Errorf(ErrorNotFound, "", "managed app %q was not found", id)
-	}
-	source, err := readEmbeddedUpdateSource(service.UpdateInfo, app.ExecPath)
-	if err != nil {
-		return nil, NewError(ErrorUnavailable, "", err)
-	}
-	return service.SetSource(ctx, UpdateSourceRequest{ID: id, Source: updateSourceInputFromDomain(source)})
+func (service SourceUpdateService) unsetSource(ctx context.Context, id string) (*UpdateSourceResult, error) {
+	return service.setSource(ctx, updateSourceRequest{ID: id, Source: &UpdateSourceInput{Kind: UpdateKindNone}})
 }
 
-func (service SourceUpdateService) UnsetSource(ctx context.Context, id string) (*UpdateSourceResult, error) {
-	return service.SetSource(ctx, UpdateSourceRequest{ID: id, Source: &UpdateSourceInput{Kind: UpdateKindNone}})
-}
-
-func (service SourceUpdateService) PlanSetSource(ctx context.Context, req UpdateSourceRequest) (*DryRunPlan, error) {
+func (service SourceUpdateService) planSetSource(ctx context.Context, req updateSourceRequest) (*DryRunPlan, error) {
 	_ = ctx
 	if service.Store == nil {
 		return nil, internalErrorf("app store is not configured")
@@ -1266,25 +1225,7 @@ func (service SourceUpdateService) PlanSetSource(ctx context.Context, req Update
 	}, nil
 }
 
-func (service SourceUpdateService) PlanSetEmbeddedSource(ctx context.Context, id string) (*DryRunPlan, error) {
-	if service.Store == nil {
-		return nil, internalErrorf("app store is not configured")
-	}
-	app, err := service.Store.GetApp(id)
-	if err != nil {
-		return nil, err
-	}
-	if app == nil {
-		return nil, Errorf(ErrorNotFound, "", "managed app %q was not found", id)
-	}
-	source, err := readEmbeddedUpdateSource(service.UpdateInfo, app.ExecPath)
-	if err != nil {
-		return nil, NewError(ErrorUnavailable, "", err)
-	}
-	return service.PlanSetSource(ctx, UpdateSourceRequest{ID: id, Source: updateSourceInputFromDomain(source)})
-}
-
-func (service SourceUpdateService) PlanUnsetSource(ctx context.Context, id string) (*DryRunPlan, error) {
+func (service SourceUpdateService) planUnsetSource(ctx context.Context, id string) (*DryRunPlan, error) {
 	_ = ctx
 	if service.Store == nil {
 		return nil, internalErrorf("app store is not configured")

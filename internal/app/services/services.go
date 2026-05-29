@@ -203,7 +203,7 @@ type UpdateApplyBatchRequest struct {
 	ReporterFor ManagedApplyReporterFactory
 }
 
-type UpdateSourceRequest struct {
+type updateSourceRequest struct {
 	ID     string
 	Source *UpdateSourceInput
 }
