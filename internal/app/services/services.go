@@ -49,6 +49,11 @@ type DiscoveryService interface {
 	ResolvePackage(ctx context.Context, req PackageRefInfoRequest) (*domain.PackageMetadata, error)
 }
 
+type RemoteInstaller interface {
+	InstallDirectURL(ctx context.Context, req InstallDirectURLRequest) (*domain.App, error)
+	InstallPackageMetadata(ctx context.Context, metadata *domain.PackageMetadata) (*domain.App, error)
+}
+
 type StateLocker interface {
 	WithWriteLock(fn func() error) error
 }
@@ -99,7 +104,6 @@ type InstallPackageRefRequest struct {
 	Ref                  ProviderRef
 	AssetPattern         string
 	ResolveViewAmbiguity PackageViewAmbiguityResolver
-	InstallPackage       func(context.Context, *domain.PackageMetadata) (*domain.App, error)
 }
 
 type PackageRefInfoRequest struct {

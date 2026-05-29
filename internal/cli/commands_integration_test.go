@@ -87,7 +87,7 @@ func TestResolveIntegrateTarget(t *testing.T) {
 		{name: "unknown id", input: "missing", wantError: true},
 	}
 
-	service := appservices.NewBasicAddService(appservices.BasicAddService{
+	service := appservices.NewAddWorkflowService(appservices.AddWorkflowService{
 		Store:        repo.NewStore(dbPath),
 		HasExtension: runtimeHasExtension,
 	})

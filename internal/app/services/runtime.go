@@ -45,25 +45,23 @@ func (fn AppImageInfoReaderFunc) ReadAppImageInfo(ctx context.Context, path stri
 
 type IntegrateFunc func(context.Context, string, appintegrate.UpdateOverwritePrompt) (*domain.App, error)
 
-type BasicAddService struct {
-	Store                     AppStore
-	HasExtension              func(string, string) bool
-	IntegrateLocalApp         IntegrateFunc
-	ReintegrateApp            func(context.Context, string) (*domain.App, error)
-	InstallDirectURLApp       func(context.Context, InstallDirectURLRequest) (*domain.App, error)
-	InstallPackageRefApp      func(context.Context, *domain.PackageMetadata) (*domain.App, error)
-	PlanPackageRefInstallFunc func(context.Context, InstallPackageRefRequest) (*DryRunPlan, error)
-	Discovery                 DiscoveryService
-	AppImageInfo              AppImageInfoReader
-	AimDir                    string
-	DesktopDir                string
+type AddWorkflowService struct {
+	Store             AppStore
+	Discovery         DiscoveryService
+	Installer         RemoteInstaller
+	HasExtension      func(string, string) bool
+	IntegrateLocalApp IntegrateFunc
+	ReintegrateApp    func(context.Context, string) (*domain.App, error)
+	AppImageInfo      AppImageInfoReader
+	AimDir            string
+	DesktopDir        string
 }
 
-func NewBasicAddService(service BasicAddService) BasicAddService {
+func NewAddWorkflowService(service AddWorkflowService) AddWorkflowService {
 	return service
 }
 
-func (service BasicAddService) Add(ctx context.Context, req AddRequest) (*AddResult, error) {
+func (service AddWorkflowService) Add(ctx context.Context, req AddRequest) (*AddResult, error) {
 	if req.Target.Provider != nil {
 		installReq := InstallPackageRefRequest{Ref: *req.Target.Provider, AssetPattern: req.AssetPattern, ResolveViewAmbiguity: req.ResolvePackageAmbiguity}
 		if req.DryRun {
@@ -73,7 +71,7 @@ func (service BasicAddService) Add(ctx context.Context, req AddRequest) (*AddRes
 			}
 			return addPlanResult(AddActionInstall, plan), nil
 		}
-		return service.InstallPackageRef(ctx, installReq)
+		return service.installPackageRef(ctx, installReq)
 	}
 
 	if strings.TrimSpace(req.Target.URL) != "" {
@@ -85,7 +83,7 @@ func (service BasicAddService) Add(ctx context.Context, req AddRequest) (*AddRes
 			}
 			return addPlanResult(AddActionInstall, plan), nil
 		}
-		return service.InstallDirectURL(ctx, installReq)
+		return service.installDirectURL(ctx, installReq)
 	}
 
 	target, err := service.ResolveIntegrateTarget(ctx, req.Target.Positional)
@@ -102,7 +100,7 @@ func (service BasicAddService) Add(ctx context.Context, req AddRequest) (*AddRes
 		if req.DryRun {
 			return &AddResult{Action: AddActionReintegrate, Status: "dry_run", App: target.App}, nil
 		}
-		return service.Reintegrate(ctx, target.App.ID)
+		return service.reintegrate(ctx, target.App.ID)
 	case IntegrateTargetLocalFile:
 		if req.DryRun {
 			plan, err := service.PlanLocalIntegration(ctx, target.LocalPath)
@@ -111,13 +109,13 @@ func (service BasicAddService) Add(ctx context.Context, req AddRequest) (*AddRes
 			}
 			return addPlanResult(AddActionIntegrate, plan), nil
 		}
-		return service.IntegrateLocal(ctx, IntegrateLocalRequest{Path: target.LocalPath, ConfirmUpdateSourceReplace: req.ConfirmUpdateSourceReplace})
+		return service.addLocal(ctx, IntegrateLocalRequest{Path: target.LocalPath, ConfirmUpdateSourceReplace: req.ConfirmUpdateSourceReplace})
 	default:
 		return nil, internalErrorf("unknown add target kind %q", target.Kind)
 	}
 }
 
-func (service BasicAddService) ResolveIntegrateTarget(ctx context.Context, input string) (*IntegrateTargetResult, error) {
+func (service AddWorkflowService) ResolveIntegrateTarget(ctx context.Context, input string) (*IntegrateTargetResult, error) {
 	_ = ctx
 	trimmed := strings.TrimSpace(input)
 	if trimmed == "" {
@@ -152,7 +150,7 @@ func (service BasicAddService) ResolveIntegrateTarget(ctx context.Context, input
 	return nil, invalidInputErrorf("unknown argument %s", input)
 }
 
-func (service BasicAddService) IntegrateLocal(ctx context.Context, req IntegrateLocalRequest) (*AddResult, error) {
+func (service AddWorkflowService) addLocal(ctx context.Context, req IntegrateLocalRequest) (*AddResult, error) {
 	if service.IntegrateLocalApp == nil {
 		return nil, internalErrorf("integrate local app service is not configured")
 	}
@@ -169,7 +167,7 @@ func (service BasicAddService) IntegrateLocal(ctx context.Context, req Integrate
 	return addResultFromDomain("integrated", app), nil
 }
 
-func (service BasicAddService) Reintegrate(ctx context.Context, id string) (*AddResult, error) {
+func (service AddWorkflowService) reintegrate(ctx context.Context, id string) (*AddResult, error) {
 	if service.ReintegrateApp == nil {
 		return nil, internalErrorf("reintegrate app service is not configured")
 	}
@@ -180,27 +178,23 @@ func (service BasicAddService) Reintegrate(ctx context.Context, id string) (*Add
 	return addResultFromDomain("reintegrated", app), nil
 }
 
-func (service BasicAddService) InstallDirectURL(ctx context.Context, req InstallDirectURLRequest) (*AddResult, error) {
-	if service.InstallDirectURLApp == nil {
-		return nil, internalErrorf("direct URL install service is not configured")
+func (service AddWorkflowService) installDirectURL(ctx context.Context, req InstallDirectURLRequest) (*AddResult, error) {
+	if service.Installer == nil {
+		return nil, internalErrorf("remote installer is not configured")
 	}
-	app, err := service.InstallDirectURLApp(ctx, req)
+	app, err := service.Installer.InstallDirectURL(ctx, req)
 	if err != nil {
 		return nil, err
 	}
 	return addResultFromDomain("installed", app), nil
 }
 
-func (service BasicAddService) InstallPackageRef(ctx context.Context, req InstallPackageRefRequest) (*AddResult, error) {
+func (service AddWorkflowService) installPackageRef(ctx context.Context, req InstallPackageRefRequest) (*AddResult, error) {
 	if service.Discovery == nil {
 		return nil, internalErrorf("discovery service is not configured")
 	}
-	install := service.InstallPackageRefApp
-	if req.InstallPackage != nil {
-		install = req.InstallPackage
-	}
-	if install == nil {
-		return nil, internalErrorf("package install service is not configured")
+	if service.Installer == nil {
+		return nil, internalErrorf("remote installer is not configured")
 	}
 	metadata, err := service.Discovery.ResolvePackage(ctx, PackageRefInfoRequest{Ref: req.Ref, AssetPattern: req.AssetPattern})
 	if err != nil {
@@ -217,7 +211,7 @@ func (service BasicAddService) InstallPackageRef(ctx context.Context, req Instal
 		}
 		applyPackageViewSelection(metadata, resolved)
 	}
-	app, err := install(ctx, metadata)
+	app, err := service.Installer.InstallPackageMetadata(ctx, metadata)
 	if err != nil {
 		return nil, err
 	}
@@ -246,7 +240,7 @@ func addPlanResult(action AddAction, plan *DryRunPlan) *AddResult {
 	return result
 }
 
-func (service BasicAddService) PlanLocalIntegration(ctx context.Context, path string) (*DryRunPlan, error) {
+func (service AddWorkflowService) PlanLocalIntegration(ctx context.Context, path string) (*DryRunPlan, error) {
 	if service.AppImageInfo == nil {
 		return nil, internalErrorf("appimage info reader is not configured")
 	}
@@ -280,7 +274,7 @@ func (service BasicAddService) PlanLocalIntegration(ctx context.Context, path st
 	return &DryRunPlan{Action: "integrate", Target: path, Values: values}, nil
 }
 
-func (service BasicAddService) PlanDirectURLInstall(ctx context.Context, req InstallDirectURLRequest) (*DryRunPlan, error) {
+func (service AddWorkflowService) PlanDirectURLInstall(ctx context.Context, req InstallDirectURLRequest) (*DryRunPlan, error) {
 	_ = ctx
 	values := map[string]interface{}{
 		"action":          "install",
@@ -293,10 +287,7 @@ func (service BasicAddService) PlanDirectURLInstall(ctx context.Context, req Ins
 	return &DryRunPlan{Action: "install", Target: req.URL, Values: values}, nil
 }
 
-func (service BasicAddService) PlanPackageRefInstall(ctx context.Context, req InstallPackageRefRequest) (*DryRunPlan, error) {
-	if service.PlanPackageRefInstallFunc != nil {
-		return service.PlanPackageRefInstallFunc(ctx, req)
-	}
+func (service AddWorkflowService) PlanPackageRefInstall(ctx context.Context, req InstallPackageRefRequest) (*DryRunPlan, error) {
 	if service.Discovery == nil {
 		return nil, internalErrorf("discovery service is not configured")
 	}

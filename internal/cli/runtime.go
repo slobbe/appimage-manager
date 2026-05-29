@@ -502,21 +502,16 @@ func defaultRuntimeServicesForSettings(settings runtimeSettings) runtimeServices
 		RemoveStaged:      removeStagedDownload,
 	})
 	return runtimeServices{
-		Add: appservices.NewBasicAddService(appservices.BasicAddService{
+		Add: appservices.NewAddWorkflowService(appservices.AddWorkflowService{
 			Store:             store,
+			Discovery:         discoveryService,
+			Installer:         remoteInstallService,
 			HasExtension:      runtimeHasExtension,
 			IntegrateLocalApp: integrateLocalApp,
 			ReintegrateApp:    integrateExistingApp,
-			InstallDirectURLApp: func(ctx context.Context, req appservices.InstallDirectURLRequest) (*domain.App, error) {
-				return remoteInstallService.InstallDirectURL(ctx, req)
-			},
-			InstallPackageRefApp: func(ctx context.Context, metadata *domain.PackageMetadata) (*domain.App, error) {
-				return remoteInstallService.InstallPackageMetadata(ctx, metadata)
-			},
-			Discovery:    discoveryService,
-			AppImageInfo: appservices.AppImageInfoReaderFunc(readAppImageInfo),
-			AimDir:       config.AimDir,
-			DesktopDir:   config.DesktopDir,
+			AppImageInfo:      appservices.AppImageInfoReaderFunc(readAppImageInfo),
+			AimDir:            config.AimDir,
+			DesktopDir:        config.DesktopDir,
 		}),
 		List: appservices.NewStoreListService(store),
 		Info: appservices.NewStoreInfoService(appservices.StoreInfoService{

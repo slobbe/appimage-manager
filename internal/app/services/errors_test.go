@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -35,12 +36,12 @@ func TestNewErrorDefaultsToInternalKind(t *testing.T) {
 }
 
 func TestSemanticErrorsFromServices(t *testing.T) {
-	_, err := (BasicAddService{}).ResolveIntegrateTarget(nil, "")
+	_, err := (AddWorkflowService{}).ResolveIntegrateTarget(context.Background(), "")
 	if !IsErrorKind(err, ErrorInvalidInput) {
 		t.Fatalf("ResolveIntegrateTarget error kind = %v, want invalid input", err)
 	}
 
-	_, err = (StoreListService{}).List(nil, ListRequest{})
+	_, err = (StoreListService{}).List(context.Background(), ListRequest{})
 	if !IsErrorKind(err, ErrorInternal) {
 		t.Fatalf("List error kind = %v, want internal", err)
 	}

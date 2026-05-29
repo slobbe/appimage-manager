@@ -83,6 +83,63 @@ func TestStoreInfoServiceManagedOnlyTreatsAppImageLikeInputAsID(t *testing.T) {
 	}
 }
 
+func TestAddWorkflowServiceInstallsDirectURLViaInstaller(t *testing.T) {
+	installer := &fakeRemoteInstaller{}
+	service := AddWorkflowService{Installer: installer}
+
+	result, err := service.Add(context.Background(), AddRequest{
+		Target: AddTargetInput{URL: "https://example.com/App.AppImage"},
+		SHA256: "abc123",
+	})
+	if err != nil {
+		t.Fatalf("Add returned error: %v", err)
+	}
+	if installer.directCalls != 1 || installer.directReq.URL != "https://example.com/App.AppImage" || installer.directReq.SHA256 != "abc123" {
+		t.Fatalf("direct install request = %+v calls = %d", installer.directReq, installer.directCalls)
+	}
+	if result == nil || result.Action != AddActionInstall || result.Status != "installed" || result.App == nil || result.App.ID != "direct" {
+		t.Fatalf("Add result = %+v", result)
+	}
+}
+
+func TestAddWorkflowServiceInstallsPackageRefViaDiscoveryAndInstaller(t *testing.T) {
+	metadata := &domain.PackageMetadata{
+		Name:        "Package App",
+		Ref:         domain.PackageRef{Kind: domain.ProviderGitHub, ProviderRef: "owner/repo"},
+		Installable: true,
+		DownloadURL: "https://example.com/old.AppImage",
+		AssetName:   "old.AppImage",
+	}
+	installer := &fakeRemoteInstaller{}
+	service := AddWorkflowService{
+		Discovery: DiscoveryWorkflowService{Backends: []discovery.DiscoveryBackend{fakeDiscoveryBackend{metadata: metadata}}},
+		Installer: installer,
+	}
+	provider := ProviderRef{Provider: ProviderGitHub, Ref: "owner/repo"}
+
+	result, err := service.Add(context.Background(), AddRequest{
+		Target:       AddTargetInput{Provider: &provider},
+		AssetPattern: "*.AppImage",
+		ResolvePackageAmbiguity: packageAmbiguityResolverFunc(func(view *PackageView) (*PackageView, error) {
+			view.AssetName = "selected.AppImage"
+			view.DownloadURL = "https://example.com/selected.AppImage"
+			return view, nil
+		}),
+	})
+	if err != nil {
+		t.Fatalf("Add returned error: %v", err)
+	}
+	if installer.packageCalls != 1 || installer.packageMetadata == nil {
+		t.Fatalf("package install calls = %d metadata = %+v", installer.packageCalls, installer.packageMetadata)
+	}
+	if installer.packageMetadata.AssetName != "selected.AppImage" || installer.packageMetadata.DownloadURL != "https://example.com/selected.AppImage" {
+		t.Fatalf("package metadata selection = %+v", installer.packageMetadata)
+	}
+	if result == nil || result.Action != AddActionInstall || result.Status != "installed" || result.App == nil || result.App.ID != "package" {
+		t.Fatalf("Add result = %+v", result)
+	}
+}
+
 func TestSourceUpdateServiceSetAndPlan(t *testing.T) {
 	store := fakeAppStore{apps: map[string]*domain.App{
 		"app": {ID: "app", Update: &domain.UpdateSource{Kind: domain.UpdateNone}},
@@ -342,6 +399,33 @@ func (store fakeAppStore) GetAllApps() (map[string]*domain.App, error) {
 func (store fakeAppStore) UpdateApp(app *domain.App) error {
 	store.apps[app.ID] = app
 	return nil
+}
+
+type fakeRemoteInstaller struct {
+	directCalls     int
+	directReq       InstallDirectURLRequest
+	packageCalls    int
+	packageMetadata *domain.PackageMetadata
+}
+
+func (installer *fakeRemoteInstaller) InstallDirectURL(ctx context.Context, req InstallDirectURLRequest) (*domain.App, error) {
+	_ = ctx
+	installer.directCalls++
+	installer.directReq = req
+	return &domain.App{ID: "direct", Name: "Direct App"}, nil
+}
+
+func (installer *fakeRemoteInstaller) InstallPackageMetadata(ctx context.Context, metadata *domain.PackageMetadata) (*domain.App, error) {
+	_ = ctx
+	installer.packageCalls++
+	installer.packageMetadata = metadata
+	return &domain.App{ID: "package", Name: "Package App"}, nil
+}
+
+type packageAmbiguityResolverFunc func(*PackageView) (*PackageView, error)
+
+func (fn packageAmbiguityResolverFunc) ResolvePackageViewAmbiguity(view *PackageView) (*PackageView, error) {
+	return fn(view)
 }
 
 type fakeDiscoveryBackend struct {
