@@ -438,18 +438,44 @@ func NewUpgradeWorkflowService(service UpgradeWorkflowService) UpgradeWorkflowSe
 	return service
 }
 
-func (service UpgradeWorkflowService) Check(ctx context.Context, currentVersion string) (*appupgrade.AimUpgradeCheckResult, error) {
+func (service UpgradeWorkflowService) Upgrade(ctx context.Context, req UpgradeRequest) (*UpgradeResult, error) {
 	if service.CheckFunc == nil {
 		return nil, internalErrorf("upgrade check service is not configured")
 	}
-	return service.CheckFunc(ctx, currentVersion)
-}
-
-func (service UpgradeWorkflowService) Upgrade(ctx context.Context, currentVersion string) (*appupgrade.InstallerUpgradeResult, error) {
+	check, err := service.CheckFunc(ctx, req.CurrentVersion)
+	if err != nil {
+		return nil, err
+	}
+	result := &UpgradeResult{CurrentVersion: strings.TrimSpace(req.CurrentVersion)}
+	if check != nil {
+		result.CurrentVersion = strings.TrimSpace(check.CurrentVersion)
+		result.LatestVersion = strings.TrimSpace(check.LatestVersion)
+		if result.CurrentVersion == "" {
+			result.CurrentVersion = strings.TrimSpace(req.CurrentVersion)
+		}
+		if check.Comparable && !check.HasUpdate {
+			result.UpToDate = true
+			return result, nil
+		}
+	}
+	if req.DryRun {
+		return result, nil
+	}
 	if service.UpgradeFunc == nil {
 		return nil, internalErrorf("upgrade installer service is not configured")
 	}
-	return service.UpgradeFunc(ctx, currentVersion)
+	installer, err := service.UpgradeFunc(ctx, req.CurrentVersion)
+	if err != nil {
+		return nil, err
+	}
+	result.Upgraded = true
+	if installer != nil {
+		if strings.TrimSpace(installer.PreviousVersion) != "" {
+			result.CurrentVersion = strings.TrimSpace(installer.PreviousVersion)
+		}
+		result.InstalledVersion = strings.TrimSpace(installer.InstalledVersion)
+	}
+	return result, nil
 }
 
 type ManagedUpdateApplier func(context.Context, appupdate.ManagedUpdate, appupdate.ManagedApplyReporter) (*domain.App, error)

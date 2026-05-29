@@ -36,32 +36,28 @@ func runUpgrade(ctx context.Context, cmd *cobra.Command) error {
 	}
 
 	logOperationf(cmd, "Checking for aim updates")
-	checkResult, err := runWithBusyIndicator(cmd, progressCheckAimUpdates(), func() (*appservices.AimUpgradeCheckResult, error) {
-		return runtimeServicesFrom(cmd).Upgrade.Check(ctx, version)
+	result, err := runWithBusyIndicator(cmd, progressUpgradeAim(), func() (*appservices.UpgradeResult, error) {
+		return runtimeServicesFrom(cmd).Upgrade.Upgrade(ctx, appservices.UpgradeRequest{CurrentVersion: version})
 	})
 	if err != nil {
 		return err
 	}
-	if checkResult != nil && checkResult.Comparable && !checkResult.HasUpdate {
-		current := checkResult.LatestVersion
+	return renderUpgradeResult(cmd, result)
+}
+
+func renderUpgradeResult(cmd *cobra.Command, result *appservices.UpgradeResult) error {
+	if result != nil && result.UpToDate {
+		current := result.LatestVersion
 		if strings.TrimSpace(current) == "" {
-			current = checkResult.CurrentVersion
+			current = result.CurrentVersion
 		}
 		printSuccess(cmd, fmt.Sprintf("aim is up to date (%s)", displayVersion(current)))
 		return nil
 	}
-
-	logOperationf(cmd, "Downloading and running the aim installer")
-	result, err := runWithBusyIndicator(cmd, progressUpgradeAim(), func() (*appservices.InstallerUpgradeResult, error) {
-		return runtimeServicesFrom(cmd).Upgrade.Upgrade(ctx, version)
-	})
-	if err != nil {
-		return err
-	}
 	if result != nil && strings.TrimSpace(result.InstalledVersion) != "" {
 		printSuccess(cmd, fmt.Sprintf(
 			"Upgraded aim %s -> %s",
-			displayVersion(result.PreviousVersion),
+			displayVersion(result.CurrentVersion),
 			displayVersion(result.InstalledVersion),
 		))
 		return nil

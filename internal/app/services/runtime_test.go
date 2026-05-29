@@ -150,6 +150,49 @@ func TestSourceUpdateServicePersistAppliedAppsRemovesSupersededApps(t *testing.T
 	}
 }
 
+func TestUpgradeWorkflowServiceSkipsInstallerWhenUpToDate(t *testing.T) {
+	var installerCalls int
+	service := UpgradeWorkflowService{
+		CheckFunc: func(context.Context, string) (*AimUpgradeCheckResult, error) {
+			return &AimUpgradeCheckResult{CurrentVersion: "1.0.0", LatestVersion: "1.0.0", Comparable: true, HasUpdate: false}, nil
+		},
+		UpgradeFunc: func(context.Context, string) (*InstallerUpgradeResult, error) {
+			installerCalls++
+			return nil, nil
+		},
+	}
+
+	result, err := service.Upgrade(context.Background(), UpgradeRequest{CurrentVersion: "1.0.0"})
+	if err != nil {
+		t.Fatalf("Upgrade returned error: %v", err)
+	}
+	if installerCalls != 0 {
+		t.Fatalf("installer calls = %d, want 0", installerCalls)
+	}
+	if result == nil || !result.UpToDate || result.Upgraded {
+		t.Fatalf("Upgrade result = %+v, want up-to-date without upgrade", result)
+	}
+}
+
+func TestUpgradeWorkflowServiceRunsInstallerWhenUpdateAvailable(t *testing.T) {
+	service := UpgradeWorkflowService{
+		CheckFunc: func(context.Context, string) (*AimUpgradeCheckResult, error) {
+			return &AimUpgradeCheckResult{CurrentVersion: "1.0.0", LatestVersion: "1.1.0", Comparable: true, HasUpdate: true}, nil
+		},
+		UpgradeFunc: func(context.Context, string) (*InstallerUpgradeResult, error) {
+			return &InstallerUpgradeResult{PreviousVersion: "1.0.0", InstalledVersion: "1.1.0"}, nil
+		},
+	}
+
+	result, err := service.Upgrade(context.Background(), UpgradeRequest{CurrentVersion: "1.0.0"})
+	if err != nil {
+		t.Fatalf("Upgrade returned error: %v", err)
+	}
+	if result == nil || !result.Upgraded || result.UpToDate || result.CurrentVersion != "1.0.0" || result.LatestVersion != "1.1.0" || result.InstalledVersion != "1.1.0" {
+		t.Fatalf("Upgrade result = %+v", result)
+	}
+}
+
 func TestDiscoveryWorkflowServiceUsesConfiguredBackends(t *testing.T) {
 	metadata := &domain.PackageMetadata{Name: "App"}
 	service := DiscoveryWorkflowService{Backends: []discovery.DiscoveryBackend{

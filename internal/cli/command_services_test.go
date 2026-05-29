@@ -67,8 +67,11 @@ func TestUpgradeCmdCallsUpgradeService(t *testing.T) {
 		t.Fatalf("upgrade command returned error: %v", err)
 	}
 
-	if service.checkCalls != 1 || service.upgradeCalls != 1 {
-		t.Fatalf("upgrade service calls = check %d upgrade %d, want 1/1", service.checkCalls, service.upgradeCalls)
+	if service.calls != 1 {
+		t.Fatalf("upgrade service calls = %d, want 1", service.calls)
+	}
+	if service.req.CurrentVersion != version {
+		t.Fatalf("upgrade request current version = %q, want %q", service.req.CurrentVersion, version)
 	}
 }
 
@@ -490,22 +493,15 @@ func (service *recordingInfoService) PackageRefInfo(ctx context.Context, req app
 }
 
 type recordingUpgradeService struct {
-	checkCalls   int
-	upgradeCalls int
+	calls int
+	req   appservices.UpgradeRequest
 }
 
-func (service *recordingUpgradeService) Check(ctx context.Context, currentVersion string) (*appservices.AimUpgradeCheckResult, error) {
+func (service *recordingUpgradeService) Upgrade(ctx context.Context, req appservices.UpgradeRequest) (*appservices.UpgradeResult, error) {
 	_ = ctx
-	_ = currentVersion
-	service.checkCalls++
-	return nil, nil
-}
-
-func (service *recordingUpgradeService) Upgrade(ctx context.Context, currentVersion string) (*appservices.InstallerUpgradeResult, error) {
-	_ = ctx
-	_ = currentVersion
-	service.upgradeCalls++
-	return nil, nil
+	service.calls++
+	service.req = req
+	return &appservices.UpgradeResult{CurrentVersion: req.CurrentVersion, InstalledVersion: "0.0.1", Upgraded: true}, nil
 }
 
 type recordingLocker struct {

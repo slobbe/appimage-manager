@@ -51,8 +51,7 @@ type AimUpgradeCheckResult = upgrade.AimUpgradeCheckResult
 type InstallerUpgradeResult = upgrade.InstallerUpgradeResult
 
 type UpgradeService interface {
-	Check(ctx context.Context, currentVersion string) (*AimUpgradeCheckResult, error)
-	Upgrade(ctx context.Context, currentVersion string) (*InstallerUpgradeResult, error)
+	Upgrade(ctx context.Context, req UpgradeRequest) (*UpgradeResult, error)
 }
 
 type DiscoveryService interface {
@@ -117,6 +116,11 @@ type RemoveRequest struct {
 	DryRun bool
 }
 
+type UpgradeRequest struct {
+	CurrentVersion string
+	DryRun         bool
+}
+
 type ManagedUpdateCheckRequest struct {
 	TargetID   string
 	DryRun     bool
@@ -179,6 +183,14 @@ type RemoveResult struct {
 	App    *AppDetails
 	Unlink bool
 	Paths  []string
+}
+
+type UpgradeResult struct {
+	CurrentVersion   string
+	LatestVersion    string
+	InstalledVersion string
+	UpToDate         bool
+	Upgraded         bool
 }
 
 type ManagedUpdateCheckResult struct {

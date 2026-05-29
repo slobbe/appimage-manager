@@ -249,8 +249,8 @@ func TestUpgradeCmdOutputsVersionTransitionMessage(t *testing.T) {
 		}
 	})
 
-	if !strings.Contains(output, "Checking for aim updates...") {
-		t.Fatalf("unexpected output:\n%s", output)
+	if strings.Contains(output, "Checking for aim updates...") {
+		t.Fatalf("did not expect separate check progress output:\n%s", output)
 	}
 	if !strings.Contains(output, "Upgrading aim...") {
 		t.Fatalf("unexpected output:\n%s", output)
@@ -328,8 +328,8 @@ func TestUpgradeCmdReportsUpToDateWhenNoNewReleaseExists(t *testing.T) {
 		}
 	})
 
-	if !strings.Contains(output, "Checking for aim updates...") {
-		t.Fatalf("unexpected output:\n%s", output)
+	if strings.Contains(output, "Checking for aim updates...") {
+		t.Fatalf("did not expect separate check progress output:\n%s", output)
 	}
 	if !strings.Contains(output, "aim is up to date (v0.12.5)") {
 		t.Fatalf("unexpected output:\n%s", output)
@@ -4309,7 +4309,7 @@ func TestUpgradeMessagingUsesStderr(t *testing.T) {
 	if strings.TrimSpace(stdout) != "" {
 		t.Fatalf("expected no stdout output, got:\n%s", stdout)
 	}
-	if !strings.Contains(stderr, "Checking for aim updates...") || !strings.Contains(stderr, "Upgraded aim v0.12.4 -> v0.12.5") {
+	if strings.Contains(stderr, "Checking for aim updates...") || !strings.Contains(stderr, "Upgrading aim...") || !strings.Contains(stderr, "Upgraded aim v0.12.4 -> v0.12.5") {
 		t.Fatalf("unexpected stderr output:\n%s", stderr)
 	}
 }
