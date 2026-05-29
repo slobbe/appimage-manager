@@ -935,6 +935,128 @@ func TestUpdateCheckMetadata(t *testing.T) {
 	}
 }
 
+func TestUpdateCmdCharacterizesCheckDryRunNoPendingDeclinedAppliedAndFailure(t *testing.T) {
+	tempDir := t.TempDir()
+	originalPaths := config.CurrentPaths()
+	config.ApplyPaths(config.ResolvePathsFromStateRoot(filepath.Join(tempDir, "xdg")))
+	t.Cleanup(func() { config.ApplyPaths(originalPaths) })
+
+	pendingApp := &appservices.AppSummary{ID: "app", Name: "App", Version: "1.0.0"}
+	pendingView := appservices.ManagedUpdateView{App: pendingApp, Available: true, Latest: "2.0.0", URL: "https://example.com/App.AppImage"}
+
+	tests := []struct {
+		name            string
+		args            []string
+		flags           map[string]string
+		opts            runtimeOptions
+		checkResult     *appservices.ManagedUpdateCheckResult
+		applyResult     *appservices.UpdateApplyBatchResult
+		wantCheckReq    appservices.ManagedUpdateCheckRequest
+		wantApplyCalls  int
+		wantLock        bool
+		stdin           string
+		wantOutput      []string
+		wantErrorSubstr string
+	}{
+		{
+			name:         "check-only",
+			flags:        map[string]string{"check-only": "true"},
+			opts:         runtimeOptions{DryRun: true},
+			checkResult:  &appservices.ManagedUpdateCheckResult{Rows: []appservices.ManagedUpdateCheckRow{{App: pendingApp, Update: &pendingView, Status: "update_available"}}, PendingHandles: []appservices.ManagedUpdateHandle{{View: pendingView}}},
+			wantCheckReq: appservices.ManagedUpdateCheckRequest{DryRun: true},
+			wantOutput:   []string{"[app] v1.0.0 -> v2.0.0", "Download: https://example.com/App.AppImage"},
+		},
+		{
+			name:         "dry-run",
+			opts:         runtimeOptions{DryRun: true},
+			checkResult:  &appservices.ManagedUpdateCheckResult{Rows: []appservices.ManagedUpdateCheckRow{{App: pendingApp, Update: &pendingView, Status: "update_available"}}, PendingHandles: []appservices.ManagedUpdateHandle{{View: pendingView}}},
+			wantCheckReq: appservices.ManagedUpdateCheckRequest{DryRun: true},
+			wantOutput:   []string{"[app] v1.0.0 -> v2.0.0", "Dry run: no updates were applied"},
+		},
+		{
+			name:         "no pending updates",
+			opts:         runtimeOptions{DryRun: true},
+			checkResult:  &appservices.ManagedUpdateCheckResult{Rows: []appservices.ManagedUpdateCheckRow{{App: pendingApp, Status: "up_to_date"}}},
+			wantCheckReq: appservices.ManagedUpdateCheckRequest{DryRun: true},
+			wantOutput:   []string{"All apps are up to date"},
+		},
+		{
+			name:         "pending updates declined",
+			opts:         runtimeOptions{Plain: true},
+			stdin:        "n\n",
+			checkResult:  &appservices.ManagedUpdateCheckResult{Rows: []appservices.ManagedUpdateCheckRow{{App: pendingApp, Update: &pendingView, Status: "update_available"}}, PendingHandles: []appservices.ManagedUpdateHandle{{View: pendingView}}},
+			wantCheckReq: appservices.ManagedUpdateCheckRequest{UseCache: true},
+			wantOutput:   []string{"Apply updates to 1 app(s)? [y/N]:", "apply_skipped"},
+		},
+		{
+			name:           "pending updates applied",
+			flags:          map[string]string{"yes": "true"},
+			opts:           runtimeOptions{Plain: true},
+			checkResult:    &appservices.ManagedUpdateCheckResult{Rows: []appservices.ManagedUpdateCheckRow{{App: pendingApp, Update: &pendingView, Status: "update_available"}}, PendingHandles: []appservices.ManagedUpdateHandle{{View: pendingView}}},
+			applyResult:    &appservices.UpdateApplyBatchResult{Results: []appservices.ManagedApplyResultView{{Index: 0, App: pendingApp, UpdatedApp: appDetails("app", "App", true)}}},
+			wantCheckReq:   appservices.ManagedUpdateCheckRequest{UseCache: true},
+			wantApplyCalls: 1,
+			wantLock:       true,
+			wantOutput:     []string{"Updated 1 app(s); 0 failed", "updated"},
+		},
+		{
+			name:            "single target check failure",
+			args:            []string{"app"},
+			opts:            runtimeOptions{DryRun: true},
+			checkResult:     &appservices.ManagedUpdateCheckResult{Rows: []appservices.ManagedUpdateCheckRow{{App: pendingApp, Status: "check_failed", Error: "network down"}}},
+			wantCheckReq:    appservices.ManagedUpdateCheckRequest{TargetID: "app", DryRun: true},
+			wantErrorSubstr: "Can't check updates for app.",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service := &recordingUpdateService{checkResult: tt.checkResult, applyResult: tt.applyResult}
+			locker := &recordingLocker{}
+			cmd, output := commandWithRuntimeForTest(newUpdateCommand(), tt.opts, runtimeServices{Update: service, Locker: locker})
+			for name, value := range tt.flags {
+				if err := cmd.Flags().Set(name, value); err != nil {
+					t.Fatalf("set %s: %v", name, err)
+				}
+			}
+
+			var err error
+			if tt.stdin != "" {
+				captureStdoutWithInput(t, tt.stdin, func() {
+					err = UpdateCmd(cmd, tt.args)
+				})
+			} else {
+				err = UpdateCmd(cmd, tt.args)
+			}
+			if tt.wantErrorSubstr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErrorSubstr) {
+					t.Fatalf("error = %v, want substring %q", err, tt.wantErrorSubstr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("UpdateCmd returned error: %v", err)
+			}
+
+			if service.checkReq.TargetID != tt.wantCheckReq.TargetID || service.checkReq.DryRun != tt.wantCheckReq.DryRun || service.checkReq.UseCache != tt.wantCheckReq.UseCache {
+				t.Fatalf("CheckManagedUpdates request = %+v, want %+v", service.checkReq, tt.wantCheckReq)
+			}
+			if service.applyCalls != tt.wantApplyCalls {
+				t.Fatalf("ApplyBatch calls = %d, want %d", service.applyCalls, tt.wantApplyCalls)
+			}
+			if locker.called != tt.wantLock {
+				t.Fatalf("locker called = %v, want %v", locker.called, tt.wantLock)
+			}
+			got := output.String()
+			for _, want := range tt.wantOutput {
+				if !strings.Contains(got, want) {
+					t.Fatalf("output missing %q:\n%s", want, got)
+				}
+			}
+		})
+	}
+}
+
 func TestAddCmdManagedIDAlreadyIntegratedMessage(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "apps.json")
@@ -6787,6 +6909,75 @@ func newUpgradeTestCommand() *cobra.Command {
 	cmd.SilenceUsage = true
 	cmd.SilenceErrors = true
 	return cmd
+}
+
+type recordingUpdateService struct {
+	checkReq    appservices.ManagedUpdateCheckRequest
+	checkResult *appservices.ManagedUpdateCheckResult
+	applyReq    appservices.UpdateApplyBatchRequest
+	applyResult *appservices.UpdateApplyBatchResult
+	applyCalls  int
+}
+
+func (service *recordingUpdateService) ManagedApps(ctx context.Context, targetID string) ([]*models.App, error) {
+	_ = ctx
+	_ = targetID
+	return nil, nil
+}
+
+func (service *recordingUpdateService) CheckManagedUpdates(ctx context.Context, req appservices.ManagedUpdateCheckRequest) (*appservices.ManagedUpdateCheckResult, error) {
+	_ = ctx
+	service.checkReq = req
+	return service.checkResult, nil
+}
+
+func (service *recordingUpdateService) ApplyBatch(ctx context.Context, req appservices.UpdateApplyBatchRequest) (*appservices.UpdateApplyBatchResult, error) {
+	_ = ctx
+	service.applyCalls++
+	service.applyReq = req
+	return service.applyResult, nil
+}
+
+func (service *recordingUpdateService) EmbeddedSource(ctx context.Context, id string) (*appservices.UpdateSourceResult, error) {
+	_ = ctx
+	_ = id
+	return nil, nil
+}
+
+func (service *recordingUpdateService) SetSource(ctx context.Context, req appservices.UpdateSourceRequest) (*appservices.UpdateSourceResult, error) {
+	_ = ctx
+	_ = req
+	return nil, nil
+}
+
+func (service *recordingUpdateService) SetEmbeddedSource(ctx context.Context, id string) (*appservices.UpdateSourceResult, error) {
+	_ = ctx
+	_ = id
+	return nil, nil
+}
+
+func (service *recordingUpdateService) UnsetSource(ctx context.Context, id string) (*appservices.UpdateSourceResult, error) {
+	_ = ctx
+	_ = id
+	return nil, nil
+}
+
+func (service *recordingUpdateService) PlanSetSource(ctx context.Context, req appservices.UpdateSourceRequest) (*appservices.DryRunPlan, error) {
+	_ = ctx
+	_ = req
+	return nil, nil
+}
+
+func (service *recordingUpdateService) PlanSetEmbeddedSource(ctx context.Context, id string) (*appservices.DryRunPlan, error) {
+	_ = ctx
+	_ = id
+	return nil, nil
+}
+
+func (service *recordingUpdateService) PlanUnsetSource(ctx context.Context, id string) (*appservices.DryRunPlan, error) {
+	_ = ctx
+	_ = id
+	return nil, nil
 }
 
 func newAddTestCommand() *cobra.Command {
