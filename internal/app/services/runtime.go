@@ -615,6 +615,12 @@ func (service SourceUpdateService) Update(ctx context.Context, req UpdateRequest
 	if mode == "" {
 		mode = UpdateModeManagedCheckApply
 	}
+	switch mode {
+	case UpdateModeSetSource:
+		return service.updateSetSource(ctx, req)
+	case UpdateModeUnsetSource:
+		return service.updateUnsetSource(ctx, req)
+	}
 	check, err := service.CheckManagedUpdates(ctx, ManagedUpdateCheckRequest{
 		TargetID:   req.TargetID,
 		DryRun:     req.DryRun,
@@ -659,6 +665,155 @@ func (service SourceUpdateService) Update(ctx context.Context, req UpdateRequest
 		return result, Errorf(ErrorUnavailable, "", "%d update(s) failed", result.ApplyFailures)
 	}
 	return result, nil
+}
+
+func (service SourceUpdateService) updateSetSource(ctx context.Context, req UpdateRequest) (*UpdateResult, error) {
+	id := strings.TrimSpace(req.TargetID)
+	if id == "" {
+		return nil, invalidInputErrorf("missing update source target id")
+	}
+	app, err := service.getManagedApp(id)
+	if err != nil {
+		return nil, err
+	}
+	current := updateSourceViewFromDomain(app.Update)
+	incoming := req.Source
+	noEmbedded := false
+	if req.UseEmbeddedSource {
+		source, err := readEmbeddedUpdateSource(service.UpdateInfo, app.ExecPath)
+		if err != nil {
+			noEmbedded = true
+		} else {
+			incoming = updateSourceInputFromDomain(source)
+		}
+	}
+	incomingDomain := updateSourceInputToDomain(incoming)
+	incomingView := updateSourceViewFromDomain(incomingDomain)
+	if noEmbedded && updateSourceViewIsNone(current) {
+		return &UpdateResult{Mode: UpdateModeSetSource, NoEmbeddedSource: true, SourceUnchanged: true, SourceChange: &UpdateSourceChangeView{ID: id, Current: current}}, nil
+	}
+	if noEmbedded {
+		return service.updateUnsetSource(ctx, UpdateRequest{TargetID: id, Mode: UpdateModeUnsetSource, DryRun: req.DryRun, ConfirmSourceUnset: req.ConfirmSourceUnset, UseEmbeddedSource: true})
+	}
+	if err := domain.ValidateUpdateSource(incomingDomain); err != nil {
+		return nil, NewError(ErrorInvalidInput, "", err)
+	}
+	change := &UpdateSourceChangeView{ID: id, Current: current, Incoming: incomingView}
+	if !updateSourceViewIsNone(current) && !updateSourceViewsEqual(current, incomingView) && req.ConfirmSourceReplace != nil {
+		confirmed, err := req.ConfirmSourceReplace.ConfirmUpdateSourceReplace(current, incomingView)
+		if err != nil {
+			return &UpdateResult{Mode: UpdateModeSetSource, SourceChange: change}, err
+		}
+		if !confirmed {
+			return &UpdateResult{Mode: UpdateModeSetSource, SourceChange: change, SourceUnchanged: true}, nil
+		}
+	}
+	if req.DryRun {
+		plan, err := service.PlanSetSource(ctx, UpdateSourceRequest{ID: id, Source: incoming})
+		if err != nil {
+			return nil, err
+		}
+		return &UpdateResult{Mode: UpdateModeSetSource, Plan: plan, SourceChange: plan.UpdateSourceChange}, nil
+	}
+	var sourceResult *UpdateSourceResult
+	err = service.withOptionalWriteLock(func() error {
+		var setErr error
+		sourceResult, setErr = service.SetSource(ctx, UpdateSourceRequest{ID: id, Source: incoming})
+		return setErr
+	})
+	if err != nil {
+		return nil, err
+	}
+	change.Changed = true
+	return &UpdateResult{Mode: UpdateModeSetSource, Source: sourceResult, SourceChange: change}, nil
+}
+
+func (service SourceUpdateService) updateUnsetSource(ctx context.Context, req UpdateRequest) (*UpdateResult, error) {
+	id := strings.TrimSpace(req.TargetID)
+	if id == "" {
+		return nil, invalidInputErrorf("missing update source target id")
+	}
+	app, err := service.getManagedApp(id)
+	if err != nil {
+		return nil, err
+	}
+	current := updateSourceViewFromDomain(app.Update)
+	change := &UpdateSourceChangeView{ID: id, Current: current}
+	if updateSourceViewIsNone(current) {
+		return &UpdateResult{Mode: UpdateModeUnsetSource, Source: &UpdateSourceResult{ID: id, Source: current, Changed: false}, SourceChange: change, SourceUnchanged: true, NoEmbeddedSource: req.UseEmbeddedSource}, nil
+	}
+	if req.DryRun {
+		plan, err := service.PlanUnsetSource(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		return &UpdateResult{Mode: UpdateModeUnsetSource, Plan: plan, SourceChange: plan.UpdateSourceChange, NoEmbeddedSource: req.UseEmbeddedSource}, nil
+	}
+	if req.ConfirmSourceUnset != nil {
+		confirmed, err := req.ConfirmSourceUnset.ConfirmUpdateSourceUnset(current)
+		if err != nil {
+			return &UpdateResult{Mode: UpdateModeUnsetSource, SourceChange: change, NoEmbeddedSource: req.UseEmbeddedSource}, err
+		}
+		if !confirmed {
+			return &UpdateResult{Mode: UpdateModeUnsetSource, SourceChange: change, SourceUnchanged: true, NoEmbeddedSource: req.UseEmbeddedSource}, nil
+		}
+	}
+	var sourceResult *UpdateSourceResult
+	err = service.withOptionalWriteLock(func() error {
+		var unsetErr error
+		sourceResult, unsetErr = service.UnsetSource(ctx, id)
+		return unsetErr
+	})
+	if err != nil {
+		return nil, err
+	}
+	change.Changed = true
+	return &UpdateResult{Mode: UpdateModeUnsetSource, Source: sourceResult, SourceChange: change, NoEmbeddedSource: req.UseEmbeddedSource}, nil
+}
+
+func (service SourceUpdateService) getManagedApp(id string) (*domain.App, error) {
+	if service.Store == nil {
+		return nil, internalErrorf("app store is not configured")
+	}
+	app, err := service.Store.GetApp(id)
+	if err != nil {
+		return nil, err
+	}
+	if app == nil {
+		return nil, Errorf(ErrorNotFound, "", "managed app %q was not found", id)
+	}
+	return app, nil
+}
+
+func (service SourceUpdateService) withOptionalWriteLock(fn func() error) error {
+	if service.Locker == nil {
+		return fn()
+	}
+	return service.Locker.WithWriteLock(fn)
+}
+
+func updateSourceViewIsNone(update *UpdateSourceView) bool {
+	return update == nil || strings.TrimSpace(update.Kind) == "" || strings.TrimSpace(update.Kind) == UpdateKindNone
+}
+
+func updateSourceViewsEqual(left, right *UpdateSourceView) bool {
+	if updateSourceViewIsNone(left) && updateSourceViewIsNone(right) {
+		return true
+	}
+	if updateSourceViewIsNone(left) || updateSourceViewIsNone(right) {
+		return false
+	}
+	if strings.TrimSpace(left.Kind) != strings.TrimSpace(right.Kind) {
+		return false
+	}
+	switch strings.TrimSpace(left.Kind) {
+	case UpdateKindZsync:
+		return left.Zsync != nil && right.Zsync != nil && strings.TrimSpace(left.Zsync.UpdateInfo) == strings.TrimSpace(right.Zsync.UpdateInfo) && strings.TrimSpace(left.Zsync.Transport) == strings.TrimSpace(right.Zsync.Transport)
+	case UpdateKindGitHubRelease:
+		return left.GitHubRelease != nil && right.GitHubRelease != nil && strings.TrimSpace(left.GitHubRelease.Repo) == strings.TrimSpace(right.GitHubRelease.Repo) && strings.TrimSpace(left.GitHubRelease.Asset) == strings.TrimSpace(right.GitHubRelease.Asset)
+	default:
+		return true
+	}
 }
 
 func updateResultFromManagedCheck(mode UpdateMode, check *ManagedUpdateCheckResult) *UpdateResult {

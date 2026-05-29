@@ -26,16 +26,6 @@ type RemoveService interface {
 
 type UpdateService interface {
 	Update(ctx context.Context, req UpdateRequest) (*UpdateResult, error)
-	ManagedApps(ctx context.Context, targetID string) ([]*domain.App, error)
-	CheckManagedUpdates(ctx context.Context, req ManagedUpdateCheckRequest) (*ManagedUpdateCheckResult, error)
-	ApplyBatch(ctx context.Context, req UpdateApplyBatchRequest) (*UpdateApplyBatchResult, error)
-	EmbeddedSource(ctx context.Context, id string) (*UpdateSourceResult, error)
-	SetSource(ctx context.Context, req UpdateSourceRequest) (*UpdateSourceResult, error)
-	SetEmbeddedSource(ctx context.Context, id string) (*UpdateSourceResult, error)
-	UnsetSource(ctx context.Context, id string) (*UpdateSourceResult, error)
-	PlanSetSource(ctx context.Context, req UpdateSourceRequest) (*DryRunPlan, error)
-	PlanSetEmbeddedSource(ctx context.Context, id string) (*DryRunPlan, error)
-	PlanUnsetSource(ctx context.Context, id string) (*DryRunPlan, error)
 }
 
 type AimUpgradeCheckResult = upgrade.AimUpgradeCheckResult
@@ -147,6 +137,8 @@ type UpdateMode string
 const (
 	UpdateModeManagedCheckApply UpdateMode = "managed_check_apply"
 	UpdateModeCheckOnly         UpdateMode = "check_only"
+	UpdateModeSetSource         UpdateMode = "set_source"
+	UpdateModeUnsetSource       UpdateMode = "unset_source"
 )
 
 type UpdateRequest struct {
@@ -156,9 +148,14 @@ type UpdateRequest struct {
 	AutoApply bool
 	UseCache  bool
 
-	OnCacheHit   func(appID string)
-	ConfirmApply UpdateApplyConfirmer
-	ReporterFor  ManagedApplyReporterFactory
+	Source            *UpdateSourceInput
+	UseEmbeddedSource bool
+
+	OnCacheHit           func(appID string)
+	ConfirmApply         UpdateApplyConfirmer
+	ConfirmSourceReplace UpdateSourceReplaceConfirmer
+	ConfirmSourceUnset   UpdateSourceUnsetConfirmer
+	ReporterFor          ManagedApplyReporterFactory
 }
 
 type UpdateApplyConfirmation struct {
@@ -168,6 +165,10 @@ type UpdateApplyConfirmation struct {
 
 type UpdateApplyConfirmer interface {
 	ConfirmUpdateApply(UpdateApplyConfirmation) (bool, error)
+}
+
+type UpdateSourceUnsetConfirmer interface {
+	ConfirmUpdateSourceUnset(current *UpdateSourceView) (bool, error)
 }
 
 type ManagedUpdateCheckRequest struct {
@@ -266,6 +267,12 @@ type UpdateResult struct {
 	Applied       []ManagedApplyResultView
 	ApplySkipped  bool
 	ApplyFailures int
+
+	Source           *UpdateSourceResult
+	Plan             *DryRunPlan
+	SourceChange     *UpdateSourceChangeView
+	NoEmbeddedSource bool
+	SourceUnchanged  bool
 }
 
 type ManagedUpdateCheckResult struct {

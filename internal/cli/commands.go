@@ -1035,180 +1035,126 @@ func runUpdateSetMode(cmd *cobra.Command, id string) error {
 	if strings.TrimSpace(id) == "" {
 		return printConciseHelpError(cmd, "missing required input; pass --set <id> to configure an update source")
 	}
-	opts := runtimeOptionsFrom(cmd)
 	embedded, err := flagBool(cmd, "embedded")
 	if err != nil {
 		return err
 	}
-
 	var incomingSource *appservices.UpdateSourceInput
-	var incomingView *appservices.UpdateSourceView
-	if !embedded {
-		incomingSource, err = resolveUpdateSourceFromSetFlags(cmd)
-		if err != nil {
-			return err
-		}
-		incomingView = updateSourceViewFromInput(incomingSource)
-	}
-
-	info, err := managedAppInfo(cmd.Context(), cmd, id)
-	if err != nil {
-		return err
-	}
-	appDetails := info.AppDetails
-	currentSource := updateSourceViewFromAppDetails(appDetails)
-
 	if embedded {
 		if err := validateEmbeddedUpdateSetFlags(cmd); err != nil {
 			return err
 		}
-
-		embeddedSource, err := runtimeServicesFrom(cmd).Update.EmbeddedSource(cmd.Context(), id)
+	} else {
+		incomingSource, err = resolveUpdateSourceFromSetFlags(cmd)
 		if err != nil {
 			return err
 		}
-		if embeddedSource != nil {
-			incomingView = embeddedSource.Source
-		}
-		if updateSourceViewIsNone(incomingView) {
-			printWarning(cmd, warningNoEmbeddedSource())
-			if updateSourceViewIsNone(currentSource) {
-				if opts.JSON {
-					return printJSONSuccess(cmd, updateSourceChangeOutput("unset_update_source", id, &appservices.UpdateSourceChangeView{ID: id, Current: currentSource}, true))
-				}
-				return nil
-			}
-
-			printCurrentValue(cmd, updateSourceViewSummaryOrNone(currentSource))
-			prompt := formatPrompt("Unset source for", id)
-			confirmed, err := confirmAction(cmd, prompt)
-			if err != nil {
-				return err
-			}
-			if !confirmed {
-				printWarning(cmd, "Update source unchanged")
-				return nil
-			}
-			_, err = runtimeServicesFrom(cmd).Update.UnsetSource(cmd.Context(), id)
-			if err != nil {
-				return err
-			}
-			printSuccess(cmd, "Update source unset")
-			return nil
-		}
 	}
-
-	if !updateSourceViewIsNone(currentSource) && !updateSourceViewsEqual(currentSource, incomingView) {
-		printCurrentIncoming(cmd, updateSourceViewSummaryOrNone(currentSource), updateSourceViewSummaryOrNone(incomingView))
-		prompt := formatPrompt("Replace source for", id)
-		confirmed, err := confirmAction(cmd, prompt)
-		if err != nil {
-			return err
-		}
-		if !confirmed {
-			printWarning(cmd, "Update source unchanged")
-			return nil
-		}
+	result, err := runtimeServicesFrom(cmd).Update.Update(cmd.Context(), appservices.UpdateRequest{
+		TargetID:          id,
+		Mode:              appservices.UpdateModeSetSource,
+		DryRun:            runtimeOptionsFrom(cmd).DryRun,
+		Source:            incomingSource,
+		UseEmbeddedSource: embedded,
+		ConfirmSourceReplace: updateSourceReplaceConfirmerFunc(func(existing, incoming *appservices.UpdateSourceView) (bool, error) {
+			printCurrentIncoming(cmd, updateSourceViewSummaryOrNone(existing), updateSourceViewSummaryOrNone(incoming))
+			return confirmAction(cmd, formatPrompt("Replace source for", id))
+		}),
+		ConfirmSourceUnset: updateSourceUnsetConfirmerFunc(func(current *appservices.UpdateSourceView) (bool, error) {
+			printCurrentValue(cmd, updateSourceViewSummaryOrNone(current))
+			return confirmAction(cmd, formatPrompt("Unset source for", id))
+		}),
+	})
+	if err != nil {
+		return wrapManagedAppLookupError(id, err)
 	}
-
-	if opts.DryRun {
-		var plan *appservices.DryRunPlan
-		if embedded {
-			plan, err = runtimeServicesFrom(cmd).Update.PlanSetEmbeddedSource(cmd.Context(), id)
-		} else {
-			plan, err = runtimeServicesFrom(cmd).Update.PlanSetSource(cmd.Context(), appservices.UpdateSourceRequest{ID: id, Source: incomingSource})
-		}
-		if err != nil {
-			return err
-		}
-		if opts.JSON {
-			return printJSONSuccess(cmd, updateSourcePlanOutput(plan))
-		}
-		writeDataf(cmd, "Dry run: would set update source for %s\n", id)
-		return nil
-	}
-
-	var setResult *appservices.UpdateSourceResult
-	if err := withStateWriteLock(cmd, func() error {
-		logOperationf(cmd, "Setting update source for %s", id)
-		var setErr error
-		if embedded {
-			setResult, setErr = runtimeServicesFrom(cmd).Update.SetEmbeddedSource(cmd.Context(), id)
-		} else {
-			setResult, setErr = runtimeServicesFrom(cmd).Update.SetSource(cmd.Context(), appservices.UpdateSourceRequest{ID: id, Source: incomingSource})
-		}
-		if setErr != nil {
-			return wrapWriteError(setErr)
-		}
-		return nil
-	}); err != nil {
-		return err
-	}
-
-	if setResult == nil {
-		return softwareError(fmt.Errorf("set update source result missing"))
-	}
-	if opts.JSON {
-		return printJSONSuccess(cmd, map[string]interface{}{
-			"action": "set_update_source",
-			"id":     id,
-			"source": setResult.Source,
-		})
-	}
-	printSuccess(cmd, fmt.Sprintf("Update source set: %s", updateSourceViewSummaryOrNone(setResult.Source)))
-	return nil
+	return renderUpdateSourceModeResult(cmd, id, result)
 }
 
 func runUpdateUnsetMode(cmd *cobra.Command, id string) error {
 	if strings.TrimSpace(id) == "" {
 		return printConciseHelpError(cmd, "missing required input; pass --unset <id> to remove an update source")
 	}
-
-	info, err := managedAppInfo(cmd.Context(), cmd, id)
+	result, err := runtimeServicesFrom(cmd).Update.Update(cmd.Context(), appservices.UpdateRequest{
+		TargetID: id,
+		Mode:     appservices.UpdateModeUnsetSource,
+		DryRun:   runtimeOptionsFrom(cmd).DryRun,
+		ConfirmSourceUnset: updateSourceUnsetConfirmerFunc(func(current *appservices.UpdateSourceView) (bool, error) {
+			printCurrentValue(cmd, updateSourceViewSummaryOrNone(current))
+			return confirmAction(cmd, formatPrompt("Unset source for", id))
+		}),
+	})
 	if err != nil {
-		return err
+		return wrapManagedAppLookupError(id, err)
 	}
-	appDetails := info.AppDetails
-	currentSource := updateSourceViewFromAppDetails(appDetails)
+	return renderUpdateSourceModeResult(cmd, id, result)
+}
 
-	if runtimeOptionsFrom(cmd).DryRun {
-		plan, err := runtimeServicesFrom(cmd).Update.PlanUnsetSource(cmd.Context(), id)
-		if err != nil {
-			return err
+type updateSourceUnsetConfirmerFunc func(current *appservices.UpdateSourceView) (bool, error)
+
+func (fn updateSourceUnsetConfirmerFunc) ConfirmUpdateSourceUnset(current *appservices.UpdateSourceView) (bool, error) {
+	return fn(current)
+}
+
+func renderUpdateSourceModeResult(cmd *cobra.Command, id string, result *appservices.UpdateResult) error {
+	if result == nil {
+		return softwareError(fmt.Errorf("update source result missing"))
+	}
+	opts := runtimeOptionsFrom(cmd)
+	if result.NoEmbeddedSource {
+		printWarning(cmd, warningNoEmbeddedSource())
+	}
+	if result.Plan != nil {
+		if opts.JSON {
+			return printJSONSuccess(cmd, updateSourcePlanOutput(result.Plan))
 		}
-		if runtimeOptionsFrom(cmd).JSON {
-			return printJSONSuccess(cmd, updateSourcePlanOutput(plan))
+		if result.Mode == appservices.UpdateModeUnsetSource {
+			writeDataf(cmd, "Dry run: would unset update source for %s\n", id)
+			return nil
 		}
-		writeDataf(cmd, "Dry run: would unset update source for %s\n", id)
+		writeDataf(cmd, "Dry run: would set update source for %s\n", id)
 		return nil
 	}
-
-	if updateSourceViewIsNone(currentSource) {
-		printSuccess(cmd, fmt.Sprintf("No update source configured for %s", id))
-		return nil
-	}
-	printCurrentValue(cmd, updateSourceViewSummaryOrNone(currentSource))
-	prompt := formatPrompt("Unset source for", id)
-	confirmed, err := confirmAction(cmd, prompt)
-	if err != nil {
-		return err
-	}
-	if !confirmed {
+	if result.SourceUnchanged {
+		if result.NoEmbeddedSource && updateSourceViewIsNone(sourceChangeCurrent(result.SourceChange)) {
+			if opts.JSON {
+				return printJSONSuccess(cmd, updateSourceChangeOutput("unset_update_source", id, result.SourceChange, true))
+			}
+			return nil
+		}
+		if result.Mode == appservices.UpdateModeUnsetSource && result.Source != nil && !result.Source.Changed {
+			printSuccess(cmd, fmt.Sprintf("No update source configured for %s", id))
+			return nil
+		}
 		printWarning(cmd, "Update source unchanged")
 		return nil
 	}
-	if err := withStateWriteLock(cmd, func() error {
-		logOperationf(cmd, "Unsetting update source for %s", id)
-		_, unsetErr := runtimeServicesFrom(cmd).Update.UnsetSource(cmd.Context(), id)
-		if unsetErr != nil {
-			return wrapWriteError(unsetErr)
+	if opts.JSON {
+		action := "set_update_source"
+		if result.Mode == appservices.UpdateModeUnsetSource {
+			action = "unset_update_source"
 		}
-		return nil
-	}); err != nil {
-		return err
+		if result.SourceChange != nil {
+			return printJSONSuccess(cmd, updateSourceChangeOutput(action, id, result.SourceChange, true))
+		}
+		return printJSONSuccess(cmd, map[string]interface{}{"action": action, "id": id, "source": result.Source})
 	}
-	printSuccess(cmd, "Update source unset")
+	if result.Mode == appservices.UpdateModeUnsetSource {
+		printSuccess(cmd, "Update source unset")
+		return nil
+	}
+	if result.Source == nil {
+		return softwareError(fmt.Errorf("set update source result missing"))
+	}
+	printSuccess(cmd, fmt.Sprintf("Update source set: %s", updateSourceViewSummaryOrNone(result.Source.Source)))
 	return nil
+}
+
+func sourceChangeCurrent(change *appservices.UpdateSourceChangeView) *appservices.UpdateSourceView {
+	if change == nil {
+		return nil
+	}
+	return change.Current
 }
 
 func resolveUpdateSourceFromSetFlags(cmd *cobra.Command) (*appservices.UpdateSourceInput, error) {
