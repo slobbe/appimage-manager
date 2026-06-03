@@ -7,14 +7,10 @@ if [ -z "$TAG_VERSION" ]; then
   exit 1
 fi
 
-case "$TAG_VERSION" in
-  v[0-9]*.[0-9]*.[0-9]*)
-    ;;
-  *)
-    echo "error: version must match v<major>.<minor>.<patch>" >&2
-    exit 1
-    ;;
-esac
+if ! printf '%s\n' "$TAG_VERSION" | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*|[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[A-Za-z-][0-9A-Za-z-]*))*))?$'; then
+  echo "error: version must match v<major>.<minor>.<patch> or v<major>.<minor>.<patch>-<prerelease>" >&2
+  exit 1
+fi
 
 RELEASE_VERSION="${TAG_VERSION#v}"
 if [ -z "$RELEASE_VERSION" ] || [ "$RELEASE_VERSION" = "$TAG_VERSION" ]; then

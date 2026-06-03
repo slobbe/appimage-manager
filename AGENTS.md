@@ -408,8 +408,9 @@ Official releases are published by GitHub Actions using GoReleaser.
 Release workflow:
 
 ```txt
-git tag vX.Y.Z
+git tag vX.Y.Z or vX.Y.Z-rc.1
   -> GitHub Actions release workflow
+  -> validates the stable or prerelease SemVer tag
   -> verifies CI passed for the tagged commit
   -> runs goreleaser check
   -> runs goreleaser release --clean
@@ -449,18 +450,25 @@ Optionally verify release packaging locally with:
 goreleaser release --snapshot --clean
 ```
 
-Official releases are triggered by pushing a SemVer tag matching:
+Official releases are triggered by pushing a stable or prerelease SemVer tag matching:
 
 ```txt
 vX.Y.Z
+vX.Y.Z-rc.1
+vX.Y.Z-beta.1
 ```
 
-Example:
+Examples:
 
 ```sh
 git tag v1.2.3
 git push origin v1.2.3
+
+git tag v1.2.4-rc.1
+git push origin v1.2.4-rc.1
 ```
+
+GoReleaser marks prerelease tags as GitHub prereleases automatically.
 
 The release workflow requires the tagged commit to already have a successful CI push run on `main`.
 
