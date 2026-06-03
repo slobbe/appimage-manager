@@ -1,9 +1,9 @@
-# `aim` - AppImage Manager CLI
+# AppImage Manager (`aim`)
 
 [![GitHub Release](https://img.shields.io/github/v/release/slobbe/appimage-manager?sort=semver&display_name=release&style=flat-square&color=royalblue)](https://github.com/slobbe/appimage-manager/releases/latest)
 [![GitHub License](https://img.shields.io/github/license/slobbe/appimage-manager?style=flat-square&color=teal)](/LICENSE)
 
-A simple CLI to install, integrate, and update AppImages.
+A CLI to install, integrate, and update AppImages on Linux.
 
 > [!NOTE]
 > This project is still a **work in progress** and breaking changes may happen at any time while in `v0.x.x`.
@@ -15,19 +15,13 @@ curl -fsSL https://raw.githubusercontent.com/slobbe/appimage-manager/main/script
 aim --version
 ```
 
-To install a pinned version:
+To install a specific version:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/slobbe/appimage-manager/main/scripts/install.sh | AIM_VERSION=v0.15.4 sh
 ```
 
 If `aim` is not found, make sure `~/.local/bin` is on your `PATH`.
-
-To uninstall the files installed by the installer:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/slobbe/appimage-manager/main/scripts/uninstall.sh | sh
-```
 
 ## How to Use
 
@@ -43,7 +37,7 @@ aim add --github owner/repo
 
 ```sh
 aim update
-aim update --check-only
+aim update example-app
 ```
 
 ### Set or clear an update source
@@ -98,6 +92,7 @@ aim self-update --pre    # include prerelease versions
 - `aim --help` for the CLI overview
 - `aim help <command>` for command-specific manual pages
 - `aim <command> --help` for flags and usage on a specific command
+- `man aim` for the full manual page
 
 ## License
 
