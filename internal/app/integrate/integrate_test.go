@@ -1,0 +1,538 @@
+package integrate
+
+import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	appimage "github.com/slobbe/appimage-manager/internal/app/appimage"
+	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
+	models "github.com/slobbe/appimage-manager/internal/domain"
+	"github.com/slobbe/appimage-manager/internal/infra/config"
+	repo "github.com/slobbe/appimage-manager/internal/infra/repository"
+)
+
+var testService Service
+
+func TestIntegrateFromLocalFileWithSymlinkedDesktopEntry(t *testing.T) {
+	tmp := t.TempDir()
+	setupIntegrationConfigForTest(t, tmp)
+	stubDesktopValidationForTest(t)
+	stubIntegrationCacheRefreshForTest(t)
+
+	appImagePath := filepath.Join(tmp, "0ad-0.28.0-x86_64.AppImage")
+	writeFakeAppImageExtractor(t, appImagePath)
+
+	app, err := testService.IntegrateLocal(context.Background(), appImagePath, nil)
+	if err != nil {
+		t.Fatalf("IntegrateFromLocalFile returned error: %v", err)
+	}
+
+	if app == nil {
+		t.Fatal("expected integrated app")
+	}
+	if app.Name != "0 A.D." {
+		t.Fatalf("app.Name = %q, want %q", app.Name, "0 A.D.")
+	}
+	if app.ID != "0-ad" {
+		t.Fatalf("app.ID = %q, want %q", app.ID, "0-ad")
+	}
+
+	desktopInfo, err := os.Lstat(app.DesktopEntryPath)
+	if err != nil {
+		t.Fatalf("expected desktop entry at %q: %v", app.DesktopEntryPath, err)
+	}
+	if desktopInfo.Mode()&os.ModeSymlink != 0 {
+		t.Fatalf("expected integrated desktop entry to be a regular file: %s", app.DesktopEntryPath)
+	}
+
+	linkTarget, err := os.Readlink(app.DesktopEntryLink)
+	if err != nil {
+		t.Fatalf("expected desktop integration symlink at %q: %v", app.DesktopEntryLink, err)
+	}
+	if linkTarget != app.DesktopEntryPath {
+		t.Fatalf("desktop symlink target = %q, want %q", linkTarget, app.DesktopEntryPath)
+	}
+
+	persisted, err := repo.NewStore(config.DbSrc).GetApp(app.ID)
+	if err != nil {
+		t.Fatalf("expected persisted app %q: %v", app.ID, err)
+	}
+	if persisted.DesktopEntryPath != app.DesktopEntryPath {
+		t.Fatalf("persisted desktop_entry_path = %q, want %q", persisted.DesktopEntryPath, app.DesktopEntryPath)
+	}
+}
+
+func TestIntegrateFromLocalFileWithoutCacheRefreshSkipsRefresh(t *testing.T) {
+	tmp := t.TempDir()
+	setupIntegrationConfigForTest(t, tmp)
+	stubDesktopValidationForTest(t)
+
+	refresher := &recordingIntegrationCacheRefresher{}
+	testService.DesktopIntegrationCacheRefresher = refresher
+
+	appImagePath := filepath.Join(tmp, "0ad-0.28.0-x86_64.AppImage")
+	writeFakeAppImageExtractor(t, appImagePath)
+
+	app, err := testService.IntegrateLocalWithoutCacheRefresh(context.Background(), appImagePath, nil)
+	if err != nil {
+		t.Fatalf("IntegrateFromLocalFileWithoutCacheRefresh returned error: %v", err)
+	}
+	if app == nil {
+		t.Fatal("expected integrated app")
+	}
+
+	if refresher.desktopDir != "" || refresher.iconThemeDir != "" {
+		t.Fatalf("expected no cache refresh calls, got %s %s", refresher.desktopDir, refresher.iconThemeDir)
+	}
+}
+
+func TestIntegrateFromLocalFileWithoutCacheRefreshOrPersistSkipsDatabaseSave(t *testing.T) {
+	tmp := t.TempDir()
+	setupIntegrationConfigForTest(t, tmp)
+	stubDesktopValidationForTest(t)
+	stubIntegrationCacheRefreshForTest(t)
+
+	appImagePath := filepath.Join(tmp, "0ad-0.28.0-x86_64.AppImage")
+	writeFakeAppImageExtractor(t, appImagePath)
+
+	app, err := testService.IntegrateLocalWithoutCacheRefreshOrPersist(context.Background(), appImagePath, nil)
+	if err != nil {
+		t.Fatalf("IntegrateFromLocalFileWithoutCacheRefreshOrPersist returned error: %v", err)
+	}
+	if app == nil {
+		t.Fatal("expected integrated app")
+	}
+
+	if _, err := repo.NewStore(config.DbSrc).GetApp(app.ID); err == nil {
+		t.Fatalf("expected app %q not to be persisted", app.ID)
+	}
+}
+
+func TestIntegrateFromLocalFileReturnsPromptlyWhenContextCanceled(t *testing.T) {
+	tmp := t.TempDir()
+	setupIntegrationConfigForTest(t, tmp)
+	stubDesktopValidationForTest(t)
+	stubIntegrationCacheRefreshForTest(t)
+
+	appImagePath := filepath.Join(tmp, "slow.AppImage")
+	writeSlowFakeAppImageExtractor(t, appImagePath)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := testService.IntegrateLocal(ctx, appImagePath, nil)
+		done <- err
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("error = %v, want %v", err, context.Canceled)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("IntegrateFromLocalFile did not return after cancellation")
+	}
+}
+
+func TestIntegrateFromLocalFileUsesReadableManagedIdentity(t *testing.T) {
+	tmp := t.TempDir()
+	setupIntegrationConfigForTest(t, tmp)
+	stubDesktopValidationForTest(t)
+	stubIntegrationCacheRefreshForTest(t)
+
+	appImagePath := filepath.Join(tmp, "t3-code-alpha.AppImage")
+	writeFakeAppImageExtractorWithDesktop(t, appImagePath, "t3-code-desktop.desktop", "T3 Code (Alpha)", "0.0.14", "t3-code-desktop", "t3-code-desktop.svg")
+
+	app, err := testService.IntegrateLocal(context.Background(), appImagePath, nil)
+	if err != nil {
+		t.Fatalf("IntegrateFromLocalFile returned error: %v", err)
+	}
+
+	if app.ID != "t3-code-alpha" {
+		t.Fatalf("app.ID = %q, want %q", app.ID, "t3-code-alpha")
+	}
+
+	expectedAppDir := filepath.Join(config.AimDir, "t3-code-alpha")
+	if app.ExecPath != filepath.Join(expectedAppDir, "t3-code-alpha.AppImage") {
+		t.Fatalf("ExecPath = %q", app.ExecPath)
+	}
+	if app.DesktopEntryPath != filepath.Join(expectedAppDir, "t3-code-alpha.desktop") {
+		t.Fatalf("DesktopEntryPath = %q", app.DesktopEntryPath)
+	}
+	if app.IconPath != filepath.Join(config.IconThemeDir, "scalable", "apps", "t3-code-alpha.svg") {
+		t.Fatalf("IconPath = %q", app.IconPath)
+	}
+	if _, err := os.Stat(app.IconPath); err != nil {
+		t.Fatalf("expected installed icon at %q: %v", app.IconPath, err)
+	}
+	if app.DesktopEntryLink != filepath.Join(config.DesktopDir, "t3-code-alpha.desktop") {
+		t.Fatalf("DesktopEntryLink = %q", app.DesktopEntryLink)
+	}
+}
+
+func TestIntegrateFromLocalFileUsesNameForGenericDesktopID(t *testing.T) {
+	tmp := t.TempDir()
+	setupIntegrationConfigForTest(t, tmp)
+	stubDesktopValidationForTest(t)
+	stubIntegrationCacheRefreshForTest(t)
+
+	appImagePath := filepath.Join(tmp, "desktop.AppImage")
+	writeFakeAppImageExtractorWithDesktop(t, appImagePath, "desktop.desktop", "ClickUp", "2603135dev5rzzi", "desktop", "desktop.svg")
+
+	app, err := testService.IntegrateLocal(context.Background(), appImagePath, nil)
+	if err != nil {
+		t.Fatalf("IntegrateFromLocalFile returned error: %v", err)
+	}
+
+	if app.ID != "clickup" {
+		t.Fatalf("app.ID = %q, want %q", app.ID, "clickup")
+	}
+
+	expectedAppDir := filepath.Join(config.AimDir, "clickup")
+	if app.ExecPath != filepath.Join(expectedAppDir, "clickup.AppImage") {
+		t.Fatalf("ExecPath = %q", app.ExecPath)
+	}
+	if app.DesktopEntryPath != filepath.Join(expectedAppDir, "clickup.desktop") {
+		t.Fatalf("DesktopEntryPath = %q", app.DesktopEntryPath)
+	}
+	if app.DesktopEntryLink != filepath.Join(config.DesktopDir, "clickup.desktop") {
+		t.Fatalf("DesktopEntryLink = %q", app.DesktopEntryLink)
+	}
+	if app.IconPath != filepath.Join(config.IconThemeDir, "scalable", "apps", "clickup.svg") {
+		t.Fatalf("IconPath = %q", app.IconPath)
+	}
+
+	content, err := os.ReadFile(app.DesktopEntryPath)
+	if err != nil {
+		t.Fatalf("failed to read desktop entry: %v", err)
+	}
+	desktopEntry := string(content)
+	if !strings.Contains(desktopEntry, "Exec="+app.ExecPath+" %U") {
+		t.Fatalf("expected rewritten Exec to reference clickup AppImage, got:\n%s", desktopEntry)
+	}
+	if !strings.Contains(desktopEntry, "Icon="+app.IconPath) {
+		t.Fatalf("expected rewritten Icon to reference clickup icon, got:\n%s", desktopEntry)
+	}
+}
+
+func TestIntegrateFromLocalFileMigratesGenericOldIDToReadableID(t *testing.T) {
+	tmp := t.TempDir()
+	setupIntegrationConfigForTest(t, tmp)
+	stubDesktopValidationForTest(t)
+	stubIntegrationCacheRefreshForTest(t)
+
+	appImagePath := filepath.Join(tmp, "desktop.AppImage")
+	oldAppDir := filepath.Join(config.AimDir, "desktop")
+	oldExecPath := filepath.Join(oldAppDir, "desktop.AppImage")
+	oldDesktopPath := filepath.Join(oldAppDir, "desktop.desktop")
+	oldDesktopLink := filepath.Join(config.DesktopDir, "desktop.desktop")
+	oldIconPath := filepath.Join(config.IconThemeDir, "scalable", "apps", "desktop.svg")
+
+	if err := os.MkdirAll(oldAppDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(oldIconPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{oldExecPath, oldDesktopPath, oldIconPath} {
+		if err := os.WriteFile(path, []byte("old"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(oldDesktopPath, oldDesktopLink); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.NewStore(config.DbSrc).AddApp(&models.App{
+		ID:               "desktop",
+		Name:             "ClickUp",
+		Version:          "2603135dev5rzzi",
+		ExecPath:         oldExecPath,
+		DesktopEntryPath: oldDesktopPath,
+		DesktopEntryLink: oldDesktopLink,
+		IconPath:         oldIconPath,
+		AddedAt:          "2026-04-01T12:00:00Z",
+		LastCheckedAt:    "2026-04-02T12:00:00Z",
+		Source: models.Source{
+			Kind: models.SourceLocalFile,
+			LocalFile: &models.LocalFileSource{
+				OriginalPath: appImagePath,
+			},
+		},
+		Update: &models.UpdateSource{Kind: models.UpdateNone},
+	}, true); err != nil {
+		t.Fatal(err)
+	}
+
+	writeFakeAppImageExtractorWithDesktop(t, appImagePath, "desktop.desktop", "ClickUp", "2603135dev5rzzi", "desktop", "desktop.svg")
+
+	app, err := testService.IntegrateLocal(context.Background(), appImagePath, nil)
+	if err != nil {
+		t.Fatalf("IntegrateFromLocalFile returned error: %v", err)
+	}
+
+	if app.ID != "clickup" {
+		t.Fatalf("app.ID = %q, want clickup", app.ID)
+	}
+	if app.AddedAt != "2026-04-01T12:00:00Z" {
+		t.Fatalf("app.AddedAt = %q", app.AddedAt)
+	}
+	if app.LastCheckedAt != "2026-04-02T12:00:00Z" {
+		t.Fatalf("app.LastCheckedAt = %q", app.LastCheckedAt)
+	}
+	if _, err := repo.NewStore(config.DbSrc).GetApp("desktop"); err == nil {
+		t.Fatal("expected old desktop id to be removed from database")
+	}
+	if _, err := repo.NewStore(config.DbSrc).GetApp("clickup"); err != nil {
+		t.Fatalf("expected clickup id to be persisted: %v", err)
+	}
+	if _, err := os.Stat(oldAppDir); !os.IsNotExist(err) {
+		t.Fatalf("expected old app dir to be removed, got err=%v", err)
+	}
+	if _, err := os.Lstat(oldDesktopLink); !os.IsNotExist(err) {
+		t.Fatalf("expected old desktop link to be removed, got err=%v", err)
+	}
+	if _, err := os.Stat(oldIconPath); !os.IsNotExist(err) {
+		t.Fatalf("expected old icon to be removed, got err=%v", err)
+	}
+}
+
+func TestRemoveStaleInstalledIconKeepsIconReferencedByAnotherApp(t *testing.T) {
+	tmp := t.TempDir()
+	setupIntegrationConfigForTest(t, tmp)
+
+	oldIconPath := filepath.Join(config.IconThemeDir, "scalable", "apps", "shared.svg")
+	newIconPath := filepath.Join(config.IconThemeDir, "scalable", "apps", "clickup.svg")
+	if err := os.MkdirAll(filepath.Dir(oldIconPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(oldIconPath, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(newIconPath, []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.NewStore(config.DbSrc).AddApp(&models.App{
+		ID:       "other",
+		Name:     "Other",
+		IconPath: oldIconPath,
+	}, true); err != nil {
+		t.Fatal(err)
+	}
+
+	testService.removeStaleInstalledIcon(testService.Store, oldIconPath, newIconPath, "clickup")
+
+	if _, err := os.Stat(oldIconPath); err != nil {
+		t.Fatalf("expected shared icon to remain: %v", err)
+	}
+}
+
+func TestIntegrateFromLocalFileReplacesEquivalentManagedAppWhenDesktopIDChanges(t *testing.T) {
+	tmp := t.TempDir()
+	setupIntegrationConfigForTest(t, tmp)
+	stubDesktopValidationForTest(t)
+	stubIntegrationCacheRefreshForTest(t)
+
+	testService.EmbeddedUpdateInfo = func(string) (*appupdate.UpdateInfo, error) {
+		return &appupdate.UpdateInfo{
+			Kind:       models.UpdateZsync,
+			UpdateInfo: "zsync|https://example.com/t3-code.AppImage.zsync",
+			Transport:  "zsync",
+		}, nil
+	}
+
+	oldAppDir := filepath.Join(config.AimDir, "t3-code-desktop")
+	oldExecPath := filepath.Join(oldAppDir, "t3-code-desktop.AppImage")
+	oldDesktopPath := filepath.Join(oldAppDir, "t3-code-desktop.desktop")
+	oldDesktopLink := filepath.Join(config.DesktopDir, "t3-code-desktop.desktop")
+	oldIconPath := filepath.Join(config.IconThemeDir, "scalable", "apps", "t3-code-desktop.svg")
+
+	if err := os.MkdirAll(oldAppDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(oldIconPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{oldExecPath, oldDesktopPath, oldIconPath} {
+		if err := os.WriteFile(path, []byte("old"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(oldDesktopPath, oldDesktopLink); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.NewStore(config.DbSrc).AddApp(&models.App{
+		ID:               "t3-code-desktop",
+		Name:             "T3 Code",
+		Version:          "0.0.14",
+		ExecPath:         oldExecPath,
+		DesktopEntryPath: oldDesktopPath,
+		DesktopEntryLink: oldDesktopLink,
+		IconPath:         oldIconPath,
+		AddedAt:          "2026-04-01T12:00:00Z",
+		LastCheckedAt:    "2026-04-02T12:00:00Z",
+		Update: &models.UpdateSource{
+			Kind: models.UpdateZsync,
+			Zsync: &models.ZsyncUpdateSource{
+				UpdateInfo: "zsync|https://example.com/t3-code.AppImage.zsync",
+				Transport:  "zsync",
+			},
+		},
+	}, true); err != nil {
+		t.Fatal(err)
+	}
+
+	appImagePath := filepath.Join(tmp, "t3-code.AppImage")
+	writeFakeAppImageExtractorWithDesktop(t, appImagePath, "t3-code.desktop", "T3 Code", "0.0.15", "t3-code", "t3-code.svg")
+
+	app, err := testService.IntegrateLocal(context.Background(), appImagePath, nil)
+	if err != nil {
+		t.Fatalf("IntegrateFromLocalFile returned error: %v", err)
+	}
+
+	if app.ID != "t3-code" {
+		t.Fatalf("app.ID = %q, want %q", app.ID, "t3-code")
+	}
+	if app.ReplacesID != "" {
+		t.Fatalf("app.ReplacesID = %q, want empty after persisted replacement", app.ReplacesID)
+	}
+	if app.AddedAt != "2026-04-01T12:00:00Z" {
+		t.Fatalf("app.AddedAt = %q", app.AddedAt)
+	}
+	if app.LastCheckedAt != "2026-04-02T12:00:00Z" {
+		t.Fatalf("app.LastCheckedAt = %q", app.LastCheckedAt)
+	}
+	if _, err := repo.NewStore(config.DbSrc).GetApp("t3-code-desktop"); err == nil {
+		t.Fatal("expected old app id to be removed from database")
+	}
+	persisted, err := repo.NewStore(config.DbSrc).GetApp("t3-code")
+	if err != nil {
+		t.Fatalf("expected new app id to be persisted: %v", err)
+	}
+	if persisted.Update == nil || persisted.Update.Kind != models.UpdateZsync {
+		t.Fatalf("persisted.Update = %#v", persisted.Update)
+	}
+	if _, err := os.Stat(oldAppDir); !os.IsNotExist(err) {
+		t.Fatalf("expected old app dir to be removed, got err=%v", err)
+	}
+	if _, err := os.Lstat(oldDesktopLink); !os.IsNotExist(err) {
+		t.Fatalf("expected old desktop link to be removed, got err=%v", err)
+	}
+}
+
+func TestIntegrateExistingPrefersUnprefixedDesktopLink(t *testing.T) {
+	tmp := t.TempDir()
+	setupIntegrationConfigForTest(t, tmp)
+	stubDesktopValidationForTest(t)
+	stubIntegrationCacheRefreshForTest(t)
+
+	appDir := filepath.Join(config.AimDir, "my-app")
+	execPath := filepath.Join(appDir, "my-app.AppImage")
+	desktopPath := filepath.Join(appDir, "my-app.desktop")
+	iconPath := filepath.Join(config.IconThemeDir, "256x256", "apps", "my-app.png")
+
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(execPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(desktopPath, []byte("[Desktop Entry]\nName=My App\nExec="+execPath+"\nIcon="+iconPath+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(iconPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(iconPath, []byte("icon"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := repo.NewStore(config.DbSrc).AddApp(&models.App{
+		ID:               "my-app",
+		Name:             "My App",
+		ExecPath:         execPath,
+		DesktopEntryPath: desktopPath,
+		IconPath:         iconPath,
+	}, true); err != nil {
+		t.Fatal(err)
+	}
+
+	integrated, err := testService.Reintegrate(context.Background(), "my-app")
+	if err != nil {
+		t.Fatalf("IntegrateExisting returned error: %v", err)
+	}
+	if integrated.DesktopEntryLink != filepath.Join(config.DesktopDir, "my-app.desktop") {
+		t.Fatalf("DesktopEntryLink = %q", integrated.DesktopEntryLink)
+	}
+}
+
+func setupIntegrationConfigForTest(t *testing.T, tmp string) {
+	t.Helper()
+
+	originalAimDir := config.AimDir
+	originalTempDir := config.TempDir
+	originalDesktopDir := config.DesktopDir
+	originalIconThemeDir := config.IconThemeDir
+	originalDbSrc := config.DbSrc
+	t.Cleanup(func() {
+		config.AimDir = originalAimDir
+		config.TempDir = originalTempDir
+		config.DesktopDir = originalDesktopDir
+		config.IconThemeDir = originalIconThemeDir
+		config.DbSrc = originalDbSrc
+	})
+
+	config.AimDir = filepath.Join(tmp, "aim")
+	config.TempDir = filepath.Join(tmp, "cache", "tmp")
+	config.DesktopDir = filepath.Join(tmp, "applications")
+	config.IconThemeDir = filepath.Join(tmp, "icons", "hicolor")
+	config.DbSrc = filepath.Join(tmp, "state", "aim", "apps.json")
+	testService = Service{
+		Store:                            repo.NewStore(config.DbSrc),
+		Filesystem:                       testAppImageFilesystem{},
+		DesktopLinkResolver:              testDesktopLinkResolver{},
+		DesktopEntryValidator:            &recordingDesktopEntryValidator{},
+		DesktopIntegrationCacheRefresher: &recordingIntegrationCacheRefresher{},
+		AppImage: appimage.Service{
+			Paths:                appimage.Paths{AimDir: config.AimDir, TempDir: config.TempDir},
+			Filesystem:           testAppImageFilesystem{},
+			Extractor:            testAppImageExtractor{},
+			DesktopEntryRewriter: testAppImageDesktopEntryRewriter{},
+		},
+		Paths: Paths{
+			AimDir:       config.AimDir,
+			DesktopDir:   config.DesktopDir,
+			TempDir:      config.TempDir,
+			IconThemeDir: config.IconThemeDir,
+		},
+	}
+
+	dirs := []string{
+		config.AimDir,
+		config.DesktopDir,
+		config.IconThemeDir,
+		filepath.Dir(config.DbSrc),
+	}
+	for _, dir := range dirs {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("failed to create test dir %q: %v", dir, err)
+		}
+	}
+}
+
+func stubDesktopValidationForTest(t *testing.T) {
+	t.Helper()
+	testService.DesktopEntryValidator = &recordingDesktopEntryValidator{}
+}
+
+func stubIntegrationCacheRefreshForTest(t *testing.T) {
+	t.Helper()
+	testService.DesktopIntegrationCacheRefresher = &recordingIntegrationCacheRefresher{}
+}
