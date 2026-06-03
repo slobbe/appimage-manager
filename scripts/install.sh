@@ -202,14 +202,7 @@ is_version_tag() {
     *) return 1 ;;
   esac
 
-  printf '%s\n' "$1" | awk '
-    /^v[0-9]+[.][0-9]+[.][0-9]+$/ {
-      found = 1
-    }
-    END {
-      exit found ? 0 : 1
-    }
-  '
+  printf '%s\n' "$1" | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*|[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[A-Za-z-][0-9A-Za-z-]*))*))?$'
 }
 
 lowercase() {
@@ -481,7 +474,7 @@ if [ -z "$version" ]; then
   install_label="latest"
 else
   if ! is_version_tag "$version"; then
-    fail "AIM_VERSION must match v<major>.<minor>.<patch>"
+    fail "AIM_VERSION must match v<major>.<minor>.<patch> or v<major>.<minor>.<patch>-<prerelease>"
   fi
 
   api_url="https://api.github.com/repos/${repo}/releases/tags/${version}"
