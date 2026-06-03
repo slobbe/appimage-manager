@@ -238,12 +238,16 @@ func runManagedUpdate(ctx context.Context, cmd *cobra.Command, targetID string) 
 		return err
 	}
 
-	var controller managedApplyController
+	var (
+		controller   managedApplyController
+		controllerMu sync.Mutex
+	)
 	req.ConfirmApply = updateApplyConfirmerFunc(func(confirmation appservices.UpdateApplyConfirmation) (bool, error) {
 		printPendingManagedUpdates(cmd, cfg, confirmation.Pending, false)
 		return confirmManagedUpdateApply(cmd, cfg, confirmation.Pending)
 	})
 	req.ReporterFor = func(index, total int, update appservices.ManagedUpdateView) appservices.ManagedApplyReporter {
+		controllerMu.Lock()
 		if controller == nil {
 			if total == 1 {
 				appID := ""
@@ -255,15 +259,20 @@ func runManagedUpdate(ctx context.Context, cmd *cobra.Command, targetID string) 
 				controller = newBatchManagedApplyController(cmd, total)
 			}
 		}
+		currentController := controller
+		controllerMu.Unlock()
 		return appservices.ManagedApplyReporterFunc(func(event appservices.ManagedApplyEvent) {
-			controller.Event(event)
+			currentController.Event(event)
 		})
 	}
 
 	result, err := runtimeServicesFrom(cmd).Update.Update(ctx, req)
 	if result != nil {
-		if controller != nil {
-			controller.Finish(managedApplyResultsFromViews(result.Applied))
+		controllerMu.Lock()
+		currentController := controller
+		controllerMu.Unlock()
+		if currentController != nil {
+			currentController.Finish(managedApplyResultsFromViews(result.Applied))
 		} else if len(result.Applied) > 0 {
 			printManagedApplySummary(cmd, managedApplyResultsFromViews(result.Applied))
 		}
