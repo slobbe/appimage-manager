@@ -22,10 +22,10 @@ check_layer_imports() {
 				forbidden="/internal/app /internal/infra /internal/cli"
 				;;
 			*/internal/app | */internal/app/*)
-				forbidden="/internal/infra /internal/cli"
+				forbidden="/internal/cli"
 				;;
 			*/internal/infra | */internal/infra/*)
-				forbidden="/internal/cli"
+				forbidden="/internal/app /internal/cli"
 				;;
 			*)
 				continue

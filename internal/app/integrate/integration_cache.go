@@ -17,10 +17,6 @@ func (service Service) refreshDesktopIntegrationCaches(ctx context.Context) {
 	refresher.RefreshDesktopIntegrationCaches(ctx, paths.DesktopDir, paths.IconThemeDir)
 }
 
-func RefreshDesktopIntegrationCaches(ctx context.Context) {
-	Service{}.refreshDesktopIntegrationCaches(ctx)
-}
-
 func (service Service) requireCachePathsForRefresh() (string, string, error) {
 	paths, err := service.requirePaths()
 	if err != nil {

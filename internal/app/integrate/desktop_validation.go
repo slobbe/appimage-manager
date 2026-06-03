@@ -6,10 +6,6 @@ import (
 	"strings"
 )
 
-func ValidateDesktopEntry(ctx context.Context, desktopPath string) error {
-	return Service{}.ValidateDesktopEntry(ctx, desktopPath)
-}
-
 func (service Service) ValidateDesktopEntry(ctx context.Context, desktopPath string) error {
 	if strings.TrimSpace(desktopPath) == "" {
 		return fmt.Errorf("desktop file path cannot be empty")

@@ -1,27 +1,31 @@
-package github
+package discovery
 
 import (
 	"context"
 
-	"github.com/slobbe/appimage-manager/internal/app/discovery"
+	githubinfra "github.com/slobbe/appimage-manager/internal/infra/github"
 )
 
-type DiscoveryResolver struct {
-	Client Client
+type GitHubClientResolver struct {
+	Client githubinfra.Client
 }
 
-func (resolver DiscoveryResolver) ResolveReleaseAssetSelection(repoSlug, assetPattern, arch string) (*discovery.ReleaseAssetSelection, error) {
+func NewGitHubClientResolver(client githubinfra.Client) GitHubClientResolver {
+	return GitHubClientResolver{Client: client}
+}
+
+func (resolver GitHubClientResolver) ResolveReleaseAssetSelection(repoSlug, assetPattern, arch string) (*ReleaseAssetSelection, error) {
 	selection, err := resolver.Client.ResolveReleaseAssetSelection(repoSlug, assetPattern, arch)
 	if err != nil {
 		return nil, err
 	}
 
-	result := &discovery.ReleaseAssetSelection{
+	result := &ReleaseAssetSelection{
 		Ambiguous: selection.Ambiguous,
 		Reason:    selection.Reason,
 	}
 	if selection.Release != nil {
-		result.Release = &discovery.ReleaseAsset{
+		result.Release = &ReleaseAsset{
 			DownloadURL:       selection.Release.DownloadURL,
 			TagName:           selection.Release.TagName,
 			NormalizedVersion: selection.Release.NormalizedVersion,
@@ -30,7 +34,7 @@ func (resolver DiscoveryResolver) ResolveReleaseAssetSelection(repoSlug, assetPa
 		}
 	}
 	for _, candidate := range selection.Candidates {
-		result.Candidates = append(result.Candidates, discovery.ReleaseAssetCandidate{
+		result.Candidates = append(result.Candidates, ReleaseAssetCandidate{
 			Name:        candidate.Name,
 			DownloadURL: candidate.DownloadURL,
 			Arch:        candidate.Arch,
@@ -40,12 +44,12 @@ func (resolver DiscoveryResolver) ResolveReleaseAssetSelection(repoSlug, assetPa
 	return result, nil
 }
 
-func (resolver DiscoveryResolver) FetchRepository(ctx context.Context, repoSlug string) (*discovery.Repository, error) {
+func (resolver GitHubClientResolver) FetchRepository(ctx context.Context, repoSlug string) (*Repository, error) {
 	repository, err := resolver.Client.FetchRepository(ctx, repoSlug)
 	if err != nil {
 		return nil, err
 	}
-	return &discovery.Repository{
+	return &Repository{
 		Name:        repository.Name,
 		Description: repository.Description,
 		HTMLURL:     repository.HTMLURL,

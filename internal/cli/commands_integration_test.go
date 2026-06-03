@@ -23,7 +23,6 @@ import (
 	appimage "github.com/slobbe/appimage-manager/internal/app/appimage"
 	"github.com/slobbe/appimage-manager/internal/app/discovery"
 	appintegrate "github.com/slobbe/appimage-manager/internal/app/integrate"
-	appselfupdate "github.com/slobbe/appimage-manager/internal/app/selfupdate"
 	appservices "github.com/slobbe/appimage-manager/internal/app/services"
 	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
 	models "github.com/slobbe/appimage-manager/internal/domain"
@@ -35,6 +34,181 @@ import (
 	"github.com/spf13/pflag"
 	"golang.org/x/sys/unix"
 )
+
+type selfUpdateServiceFunc func(context.Context, appservices.SelfUpdateRequest) (*appservices.SelfUpdateResult, error)
+
+func (fn selfUpdateServiceFunc) SelfUpdate(ctx context.Context, req appservices.SelfUpdateRequest) (*appservices.SelfUpdateResult, error) {
+	return fn(ctx, req)
+}
+
+func selfUpdateTestContext(service appservices.SelfUpdateService) context.Context {
+	return withRuntimeServices(context.Background(), runtimeServices{SelfUpdate: service, Locker: noopLocker{}})
+}
+
+type addWorkflowTestOptions struct {
+	Store        *repo.Store
+	Discovery    appservices.DiscoveryService
+	Download     func(context.Context, string, string) error
+	Integrate    appservices.IntegrateFunc
+	Reintegrate  func(context.Context, string) (*models.App, error)
+	AppImageInfo appservices.AppImageInfoReader
+}
+
+func addWorkflowTestContext(opts addWorkflowTestOptions) context.Context {
+	store := opts.Store
+	if store == nil && strings.TrimSpace(config.DbSrc) != "" {
+		store = repo.NewStore(config.DbSrc)
+	}
+	downloadFn := opts.Download
+	if downloadFn == nil {
+		downloadFn = func(context.Context, string, string) error { return nil }
+	}
+	integrateFn := opts.Integrate
+	if integrateFn == nil {
+		integrateFn = func(context.Context, string, appintegrate.UpdateOverwritePrompt) (*models.App, error) {
+			return &models.App{ID: "app", Name: "App", Update: &models.UpdateSource{Kind: models.UpdateNone}}, nil
+		}
+	}
+	installer := appservices.NewRemoteInstallService(appservices.RemoteInstallService{
+		Store:    store,
+		Filename: updateDownloadFilename,
+		StableDestination: func(assetURL, nameHint string) (string, error) {
+			return download.StableDestination(config.TempDir, assetURL, nameHint)
+		},
+		Download: func(ctx context.Context, assetURL, destination string) error {
+			if progress := remoteInstallProgressFromContext(ctx); progress != nil {
+				progress.Stop()
+				description := progress.DownloadDescription(downloadDescriptionFromContext(ctx, "Downloading update"))
+				ctx = withDownloadDescription(ctx, description)
+			}
+			return downloadFn(ctx, assetURL, destination)
+		},
+		VerifySHA256: func(path, expectedSHA256 string) error {
+			return verifyDownloadedUpdate(path, appupdate.ManagedUpdate{ExpectedSHA256: expectedSHA256})
+		},
+		IntegrateLocalApp: func(ctx context.Context, path string, confirm appintegrate.UpdateOverwritePrompt) (*models.App, error) {
+			if progress := remoteInstallProgressFromContext(ctx); progress != nil {
+				progress.StartIntegrating()
+			}
+			return integrateFn(ctx, path, confirm)
+		},
+		PersistApp: func(app *models.App, overwrite bool) error {
+			if store == nil {
+				return nil
+			}
+			return store.AddApp(app, overwrite)
+		},
+	})
+	service := appservices.NewAddWorkflowService(appservices.AddWorkflowService{
+		Store:             store,
+		Discovery:         opts.Discovery,
+		Installer:         installer,
+		HasExtension:      runtimeHasExtension,
+		IntegrateLocalApp: integrateFn,
+		ReintegrateApp:    opts.Reintegrate,
+		AppImageInfo:      opts.AppImageInfo,
+		AimDir:            config.AimDir,
+		DesktopDir:        config.DesktopDir,
+	})
+	return withRuntimeServices(context.Background(), runtimeServices{Add: service, Locker: noopLocker{}})
+}
+
+func discoveryServiceForTest(backends ...discovery.DiscoveryBackend) appservices.DiscoveryService {
+	return appservices.NewDiscoveryWorkflowService(appservices.DiscoveryWorkflowService{Backends: backends})
+}
+
+func discoveryBackendForTest(metadata *models.PackageMetadata) discovery.DiscoveryBackend {
+	return &stubDiscoveryBackend{
+		name: "GitHub",
+		resolveFn: func(context.Context, models.PackageRef, string) (*models.PackageMetadata, error) {
+			return metadata, nil
+		},
+	}
+}
+
+func infoDiscoveryTestContext(backends ...discovery.DiscoveryBackend) context.Context {
+	discoveryService := discoveryServiceForTest(backends...)
+	infoService := appservices.NewStoreInfoService(appservices.StoreInfoService{Discovery: discoveryService})
+	return withRuntimeServices(context.Background(), runtimeServices{Info: infoService, Discovery: discoveryService, Locker: noopLocker{}})
+}
+
+func addGitHubWorkflowTestContext(metadata *models.PackageMetadata, opts addWorkflowTestOptions) context.Context {
+	if opts.Store == nil && strings.TrimSpace(config.DbSrc) != "" {
+		opts.Store = repo.NewStore(config.DbSrc)
+	}
+	opts.Discovery = discoveryServiceForTest(discoveryBackendForTest(metadata))
+	return addWorkflowTestContext(opts)
+}
+
+func infoWorkflowTestContext(store appservices.AppStore, appImage func(context.Context, string) (*appimage.AppInfo, error), updateInfo func(string) (*appupdate.UpdateInfo, error)) context.Context {
+	service := appservices.NewStoreInfoService(appservices.StoreInfoService{
+		Store:      store,
+		AppImage:   appservices.AppImageInfoReaderFunc(appImage),
+		UpdateInfo: appservices.UpdateInfoReaderFunc(updateInfo),
+	})
+	return withRuntimeServices(context.Background(), runtimeServices{Info: service, Locker: noopLocker{}})
+}
+
+func updateSourceWorkflowTestContext(store appservices.AppStore, updateInfo func(string) (*appupdate.UpdateInfo, error)) context.Context {
+	service := appservices.NewSourceUpdateWorkflowService(appservices.SourceUpdateService{
+		Store:      store,
+		Locker:     noopLocker{},
+		UpdateInfo: appservices.UpdateInfoReaderFunc(updateInfo),
+		NowISO:     runtimeNowISO,
+	})
+	return withRuntimeServices(context.Background(), runtimeServices{Update: service, Locker: noopLocker{}})
+}
+
+func checkAppUpdateWithChecker(app *models.App, checker appupdate.ManagedUpdateChecker) (*appupdate.ManagedUpdate, error) {
+	return appupdate.NewManagedUpdateChecker(checker).Check(app)
+}
+
+func managedApplyServiceForTest(t *testing.T, lookPath func(string) (string, error), command func(context.Context, string, ...string) *exec.Cmd, downloadAsset func(context.Context, string, string, func(int64, int64)) error, integrate appupdate.IntegrateFunc) appupdate.Service {
+	t.Helper()
+	return appupdate.Service{
+		TempDir:        t.TempDir(),
+		NowISO:         runtimeNowISO,
+		Zsync:          testZsyncRunner{lookPath: lookPath, commandContext: command},
+		StagedDownload: stagedDownloadAdapter{client: runtimeDownloadHTTPClient, nowISO: runtimeNowISO},
+		HashVerifier:   hashVerifierAdapter{},
+		DownloadAsset:  downloadAsset,
+		Integrate:      integrate,
+	}
+}
+
+type testZsyncRunner struct {
+	lookPath       func(string) (string, error)
+	commandContext func(context.Context, string, ...string) *exec.Cmd
+}
+
+func (runner testZsyncRunner) Apply(ctx context.Context, currentPath, zsyncURL, destination string) error {
+	lookPath := runner.lookPath
+	if lookPath == nil {
+		lookPath = exec.LookPath
+	}
+	commandContext := runner.commandContext
+	if commandContext == nil {
+		commandContext = exec.CommandContext
+	}
+	binary, err := lookPath("zsync")
+	if err != nil {
+		return err
+	}
+	cmd := commandContext(ctx, binary, "-q", "-i", currentPath, "-o", destination, zsyncURL)
+	cmd.Dir = filepath.Dir(destination)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		message := strings.TrimSpace(string(output))
+		if message == "" {
+			return err
+		}
+		return fmt.Errorf("%w: %s", err, message)
+	}
+	if _, err := os.Stat(destination); err != nil {
+		return err
+	}
+	return nil
+}
 
 func seedRepositoryApps(t *testing.T, dbPath string, apps map[string]*models.App) error {
 	t.Helper()
@@ -207,22 +381,12 @@ func TestUpdateDownloadFilename(t *testing.T) {
 }
 
 func TestSelfUpdateCmdRunsInstaller(t *testing.T) {
-	originalCheck := checkAimSelfUpdate
-	original := runSelfUpdateInstaller
-	t.Cleanup(func() {
-		checkAimSelfUpdate = originalCheck
-		runSelfUpdateInstaller = original
-	})
-	checkAimSelfUpdate = func(context.Context, string, bool) (*appselfupdate.AimSelfUpdateCheckResult, error) {
-		return &appselfupdate.AimSelfUpdateCheckResult{CurrentVersion: "0.12.4", LatestVersion: "0.12.5", HasUpdate: true, Comparable: true}, nil
-	}
-	runSelfUpdateInstaller = func(context.Context, appselfupdate.InstallerSelfUpdateRequest) (*appselfupdate.InstallerSelfUpdateResult, error) {
+	service := selfUpdateServiceFunc(func(context.Context, appservices.SelfUpdateRequest) (*appservices.SelfUpdateResult, error) {
 		return nil, fmt.Errorf("installer failed")
-	}
-
+	})
 	cmd := newSelfUpdateTestCommand()
 
-	err := executeTestCommand(context.Background(), cmd, "self-update")
+	err := executeTestCommand(selfUpdateTestContext(service), cmd, "self-update")
 	if err == nil {
 		t.Fatal("expected installer error")
 	}
@@ -232,25 +396,16 @@ func TestSelfUpdateCmdRunsInstaller(t *testing.T) {
 }
 
 func TestSelfUpdateCmdOutputsVersionTransitionMessage(t *testing.T) {
-	originalCheck := checkAimSelfUpdate
-	original := runSelfUpdateInstaller
-	t.Cleanup(func() {
-		checkAimSelfUpdate = originalCheck
-		runSelfUpdateInstaller = original
-	})
-	checkAimSelfUpdate = func(context.Context, string, bool) (*appselfupdate.AimSelfUpdateCheckResult, error) {
-		return &appselfupdate.AimSelfUpdateCheckResult{CurrentVersion: "0.12.4", LatestVersion: "0.12.5", HasUpdate: true, Comparable: true}, nil
-	}
-	runSelfUpdateInstaller = func(context.Context, appselfupdate.InstallerSelfUpdateRequest) (*appselfupdate.InstallerSelfUpdateResult, error) {
-		return &appselfupdate.InstallerSelfUpdateResult{
-			PreviousVersion:  "0.12.4",
+	service := selfUpdateServiceFunc(func(context.Context, appservices.SelfUpdateRequest) (*appservices.SelfUpdateResult, error) {
+		return &appservices.SelfUpdateResult{
+			CurrentVersion:   "0.12.4",
 			InstalledVersion: "0.12.5",
+			Updated:          true,
 		}, nil
-	}
-
+	})
 	cmd := newSelfUpdateTestCommand()
 	output := captureStdout(t, func() {
-		if err := executeTestCommand(context.Background(), cmd, "self-update"); err != nil {
+		if err := executeTestCommand(selfUpdateTestContext(service), cmd, "self-update"); err != nil {
 			t.Fatalf("run returned error: %v", err)
 		}
 	})
@@ -278,25 +433,12 @@ func TestSelfUpdateShortFlagIsRejected(t *testing.T) {
 }
 
 func TestSelfUpdateCmdFallsBackWhenInstalledVersionUnknown(t *testing.T) {
-	originalCheck := checkAimSelfUpdate
-	original := runSelfUpdateInstaller
-	t.Cleanup(func() {
-		checkAimSelfUpdate = originalCheck
-		runSelfUpdateInstaller = original
+	service := selfUpdateServiceFunc(func(context.Context, appservices.SelfUpdateRequest) (*appservices.SelfUpdateResult, error) {
+		return &appservices.SelfUpdateResult{CurrentVersion: "0.12.4", Updated: true}, nil
 	})
-	checkAimSelfUpdate = func(context.Context, string, bool) (*appselfupdate.AimSelfUpdateCheckResult, error) {
-		return &appselfupdate.AimSelfUpdateCheckResult{CurrentVersion: "0.12.4", LatestVersion: "0.12.5", HasUpdate: true, Comparable: true}, nil
-	}
-	runSelfUpdateInstaller = func(context.Context, appselfupdate.InstallerSelfUpdateRequest) (*appselfupdate.InstallerSelfUpdateResult, error) {
-		return &appselfupdate.InstallerSelfUpdateResult{
-			PreviousVersion:  "0.12.4",
-			InstalledVersion: "",
-		}, nil
-	}
-
 	cmd := newSelfUpdateTestCommand()
 	output := captureStdout(t, func() {
-		if err := executeTestCommand(context.Background(), cmd, "self-update"); err != nil {
+		if err := executeTestCommand(selfUpdateTestContext(service), cmd, "self-update"); err != nil {
 			t.Fatalf("run returned error: %v", err)
 		}
 	})
@@ -307,33 +449,22 @@ func TestSelfUpdateCmdFallsBackWhenInstalledVersionUnknown(t *testing.T) {
 }
 
 func TestSelfUpdateCmdReportsCurrentAheadOfLatestStable(t *testing.T) {
-	originalCheck := checkAimSelfUpdate
-	originalRun := runSelfUpdateInstaller
 	originalVersion := version
 	t.Cleanup(func() {
-		checkAimSelfUpdate = originalCheck
-		runSelfUpdateInstaller = originalRun
 		version = originalVersion
 	})
 
 	version = "0.17.1-pre.4"
-	checkAimSelfUpdate = func(context.Context, string, bool) (*appselfupdate.AimSelfUpdateCheckResult, error) {
-		return &appselfupdate.AimSelfUpdateCheckResult{
+	service := selfUpdateServiceFunc(func(context.Context, appservices.SelfUpdateRequest) (*appservices.SelfUpdateResult, error) {
+		return &appservices.SelfUpdateResult{
 			CurrentVersion: "0.17.1-pre.4",
 			LatestVersion:  "v0.17.0",
-			HasUpdate:      false,
-			Comparable:     true,
 			CurrentAhead:   true,
 		}, nil
-	}
-	runSelfUpdateInstaller = func(context.Context, appselfupdate.InstallerSelfUpdateRequest) (*appselfupdate.InstallerSelfUpdateResult, error) {
-		t.Fatal("installer should not run when current is ahead of latest stable")
-		return nil, nil
-	}
-
+	})
 	cmd := newSelfUpdateTestCommand()
 	output := captureStdout(t, func() {
-		if err := executeTestCommand(context.Background(), cmd, "self-update"); err != nil {
+		if err := executeTestCommand(selfUpdateTestContext(service), cmd, "self-update"); err != nil {
 			t.Fatalf("run returned error: %v", err)
 		}
 	})
@@ -344,29 +475,16 @@ func TestSelfUpdateCmdReportsCurrentAheadOfLatestStable(t *testing.T) {
 }
 
 func TestSelfUpdateCmdReportsUpToDateWhenNoNewReleaseExists(t *testing.T) {
-	originalCheck := checkAimSelfUpdate
-	originalRun := runSelfUpdateInstaller
-	t.Cleanup(func() {
-		checkAimSelfUpdate = originalCheck
-		runSelfUpdateInstaller = originalRun
-	})
-
-	checkAimSelfUpdate = func(context.Context, string, bool) (*appselfupdate.AimSelfUpdateCheckResult, error) {
-		return &appselfupdate.AimSelfUpdateCheckResult{
+	service := selfUpdateServiceFunc(func(context.Context, appservices.SelfUpdateRequest) (*appservices.SelfUpdateResult, error) {
+		return &appservices.SelfUpdateResult{
 			CurrentVersion: "0.12.5",
 			LatestVersion:  "0.12.5",
-			HasUpdate:      false,
-			Comparable:     true,
+			UpToDate:       true,
 		}, nil
-	}
-	runSelfUpdateInstaller = func(context.Context, appselfupdate.InstallerSelfUpdateRequest) (*appselfupdate.InstallerSelfUpdateResult, error) {
-		t.Fatal("installer should not run when already up to date")
-		return nil, nil
-	}
-
+	})
 	cmd := newSelfUpdateTestCommand()
 	output := captureStdout(t, func() {
-		if err := executeTestCommand(context.Background(), cmd, "self-update"); err != nil {
+		if err := executeTestCommand(selfUpdateTestContext(service), cmd, "self-update"); err != nil {
 			t.Fatalf("run returned error: %v", err)
 		}
 	})
@@ -380,36 +498,24 @@ func TestSelfUpdateCmdReportsUpToDateWhenNoNewReleaseExists(t *testing.T) {
 }
 
 func TestSelfUpdateCmdDevBuildSkipsNoUpdateOptimization(t *testing.T) {
-	originalCheck := checkAimSelfUpdate
-	originalRun := runSelfUpdateInstaller
 	originalVersion := version
 	t.Cleanup(func() {
-		checkAimSelfUpdate = originalCheck
-		runSelfUpdateInstaller = originalRun
 		version = originalVersion
 	})
 
 	version = "dev"
 	called := false
-	checkAimSelfUpdate = func(context.Context, string, bool) (*appselfupdate.AimSelfUpdateCheckResult, error) {
-		return &appselfupdate.AimSelfUpdateCheckResult{
-			CurrentVersion: "dev",
-			LatestVersion:  "0.12.5",
-			HasUpdate:      true,
-			Comparable:     false,
-		}, nil
-	}
-	runSelfUpdateInstaller = func(context.Context, appselfupdate.InstallerSelfUpdateRequest) (*appselfupdate.InstallerSelfUpdateResult, error) {
+	service := selfUpdateServiceFunc(func(context.Context, appservices.SelfUpdateRequest) (*appservices.SelfUpdateResult, error) {
 		called = true
-		return &appselfupdate.InstallerSelfUpdateResult{
-			PreviousVersion:  "dev",
+		return &appservices.SelfUpdateResult{
+			CurrentVersion:   "dev",
 			InstalledVersion: "0.12.5",
+			Updated:          true,
 		}, nil
-	}
-
+	})
 	cmd := newSelfUpdateTestCommand()
 	output := captureStdout(t, func() {
-		if err := executeTestCommand(context.Background(), cmd, "self-update"); err != nil {
+		if err := executeTestCommand(selfUpdateTestContext(service), cmd, "self-update"); err != nil {
 			t.Fatalf("run returned error: %v", err)
 		}
 	})
@@ -455,27 +561,18 @@ func TestSubcommandsDoNotAcceptSelfUpdateFlags(t *testing.T) {
 }
 
 func TestSelfUpdateCommandInvokesInstaller(t *testing.T) {
-	originalCheck := checkAimSelfUpdate
-	original := runSelfUpdateInstaller
-	t.Cleanup(func() {
-		checkAimSelfUpdate = originalCheck
-		runSelfUpdateInstaller = original
-	})
 	called := false
-	checkAimSelfUpdate = func(context.Context, string, bool) (*appselfupdate.AimSelfUpdateCheckResult, error) {
-		return &appselfupdate.AimSelfUpdateCheckResult{CurrentVersion: "0.12.4", LatestVersion: "0.12.5", HasUpdate: true, Comparable: true}, nil
-	}
-	runSelfUpdateInstaller = func(context.Context, appselfupdate.InstallerSelfUpdateRequest) (*appselfupdate.InstallerSelfUpdateResult, error) {
+	service := selfUpdateServiceFunc(func(context.Context, appservices.SelfUpdateRequest) (*appservices.SelfUpdateResult, error) {
 		called = true
-		return &appselfupdate.InstallerSelfUpdateResult{
-			PreviousVersion:  "0.12.4",
+		return &appservices.SelfUpdateResult{
+			CurrentVersion:   "0.12.4",
 			InstalledVersion: "0.12.5",
+			Updated:          true,
 		}, nil
-	}
-
+	})
 	cmd := newRootTestCommand()
 	output := captureStdout(t, func() {
-		if err := executeTestCommand(context.Background(), cmd, "self-update"); err != nil {
+		if err := executeTestCommand(selfUpdateTestContext(service), cmd, "self-update"); err != nil {
 			t.Fatalf("run returned error: %v", err)
 		}
 	})
@@ -489,17 +586,7 @@ func TestSelfUpdateCommandInvokesInstaller(t *testing.T) {
 }
 
 func TestSelfUpdateCommandPassesNonNilContext(t *testing.T) {
-	originalCheck := checkAimSelfUpdate
-	original := runSelfUpdateInstaller
-	t.Cleanup(func() {
-		checkAimSelfUpdate = originalCheck
-		runSelfUpdateInstaller = original
-	})
-	checkAimSelfUpdate = func(context.Context, string, bool) (*appselfupdate.AimSelfUpdateCheckResult, error) {
-		return &appselfupdate.AimSelfUpdateCheckResult{CurrentVersion: "dev", LatestVersion: "0.12.5", HasUpdate: true, Comparable: false}, nil
-	}
-
-	runSelfUpdateInstaller = func(ctx context.Context, req appselfupdate.InstallerSelfUpdateRequest) (*appselfupdate.InstallerSelfUpdateResult, error) {
+	service := selfUpdateServiceFunc(func(ctx context.Context, req appservices.SelfUpdateRequest) (*appservices.SelfUpdateResult, error) {
 		if ctx == nil {
 			t.Fatal("expected non-nil context")
 		}
@@ -509,15 +596,15 @@ func TestSelfUpdateCommandPassesNonNilContext(t *testing.T) {
 		if req.CurrentVersion != version {
 			t.Fatalf("currentVersion = %q, want %q", req.CurrentVersion, version)
 		}
-		return &appselfupdate.InstallerSelfUpdateResult{
-			PreviousVersion:  req.CurrentVersion,
+		return &appservices.SelfUpdateResult{
+			CurrentVersion:   req.CurrentVersion,
 			InstalledVersion: "0.12.5",
+			Updated:          true,
 		}, nil
-	}
-
+	})
 	cmd := newRootTestCommand()
 	_ = captureStdout(t, func() {
-		if err := executeTestCommand(context.Background(), cmd, "self-update"); err != nil {
+		if err := executeTestCommand(selfUpdateTestContext(service), cmd, "self-update"); err != nil {
 			t.Fatalf("run returned error: %v", err)
 		}
 	})
@@ -874,16 +961,12 @@ func TestRemoveCommandUsesLinkFlag(t *testing.T) {
 }
 
 func TestRemoveCmdOutputsRemovedMessage(t *testing.T) {
-	original := removeManagedApp
-	t.Cleanup(func() {
-		removeManagedApp = original
-	})
-	removeManagedApp = func(context.Context, string, bool) (*models.App, error) {
-		return &models.App{ID: "my-app", Name: "My App"}, nil
-	}
+	service := &recordingRemoveService{result: &appservices.RemoveResult{App: appDetails("my-app", "My App", true)}}
+	cmd := newRootTestCommand()
+	ctx := withRuntimeServices(context.Background(), runtimeServices{Remove: service, Locker: noopLocker{}})
 
 	output := captureStdout(t, func() {
-		if err := runRootCommand(context.Background(), []string{"remove", "my-app"}); err != nil {
+		if err := executeTestCommand(ctx, cmd, "remove", "my-app"); err != nil {
 			t.Fatalf("run returned error: %v", err)
 		}
 	})
@@ -894,16 +977,12 @@ func TestRemoveCmdOutputsRemovedMessage(t *testing.T) {
 }
 
 func TestRemoveCmdOutputsUnlinkedMessage(t *testing.T) {
-	original := removeManagedApp
-	t.Cleanup(func() {
-		removeManagedApp = original
-	})
-	removeManagedApp = func(context.Context, string, bool) (*models.App, error) {
-		return &models.App{ID: "my-app", Name: "My App"}, nil
-	}
+	service := &recordingRemoveService{result: &appservices.RemoveResult{App: appDetails("my-app", "My App", true), Unlink: true}}
+	cmd := newRootTestCommand()
+	ctx := withRuntimeServices(context.Background(), runtimeServices{Remove: service, Locker: noopLocker{}})
 
 	output := captureStdout(t, func() {
-		if err := runRootCommand(context.Background(), []string{"remove", "--link", "my-app"}); err != nil {
+		if err := executeTestCommand(ctx, cmd, "remove", "--link", "my-app"); err != nil {
 			t.Fatalf("run returned error: %v", err)
 		}
 	})
@@ -920,47 +999,6 @@ func TestUpdateCheckSubcommandReturnsArgumentError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "too many arguments") {
 		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestUpdateCheckMetadata(t *testing.T) {
-	tempDir := t.TempDir()
-	dbPath := filepath.Join(tempDir, "apps.json")
-
-	originalDbSrc := config.DbSrc
-	config.DbSrc = dbPath
-	t.Cleanup(func() {
-		config.DbSrc = originalDbSrc
-	})
-
-	if err := seedRepositoryApps(t, dbPath, map[string]*models.App{
-		"my-app": {ID: "my-app", Name: "My App"},
-	}); err != nil {
-		t.Fatalf("failed to write test DB: %v", err)
-	}
-
-	app, err := repo.NewStore(config.DbSrc).GetApp("my-app")
-	if err != nil {
-		t.Fatalf("failed to load app: %v", err)
-	}
-
-	if err := updateCheckMetadata(app, true, true, "v2.0.0"); err != nil {
-		t.Fatalf("updateCheckMetadata returned error: %v", err)
-	}
-
-	updated, err := repo.NewStore(config.DbSrc).GetApp("my-app")
-	if err != nil {
-		t.Fatalf("failed to load updated app: %v", err)
-	}
-
-	if !updated.UpdateAvailable {
-		t.Fatal("expected update_available to be true")
-	}
-	if updated.LatestVersion != "v2.0.0" {
-		t.Fatalf("latest_version = %q, want %q", updated.LatestVersion, "v2.0.0")
-	}
-	if updated.LastCheckedAt == "" {
-		t.Fatal("expected last_checked_at to be set")
 	}
 }
 
@@ -1118,14 +1156,6 @@ func TestAddCmdManagedIDAlreadyIntegratedMessage(t *testing.T) {
 }
 
 func TestAddCmdManagedIDReintegratedMessage(t *testing.T) {
-	original := integrateExistingApp
-	t.Cleanup(func() {
-		integrateExistingApp = original
-	})
-	integrateExistingApp = func(context.Context, string) (*models.App, error) {
-		return &models.App{ID: "my-app", Name: "My App", Version: "1.0.0"}, nil
-	}
-
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "apps.json")
 
@@ -1145,8 +1175,14 @@ func TestAddCmdManagedIDReintegratedMessage(t *testing.T) {
 		t.Fatalf("failed to write test DB: %v", err)
 	}
 
+	ctx := addWorkflowTestContext(addWorkflowTestOptions{
+		Store: repo.NewStore(dbPath),
+		Reintegrate: func(context.Context, string) (*models.App, error) {
+			return &models.App{ID: "my-app", Name: "My App", Version: "1.0.0"}, nil
+		},
+	})
 	output := captureStdout(t, func() {
-		if err := runAddCommand(context.Background(), []string{"my-app"}); err != nil {
+		if err := runAddCommand(ctx, []string{"my-app"}); err != nil {
 			t.Fatalf("runAddCommand returned error: %v", err)
 		}
 	})
@@ -1157,21 +1193,18 @@ func TestAddCmdManagedIDReintegratedMessage(t *testing.T) {
 }
 
 func TestAddCmdLocalAppImageIntegratedMessage(t *testing.T) {
-	original := integrateLocalApp
-	t.Cleanup(func() {
-		integrateLocalApp = original
+	ctx := addWorkflowTestContext(addWorkflowTestOptions{
+		Integrate: func(context.Context, string, appintegrate.UpdateOverwritePrompt) (*models.App, error) {
+			return &models.App{
+				ID:      "my-app",
+				Name:    "My App",
+				Version: "1.0.0",
+				Update:  &models.UpdateSource{Kind: models.UpdateNone},
+			}, nil
+		},
 	})
-	integrateLocalApp = func(context.Context, string, appintegrate.UpdateOverwritePrompt) (*models.App, error) {
-		return &models.App{
-			ID:      "my-app",
-			Name:    "My App",
-			Version: "1.0.0",
-			Update:  &models.UpdateSource{Kind: models.UpdateNone},
-		}, nil
-	}
-
 	output := captureStdout(t, func() {
-		if err := runAddCommand(context.Background(), []string{"/tmp/MyApp.AppImage"}); err != nil {
+		if err := runAddCommand(ctx, []string{"/tmp/MyApp.AppImage"}); err != nil {
 			t.Fatalf("runAddCommand returned error: %v", err)
 		}
 	})
@@ -1231,21 +1264,18 @@ func TestAddCmdRoutesManagedIDToIntegrateFlow(t *testing.T) {
 }
 
 func TestAddCmdRoutesLocalPathToIntegrateFlow(t *testing.T) {
-	original := integrateLocalApp
-	t.Cleanup(func() {
-		integrateLocalApp = original
+	ctx := addWorkflowTestContext(addWorkflowTestOptions{
+		Integrate: func(context.Context, string, appintegrate.UpdateOverwritePrompt) (*models.App, error) {
+			return &models.App{
+				ID:      "my-app",
+				Name:    "My App",
+				Version: "1.0.0",
+				Update:  &models.UpdateSource{Kind: models.UpdateNone},
+			}, nil
+		},
 	})
-	integrateLocalApp = func(context.Context, string, appintegrate.UpdateOverwritePrompt) (*models.App, error) {
-		return &models.App{
-			ID:      "my-app",
-			Name:    "My App",
-			Version: "1.0.0",
-			Update:  &models.UpdateSource{Kind: models.UpdateNone},
-		}, nil
-	}
-
 	output := captureStdout(t, func() {
-		if err := runAddCommand(context.Background(), []string{"/tmp/MyApp.AppImage"}); err != nil {
+		if err := runAddCommand(ctx, []string{"/tmp/MyApp.AppImage"}); err != nil {
 			t.Fatalf("runAddCommand returned error: %v", err)
 		}
 	})
@@ -1391,39 +1421,30 @@ func TestAddCmdDirectURLWithChecksum(t *testing.T) {
 	tempDir := t.TempDir()
 	setupAddCommandConfigForTest(t, tempDir)
 
-	originalDownload := downloadRemoteAsset
-	originalIntegrate := integrateLocalApp
-	originalAddSingle := addSingleApp
-	t.Cleanup(func() {
-		downloadRemoteAsset = originalDownload
-		integrateLocalApp = originalIntegrate
-		addSingleApp = originalAddSingle
-	})
-
 	payload := []byte("remote-appimage")
 	sum := sha256.Sum256(payload)
 	expectedSHA256 := hex.EncodeToString(sum[:])
 
-	downloadRemoteAsset = func(ctx context.Context, assetURL, destination string, interactive bool) error {
-		_ = ctx
-		_ = interactive
-		if assetURL != "https://example.com/MyApp.AppImage" {
-			t.Fatalf("assetURL = %q", assetURL)
-		}
-		return os.WriteFile(destination, payload, 0o644)
-	}
-	integrateLocalApp = func(context.Context, string, appintegrate.UpdateOverwritePrompt) (*models.App, error) {
-		return &models.App{
-			ID:        "my-app",
-			Name:      "My App",
-			Version:   "1.0.0",
-			UpdatedAt: "2026-03-08T12:00:00Z",
-		}, nil
-	}
-	addSingleApp = defaultAddSingleApp
-
+	ctx := addWorkflowTestContext(addWorkflowTestOptions{
+		Store: repo.NewStore(config.DbSrc),
+		Download: func(ctx context.Context, assetURL, destination string) error {
+			_ = ctx
+			if assetURL != "https://example.com/MyApp.AppImage" {
+				t.Fatalf("assetURL = %q", assetURL)
+			}
+			return os.WriteFile(destination, payload, 0o644)
+		},
+		Integrate: func(context.Context, string, appintegrate.UpdateOverwritePrompt) (*models.App, error) {
+			return &models.App{
+				ID:        "my-app",
+				Name:      "My App",
+				Version:   "1.0.0",
+				UpdatedAt: "2026-03-08T12:00:00Z",
+			}, nil
+		},
+	})
 	output := captureStdout(t, func() {
-		if err := runAddCommand(context.Background(), []string{"--url", "https://example.com/MyApp.AppImage", "--sha256", expectedSHA256}); err != nil {
+		if err := runAddCommand(ctx, []string{"--url", "https://example.com/MyApp.AppImage", "--sha256", expectedSHA256}); err != nil {
 			t.Fatalf("runAddCommand returned error: %v", err)
 		}
 	})
@@ -1457,30 +1478,20 @@ func TestAddCmdDirectURLWithoutChecksumWarns(t *testing.T) {
 	tempDir := t.TempDir()
 	setupAddCommandConfigForTest(t, tempDir)
 
-	originalDownload := downloadRemoteAsset
-	originalIntegrate := integrateLocalApp
-	originalAddSingle := addSingleApp
-	t.Cleanup(func() {
-		downloadRemoteAsset = originalDownload
-		integrateLocalApp = originalIntegrate
-		addSingleApp = originalAddSingle
+	ctx := addWorkflowTestContext(addWorkflowTestOptions{
+		Store:    repo.NewStore(config.DbSrc),
+		Download: func(context.Context, string, string) error { return nil },
+		Integrate: func(context.Context, string, appintegrate.UpdateOverwritePrompt) (*models.App, error) {
+			return &models.App{
+				ID:        "my-app",
+				Name:      "My App",
+				Version:   "1.0.0",
+				UpdatedAt: "2026-03-08T12:00:00Z",
+			}, nil
+		},
 	})
-
-	downloadRemoteAsset = func(context.Context, string, string, bool) error {
-		return nil
-	}
-	integrateLocalApp = func(context.Context, string, appintegrate.UpdateOverwritePrompt) (*models.App, error) {
-		return &models.App{
-			ID:        "my-app",
-			Name:      "My App",
-			Version:   "1.0.0",
-			UpdatedAt: "2026-03-08T12:00:00Z",
-		}, nil
-	}
-	addSingleApp = defaultAddSingleApp
-
 	output := captureStdout(t, func() {
-		if err := runAddCommand(context.Background(), []string{"--url", "https://example.com/MyApp.AppImage"}); err != nil {
+		if err := runAddCommand(ctx, []string{"--url", "https://example.com/MyApp.AppImage"}); err != nil {
 			t.Fatalf("runAddCommand returned error: %v", err)
 		}
 	})
@@ -1494,32 +1505,25 @@ func TestAddCmdDirectURLChecksumMismatch(t *testing.T) {
 	tempDir := t.TempDir()
 	setupAddCommandConfigForTest(t, tempDir)
 
-	originalDownload := downloadRemoteAsset
-	originalIntegrate := integrateLocalApp
-	t.Cleanup(func() {
-		downloadRemoteAsset = originalDownload
-		integrateLocalApp = originalIntegrate
-	})
-
-	downloadRemoteAsset = func(ctx context.Context, assetURL, destination string, interactive bool) error {
-		_ = ctx
-		_ = assetURL
-		_ = interactive
-		return os.WriteFile(destination, []byte("payload"), 0o644)
-	}
-
 	var calls int32
-	integrateLocalApp = func(context.Context, string, appintegrate.UpdateOverwritePrompt) (*models.App, error) {
-		atomic.AddInt32(&calls, 1)
-		return &models.App{ID: "my-app"}, nil
-	}
-
-	err := runAddCommand(context.Background(), []string{"--url", "https://example.com/MyApp.AppImage", "--sha256", strings.Repeat("a", 64)})
+	ctx := addWorkflowTestContext(addWorkflowTestOptions{
+		Store: repo.NewStore(config.DbSrc),
+		Download: func(ctx context.Context, assetURL, destination string) error {
+			_ = ctx
+			_ = assetURL
+			return os.WriteFile(destination, []byte("payload"), 0o644)
+		},
+		Integrate: func(context.Context, string, appintegrate.UpdateOverwritePrompt) (*models.App, error) {
+			atomic.AddInt32(&calls, 1)
+			return &models.App{ID: "my-app"}, nil
+		},
+	})
+	err := runAddCommand(ctx, []string{"--url", "https://example.com/MyApp.AppImage", "--sha256", strings.Repeat("a", 64)})
 	if err == nil {
 		t.Fatal("expected checksum mismatch")
 	}
 	if atomic.LoadInt32(&calls) != 0 {
-		t.Fatalf("integrateLocalApp calls = %d, want 0", calls)
+		t.Fatalf("integrate calls = %d, want 0", calls)
 	}
 }
 
@@ -1527,66 +1531,29 @@ func TestAddCmdGitHubSetsDefaultAssetSourceAndUpdate(t *testing.T) {
 	tempDir := t.TempDir()
 	setupAddCommandConfigForTest(t, tempDir)
 
-	originalBackends := discoveryBackends
-	originalResolve := resolveGitHubReleaseAsset
-	originalDownload := downloadRemoteAsset
-	originalIntegrate := integrateLocalApp
-	originalAddSingle := addSingleApp
-	t.Cleanup(func() {
-		discoveryBackends = originalBackends
-		resolveGitHubReleaseAsset = originalResolve
-		downloadRemoteAsset = originalDownload
-		integrateLocalApp = originalIntegrate
-		addSingleApp = originalAddSingle
+	metadata := &models.PackageMetadata{
+		Name:          "My App",
+		Provider:      "GitHub",
+		Ref:           models.PackageRef{Kind: models.ProviderGitHub, ProviderRef: "owner/repo"},
+		LatestVersion: "1.2.3",
+		AssetName:     "MyApp-x86_64.AppImage",
+		AssetPattern:  "*.AppImage",
+		DownloadURL:   "https://example.com/MyApp-x86_64.AppImage",
+		Installable:   true,
+		ReleaseTag:    "v1.2.3",
+	}
+	ctx := addGitHubWorkflowTestContext(metadata, addWorkflowTestOptions{
+		Download: func(context.Context, string, string) error { return nil },
+		Integrate: func(context.Context, string, appintegrate.UpdateOverwritePrompt) (*models.App, error) {
+			return &models.App{
+				ID:        "my-app",
+				Name:      "My App",
+				Version:   "1.2.3",
+				UpdatedAt: "2026-03-08T12:00:00Z",
+			}, nil
+		},
 	})
-
-	discoveryBackends = func() []discovery.DiscoveryBackend {
-		return []discovery.DiscoveryBackend{
-			&stubDiscoveryBackend{
-				name: "GitHub",
-				resolveFn: func(context.Context, models.PackageRef, string) (*models.PackageMetadata, error) {
-					return &models.PackageMetadata{
-						Name:          "My App",
-						Provider:      "GitHub",
-						Ref:           models.PackageRef{Kind: models.ProviderGitHub, ProviderRef: "owner/repo"},
-						LatestVersion: "1.2.3",
-						AssetName:     "MyApp-x86_64.AppImage",
-						AssetPattern:  "*.AppImage",
-						DownloadURL:   "https://example.com/MyApp-x86_64.AppImage",
-						Installable:   true,
-						ReleaseTag:    "v1.2.3",
-					}, nil
-				},
-			},
-		}
-	}
-	resolveGitHubReleaseAsset = func(repoSlug, assetPattern string) (*appupdate.GitHubReleaseAsset, error) {
-		if repoSlug != "owner/repo" {
-			t.Fatalf("repoSlug = %q", repoSlug)
-		}
-		if assetPattern != "*.AppImage" {
-			t.Fatalf("assetPattern = %q", assetPattern)
-		}
-		return &appupdate.GitHubReleaseAsset{
-			DownloadURL: "https://example.com/MyApp-x86_64.AppImage",
-			TagName:     "v1.2.3",
-			AssetName:   "MyApp-x86_64.AppImage",
-		}, nil
-	}
-	downloadRemoteAsset = func(context.Context, string, string, bool) error {
-		return nil
-	}
-	integrateLocalApp = func(context.Context, string, appintegrate.UpdateOverwritePrompt) (*models.App, error) {
-		return &models.App{
-			ID:        "my-app",
-			Name:      "My App",
-			Version:   "1.2.3",
-			UpdatedAt: "2026-03-08T12:00:00Z",
-		}, nil
-	}
-	addSingleApp = defaultAddSingleApp
-
-	if err := runAddCommand(context.Background(), []string{"--github", "owner/repo"}); err != nil {
+	if err := runAddCommand(ctx, []string{"--github", "owner/repo"}); err != nil {
 		t.Fatalf("runAddCommand returned error: %v", err)
 	}
 
@@ -1612,56 +1579,24 @@ func TestAddCmdGitHubPersistsCustomAsset(t *testing.T) {
 	tempDir := t.TempDir()
 	setupAddCommandConfigForTest(t, tempDir)
 
-	originalBackends := discoveryBackends
-	originalResolve := resolveGitHubReleaseAsset
-	originalDownload := downloadRemoteAsset
-	originalIntegrate := integrateLocalApp
-	originalAddSingle := addSingleApp
-	t.Cleanup(func() {
-		discoveryBackends = originalBackends
-		resolveGitHubReleaseAsset = originalResolve
-		downloadRemoteAsset = originalDownload
-		integrateLocalApp = originalIntegrate
-		addSingleApp = originalAddSingle
+	metadata := &models.PackageMetadata{
+		Name:          "My App",
+		Provider:      "GitHub",
+		Ref:           models.PackageRef{Kind: models.ProviderGitHub, ProviderRef: "owner/repo"},
+		LatestVersion: "1.2.3",
+		AssetName:     "MyApp-x86_64.AppImage",
+		AssetPattern:  "MyApp-*-x86_64.AppImage",
+		DownloadURL:   "https://example.com/MyApp-x86_64.AppImage",
+		Installable:   true,
+		ReleaseTag:    "v1.2.3",
+	}
+	ctx := addGitHubWorkflowTestContext(metadata, addWorkflowTestOptions{
+		Download: func(context.Context, string, string) error { return nil },
+		Integrate: func(context.Context, string, appintegrate.UpdateOverwritePrompt) (*models.App, error) {
+			return &models.App{ID: "my-app", Name: "My App", Version: "1.2.3", UpdatedAt: "2026-03-08T12:00:00Z"}, nil
+		},
 	})
-
-	discoveryBackends = func() []discovery.DiscoveryBackend {
-		return []discovery.DiscoveryBackend{
-			&stubDiscoveryBackend{
-				name: "GitHub",
-				resolveFn: func(context.Context, models.PackageRef, string) (*models.PackageMetadata, error) {
-					return &models.PackageMetadata{
-						Name:          "My App",
-						Provider:      "GitHub",
-						Ref:           models.PackageRef{Kind: models.ProviderGitHub, ProviderRef: "owner/repo"},
-						LatestVersion: "1.2.3",
-						AssetName:     "MyApp-x86_64.AppImage",
-						AssetPattern:  "MyApp-*-x86_64.AppImage",
-						DownloadURL:   "https://example.com/MyApp-x86_64.AppImage",
-						Installable:   true,
-						ReleaseTag:    "v1.2.3",
-					}, nil
-				},
-			},
-		}
-	}
-	resolveGitHubReleaseAsset = func(repoSlug, assetPattern string) (*appupdate.GitHubReleaseAsset, error) {
-		if assetPattern != "MyApp-*-x86_64.AppImage" {
-			t.Fatalf("assetPattern = %q", assetPattern)
-		}
-		return &appupdate.GitHubReleaseAsset{
-			DownloadURL: "https://example.com/MyApp-x86_64.AppImage",
-			TagName:     "v1.2.3",
-			AssetName:   "MyApp-x86_64.AppImage",
-		}, nil
-	}
-	downloadRemoteAsset = func(context.Context, string, string, bool) error { return nil }
-	integrateLocalApp = func(context.Context, string, appintegrate.UpdateOverwritePrompt) (*models.App, error) {
-		return &models.App{ID: "my-app", Name: "My App", Version: "1.2.3", UpdatedAt: "2026-03-08T12:00:00Z"}, nil
-	}
-	addSingleApp = defaultAddSingleApp
-
-	if err := runAddCommand(context.Background(), []string{"--github", "owner/repo", "--asset", "MyApp-*-x86_64.AppImage"}); err != nil {
+	if err := runAddCommand(ctx, []string{"--github", "owner/repo", "--asset", "MyApp-*-x86_64.AppImage"}); err != nil {
 		t.Fatalf("runAddCommand returned error: %v", err)
 	}
 
@@ -1678,57 +1613,25 @@ func TestAddCmdGitHubUsesCustomAsset(t *testing.T) {
 	tempDir := t.TempDir()
 	setupAddCommandConfigForTest(t, tempDir)
 
-	originalBackends := discoveryBackends
-	originalResolve := resolveGitHubReleaseAsset
-	originalDownload := downloadRemoteAsset
-	originalIntegrate := integrateLocalApp
-	originalAddSingle := addSingleApp
-	t.Cleanup(func() {
-		discoveryBackends = originalBackends
-		resolveGitHubReleaseAsset = originalResolve
-		downloadRemoteAsset = originalDownload
-		integrateLocalApp = originalIntegrate
-		addSingleApp = originalAddSingle
+	metadata := &models.PackageMetadata{
+		Name:          "My App",
+		Provider:      "GitHub",
+		Ref:           models.PackageRef{Kind: models.ProviderGitHub, ProviderRef: "owner/repo"},
+		LatestVersion: "1.2.3",
+		AssetName:     "MyApp-x86_64.AppImage",
+		AssetPattern:  "MyApp-*-x86_64.AppImage",
+		DownloadURL:   "https://example.com/MyApp-x86_64.AppImage",
+		Installable:   true,
+		ReleaseTag:    "v1.2.3",
+	}
+	ctx := addGitHubWorkflowTestContext(metadata, addWorkflowTestOptions{
+		Download: func(context.Context, string, string) error { return nil },
+		Integrate: func(context.Context, string, appintegrate.UpdateOverwritePrompt) (*models.App, error) {
+			return &models.App{ID: "my-app", Name: "My App", Version: "1.2.3", UpdatedAt: "2026-03-08T12:00:00Z"}, nil
+		},
 	})
-
-	discoveryBackends = func() []discovery.DiscoveryBackend {
-		return []discovery.DiscoveryBackend{
-			&stubDiscoveryBackend{
-				name: "GitHub",
-				resolveFn: func(context.Context, models.PackageRef, string) (*models.PackageMetadata, error) {
-					return &models.PackageMetadata{
-						Name:          "My App",
-						Provider:      "GitHub",
-						Ref:           models.PackageRef{Kind: models.ProviderGitHub, ProviderRef: "owner/repo"},
-						LatestVersion: "1.2.3",
-						AssetName:     "MyApp-x86_64.AppImage",
-						AssetPattern:  "MyApp-*-x86_64.AppImage",
-						DownloadURL:   "https://example.com/MyApp-x86_64.AppImage",
-						Installable:   true,
-						ReleaseTag:    "v1.2.3",
-					}, nil
-				},
-			},
-		}
-	}
-	resolveGitHubReleaseAsset = func(repoSlug, assetPattern string) (*appupdate.GitHubReleaseAsset, error) {
-		if assetPattern != "MyApp-*-x86_64.AppImage" {
-			t.Fatalf("assetPattern = %q", assetPattern)
-		}
-		return &appupdate.GitHubReleaseAsset{
-			DownloadURL: "https://example.com/MyApp-x86_64.AppImage",
-			TagName:     "v1.2.3",
-			AssetName:   "MyApp-x86_64.AppImage",
-		}, nil
-	}
-	downloadRemoteAsset = func(context.Context, string, string, bool) error { return nil }
-	integrateLocalApp = func(context.Context, string, appintegrate.UpdateOverwritePrompt) (*models.App, error) {
-		return &models.App{ID: "my-app", Name: "My App", Version: "1.2.3", UpdatedAt: "2026-03-08T12:00:00Z"}, nil
-	}
-	addSingleApp = defaultAddSingleApp
-
 	output := captureStdout(t, func() {
-		if err := runAddCommand(context.Background(), []string{"--github", "owner/repo", "--asset", "MyApp-*-x86_64.AppImage"}); err != nil {
+		if err := runAddCommand(ctx, []string{"--github", "owner/repo", "--asset", "MyApp-*-x86_64.AppImage"}); err != nil {
 			t.Fatalf("runAddCommand returned error: %v", err)
 		}
 	})
@@ -1742,41 +1645,26 @@ func TestAddCmdGitHubAmbiguousAssetNoInputShowsGuidance(t *testing.T) {
 	tempDir := t.TempDir()
 	setupAddCommandConfigForTest(t, tempDir)
 
-	originalBackends := discoveryBackends
-	originalDownload := downloadRemoteAsset
-	t.Cleanup(func() {
-		discoveryBackends = originalBackends
-		downloadRemoteAsset = originalDownload
+	metadata := &models.PackageMetadata{
+		Name:           "My App",
+		Provider:       "GitHub",
+		Ref:            models.PackageRef{Kind: models.ProviderGitHub, ProviderRef: "owner/repo"},
+		AssetPattern:   "*.AppImage",
+		Installable:    true,
+		AssetAmbiguous: true,
+		AssetReason:    "multiple generic assets match",
+		AssetCandidates: []models.AssetCandidate{
+			{Name: "MyApp.AppImage", DownloadURL: "https://example.com/MyApp.AppImage", ArchLabel: "generic"},
+			{Name: "MyApp-portable.AppImage", DownloadURL: "https://example.com/MyApp-portable.AppImage", ArchLabel: "generic"},
+		},
+	}
+	ctx := addGitHubWorkflowTestContext(metadata, addWorkflowTestOptions{
+		Download: func(context.Context, string, string) error {
+			t.Fatal("download should not be attempted for unresolved ambiguous assets")
+			return nil
+		},
 	})
-
-	discoveryBackends = func() []discovery.DiscoveryBackend {
-		return []discovery.DiscoveryBackend{
-			&stubDiscoveryBackend{
-				name: "GitHub",
-				resolveFn: func(context.Context, models.PackageRef, string) (*models.PackageMetadata, error) {
-					return &models.PackageMetadata{
-						Name:           "My App",
-						Provider:       "GitHub",
-						Ref:            models.PackageRef{Kind: models.ProviderGitHub, ProviderRef: "owner/repo"},
-						AssetPattern:   "*.AppImage",
-						Installable:    true,
-						AssetAmbiguous: true,
-						AssetReason:    "multiple generic assets match",
-						AssetCandidates: []models.AssetCandidate{
-							{Name: "MyApp.AppImage", DownloadURL: "https://example.com/MyApp.AppImage", ArchLabel: "generic"},
-							{Name: "MyApp-portable.AppImage", DownloadURL: "https://example.com/MyApp-portable.AppImage", ArchLabel: "generic"},
-						},
-					}, nil
-				},
-			},
-		}
-	}
-	downloadRemoteAsset = func(context.Context, string, string, bool) error {
-		t.Fatal("download should not be attempted for unresolved ambiguous assets")
-		return nil
-	}
-
-	err := runAddCommand(context.Background(), []string{"--github", "owner/repo", "--no-input"})
+	err := runAddCommand(ctx, []string{"--github", "owner/repo", "--no-input"})
 	if err == nil {
 		t.Fatal("expected ambiguous asset error")
 	}
@@ -1789,53 +1677,33 @@ func TestAddCmdGitHubPromptsForAmbiguousAsset(t *testing.T) {
 	tempDir := t.TempDir()
 	setupAddCommandConfigForTest(t, tempDir)
 
-	originalBackends := discoveryBackends
-	originalDownload := downloadRemoteAsset
-	originalIntegrate := integrateLocalApp
-	originalAddSingle := addSingleApp
-	t.Cleanup(func() {
-		discoveryBackends = originalBackends
-		downloadRemoteAsset = originalDownload
-		integrateLocalApp = originalIntegrate
-		addSingleApp = originalAddSingle
-	})
-
 	var downloadedURL string
-	discoveryBackends = func() []discovery.DiscoveryBackend {
-		return []discovery.DiscoveryBackend{
-			&stubDiscoveryBackend{
-				name: "GitHub",
-				resolveFn: func(context.Context, models.PackageRef, string) (*models.PackageMetadata, error) {
-					return &models.PackageMetadata{
-						Name:           "My App",
-						Provider:       "GitHub",
-						Ref:            models.PackageRef{Kind: models.ProviderGitHub, ProviderRef: "owner/repo"},
-						LatestVersion:  "1.2.3",
-						AssetPattern:   "*.AppImage",
-						Installable:    true,
-						ReleaseTag:     "v1.2.3",
-						AssetAmbiguous: true,
-						AssetReason:    "multiple generic assets match",
-						AssetCandidates: []models.AssetCandidate{
-							{Name: "MyApp.AppImage", DownloadURL: "https://example.com/MyApp.AppImage", ArchLabel: "generic"},
-							{Name: "MyApp-portable.AppImage", DownloadURL: "https://example.com/MyApp-portable.AppImage", ArchLabel: "generic"},
-						},
-					}, nil
-				},
-			},
-		}
+	metadata := &models.PackageMetadata{
+		Name:           "My App",
+		Provider:       "GitHub",
+		Ref:            models.PackageRef{Kind: models.ProviderGitHub, ProviderRef: "owner/repo"},
+		LatestVersion:  "1.2.3",
+		AssetPattern:   "*.AppImage",
+		Installable:    true,
+		ReleaseTag:     "v1.2.3",
+		AssetAmbiguous: true,
+		AssetReason:    "multiple generic assets match",
+		AssetCandidates: []models.AssetCandidate{
+			{Name: "MyApp.AppImage", DownloadURL: "https://example.com/MyApp.AppImage", ArchLabel: "generic"},
+			{Name: "MyApp-portable.AppImage", DownloadURL: "https://example.com/MyApp-portable.AppImage", ArchLabel: "generic"},
+		},
 	}
-	downloadRemoteAsset = func(_ context.Context, url, _ string, _ bool) error {
-		downloadedURL = url
-		return nil
-	}
-	integrateLocalApp = func(context.Context, string, appintegrate.UpdateOverwritePrompt) (*models.App, error) {
-		return &models.App{ID: "my-app", Name: "My App", Version: "1.2.3", UpdatedAt: "2026-03-08T12:00:00Z"}, nil
-	}
-	addSingleApp = defaultAddSingleApp
-
+	ctx := addGitHubWorkflowTestContext(metadata, addWorkflowTestOptions{
+		Download: func(_ context.Context, url, _ string) error {
+			downloadedURL = url
+			return nil
+		},
+		Integrate: func(context.Context, string, appintegrate.UpdateOverwritePrompt) (*models.App, error) {
+			return &models.App{ID: "my-app", Name: "My App", Version: "1.2.3", UpdatedAt: "2026-03-08T12:00:00Z"}, nil
+		},
+	})
 	output := captureStdoutWithInput(t, "2\n", func() {
-		if err := runAddCommand(context.Background(), []string{"--github", "owner/repo"}); err != nil {
+		if err := runAddCommand(ctx, []string{"--github", "owner/repo"}); err != nil {
 			t.Fatalf("runAddCommand returned error: %v", err)
 		}
 	})
@@ -1860,46 +1728,28 @@ func TestAddCmdGitHubDownloadProgressTransitionsToIntegratingCleanly(t *testing.
 	}))
 	defer server.Close()
 
-	originalBackends := discoveryBackends
-	originalDownload := downloadRemoteAsset
-	originalIntegrate := integrateLocalApp
-	originalAddSingle := addSingleApp
-	t.Cleanup(func() {
-		discoveryBackends = originalBackends
-		downloadRemoteAsset = originalDownload
-		integrateLocalApp = originalIntegrate
-		addSingleApp = originalAddSingle
-	})
-
 	assetName := "MyApp-x86_64.AppImage"
-	discoveryBackends = func() []discovery.DiscoveryBackend {
-		return []discovery.DiscoveryBackend{
-			&stubDiscoveryBackend{
-				name: "GitHub",
-				resolveFn: func(context.Context, models.PackageRef, string) (*models.PackageMetadata, error) {
-					return &models.PackageMetadata{
-						Name:          "My App",
-						Provider:      "GitHub",
-						Ref:           models.PackageRef{Kind: models.ProviderGitHub, ProviderRef: "owner/repo"},
-						LatestVersion: "1.2.3",
-						AssetName:     assetName,
-						AssetPattern:  "*.AppImage",
-						DownloadURL:   server.URL + "/" + assetName,
-						Installable:   true,
-						ReleaseTag:    "v1.2.3",
-					}, nil
-				},
-			},
-		}
+	metadata := &models.PackageMetadata{
+		Name:          "My App",
+		Provider:      "GitHub",
+		Ref:           models.PackageRef{Kind: models.ProviderGitHub, ProviderRef: "owner/repo"},
+		LatestVersion: "1.2.3",
+		AssetName:     assetName,
+		AssetPattern:  "*.AppImage",
+		DownloadURL:   server.URL + "/" + assetName,
+		Installable:   true,
+		ReleaseTag:    "v1.2.3",
 	}
-	downloadRemoteAsset = downloadUpdateAsset
-	integrateLocalApp = func(context.Context, string, appintegrate.UpdateOverwritePrompt) (*models.App, error) {
-		return &models.App{ID: "my-app", Name: "My App", Version: "1.2.3", UpdatedAt: "2026-03-08T12:00:00Z"}, nil
-	}
-	addSingleApp = defaultAddSingleApp
-
+	ctx := addGitHubWorkflowTestContext(metadata, addWorkflowTestOptions{
+		Download: func(ctx context.Context, assetURL, destination string) error {
+			return downloadUpdateAsset(ctx, assetURL, destination, isTerminalStderr())
+		},
+		Integrate: func(context.Context, string, appintegrate.UpdateOverwritePrompt) (*models.App, error) {
+			return &models.App{ID: "my-app", Name: "My App", Version: "1.2.3", UpdatedAt: "2026-03-08T12:00:00Z"}, nil
+		},
+	})
 	output := captureStdout(t, func() {
-		if err := runAddCommand(context.Background(), []string{"--github", "owner/repo"}); err != nil {
+		if err := runAddCommand(ctx, []string{"--github", "owner/repo"}); err != nil {
 			t.Fatalf("runAddCommand returned error: %v", err)
 		}
 	})
@@ -1922,45 +1772,25 @@ func TestAddCmdGitHubShowsProgressStages(t *testing.T) {
 	tempDir := t.TempDir()
 	setupAddCommandConfigForTest(t, tempDir)
 
-	originalBackends := discoveryBackends
-	originalDownload := downloadRemoteAsset
-	originalIntegrate := integrateLocalApp
-	originalAddSingle := addSingleApp
-	t.Cleanup(func() {
-		discoveryBackends = originalBackends
-		downloadRemoteAsset = originalDownload
-		integrateLocalApp = originalIntegrate
-		addSingleApp = originalAddSingle
+	metadata := &models.PackageMetadata{
+		Name:          "My App",
+		Provider:      "GitHub",
+		Ref:           models.PackageRef{Kind: models.ProviderGitHub, ProviderRef: "owner/repo"},
+		LatestVersion: "1.2.3",
+		AssetName:     "MyApp-x86_64.AppImage",
+		AssetPattern:  "*.AppImage",
+		DownloadURL:   "https://example.com/MyApp-x86_64.AppImage",
+		Installable:   true,
+		ReleaseTag:    "v1.2.3",
+	}
+	ctx := addGitHubWorkflowTestContext(metadata, addWorkflowTestOptions{
+		Download: func(context.Context, string, string) error { return nil },
+		Integrate: func(context.Context, string, appintegrate.UpdateOverwritePrompt) (*models.App, error) {
+			return &models.App{ID: "my-app", Name: "My App", Version: "1.2.3", UpdatedAt: "2026-03-08T12:00:00Z"}, nil
+		},
 	})
-
-	discoveryBackends = func() []discovery.DiscoveryBackend {
-		return []discovery.DiscoveryBackend{
-			&stubDiscoveryBackend{
-				name: "GitHub",
-				resolveFn: func(context.Context, models.PackageRef, string) (*models.PackageMetadata, error) {
-					return &models.PackageMetadata{
-						Name:          "My App",
-						Provider:      "GitHub",
-						Ref:           models.PackageRef{Kind: models.ProviderGitHub, ProviderRef: "owner/repo"},
-						LatestVersion: "1.2.3",
-						AssetName:     "MyApp-x86_64.AppImage",
-						AssetPattern:  "*.AppImage",
-						DownloadURL:   "https://example.com/MyApp-x86_64.AppImage",
-						Installable:   true,
-						ReleaseTag:    "v1.2.3",
-					}, nil
-				},
-			},
-		}
-	}
-	downloadRemoteAsset = func(context.Context, string, string, bool) error { return nil }
-	integrateLocalApp = func(context.Context, string, appintegrate.UpdateOverwritePrompt) (*models.App, error) {
-		return &models.App{ID: "my-app", Name: "My App", Version: "1.2.3", UpdatedAt: "2026-03-08T12:00:00Z"}, nil
-	}
-	addSingleApp = defaultAddSingleApp
-
 	output := captureStdout(t, func() {
-		if err := runAddCommand(context.Background(), []string{"--github", "owner/repo"}); err != nil {
+		if err := runAddCommand(ctx, []string{"--github", "owner/repo"}); err != nil {
 			t.Fatalf("runAddCommand returned error: %v", err)
 		}
 	})
@@ -1990,34 +1820,20 @@ func (b *stubDiscoveryBackend) Resolve(ctx context.Context, ref models.PackageRe
 }
 
 func TestInfoCmdDirectProviderRef(t *testing.T) {
-	originalBackends := discoveryBackends
-	t.Cleanup(func() {
-		discoveryBackends = originalBackends
-	})
-
-	discoveryBackends = func() []discovery.DiscoveryBackend {
-		return []discovery.DiscoveryBackend{
-			&stubDiscoveryBackend{
-				name: "GitHub",
-				resolveFn: func(context.Context, models.PackageRef, string) (*models.PackageMetadata, error) {
-					return &models.PackageMetadata{
-						Name:          "My App",
-						Provider:      "GitHub",
-						Ref:           models.PackageRef{Kind: models.ProviderGitHub, ProviderRef: "owner/repo"},
-						RepoURL:       "https://github.com/owner/repo",
-						Summary:       "A test app",
-						LatestVersion: "1.2.3",
-						AssetName:     "MyApp-x86_64.AppImage",
-						AssetPattern:  "*.AppImage",
-						Installable:   true,
-					}, nil
-				},
-			},
-		}
+	metadata := &models.PackageMetadata{
+		Name:          "My App",
+		Provider:      "GitHub",
+		Ref:           models.PackageRef{Kind: models.ProviderGitHub, ProviderRef: "owner/repo"},
+		RepoURL:       "https://github.com/owner/repo",
+		Summary:       "A test app",
+		LatestVersion: "1.2.3",
+		AssetName:     "MyApp-x86_64.AppImage",
+		AssetPattern:  "*.AppImage",
+		Installable:   true,
 	}
-
+	ctx := infoDiscoveryTestContext(discoveryBackendForTest(metadata))
 	output := captureStdout(t, func() {
-		if err := runInfoCommand(context.Background(), []string{"--github", "owner/repo"}); err != nil {
+		if err := runInfoCommand(ctx, []string{"--github", "owner/repo"}); err != nil {
 			t.Fatalf("runInfoCommand returned error: %v", err)
 		}
 	})
@@ -2046,32 +1862,18 @@ func TestInfoCmdDirectProviderRef(t *testing.T) {
 }
 
 func TestInfoCmdUninstallablePackageOmitsInstallPreview(t *testing.T) {
-	originalBackends := discoveryBackends
-	t.Cleanup(func() {
-		discoveryBackends = originalBackends
-	})
-
-	discoveryBackends = func() []discovery.DiscoveryBackend {
-		return []discovery.DiscoveryBackend{
-			&stubDiscoveryBackend{
-				name: "GitHub",
-				resolveFn: func(context.Context, models.PackageRef, string) (*models.PackageMetadata, error) {
-					return &models.PackageMetadata{
-						Name:          "My App",
-						Provider:      "GitHub",
-						Ref:           models.PackageRef{Kind: models.ProviderGitHub, ProviderRef: "owner/repo"},
-						RepoURL:       "https://github.com/owner/repo",
-						Summary:       "A test app",
-						Installable:   false,
-						InstallReason: "no matching release asset",
-					}, nil
-				},
-			},
-		}
+	metadata := &models.PackageMetadata{
+		Name:          "My App",
+		Provider:      "GitHub",
+		Ref:           models.PackageRef{Kind: models.ProviderGitHub, ProviderRef: "owner/repo"},
+		RepoURL:       "https://github.com/owner/repo",
+		Summary:       "A test app",
+		Installable:   false,
+		InstallReason: "no matching release asset",
 	}
-
+	ctx := infoDiscoveryTestContext(discoveryBackendForTest(metadata))
 	output := captureStdout(t, func() {
-		if err := runInfoCommand(context.Background(), []string{"--github", "owner/repo"}); err != nil {
+		if err := runInfoCommand(ctx, []string{"--github", "owner/repo"}); err != nil {
 			t.Fatalf("runInfoCommand returned error: %v", err)
 		}
 	})
@@ -2097,34 +1899,20 @@ func TestInfoCmdUninstallablePackageOmitsInstallPreview(t *testing.T) {
 }
 
 func TestInfoCmdGitHubPackageRef(t *testing.T) {
-	originalBackends := discoveryBackends
-	t.Cleanup(func() {
-		discoveryBackends = originalBackends
-	})
-
-	discoveryBackends = func() []discovery.DiscoveryBackend {
-		return []discovery.DiscoveryBackend{
-			&stubDiscoveryBackend{
-				name: "GitHub",
-				resolveFn: func(context.Context, models.PackageRef, string) (*models.PackageMetadata, error) {
-					return &models.PackageMetadata{
-						Name:          "My App",
-						Provider:      "GitHub",
-						Ref:           models.PackageRef{Kind: models.ProviderGitHub, ProviderRef: "owner/repo"},
-						RepoURL:       "https://github.com/owner/repo",
-						Summary:       "A test app",
-						LatestVersion: "1.2.3",
-						AssetName:     "MyApp-x86_64.AppImage",
-						AssetPattern:  "*.AppImage",
-						Installable:   true,
-					}, nil
-				},
-			},
-		}
+	metadata := &models.PackageMetadata{
+		Name:          "My App",
+		Provider:      "GitHub",
+		Ref:           models.PackageRef{Kind: models.ProviderGitHub, ProviderRef: "owner/repo"},
+		RepoURL:       "https://github.com/owner/repo",
+		Summary:       "A test app",
+		LatestVersion: "1.2.3",
+		AssetName:     "MyApp-x86_64.AppImage",
+		AssetPattern:  "*.AppImage",
+		Installable:   true,
 	}
-
+	ctx := infoDiscoveryTestContext(discoveryBackendForTest(metadata))
 	output := captureStdout(t, func() {
-		if err := runInfoCommand(context.Background(), []string{"--github", "owner/repo"}); err != nil {
+		if err := runInfoCommand(ctx, []string{"--github", "owner/repo"}); err != nil {
 			t.Fatalf("runInfoCommand returned error: %v", err)
 		}
 	})
@@ -2138,59 +1926,27 @@ func TestInfoCmdGitHubPackageRef(t *testing.T) {
 }
 
 func TestAddCmdDirectProviderRefDelegatesToExistingAddFlow(t *testing.T) {
-	originalBackends := discoveryBackends
-	originalResolve := resolveGitHubReleaseAsset
-	originalDownload := downloadRemoteAsset
-	originalIntegrate := integrateLocalApp
-	originalAddSingle := addSingleApp
-	t.Cleanup(func() {
-		discoveryBackends = originalBackends
-		resolveGitHubReleaseAsset = originalResolve
-		downloadRemoteAsset = originalDownload
-		integrateLocalApp = originalIntegrate
-		addSingleApp = originalAddSingle
-	})
-
 	tempDir := t.TempDir()
 	setupAddCommandConfigForTest(t, tempDir)
 
-	discoveryBackends = func() []discovery.DiscoveryBackend {
-		return []discovery.DiscoveryBackend{
-			&stubDiscoveryBackend{
-				name: "GitHub",
-				resolveFn: func(context.Context, models.PackageRef, string) (*models.PackageMetadata, error) {
-					return &models.PackageMetadata{
-						Name:          "My App",
-						Provider:      "GitHub",
-						Ref:           models.PackageRef{Kind: models.ProviderGitHub, ProviderRef: "owner/repo"},
-						LatestVersion: "1.2.3",
-						AssetName:     "MyApp-x86_64.AppImage",
-						AssetPattern:  "*.AppImage",
-						DownloadURL:   "https://example.com/MyApp-x86_64.AppImage",
-						Installable:   true,
-						ReleaseTag:    "v1.2.3",
-					}, nil
-				},
-			},
-		}
+	metadata := &models.PackageMetadata{
+		Name:          "My App",
+		Provider:      "GitHub",
+		Ref:           models.PackageRef{Kind: models.ProviderGitHub, ProviderRef: "owner/repo"},
+		LatestVersion: "1.2.3",
+		AssetName:     "MyApp-x86_64.AppImage",
+		AssetPattern:  "*.AppImage",
+		DownloadURL:   "https://example.com/MyApp-x86_64.AppImage",
+		Installable:   true,
+		ReleaseTag:    "v1.2.3",
 	}
-	resolveGitHubReleaseAsset = func(repoSlug, assetPattern string) (*appupdate.GitHubReleaseAsset, error) {
-		if repoSlug != "owner/repo" || assetPattern != "*.AppImage" {
-			t.Fatalf("unexpected install resolution: %s %s", repoSlug, assetPattern)
-		}
-		return &appupdate.GitHubReleaseAsset{
-			DownloadURL: "https://example.com/MyApp-x86_64.AppImage",
-			TagName:     "v1.2.3",
-			AssetName:   "MyApp-x86_64.AppImage",
-		}, nil
-	}
-	downloadRemoteAsset = func(context.Context, string, string, bool) error { return nil }
-	integrateLocalApp = func(context.Context, string, appintegrate.UpdateOverwritePrompt) (*models.App, error) {
-		return &models.App{ID: "my-app", Name: "My App", Version: "1.2.3", UpdatedAt: "2026-03-08T12:00:00Z"}, nil
-	}
-	addSingleApp = defaultAddSingleApp
-
-	if err := runAddCommand(context.Background(), []string{"--github", "owner/repo"}); err != nil {
+	ctx := addGitHubWorkflowTestContext(metadata, addWorkflowTestOptions{
+		Download: func(context.Context, string, string) error { return nil },
+		Integrate: func(context.Context, string, appintegrate.UpdateOverwritePrompt) (*models.App, error) {
+			return &models.App{ID: "my-app", Name: "My App", Version: "1.2.3", UpdatedAt: "2026-03-08T12:00:00Z"}, nil
+		},
+	})
+	if err := runAddCommand(ctx, []string{"--github", "owner/repo"}); err != nil {
 		t.Fatalf("runAddCommand returned error: %v", err)
 	}
 
@@ -2204,59 +1960,27 @@ func TestAddCmdDirectProviderRefDelegatesToExistingAddFlow(t *testing.T) {
 }
 
 func TestAddCmdRejectsPositionalGitHubURL(t *testing.T) {
-	originalBackends := discoveryBackends
-	originalResolve := resolveGitHubReleaseAsset
-	originalDownload := downloadRemoteAsset
-	originalIntegrate := integrateLocalApp
-	originalAddSingle := addSingleApp
-	t.Cleanup(func() {
-		discoveryBackends = originalBackends
-		resolveGitHubReleaseAsset = originalResolve
-		downloadRemoteAsset = originalDownload
-		integrateLocalApp = originalIntegrate
-		addSingleApp = originalAddSingle
-	})
-
 	tempDir := t.TempDir()
 	setupAddCommandConfigForTest(t, tempDir)
 
-	discoveryBackends = func() []discovery.DiscoveryBackend {
-		return []discovery.DiscoveryBackend{
-			&stubDiscoveryBackend{
-				name: "GitHub",
-				resolveFn: func(context.Context, models.PackageRef, string) (*models.PackageMetadata, error) {
-					return &models.PackageMetadata{
-						Name:          "My App",
-						Provider:      "GitHub",
-						Ref:           models.PackageRef{Kind: models.ProviderGitHub, ProviderRef: "owner/repo"},
-						LatestVersion: "1.2.3",
-						AssetName:     "MyApp-x86_64.AppImage",
-						AssetPattern:  "*.AppImage",
-						DownloadURL:   "https://example.com/MyApp-x86_64.AppImage",
-						Installable:   true,
-						ReleaseTag:    "v1.2.3",
-					}, nil
-				},
-			},
-		}
+	metadata := &models.PackageMetadata{
+		Name:          "My App",
+		Provider:      "GitHub",
+		Ref:           models.PackageRef{Kind: models.ProviderGitHub, ProviderRef: "owner/repo"},
+		LatestVersion: "1.2.3",
+		AssetName:     "MyApp-x86_64.AppImage",
+		AssetPattern:  "*.AppImage",
+		DownloadURL:   "https://example.com/MyApp-x86_64.AppImage",
+		Installable:   true,
+		ReleaseTag:    "v1.2.3",
 	}
-	resolveGitHubReleaseAsset = func(repoSlug, assetPattern string) (*appupdate.GitHubReleaseAsset, error) {
-		if repoSlug != "owner/repo" || assetPattern != "*.AppImage" {
-			t.Fatalf("unexpected install resolution: %s %s", repoSlug, assetPattern)
-		}
-		return &appupdate.GitHubReleaseAsset{
-			DownloadURL: "https://example.com/MyApp-x86_64.AppImage",
-			TagName:     "v1.2.3",
-			AssetName:   "MyApp-x86_64.AppImage",
-		}, nil
-	}
-	downloadRemoteAsset = func(context.Context, string, string, bool) error { return nil }
-	integrateLocalApp = func(context.Context, string, appintegrate.UpdateOverwritePrompt) (*models.App, error) {
-		return &models.App{ID: "my-app", Name: "My App", Version: "1.2.3", UpdatedAt: "2026-03-08T12:00:00Z"}, nil
-	}
-	addSingleApp = defaultAddSingleApp
-
-	err := runAddCommand(context.Background(), []string{"https://github.com/owner/repo"})
+	ctx := addGitHubWorkflowTestContext(metadata, addWorkflowTestOptions{
+		Download: func(context.Context, string, string) error { return nil },
+		Integrate: func(context.Context, string, appintegrate.UpdateOverwritePrompt) (*models.App, error) {
+			return &models.App{ID: "my-app", Name: "My App", Version: "1.2.3", UpdatedAt: "2026-03-08T12:00:00Z"}, nil
+		},
+	})
+	err := runAddCommand(ctx, []string{"https://github.com/owner/repo"})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -2266,33 +1990,19 @@ func TestAddCmdRejectsPositionalGitHubURL(t *testing.T) {
 }
 
 func TestInfoCmdRejectsPositionalGitHubURL(t *testing.T) {
-	originalBackends := discoveryBackends
-	t.Cleanup(func() {
-		discoveryBackends = originalBackends
-	})
-
-	discoveryBackends = func() []discovery.DiscoveryBackend {
-		return []discovery.DiscoveryBackend{
-			&stubDiscoveryBackend{
-				name: "GitHub",
-				resolveFn: func(context.Context, models.PackageRef, string) (*models.PackageMetadata, error) {
-					return &models.PackageMetadata{
-						Name:          "My App",
-						Provider:      "GitHub",
-						Ref:           models.PackageRef{Kind: models.ProviderGitHub, ProviderRef: "owner/repo"},
-						RepoURL:       "https://github.com/owner/repo",
-						Summary:       "A test app",
-						LatestVersion: "1.2.3",
-						AssetName:     "MyApp-x86_64.AppImage",
-						AssetPattern:  "*.AppImage",
-						Installable:   true,
-					}, nil
-				},
-			},
-		}
+	metadata := &models.PackageMetadata{
+		Name:          "My App",
+		Provider:      "GitHub",
+		Ref:           models.PackageRef{Kind: models.ProviderGitHub, ProviderRef: "owner/repo"},
+		RepoURL:       "https://github.com/owner/repo",
+		Summary:       "A test app",
+		LatestVersion: "1.2.3",
+		AssetName:     "MyApp-x86_64.AppImage",
+		AssetPattern:  "*.AppImage",
+		Installable:   true,
 	}
-
-	err := runInfoCommand(context.Background(), []string{"https://github.com/owner/repo"})
+	ctx := infoDiscoveryTestContext(discoveryBackendForTest(metadata))
+	err := runInfoCommand(ctx, []string{"https://github.com/owner/repo"})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -2302,28 +2012,14 @@ func TestInfoCmdRejectsPositionalGitHubURL(t *testing.T) {
 }
 
 func TestAddCmdFailsForUninstallablePackage(t *testing.T) {
-	originalBackends := discoveryBackends
-	t.Cleanup(func() {
-		discoveryBackends = originalBackends
-	})
-
-	discoveryBackends = func() []discovery.DiscoveryBackend {
-		return []discovery.DiscoveryBackend{
-			&stubDiscoveryBackend{
-				name: "GitHub",
-				resolveFn: func(context.Context, models.PackageRef, string) (*models.PackageMetadata, error) {
-					return &models.PackageMetadata{
-						Provider:      "GitHub",
-						Ref:           models.PackageRef{Kind: models.ProviderGitHub, ProviderRef: "owner/repo"},
-						Installable:   false,
-						InstallReason: "no matching release asset",
-					}, nil
-				},
-			},
-		}
+	metadata := &models.PackageMetadata{
+		Provider:      "GitHub",
+		Ref:           models.PackageRef{Kind: models.ProviderGitHub, ProviderRef: "owner/repo"},
+		Installable:   false,
+		InstallReason: "no matching release asset",
 	}
-
-	err := runAddCommand(context.Background(), []string{"--github", "owner/repo"})
+	ctx := addGitHubWorkflowTestContext(metadata, addWorkflowTestOptions{})
+	err := runAddCommand(ctx, []string{"--github", "owner/repo"})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -2671,11 +2367,7 @@ func TestInfoCmdManagedShowsEmbeddedSource(t *testing.T) {
 		t.Fatalf("failed to write test DB: %v", err)
 	}
 
-	originalUpdateInfo := getAppImageUpdateInfo
-	t.Cleanup(func() {
-		getAppImageUpdateInfo = originalUpdateInfo
-	})
-	getAppImageUpdateInfo = func(path string) (*appupdate.UpdateInfo, error) {
+	ctx := infoWorkflowTestContext(repo.NewStore(dbPath), nil, func(path string) (*appupdate.UpdateInfo, error) {
 		if path != "/tmp/MyApp.AppImage" {
 			t.Fatalf("path = %q", path)
 		}
@@ -2684,10 +2376,9 @@ func TestInfoCmdManagedShowsEmbeddedSource(t *testing.T) {
 			UpdateInfo: "zsync|https://example.com/MyApp.AppImage.zsync",
 			Transport:  "zsync",
 		}, nil
-	}
-
+	})
 	output := captureStdout(t, func() {
-		if err := runInfoCommand(context.Background(), []string{"my-app"}); err != nil {
+		if err := runInfoCommand(ctx, []string{"my-app"}); err != nil {
 			t.Fatalf("runInfoCommand returned error: %v", err)
 		}
 	})
@@ -2743,16 +2434,11 @@ func TestInfoCmdManagedShowsMissingEmbeddedSource(t *testing.T) {
 		t.Fatalf("failed to write test DB: %v", err)
 	}
 
-	originalUpdateInfo := getAppImageUpdateInfo
-	t.Cleanup(func() {
-		getAppImageUpdateInfo = originalUpdateInfo
-	})
-	getAppImageUpdateInfo = func(string) (*appupdate.UpdateInfo, error) {
+	ctx := infoWorkflowTestContext(repo.NewStore(dbPath), nil, func(string) (*appupdate.UpdateInfo, error) {
 		return nil, fmt.Errorf("no update information found in ELF headers")
-	}
-
+	})
 	output := captureStdout(t, func() {
-		if err := runInfoCommand(context.Background(), []string{"my-app"}); err != nil {
+		if err := runInfoCommand(ctx, []string{"my-app"}); err != nil {
 			t.Fatalf("runInfoCommand returned error: %v", err)
 		}
 	})
@@ -2769,17 +2455,9 @@ func TestInfoCmdManagedShowsMissingEmbeddedSource(t *testing.T) {
 }
 
 func TestInfoCmdLocalAppImageEmbeddedSource(t *testing.T) {
-	originalRead := readAppImageInfo
-	originalUpdateInfo := getAppImageUpdateInfo
-	t.Cleanup(func() {
-		readAppImageInfo = originalRead
-		getAppImageUpdateInfo = originalUpdateInfo
-	})
-
-	readAppImageInfo = func(context.Context, string) (*appimage.AppInfo, error) {
+	ctx := infoWorkflowTestContext(nil, func(context.Context, string) (*appimage.AppInfo, error) {
 		return &appimage.AppInfo{Name: "My App", ID: "my-app", Version: "1.2.3"}, nil
-	}
-	getAppImageUpdateInfo = func(path string) (*appupdate.UpdateInfo, error) {
+	}, func(path string) (*appupdate.UpdateInfo, error) {
 		if path != "./MyApp.AppImage" {
 			t.Fatalf("path = %q", path)
 		}
@@ -2788,10 +2466,9 @@ func TestInfoCmdLocalAppImageEmbeddedSource(t *testing.T) {
 			UpdateInfo: "gh-releases-zsync|owner|repo|latest|MyApp-*.AppImage.zsync",
 			Transport:  "gh-releases",
 		}, nil
-	}
-
+	})
 	output := captureStdout(t, func() {
-		if err := runInfoCommand(context.Background(), []string{"./MyApp.AppImage"}); err != nil {
+		if err := runInfoCommand(ctx, []string{"./MyApp.AppImage"}); err != nil {
 			t.Fatalf("runInfoCommand returned error: %v", err)
 		}
 	})
@@ -2844,11 +2521,7 @@ func TestInfoCmdManagedApp(t *testing.T) {
 		t.Fatalf("failed to write test DB: %v", err)
 	}
 
-	originalUpdateInfo := getAppImageUpdateInfo
-	t.Cleanup(func() {
-		getAppImageUpdateInfo = originalUpdateInfo
-	})
-	getAppImageUpdateInfo = func(path string) (*appupdate.UpdateInfo, error) {
+	ctx := infoWorkflowTestContext(repo.NewStore(dbPath), nil, func(path string) (*appupdate.UpdateInfo, error) {
 		if path != "/tmp/MyApp.AppImage" {
 			t.Fatalf("path = %q", path)
 		}
@@ -2857,10 +2530,9 @@ func TestInfoCmdManagedApp(t *testing.T) {
 			UpdateInfo: "zsync|https://example.com/MyApp.AppImage.zsync",
 			Transport:  "zsync",
 		}, nil
-	}
-
+	})
 	output := captureStdout(t, func() {
-		if err := runInfoCommand(context.Background(), []string{"my-app"}); err != nil {
+		if err := runInfoCommand(ctx, []string{"my-app"}); err != nil {
 			t.Fatalf("runInfoCommand returned error: %v", err)
 		}
 	})
@@ -2877,17 +2549,9 @@ func TestInfoCmdManagedApp(t *testing.T) {
 }
 
 func TestInfoCmdLocalAppImage(t *testing.T) {
-	originalRead := readAppImageInfo
-	originalUpdateInfo := getAppImageUpdateInfo
-	t.Cleanup(func() {
-		readAppImageInfo = originalRead
-		getAppImageUpdateInfo = originalUpdateInfo
-	})
-
-	readAppImageInfo = func(context.Context, string) (*appimage.AppInfo, error) {
+	ctx := infoWorkflowTestContext(nil, func(context.Context, string) (*appimage.AppInfo, error) {
 		return &appimage.AppInfo{Name: "My App", ID: "my-app", Version: "1.2.3"}, nil
-	}
-	getAppImageUpdateInfo = func(path string) (*appupdate.UpdateInfo, error) {
+	}, func(path string) (*appupdate.UpdateInfo, error) {
 		if path != "./MyApp.AppImage" {
 			t.Fatalf("path = %q", path)
 		}
@@ -2896,10 +2560,9 @@ func TestInfoCmdLocalAppImage(t *testing.T) {
 			UpdateInfo: "gh-releases-zsync|owner|repo|latest|MyApp-*.AppImage.zsync",
 			Transport:  "gh-releases",
 		}, nil
-	}
-
+	})
 	output := captureStdout(t, func() {
-		if err := runInfoCommand(context.Background(), []string{"./MyApp.AppImage"}); err != nil {
+		if err := runInfoCommand(ctx, []string{"./MyApp.AppImage"}); err != nil {
 			t.Fatalf("runInfoCommand returned error: %v", err)
 		}
 	})
@@ -3131,20 +2794,15 @@ func TestUpdateSetEmbeddedSetsEmbeddedSource(t *testing.T) {
 		t.Fatalf("failed to write test DB: %v", err)
 	}
 
-	originalUpdateInfo := getAppImageUpdateInfo
-	t.Cleanup(func() {
-		getAppImageUpdateInfo = originalUpdateInfo
-	})
-	getAppImageUpdateInfo = func(string) (*appupdate.UpdateInfo, error) {
+	ctx := updateSourceWorkflowTestContext(repo.NewStore(dbPath), func(string) (*appupdate.UpdateInfo, error) {
 		return &appupdate.UpdateInfo{
 			Kind:       models.UpdateZsync,
 			UpdateInfo: "zsync|https://example.com/MyApp.AppImage.zsync",
 			Transport:  "zsync",
 		}, nil
-	}
-
+	})
 	output := captureStdoutWithInput(t, "y\n", func() {
-		if err := runRootCommand(context.Background(), []string{"update", "--set", "my-app", "--embedded"}); err != nil {
+		if err := runRootCommand(ctx, []string{"update", "--set", "my-app", "--embedded"}); err != nil {
 			t.Fatalf("runRootCommand returned error: %v", err)
 		}
 	})
@@ -3171,14 +2829,9 @@ func TestUpdateSetEmbeddedMissingPromptsToUnsetOrKeep(t *testing.T) {
 		config.DbSrc = originalDbSrc
 	})
 
-	originalUpdateInfo := getAppImageUpdateInfo
-	t.Cleanup(func() {
-		getAppImageUpdateInfo = originalUpdateInfo
-	})
-	getAppImageUpdateInfo = func(string) (*appupdate.UpdateInfo, error) {
+	ctx := updateSourceWorkflowTestContext(repo.NewStore(dbPath), func(string) (*appupdate.UpdateInfo, error) {
 		return nil, fmt.Errorf("no update information found in ELF headers")
-	}
-
+	})
 	writeDB := func(update *models.UpdateSource) {
 		t.Helper()
 		if err := seedRepositoryApps(t, dbPath, map[string]*models.App{
@@ -3202,7 +2855,7 @@ func TestUpdateSetEmbeddedMissingPromptsToUnsetOrKeep(t *testing.T) {
 	})
 
 	outputKeep := captureStdoutWithInput(t, "n\n", func() {
-		if err := runRootCommand(context.Background(), []string{"update", "--set", "my-app", "--embedded"}); err != nil {
+		if err := runRootCommand(ctx, []string{"update", "--set", "my-app", "--embedded"}); err != nil {
 			t.Fatalf("runRootCommand returned error: %v", err)
 		}
 	})
@@ -3236,7 +2889,7 @@ func TestUpdateSetEmbeddedMissingPromptsToUnsetOrKeep(t *testing.T) {
 	})
 
 	outputUnset := captureStdoutWithInput(t, "y\n", func() {
-		if err := runRootCommand(context.Background(), []string{"update", "--set", "my-app", "--embedded"}); err != nil {
+		if err := runRootCommand(ctx, []string{"update", "--set", "my-app", "--embedded"}); err != nil {
 			t.Fatalf("runRootCommand returned error: %v", err)
 		}
 	})
@@ -3274,16 +2927,11 @@ func TestUpdateSetEmbeddedMissingWithoutConfiguredSource(t *testing.T) {
 		t.Fatalf("failed to write test DB: %v", err)
 	}
 
-	originalUpdateInfo := getAppImageUpdateInfo
-	t.Cleanup(func() {
-		getAppImageUpdateInfo = originalUpdateInfo
-	})
-	getAppImageUpdateInfo = func(string) (*appupdate.UpdateInfo, error) {
+	ctx := updateSourceWorkflowTestContext(repo.NewStore(dbPath), func(string) (*appupdate.UpdateInfo, error) {
 		return nil, fmt.Errorf("no update information found in ELF headers")
-	}
-
+	})
 	output := captureStdout(t, func() {
-		if err := runRootCommand(context.Background(), []string{"update", "--set", "my-app", "--embedded"}); err != nil {
+		if err := runRootCommand(ctx, []string{"update", "--set", "my-app", "--embedded"}); err != nil {
 			t.Fatalf("runRootCommand returned error: %v", err)
 		}
 	})
@@ -3864,11 +3512,8 @@ func TestManagedUpdateJSONOutput(t *testing.T) {
 		t.Fatalf("failed to write test db: %v", err)
 	}
 
-	originalCheck := runAppUpdateCheck
-	t.Cleanup(func() {
-		runAppUpdateCheck = originalCheck
-	})
-	runAppUpdateCheck = func(app *models.App) (*appupdate.ManagedUpdate, error) {
+	cmd := newRootTestCommand()
+	installManagedUpdateServiceForTest(cmd, dbPath, func(app *models.App) (*appupdate.ManagedUpdate, error) {
 		return &appupdate.ManagedUpdate{
 			App:       app,
 			Available: true,
@@ -3877,11 +3522,9 @@ func TestManagedUpdateJSONOutput(t *testing.T) {
 			Latest:    "1.1.0",
 			FromKind:  models.UpdateGitHubRelease,
 		}, nil
-	}
-
-	cmd := newRootTestCommand()
+	}, nil)
 	output := captureStdoutOnly(t, func() {
-		if err := executeTestCommand(context.Background(), cmd, "update", "my-app", "--check-only", "--json"); err != nil {
+		if err := executeTestCommand(cmd.Context(), cmd, "update", "my-app", "--check-only", "--json"); err != nil {
 			t.Fatalf("executeTestCommand returned error: %v", err)
 		}
 	})
@@ -4262,31 +3905,22 @@ func TestWrapWriteErrorAddsActionableGuidance(t *testing.T) {
 }
 
 func TestApplyManagedUpdateMissingZsyncRewritesError(t *testing.T) {
-	originalLookPath := zsyncLookPath
-	originalDownload := downloadManagedRemoteAsset
-	originalIntegrate := integrateManagedUpdate
-	t.Cleanup(func() {
-		zsyncLookPath = originalLookPath
-		downloadManagedRemoteAsset = originalDownload
-		integrateManagedUpdate = originalIntegrate
-	})
-
-	zsyncLookPath = func(string) (string, error) {
-		return "", exec.ErrNotFound
-	}
-	downloadManagedRemoteAsset = func(context.Context, string, string, bool, func(int64, int64)) error {
-		t.Fatal("download should not run when testing zsync lookup failure directly")
-		return nil
-	}
-	integrateManagedUpdate = func(context.Context, string, appintegrate.UpdateOverwritePrompt) (*models.App, error) {
-		t.Fatal("integrate should not run when zsync lookup fails")
-		return nil, nil
-	}
-
-	err := applyZsyncUpdate(context.Background(), appupdate.ManagedUpdate{
+	service := managedApplyServiceForTest(t,
+		func(string) (string, error) { return "", exec.ErrNotFound },
+		exec.CommandContext,
+		func(context.Context, string, string, func(int64, int64)) error {
+			t.Fatal("download should not run when testing zsync lookup failure directly")
+			return nil
+		},
+		func(context.Context, string, func(*models.UpdateSource, *models.UpdateSource) (bool, error)) (*models.App, error) {
+			t.Fatal("integrate should not run when zsync lookup fails")
+			return nil, nil
+		},
+	)
+	err := rewriteZsyncFailure(service.ApplyManagedZsyncUpdate(context.Background(), appupdate.ManagedUpdate{
 		App:      &models.App{ID: "my-app", ExecPath: "/tmp/current.AppImage"},
 		ZsyncURL: "https://example.com/MyApp.AppImage.zsync",
-	}, filepath.Join(t.TempDir(), "out.AppImage"))
+	}, filepath.Join(t.TempDir(), "out.AppImage")))
 	if err == nil {
 		t.Fatal("expected zsync error")
 	}
@@ -4378,29 +4012,15 @@ func TestDebugLogsWriteToStderr(t *testing.T) {
 }
 
 func TestSelfUpdateMessagingUsesStderr(t *testing.T) {
-	originalCheck := checkAimSelfUpdate
-	originalSelfUpdate := runSelfUpdateInstaller
-	t.Cleanup(func() {
-		checkAimSelfUpdate = originalCheck
-		runSelfUpdateInstaller = originalSelfUpdate
-	})
-	checkAimSelfUpdate = func(context.Context, string, bool) (*appselfupdate.AimSelfUpdateCheckResult, error) {
-		return &appselfupdate.AimSelfUpdateCheckResult{
-			CurrentVersion: "0.12.4",
-			LatestVersion:  "0.12.5",
-			HasUpdate:      true,
-			Comparable:     true,
-		}, nil
-	}
-	runSelfUpdateInstaller = func(context.Context, appselfupdate.InstallerSelfUpdateRequest) (*appselfupdate.InstallerSelfUpdateResult, error) {
-		return &appselfupdate.InstallerSelfUpdateResult{
-			PreviousVersion:  "0.12.4",
+	service := selfUpdateServiceFunc(func(context.Context, appservices.SelfUpdateRequest) (*appservices.SelfUpdateResult, error) {
+		return &appservices.SelfUpdateResult{
+			CurrentVersion:   "0.12.4",
 			InstalledVersion: "0.12.5",
+			Updated:          true,
 		}, nil
-	}
-
+	})
 	cmd := newSelfUpdateTestCommand()
-	stdout, stderr, err := executeCommandWithIO(context.Background(), cmd, "self-update")
+	stdout, stderr, err := executeCommandWithIO(selfUpdateTestContext(service), cmd, "self-update")
 	if err != nil {
 		t.Fatalf("executeCommandWithIO returned error: %v", err)
 	}
@@ -4960,18 +4580,13 @@ func TestRunManagedUpdateSingleUpToDatePrintedOnce(t *testing.T) {
 	}
 
 	cmd := newManagedUpdateTestCommand(t, nil)
-	originalCheck := runAppUpdateCheck
-	t.Cleanup(func() {
-		runAppUpdateCheck = originalCheck
-	})
-	runAppUpdateCheck = func(app *models.App) (*appupdate.ManagedUpdate, error) {
+	installManagedUpdateServiceForTest(cmd, dbPath, func(app *models.App) (*appupdate.ManagedUpdate, error) {
 		return &appupdate.ManagedUpdate{
 			App:       app,
 			Available: false,
 			FromKind:  models.UpdateGitHubRelease,
 		}, nil
-	}
-
+	}, nil)
 	output := captureStdout(t, func() {
 		if err := runManagedUpdate(context.Background(), cmd, "my-app"); err != nil {
 			t.Fatalf("runManagedUpdate returned error: %v", err)
@@ -5003,14 +4618,9 @@ func TestRunManagedUpdateSingleNoSourceConfigured(t *testing.T) {
 	}
 
 	cmd := newManagedUpdateTestCommand(t, nil)
-	originalCheck := runAppUpdateCheck
-	t.Cleanup(func() {
-		runAppUpdateCheck = originalCheck
-	})
-	runAppUpdateCheck = func(*models.App) (*appupdate.ManagedUpdate, error) {
+	installManagedUpdateServiceForTest(cmd, dbPath, func(*models.App) (*appupdate.ManagedUpdate, error) {
 		return nil, nil
-	}
-
+	}, nil)
 	output := captureStdout(t, func() {
 		if err := runManagedUpdate(context.Background(), cmd, "my-app"); err != nil {
 			t.Fatalf("runManagedUpdate returned error: %v", err)
@@ -5019,21 +4629,6 @@ func TestRunManagedUpdateSingleNoSourceConfigured(t *testing.T) {
 
 	if !strings.Contains(output, "No update source configured for my-app") {
 		t.Fatalf("unexpected output:\n%s", output)
-	}
-}
-
-func TestCheckAppUpdateUnsupportedLegacySource(t *testing.T) {
-	_, err := checkAppUpdate(&models.App{
-		ID: "my-app",
-		Update: &models.UpdateSource{
-			Kind: models.UpdateKind("manifest"),
-		},
-	})
-	if err == nil {
-		t.Fatal("expected unsupported-source error")
-	}
-	if !strings.Contains(err.Error(), `unsupported update source for my-app: "manifest"`) {
-		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -5054,18 +4649,13 @@ func TestRunManagedUpdateBatchContinuesOnCheckFailure(t *testing.T) {
 		t.Fatalf("failed to write test DB: %v", err)
 	}
 
-	originalCheck := runAppUpdateCheck
-	t.Cleanup(func() {
-		runAppUpdateCheck = originalCheck
-	})
-	runAppUpdateCheck = func(app *models.App) (*appupdate.ManagedUpdate, error) {
+	cmd := newManagedUpdateTestCommand(t, nil)
+	installManagedUpdateServiceForTest(cmd, dbPath, func(app *models.App) (*appupdate.ManagedUpdate, error) {
 		if app.ID == "app-a" {
 			return nil, fmt.Errorf("boom")
 		}
 		return nil, nil
-	}
-
-	cmd := newManagedUpdateTestCommand(t, nil)
+	}, nil)
 	output := captureStdout(t, func() {
 		if err := runManagedUpdate(context.Background(), cmd, ""); err != nil {
 			t.Fatalf("runManagedUpdate returned error: %v", err)
@@ -5105,15 +4695,10 @@ func TestRunManagedUpdateSingleCheckFailureRewritesError(t *testing.T) {
 		t.Fatalf("failed to write test DB: %v", err)
 	}
 
-	originalCheck := runAppUpdateCheck
-	t.Cleanup(func() {
-		runAppUpdateCheck = originalCheck
-	})
-	runAppUpdateCheck = func(*models.App) (*appupdate.ManagedUpdate, error) {
-		return nil, fmt.Errorf("boom")
-	}
-
 	cmd := newManagedUpdateTestCommand(t, nil)
+	installManagedUpdateServiceForTest(cmd, dbPath, func(*models.App) (*appupdate.ManagedUpdate, error) {
+		return nil, fmt.Errorf("boom")
+	}, nil)
 	err := runManagedUpdate(context.Background(), cmd, "my-app")
 	if err == nil {
 		t.Fatal("expected update-check error")
@@ -5147,15 +4732,10 @@ func TestRunManagedUpdateBatchAllUpToDateSummary(t *testing.T) {
 		t.Fatalf("failed to write test DB: %v", err)
 	}
 
-	originalCheck := runAppUpdateCheck
-	t.Cleanup(func() {
-		runAppUpdateCheck = originalCheck
-	})
-	runAppUpdateCheck = func(app *models.App) (*appupdate.ManagedUpdate, error) {
-		return &appupdate.ManagedUpdate{App: app, Available: false}, nil
-	}
-
 	cmd := newManagedUpdateTestCommand(t, map[string]string{"check-only": "true"})
+	installManagedUpdateServiceForTest(cmd, dbPath, func(app *models.App) (*appupdate.ManagedUpdate, error) {
+		return &appupdate.ManagedUpdate{App: app, Available: false}, nil
+	}, nil)
 	output := captureStdout(t, func() {
 		if err := runManagedUpdate(context.Background(), cmd, ""); err != nil {
 			t.Fatalf("runManagedUpdate returned error: %v", err)
@@ -5186,11 +4766,8 @@ func TestRunManagedUpdateCheckOnlyShowsDownloadAndAsset(t *testing.T) {
 		t.Fatalf("failed to write test DB: %v", err)
 	}
 
-	originalCheck := runAppUpdateCheck
-	t.Cleanup(func() {
-		runAppUpdateCheck = originalCheck
-	})
-	runAppUpdateCheck = func(app *models.App) (*appupdate.ManagedUpdate, error) {
+	cmd := newManagedUpdateTestCommand(t, map[string]string{"check-only": "true"})
+	installManagedUpdateServiceForTest(cmd, dbPath, func(app *models.App) (*appupdate.ManagedUpdate, error) {
 		return &appupdate.ManagedUpdate{
 			App:       app,
 			Label:     "Update available",
@@ -5199,9 +4776,7 @@ func TestRunManagedUpdateCheckOnlyShowsDownloadAndAsset(t *testing.T) {
 			URL:       "https://example.com/MyApp.AppImage",
 			Asset:     "MyApp-x86_64.AppImage",
 		}, nil
-	}
-
-	cmd := newManagedUpdateTestCommand(t, map[string]string{"check-only": "true"})
+	}, nil)
 	output := captureStdout(t, func() {
 		if err := runManagedUpdate(context.Background(), cmd, "my-app"); err != nil {
 			t.Fatalf("runManagedUpdate returned error: %v", err)
@@ -5235,11 +4810,8 @@ func TestRunManagedUpdateSinglePromptText(t *testing.T) {
 		t.Fatalf("failed to write test DB: %v", err)
 	}
 
-	originalCheck := runAppUpdateCheck
-	t.Cleanup(func() {
-		runAppUpdateCheck = originalCheck
-	})
-	runAppUpdateCheck = func(app *models.App) (*appupdate.ManagedUpdate, error) {
+	cmd := newManagedUpdateTestCommand(t, nil)
+	installManagedUpdateServiceForTest(cmd, dbPath, func(app *models.App) (*appupdate.ManagedUpdate, error) {
 		return &appupdate.ManagedUpdate{
 			App:       app,
 			Label:     "Update available",
@@ -5247,9 +4819,7 @@ func TestRunManagedUpdateSinglePromptText(t *testing.T) {
 			Latest:    "1.1.0",
 			URL:       "https://example.com/MyApp.AppImage",
 		}, nil
-	}
-
-	cmd := newManagedUpdateTestCommand(t, nil)
+	}, nil)
 	output := captureStdoutWithInput(t, "n\n", func() {
 		if err := runManagedUpdate(context.Background(), cmd, "my-app"); err != nil {
 			t.Fatalf("runManagedUpdate returned error: %v", err)
@@ -5281,11 +4851,8 @@ func TestRunManagedUpdateBatchPromptText(t *testing.T) {
 		t.Fatalf("failed to write test DB: %v", err)
 	}
 
-	originalCheck := runAppUpdateCheck
-	t.Cleanup(func() {
-		runAppUpdateCheck = originalCheck
-	})
-	runAppUpdateCheck = func(app *models.App) (*appupdate.ManagedUpdate, error) {
+	cmd := newManagedUpdateTestCommand(t, nil)
+	installManagedUpdateServiceForTest(cmd, dbPath, func(app *models.App) (*appupdate.ManagedUpdate, error) {
 		return &appupdate.ManagedUpdate{
 			App:       app,
 			Label:     "Update available",
@@ -5293,9 +4860,7 @@ func TestRunManagedUpdateBatchPromptText(t *testing.T) {
 			Latest:    "9.9.9",
 			URL:       "https://example.com/MyApp.AppImage",
 		}, nil
-	}
-
-	cmd := newManagedUpdateTestCommand(t, nil)
+	}, nil)
 	output := captureStdoutWithInput(t, "n\n", func() {
 		if err := runManagedUpdate(context.Background(), cmd, ""); err != nil {
 			t.Fatalf("runManagedUpdate returned error: %v", err)
@@ -5320,20 +4885,7 @@ func TestRunManagedUpdateBatchPromptText(t *testing.T) {
 }
 
 func TestCheckAppUpdateGitHubUsesNormalizedVersion(t *testing.T) {
-	originalCheck := runGitHubReleaseUpdateCheck
-	t.Cleanup(func() {
-		runGitHubReleaseUpdateCheck = originalCheck
-	})
-
-	runGitHubReleaseUpdateCheck = func(update *models.UpdateSource, currentVersion, localSHA1 string) (*appupdate.GitHubReleaseUpdate, error) {
-		return &appupdate.GitHubReleaseUpdate{
-			Available:         false,
-			TagName:           "@standardnotes/desktop@3.201.19",
-			NormalizedVersion: "3.201.19",
-		}, nil
-	}
-
-	result, err := checkAppUpdate(&models.App{
+	result, err := checkAppUpdateWithChecker(&models.App{
 		ID:      "standard-notes",
 		Version: "3.201.19",
 		Update: &models.UpdateSource{
@@ -5342,6 +4894,14 @@ func TestCheckAppUpdateGitHubUsesNormalizedVersion(t *testing.T) {
 				Repo:  "standardnotes/app",
 				Asset: "*.AppImage",
 			},
+		},
+	}, appupdate.ManagedUpdateChecker{
+		GitHubReleaseCheck: func(update *models.UpdateSource, currentVersion, localSHA1 string) (*appupdate.GitHubReleaseUpdate, error) {
+			return &appupdate.GitHubReleaseUpdate{
+				Available:         false,
+				TagName:           "@standardnotes/desktop@3.201.19",
+				NormalizedVersion: "3.201.19",
+			}, nil
 		},
 	})
 	if err != nil {
@@ -5359,22 +4919,7 @@ func TestCheckAppUpdateGitHubUsesNormalizedVersion(t *testing.T) {
 }
 
 func TestCheckAppUpdateZsyncUsesNormalizedVersionWhenAvailable(t *testing.T) {
-	originalCheck := runZsyncUpdateCheck
-	t.Cleanup(func() {
-		runZsyncUpdateCheck = originalCheck
-	})
-
-	runZsyncUpdateCheck = func(update *models.UpdateSource, localSHA1 string) (*appupdate.UpdateData, error) {
-		return &appupdate.UpdateData{
-			Available:         true,
-			DownloadUrl:       "https://example.com/helium-v0.10.6.1-x86_64.AppImage",
-			RemoteSHA1:        strings.Repeat("b", 40),
-			AssetName:         "helium-v0.10.6.1-x86_64.AppImage",
-			NormalizedVersion: "0.10.6.1",
-		}, nil
-	}
-
-	result, err := checkAppUpdate(&models.App{
+	result, err := checkAppUpdateWithChecker(&models.App{
 		ID:      "helium",
 		Version: "0.10.5.1",
 		SHA1:    strings.Repeat("a", 40),
@@ -5384,6 +4929,16 @@ func TestCheckAppUpdateZsyncUsesNormalizedVersionWhenAvailable(t *testing.T) {
 				UpdateInfo: "zsync|https://example.com/helium.AppImage.zsync",
 				Transport:  "zsync",
 			},
+		},
+	}, appupdate.ManagedUpdateChecker{
+		ZsyncCheck: func(update *models.UpdateSource, localSHA1 string) (*appupdate.UpdateData, error) {
+			return &appupdate.UpdateData{
+				Available:         true,
+				DownloadUrl:       "https://example.com/helium-v0.10.6.1-x86_64.AppImage",
+				RemoteSHA1:        strings.Repeat("b", 40),
+				AssetName:         "helium-v0.10.6.1-x86_64.AppImage",
+				NormalizedVersion: "0.10.6.1",
+			}, nil
 		},
 	})
 	if err != nil {
@@ -5403,21 +4958,7 @@ func TestCheckAppUpdateZsyncUsesNormalizedVersionWhenAvailable(t *testing.T) {
 }
 
 func TestCheckAppUpdateZsyncKeepsNormalizedVersionWhenUpToDate(t *testing.T) {
-	originalCheck := runZsyncUpdateCheck
-	t.Cleanup(func() {
-		runZsyncUpdateCheck = originalCheck
-	})
-
-	runZsyncUpdateCheck = func(update *models.UpdateSource, localSHA1 string) (*appupdate.UpdateData, error) {
-		return &appupdate.UpdateData{
-			Available:         false,
-			RemoteSHA1:        strings.Repeat("a", 40),
-			AssetName:         "helium-v0.10.6.1-x86_64.AppImage",
-			NormalizedVersion: "0.10.6.1",
-		}, nil
-	}
-
-	result, err := checkAppUpdate(&models.App{
+	result, err := checkAppUpdateWithChecker(&models.App{
 		ID:      "helium",
 		Version: "0.10.6.1",
 		SHA1:    strings.Repeat("a", 40),
@@ -5427,6 +4968,15 @@ func TestCheckAppUpdateZsyncKeepsNormalizedVersionWhenUpToDate(t *testing.T) {
 				UpdateInfo: "zsync|https://example.com/helium.AppImage.zsync",
 				Transport:  "zsync",
 			},
+		},
+	}, appupdate.ManagedUpdateChecker{
+		ZsyncCheck: func(update *models.UpdateSource, localSHA1 string) (*appupdate.UpdateData, error) {
+			return &appupdate.UpdateData{
+				Available:         false,
+				RemoteSHA1:        strings.Repeat("a", 40),
+				AssetName:         "helium-v0.10.6.1-x86_64.AppImage",
+				NormalizedVersion: "0.10.6.1",
+			}, nil
 		},
 	})
 	if err != nil {
@@ -5444,21 +4994,7 @@ func TestCheckAppUpdateZsyncKeepsNormalizedVersionWhenUpToDate(t *testing.T) {
 }
 
 func TestCheckAppUpdateZsyncFallsBackToUnknownWithoutNormalizedVersion(t *testing.T) {
-	originalCheck := runZsyncUpdateCheck
-	t.Cleanup(func() {
-		runZsyncUpdateCheck = originalCheck
-	})
-
-	runZsyncUpdateCheck = func(update *models.UpdateSource, localSHA1 string) (*appupdate.UpdateData, error) {
-		return &appupdate.UpdateData{
-			Available:   true,
-			DownloadUrl: "https://example.com/helium.AppImage",
-			RemoteSHA1:  strings.Repeat("b", 40),
-			AssetName:   "helium.AppImage",
-		}, nil
-	}
-
-	result, err := checkAppUpdate(&models.App{
+	result, err := checkAppUpdateWithChecker(&models.App{
 		ID:      "helium",
 		Version: "0.10.5.1",
 		SHA1:    strings.Repeat("a", 40),
@@ -5468,6 +5004,15 @@ func TestCheckAppUpdateZsyncFallsBackToUnknownWithoutNormalizedVersion(t *testin
 				UpdateInfo: "zsync|https://example.com/helium.AppImage.zsync",
 				Transport:  "zsync",
 			},
+		},
+	}, appupdate.ManagedUpdateChecker{
+		ZsyncCheck: func(update *models.UpdateSource, localSHA1 string) (*appupdate.UpdateData, error) {
+			return &appupdate.UpdateData{
+				Available:   true,
+				DownloadUrl: "https://example.com/helium.AppImage",
+				RemoteSHA1:  strings.Repeat("b", 40),
+				AssetName:   "helium.AppImage",
+			}, nil
 		},
 	})
 	if err != nil {
@@ -5487,22 +5032,7 @@ func TestCheckAppUpdateZsyncFallsBackToUnknownWithoutNormalizedVersion(t *testin
 }
 
 func TestCheckAppUpdateGitHubDisplaysNormalizedLatest(t *testing.T) {
-	originalCheck := runGitHubReleaseUpdateCheck
-	t.Cleanup(func() {
-		runGitHubReleaseUpdateCheck = originalCheck
-	})
-
-	runGitHubReleaseUpdateCheck = func(update *models.UpdateSource, currentVersion, localSHA1 string) (*appupdate.GitHubReleaseUpdate, error) {
-		return &appupdate.GitHubReleaseUpdate{
-			Available:         true,
-			DownloadUrl:       "https://example.com/StandardNotes-x86_64.AppImage",
-			TagName:           "@standardnotes/desktop@3.202.0",
-			NormalizedVersion: "3.202.0",
-			AssetName:         "StandardNotes-x86_64.AppImage",
-		}, nil
-	}
-
-	result, err := checkAppUpdate(&models.App{
+	result, err := checkAppUpdateWithChecker(&models.App{
 		ID:      "standard-notes",
 		Version: "3.201.19",
 		Update: &models.UpdateSource{
@@ -5511,6 +5041,16 @@ func TestCheckAppUpdateGitHubDisplaysNormalizedLatest(t *testing.T) {
 				Repo:  "standardnotes/app",
 				Asset: "*.AppImage",
 			},
+		},
+	}, appupdate.ManagedUpdateChecker{
+		GitHubReleaseCheck: func(update *models.UpdateSource, currentVersion, localSHA1 string) (*appupdate.GitHubReleaseUpdate, error) {
+			return &appupdate.GitHubReleaseUpdate{
+				Available:         true,
+				DownloadUrl:       "https://example.com/StandardNotes-x86_64.AppImage",
+				TagName:           "@standardnotes/desktop@3.202.0",
+				NormalizedVersion: "3.202.0",
+				AssetName:         "StandardNotes-x86_64.AppImage",
+			}, nil
 		},
 	})
 	if err != nil {
@@ -5533,32 +5073,7 @@ func TestCheckAppUpdateGitHubDisplaysNormalizedLatest(t *testing.T) {
 }
 
 func TestCheckAppUpdateGitHubPropagatesZsyncTransport(t *testing.T) {
-	originalCheck := runGitHubReleaseUpdateCheck
-	t.Cleanup(func() {
-		runGitHubReleaseUpdateCheck = originalCheck
-	})
-
-	runGitHubReleaseUpdateCheck = func(update *models.UpdateSource, currentVersion, localSHA1 string) (*appupdate.GitHubReleaseUpdate, error) {
-		if currentVersion != "3.201.19" {
-			t.Fatalf("currentVersion = %q", currentVersion)
-		}
-		if localSHA1 != strings.Repeat("a", 40) {
-			t.Fatalf("localSHA1 = %q", localSHA1)
-		}
-
-		return &appupdate.GitHubReleaseUpdate{
-			Available:         true,
-			DownloadUrl:       "https://example.com/StandardNotes-x86_64.AppImage",
-			TagName:           "@standardnotes/desktop@3.202.0",
-			NormalizedVersion: "3.202.0",
-			AssetName:         "StandardNotes-x86_64.AppImage",
-			Transport:         "zsync",
-			ZsyncURL:          "https://example.com/StandardNotes-x86_64.AppImage.zsync",
-			ExpectedSHA1:      strings.Repeat("b", 40),
-		}, nil
-	}
-
-	result, err := checkAppUpdate(&models.App{
+	result, err := checkAppUpdateWithChecker(&models.App{
 		ID:      "standard-notes",
 		Version: "3.201.19",
 		SHA1:    strings.Repeat("a", 40),
@@ -5568,6 +5083,25 @@ func TestCheckAppUpdateGitHubPropagatesZsyncTransport(t *testing.T) {
 				Repo:  "standardnotes/app",
 				Asset: "*.AppImage",
 			},
+		},
+	}, appupdate.ManagedUpdateChecker{
+		GitHubReleaseCheck: func(update *models.UpdateSource, currentVersion, localSHA1 string) (*appupdate.GitHubReleaseUpdate, error) {
+			if currentVersion != "3.201.19" {
+				t.Fatalf("currentVersion = %q", currentVersion)
+			}
+			if localSHA1 != strings.Repeat("a", 40) {
+				t.Fatalf("localSHA1 = %q", localSHA1)
+			}
+			return &appupdate.GitHubReleaseUpdate{
+				Available:         true,
+				DownloadUrl:       "https://example.com/StandardNotes-x86_64.AppImage",
+				TagName:           "@standardnotes/desktop@3.202.0",
+				NormalizedVersion: "3.202.0",
+				AssetName:         "StandardNotes-x86_64.AppImage",
+				Transport:         "zsync",
+				ZsyncURL:          "https://example.com/StandardNotes-x86_64.AppImage.zsync",
+				ExpectedSHA1:      strings.Repeat("b", 40),
+			}, nil
 		},
 	})
 	if err != nil {
@@ -5588,12 +5122,7 @@ func TestCheckAppUpdateGitHubPropagatesZsyncTransport(t *testing.T) {
 }
 
 func TestRunManagedChecksPreservesInputOrder(t *testing.T) {
-	originalCheck := runAppUpdateCheck
-	t.Cleanup(func() {
-		runAppUpdateCheck = originalCheck
-	})
-
-	runAppUpdateCheck = func(app *models.App) (*appupdate.ManagedUpdate, error) {
+	check := func(app *models.App) (*appupdate.ManagedUpdate, error) {
 		switch app.ID {
 		case "a":
 			time.Sleep(40 * time.Millisecond)
@@ -5616,7 +5145,7 @@ func TestRunManagedChecksPreservesInputOrder(t *testing.T) {
 		{ID: "c"},
 	}
 
-	results := runManagedChecks(apps)
+	results := runManagedChecks(apps, check)
 	if len(results) != len(apps) {
 		t.Fatalf("len(results) = %d, want %d", len(results), len(apps))
 	}
@@ -5632,13 +5161,8 @@ func TestRunManagedChecksPreservesInputOrder(t *testing.T) {
 }
 
 func TestRunManagedChecksDeduplicatesEquivalentInputs(t *testing.T) {
-	originalCheck := runAppUpdateCheck
-	t.Cleanup(func() {
-		runAppUpdateCheck = originalCheck
-	})
-
 	var calls int32
-	runAppUpdateCheck = func(app *models.App) (*appupdate.ManagedUpdate, error) {
+	check := func(app *models.App) (*appupdate.ManagedUpdate, error) {
 		atomic.AddInt32(&calls, 1)
 		return &appupdate.ManagedUpdate{
 			App:       app,
@@ -5672,12 +5196,12 @@ func TestRunManagedChecksDeduplicatesEquivalentInputs(t *testing.T) {
 		},
 	}
 
-	results := runManagedChecks(apps)
+	results := runManagedChecks(apps, check)
 	if len(results) != 2 {
 		t.Fatalf("len(results) = %d, want 2", len(results))
 	}
 	if atomic.LoadInt32(&calls) != 1 {
-		t.Fatalf("runAppUpdateCheck calls = %d, want 1", calls)
+		t.Fatalf("check calls = %d, want 1", calls)
 	}
 	if results[0].Update == nil || results[1].Update == nil {
 		t.Fatal("expected updates in both results")
@@ -5688,13 +5212,8 @@ func TestRunManagedChecksDeduplicatesEquivalentInputs(t *testing.T) {
 }
 
 func TestRunManagedChecksDoesNotDeduplicateDifferentLocalVersion(t *testing.T) {
-	originalCheck := runAppUpdateCheck
-	t.Cleanup(func() {
-		runAppUpdateCheck = originalCheck
-	})
-
 	var calls int32
-	runAppUpdateCheck = func(app *models.App) (*appupdate.ManagedUpdate, error) {
+	check := func(app *models.App) (*appupdate.ManagedUpdate, error) {
 		atomic.AddInt32(&calls, 1)
 		return &appupdate.ManagedUpdate{
 			App:       app,
@@ -5722,9 +5241,9 @@ func TestRunManagedChecksDoesNotDeduplicateDifferentLocalVersion(t *testing.T) {
 		},
 	}
 
-	_ = runManagedChecks(apps)
+	_ = runManagedChecks(apps, check)
 	if atomic.LoadInt32(&calls) != 2 {
-		t.Fatalf("runAppUpdateCheck calls = %d, want 2", calls)
+		t.Fatalf("check calls = %d, want 2", calls)
 	}
 }
 
@@ -5973,23 +5492,13 @@ func TestRunManagedUpdateUsesUnifiedApplyUIForSingleApp(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "apps.json")
 
-	originalDbSrc := config.DbSrc
-	originalCheck := runAppUpdateCheck
-	originalApply := runManagedApply
-	config.DbSrc = dbPath
-	t.Cleanup(func() {
-		config.DbSrc = originalDbSrc
-		runAppUpdateCheck = originalCheck
-		runManagedApply = originalApply
-	})
-
 	if err := seedRepositoryApps(t, dbPath, map[string]*models.App{
 		"my-app": {ID: "my-app", Name: "My App", Version: "1.0.0"},
 	}); err != nil {
 		t.Fatalf("failed to write test DB: %v", err)
 	}
 
-	runAppUpdateCheck = func(app *models.App) (*appupdate.ManagedUpdate, error) {
+	check := func(app *models.App) (*appupdate.ManagedUpdate, error) {
 		return &appupdate.ManagedUpdate{
 			App:       app,
 			Label:     "Update available",
@@ -5998,7 +5507,7 @@ func TestRunManagedUpdateUsesUnifiedApplyUIForSingleApp(t *testing.T) {
 			URL:       "https://example.com/MyApp.AppImage",
 		}, nil
 	}
-	runManagedApply = func(ctx context.Context, update appupdate.ManagedUpdate, reporter appservices.ManagedApplyReporter) (*models.App, error) {
+	apply := func(ctx context.Context, update appupdate.ManagedUpdate, reporter appservices.ManagedApplyReporter) (*models.App, error) {
 		emitManagedApplyEvent(reporter, appservices.ManagedApplyEvent{Stage: appservices.ManagedApplyStageDownload, Downloaded: 1024, DownloadTotal: 2048})
 		emitManagedApplyEvent(reporter, appservices.ManagedApplyEvent{Stage: appservices.ManagedApplyStageVerify})
 		emitManagedApplyEvent(reporter, appservices.ManagedApplyEvent{Stage: appservices.ManagedApplyStageIntegrate})
@@ -6007,6 +5516,7 @@ func TestRunManagedUpdateUsesUnifiedApplyUIForSingleApp(t *testing.T) {
 	}
 
 	cmd := newManagedUpdateTestCommand(t, map[string]string{"yes": "true"})
+	installManagedUpdateServiceForTest(cmd, dbPath, check, apply)
 	output := captureStdout(t, func() {
 		if err := runManagedUpdate(context.Background(), cmd, "my-app"); err != nil {
 			t.Fatalf("runManagedUpdate returned error: %v", err)
@@ -6137,16 +5647,6 @@ func TestRunManagedUpdateAppliesConcurrentlyWithMaxFiveWorkers(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "apps.json")
 
-	originalDbSrc := config.DbSrc
-	originalCheck := runAppUpdateCheck
-	originalApply := runManagedApply
-	config.DbSrc = dbPath
-	t.Cleanup(func() {
-		config.DbSrc = originalDbSrc
-		runAppUpdateCheck = originalCheck
-		runManagedApply = originalApply
-	})
-
 	apps := make(map[string]*models.App)
 	for idx := 0; idx < 7; idx++ {
 		id := fmt.Sprintf("app-%d", idx)
@@ -6156,7 +5656,7 @@ func TestRunManagedUpdateAppliesConcurrentlyWithMaxFiveWorkers(t *testing.T) {
 		t.Fatalf("failed to write test DB: %v", err)
 	}
 
-	runAppUpdateCheck = func(app *models.App) (*appupdate.ManagedUpdate, error) {
+	check := func(app *models.App) (*appupdate.ManagedUpdate, error) {
 		return &appupdate.ManagedUpdate{
 			App:       app,
 			Label:     "Update available",
@@ -6168,7 +5668,7 @@ func TestRunManagedUpdateAppliesConcurrentlyWithMaxFiveWorkers(t *testing.T) {
 
 	var current int32
 	var observedMax int32
-	runManagedApply = func(ctx context.Context, update appupdate.ManagedUpdate, reporter appservices.ManagedApplyReporter) (*models.App, error) {
+	apply := func(ctx context.Context, update appupdate.ManagedUpdate, reporter appservices.ManagedApplyReporter) (*models.App, error) {
 		active := atomic.AddInt32(&current, 1)
 		for {
 			max := atomic.LoadInt32(&observedMax)
@@ -6186,6 +5686,7 @@ func TestRunManagedUpdateAppliesConcurrentlyWithMaxFiveWorkers(t *testing.T) {
 	}
 
 	cmd := newManagedUpdateTestCommand(t, map[string]string{"yes": "true"})
+	installManagedUpdateServiceForTest(cmd, dbPath, check, apply)
 	output := captureStdout(t, func() {
 		if err := runManagedUpdate(context.Background(), cmd, ""); err != nil {
 			t.Fatalf("runManagedUpdate returned error: %v", err)
@@ -6204,16 +5705,6 @@ func TestRunManagedUpdateAllowsConcurrentDownloadStages(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "apps.json")
 
-	originalDbSrc := config.DbSrc
-	originalCheck := runAppUpdateCheck
-	originalApply := runManagedApply
-	config.DbSrc = dbPath
-	t.Cleanup(func() {
-		config.DbSrc = originalDbSrc
-		runAppUpdateCheck = originalCheck
-		runManagedApply = originalApply
-	})
-
 	if err := seedRepositoryApps(t, dbPath, map[string]*models.App{
 		"app-a": {ID: "app-a", Version: "1.0.0"},
 		"app-b": {ID: "app-b", Version: "1.0.0"},
@@ -6221,7 +5712,7 @@ func TestRunManagedUpdateAllowsConcurrentDownloadStages(t *testing.T) {
 		t.Fatalf("failed to write test DB: %v", err)
 	}
 
-	runAppUpdateCheck = func(app *models.App) (*appupdate.ManagedUpdate, error) {
+	check := func(app *models.App) (*appupdate.ManagedUpdate, error) {
 		return &appupdate.ManagedUpdate{
 			App:       app,
 			Available: true,
@@ -6233,7 +5724,7 @@ func TestRunManagedUpdateAllowsConcurrentDownloadStages(t *testing.T) {
 	release := make(chan struct{})
 	var activeDownloads int32
 	var observedMax int32
-	runManagedApply = func(ctx context.Context, update appupdate.ManagedUpdate, reporter appservices.ManagedApplyReporter) (*models.App, error) {
+	apply := func(ctx context.Context, update appupdate.ManagedUpdate, reporter appservices.ManagedApplyReporter) (*models.App, error) {
 		emitManagedApplyEvent(reporter, appservices.ManagedApplyEvent{Stage: appservices.ManagedApplyStageDownload, Downloaded: 512, DownloadTotal: 1024})
 
 		active := atomic.AddInt32(&activeDownloads, 1)
@@ -6256,6 +5747,7 @@ func TestRunManagedUpdateAllowsConcurrentDownloadStages(t *testing.T) {
 	}
 
 	cmd := newManagedUpdateTestCommand(t, map[string]string{"yes": "true"})
+	installManagedUpdateServiceForTest(cmd, dbPath, check, apply)
 	done := make(chan error, 1)
 	go func() {
 		done <- runManagedUpdate(context.Background(), cmd, "")
@@ -6291,20 +5783,6 @@ func TestRunManagedUpdatePersistsSuccessesInPendingOrder(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "apps.json")
 
-	originalDbSrc := config.DbSrc
-	originalCheck := runAppUpdateCheck
-	originalApply := runManagedApply
-	originalBatch := addAppsBatch
-	originalSingle := addSingleApp
-	config.DbSrc = dbPath
-	t.Cleanup(func() {
-		config.DbSrc = originalDbSrc
-		runAppUpdateCheck = originalCheck
-		runManagedApply = originalApply
-		addAppsBatch = originalBatch
-		addSingleApp = originalSingle
-	})
-
 	if err := seedRepositoryApps(t, dbPath, map[string]*models.App{
 		"app-a": {ID: "app-a", Version: "1.0.0"},
 		"app-b": {ID: "app-b", Version: "1.0.0"},
@@ -6313,33 +5791,36 @@ func TestRunManagedUpdatePersistsSuccessesInPendingOrder(t *testing.T) {
 		t.Fatalf("failed to write test DB: %v", err)
 	}
 
-	runAppUpdateCheck = func(app *models.App) (*appupdate.ManagedUpdate, error) {
-		return &appupdate.ManagedUpdate{App: app, Available: true, URL: "https://example.com/" + app.ID + ".AppImage"}, nil
-	}
-	runManagedApply = func(ctx context.Context, update appupdate.ManagedUpdate, reporter appservices.ManagedApplyReporter) (*models.App, error) {
-		switch update.App.ID {
-		case "app-a":
-			time.Sleep(30 * time.Millisecond)
-		case "app-b":
-			time.Sleep(10 * time.Millisecond)
-		}
-		emitManagedApplyEvent(reporter, appservices.ManagedApplyEvent{Stage: appservices.ManagedApplyStageDone, Version: "2.0.0"})
-		return &models.App{ID: update.App.ID, Version: "2.0.0"}, nil
-	}
-
 	var persisted []string
-	addAppsBatch = func(apps []*models.App, overwrite bool) error {
-		for _, app := range apps {
-			persisted = append(persisted, app.ID)
-		}
-		return nil
-	}
-	addSingleApp = func(*models.App, bool) error {
-		t.Fatal("single app persistence should not be used")
-		return nil
-	}
+	updateService := appservices.NewSourceUpdateWorkflowService(appservices.SourceUpdateService{
+		Store: repo.NewStore(dbPath),
+		CheckManagedUpdate: func(app *models.App) (*appupdate.ManagedUpdate, error) {
+			return &appupdate.ManagedUpdate{App: app, Available: true, URL: "https://example.com/" + app.ID + ".AppImage"}, nil
+		},
+		ApplyManagedUpdate: func(ctx context.Context, update appupdate.ManagedUpdate, reporter appservices.ManagedApplyReporter) (*models.App, error) {
+			switch update.App.ID {
+			case "app-a":
+				time.Sleep(30 * time.Millisecond)
+			case "app-b":
+				time.Sleep(10 * time.Millisecond)
+			}
+			emitManagedApplyEvent(reporter, appservices.ManagedApplyEvent{Stage: appservices.ManagedApplyStageDone, Version: "2.0.0"})
+			return &models.App{ID: update.App.ID, Version: "2.0.0"}, nil
+		},
+		PersistApps: func(apps []*models.App, overwrite bool) error {
+			for _, app := range apps {
+				persisted = append(persisted, app.ID)
+			}
+			return nil
+		},
+		PersistApp: func(*models.App, bool) error {
+			t.Fatal("single app persistence should not be used")
+			return nil
+		},
+	})
 
 	cmd := newManagedUpdateTestCommand(t, map[string]string{"yes": "true"})
+	cmd.SetContext(withRuntimeServices(context.Background(), runtimeServices{Update: updateService, Locker: noopLocker{}}))
 	if err := runManagedUpdate(context.Background(), cmd, ""); err != nil {
 		t.Fatalf("runManagedUpdate returned error: %v", err)
 	}
@@ -6354,18 +5835,6 @@ func TestRunManagedUpdateContinuesAfterApplyFailure(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "apps.json")
 
-	originalDbSrc := config.DbSrc
-	originalCheck := runAppUpdateCheck
-	originalApply := runManagedApply
-	originalBatch := addAppsBatch
-	config.DbSrc = dbPath
-	t.Cleanup(func() {
-		config.DbSrc = originalDbSrc
-		runAppUpdateCheck = originalCheck
-		runManagedApply = originalApply
-		addAppsBatch = originalBatch
-	})
-
 	if err := seedRepositoryApps(t, dbPath, map[string]*models.App{
 		"app-a": {ID: "app-a", Version: "1.0.0"},
 		"app-b": {ID: "app-b", Version: "1.0.0"},
@@ -6373,27 +5842,30 @@ func TestRunManagedUpdateContinuesAfterApplyFailure(t *testing.T) {
 		t.Fatalf("failed to write test DB: %v", err)
 	}
 
-	runAppUpdateCheck = func(app *models.App) (*appupdate.ManagedUpdate, error) {
-		return &appupdate.ManagedUpdate{App: app, Available: true, URL: "https://example.com/" + app.ID + ".AppImage"}, nil
-	}
-	runManagedApply = func(ctx context.Context, update appupdate.ManagedUpdate, reporter appservices.ManagedApplyReporter) (*models.App, error) {
-		if update.App.ID == "app-a" {
-			emitManagedApplyEvent(reporter, appservices.ManagedApplyEvent{Stage: appservices.ManagedApplyStageFailed, Message: "boom"})
-			return nil, fmt.Errorf("boom")
-		}
-		emitManagedApplyEvent(reporter, appservices.ManagedApplyEvent{Stage: appservices.ManagedApplyStageDone, Version: "2.0.0"})
-		return &models.App{ID: update.App.ID, Version: "2.0.0"}, nil
-	}
-
 	var persisted []string
-	addAppsBatch = func(apps []*models.App, overwrite bool) error {
-		for _, app := range apps {
-			persisted = append(persisted, app.ID)
-		}
-		return nil
-	}
+	updateService := appservices.NewSourceUpdateWorkflowService(appservices.SourceUpdateService{
+		Store: repo.NewStore(dbPath),
+		CheckManagedUpdate: func(app *models.App) (*appupdate.ManagedUpdate, error) {
+			return &appupdate.ManagedUpdate{App: app, Available: true, URL: "https://example.com/" + app.ID + ".AppImage"}, nil
+		},
+		ApplyManagedUpdate: func(ctx context.Context, update appupdate.ManagedUpdate, reporter appservices.ManagedApplyReporter) (*models.App, error) {
+			if update.App.ID == "app-a" {
+				emitManagedApplyEvent(reporter, appservices.ManagedApplyEvent{Stage: appservices.ManagedApplyStageFailed, Message: "boom"})
+				return nil, fmt.Errorf("boom")
+			}
+			emitManagedApplyEvent(reporter, appservices.ManagedApplyEvent{Stage: appservices.ManagedApplyStageDone, Version: "2.0.0"})
+			return &models.App{ID: update.App.ID, Version: "2.0.0"}, nil
+		},
+		PersistApps: func(apps []*models.App, overwrite bool) error {
+			for _, app := range apps {
+				persisted = append(persisted, app.ID)
+			}
+			return nil
+		},
+	})
 
 	cmd := newManagedUpdateTestCommand(t, map[string]string{"yes": "true"})
+	cmd.SetContext(withRuntimeServices(context.Background(), runtimeServices{Update: updateService, Locker: noopLocker{}}))
 	output := captureStdout(t, func() {
 		err := runManagedUpdate(context.Background(), cmd, "")
 		if err == nil {
@@ -6419,17 +5891,6 @@ func TestRunManagedUpdateContinuesAfterApplyFailure(t *testing.T) {
 }
 
 func TestApplyManagedUpdateUsesZsyncWhenAvailable(t *testing.T) {
-	originalLookPath := zsyncLookPath
-	originalCommand := zsyncCommandContext
-	originalDownload := downloadManagedRemoteAsset
-	originalIntegrate := integrateManagedUpdate
-	t.Cleanup(func() {
-		zsyncLookPath = originalLookPath
-		zsyncCommandContext = originalCommand
-		downloadManagedRemoteAsset = originalDownload
-		integrateManagedUpdate = originalIntegrate
-	})
-
 	currentPath := filepath.Join(t.TempDir(), "current.AppImage")
 	if err := os.WriteFile(currentPath, []byte("current"), 0o755); err != nil {
 		t.Fatalf("failed to write current appimage: %v", err)
@@ -6438,12 +5899,12 @@ func TestApplyManagedUpdateUsesZsyncWhenAvailable(t *testing.T) {
 	payload := []byte("updated-by-zsync")
 	expectedSHA1 := sha1Hex(payload)
 
-	zsyncLookPath = func(string) (string, error) {
+	lookPath := func(string) (string, error) {
 		return "zsync", nil
 	}
 
 	var call []string
-	zsyncCommandContext = func(ctx context.Context, name string, arg ...string) *exec.Cmd {
+	command := func(ctx context.Context, name string, arg ...string) *exec.Cmd {
 		call = append([]string{name}, arg...)
 
 		var outputPath string
@@ -6463,27 +5924,28 @@ func TestApplyManagedUpdateUsesZsyncWhenAvailable(t *testing.T) {
 		return exec.CommandContext(ctx, "sh", "-c", "exit 0")
 	}
 
-	downloadManagedRemoteAsset = func(context.Context, string, string, bool, func(int64, int64)) error {
-		t.Fatal("download should not be called when zsync succeeds")
-		return nil
-	}
-
-	integrateManagedUpdate = func(ctx context.Context, src string, confirm appintegrate.UpdateOverwritePrompt) (*models.App, error) {
-		if _, err := os.Stat(src); err != nil {
-			t.Fatalf("expected zsync output file: %v", err)
-		}
-		overwrite, err := confirm(&models.UpdateSource{Kind: models.UpdateGitHubRelease}, &models.UpdateSource{Kind: models.UpdateZsync})
-		if err != nil {
-			t.Fatalf("confirm returned error: %v", err)
-		}
-		if overwrite {
-			t.Fatal("expected update source overwrite callback to reject replacement")
-		}
-		return &models.App{ID: "my-app", Version: "2.0.0"}, nil
-	}
+	service := managedApplyServiceForTest(t, lookPath, command,
+		func(context.Context, string, string, func(int64, int64)) error {
+			t.Fatal("download should not be called when zsync succeeds")
+			return nil
+		},
+		func(ctx context.Context, src string, confirm func(*models.UpdateSource, *models.UpdateSource) (bool, error)) (*models.App, error) {
+			if _, err := os.Stat(src); err != nil {
+				t.Fatalf("expected zsync output file: %v", err)
+			}
+			overwrite, err := confirm(&models.UpdateSource{Kind: models.UpdateGitHubRelease}, &models.UpdateSource{Kind: models.UpdateZsync})
+			if err != nil {
+				t.Fatalf("confirm returned error: %v", err)
+			}
+			if overwrite {
+				t.Fatal("expected update source overwrite callback to reject replacement")
+			}
+			return &models.App{ID: "my-app", Version: "2.0.0"}, nil
+		},
+	)
 
 	reporter := &recordedManagedApplyReporter{}
-	_, err := applyManagedUpdate(context.Background(), appupdate.ManagedUpdate{
+	_, err := service.ApplyManagedUpdate(context.Background(), appupdate.ManagedUpdate{
 		App:          &models.App{ID: "my-app", ExecPath: currentPath},
 		URL:          "https://example.com/MyApp.AppImage",
 		Asset:        "MyApp.AppImage",
@@ -6516,37 +5978,29 @@ func TestApplyManagedUpdateUsesZsyncWhenAvailable(t *testing.T) {
 }
 
 func TestApplyManagedUpdateFallsBackWhenZsyncMissing(t *testing.T) {
-	originalLookPath := zsyncLookPath
-	originalDownload := downloadManagedRemoteAsset
-	originalIntegrate := integrateManagedUpdate
-	t.Cleanup(func() {
-		zsyncLookPath = originalLookPath
-		downloadManagedRemoteAsset = originalDownload
-		integrateManagedUpdate = originalIntegrate
-	})
-
 	payload := []byte("downloaded-fallback")
 	expectedSHA1 := sha1Hex(payload)
 
-	zsyncLookPath = func(string) (string, error) {
+	lookPath := func(string) (string, error) {
 		return "", exec.ErrNotFound
 	}
 
 	var downloadCalls int32
-	downloadManagedRemoteAsset = func(ctx context.Context, assetURL, destination string, interactive bool, onProgress func(int64, int64)) error {
-		atomic.AddInt32(&downloadCalls, 1)
-		if onProgress != nil {
-			onProgress(int64(len(payload)), int64(len(payload)))
-		}
-		return os.WriteFile(destination, payload, 0o644)
-	}
-
-	integrateManagedUpdate = func(context.Context, string, appintegrate.UpdateOverwritePrompt) (*models.App, error) {
-		return &models.App{ID: "my-app", Version: "2.0.0"}, nil
-	}
+	service := managedApplyServiceForTest(t, lookPath, exec.CommandContext,
+		func(ctx context.Context, assetURL, destination string, onProgress func(int64, int64)) error {
+			atomic.AddInt32(&downloadCalls, 1)
+			if onProgress != nil {
+				onProgress(int64(len(payload)), int64(len(payload)))
+			}
+			return os.WriteFile(destination, payload, 0o644)
+		},
+		func(context.Context, string, func(*models.UpdateSource, *models.UpdateSource) (bool, error)) (*models.App, error) {
+			return &models.App{ID: "my-app", Version: "2.0.0"}, nil
+		},
+	)
 
 	reporter := &recordedManagedApplyReporter{}
-	_, err := applyManagedUpdate(context.Background(), appupdate.ManagedUpdate{
+	_, err := service.ApplyManagedUpdate(context.Background(), appupdate.ManagedUpdate{
 		App:          &models.App{ID: "my-app", ExecPath: "/tmp/current.AppImage"},
 		URL:          "https://example.com/MyApp.AppImage",
 		Asset:        "MyApp.AppImage",
@@ -6571,42 +6025,32 @@ func TestApplyManagedUpdateFallsBackWhenZsyncMissing(t *testing.T) {
 }
 
 func TestApplyManagedUpdateFallsBackWhenZsyncFails(t *testing.T) {
-	originalLookPath := zsyncLookPath
-	originalCommand := zsyncCommandContext
-	originalDownload := downloadManagedRemoteAsset
-	originalIntegrate := integrateManagedUpdate
-	t.Cleanup(func() {
-		zsyncLookPath = originalLookPath
-		zsyncCommandContext = originalCommand
-		downloadManagedRemoteAsset = originalDownload
-		integrateManagedUpdate = originalIntegrate
-	})
-
 	payload := []byte("downloaded-fallback")
 	expectedSHA1 := sha1Hex(payload)
 
-	zsyncLookPath = func(string) (string, error) {
+	lookPath := func(string) (string, error) {
 		return "zsync", nil
 	}
-	zsyncCommandContext = func(ctx context.Context, name string, arg ...string) *exec.Cmd {
+	command := func(ctx context.Context, name string, arg ...string) *exec.Cmd {
 		return exec.CommandContext(ctx, "sh", "-c", "exit 1")
 	}
 
 	var downloadCalls int32
-	downloadManagedRemoteAsset = func(ctx context.Context, assetURL, destination string, interactive bool, onProgress func(int64, int64)) error {
-		atomic.AddInt32(&downloadCalls, 1)
-		if onProgress != nil {
-			onProgress(int64(len(payload)), int64(len(payload)))
-		}
-		return os.WriteFile(destination, payload, 0o644)
-	}
-
-	integrateManagedUpdate = func(context.Context, string, appintegrate.UpdateOverwritePrompt) (*models.App, error) {
-		return &models.App{ID: "my-app", Version: "2.0.0"}, nil
-	}
+	service := managedApplyServiceForTest(t, lookPath, command,
+		func(ctx context.Context, assetURL, destination string, onProgress func(int64, int64)) error {
+			atomic.AddInt32(&downloadCalls, 1)
+			if onProgress != nil {
+				onProgress(int64(len(payload)), int64(len(payload)))
+			}
+			return os.WriteFile(destination, payload, 0o644)
+		},
+		func(context.Context, string, func(*models.UpdateSource, *models.UpdateSource) (bool, error)) (*models.App, error) {
+			return &models.App{ID: "my-app", Version: "2.0.0"}, nil
+		},
+	)
 
 	reporter := &recordedManagedApplyReporter{}
-	_, err := applyManagedUpdate(context.Background(), appupdate.ManagedUpdate{
+	_, err := service.ApplyManagedUpdate(context.Background(), appupdate.ManagedUpdate{
 		App:          &models.App{ID: "my-app", ExecPath: "/tmp/current.AppImage"},
 		URL:          "https://example.com/MyApp.AppImage",
 		Asset:        "MyApp.AppImage",
@@ -6631,35 +6075,27 @@ func TestApplyManagedUpdateFallsBackWhenZsyncFails(t *testing.T) {
 }
 
 func TestApplyManagedUpdateWithoutZsyncUsesFullDownload(t *testing.T) {
-	originalLookPath := zsyncLookPath
-	originalDownload := downloadManagedRemoteAsset
-	originalIntegrate := integrateManagedUpdate
-	t.Cleanup(func() {
-		zsyncLookPath = originalLookPath
-		downloadManagedRemoteAsset = originalDownload
-		integrateManagedUpdate = originalIntegrate
-	})
-
-	zsyncLookPath = func(string) (string, error) {
+	lookPath := func(string) (string, error) {
 		t.Fatal("zsync should not be probed when no zsync url is present")
 		return "", nil
 	}
 
 	var downloadCalls int32
-	downloadManagedRemoteAsset = func(ctx context.Context, assetURL, destination string, interactive bool, onProgress func(int64, int64)) error {
-		atomic.AddInt32(&downloadCalls, 1)
-		if onProgress != nil {
-			onProgress(10, 10)
-		}
-		return os.WriteFile(destination, []byte("downloaded"), 0o644)
-	}
-
-	integrateManagedUpdate = func(context.Context, string, appintegrate.UpdateOverwritePrompt) (*models.App, error) {
-		return &models.App{ID: "my-app", Version: "2.0.0"}, nil
-	}
+	service := managedApplyServiceForTest(t, lookPath, exec.CommandContext,
+		func(ctx context.Context, assetURL, destination string, onProgress func(int64, int64)) error {
+			atomic.AddInt32(&downloadCalls, 1)
+			if onProgress != nil {
+				onProgress(10, 10)
+			}
+			return os.WriteFile(destination, []byte("downloaded"), 0o644)
+		},
+		func(context.Context, string, func(*models.UpdateSource, *models.UpdateSource) (bool, error)) (*models.App, error) {
+			return &models.App{ID: "my-app", Version: "2.0.0"}, nil
+		},
+	)
 
 	reporter := &recordedManagedApplyReporter{}
-	_, err := applyManagedUpdate(context.Background(), appupdate.ManagedUpdate{
+	_, err := service.ApplyManagedUpdate(context.Background(), appupdate.ManagedUpdate{
 		App:   &models.App{ID: "my-app", ExecPath: "/tmp/current.AppImage"},
 		URL:   "https://example.com/MyApp.AppImage",
 		Asset: "MyApp.AppImage",
@@ -6783,8 +6219,8 @@ func TestUpdateSetPromptText(t *testing.T) {
 	}
 }
 
-func runManagedChecks(apps []*models.App) []appupdate.ManagedCheckResult {
-	return appupdate.CheckManagedUpdates(apps, runAppUpdateCheck)
+func runManagedChecks(apps []*models.App, check appupdate.ManagedCheckFunc) []appupdate.ManagedCheckResult {
+	return appupdate.CheckManagedUpdates(apps, check)
 }
 
 func testManagedUpdateView(update appupdate.ManagedUpdate) appservices.ManagedUpdateView {
@@ -7107,6 +6543,18 @@ func newAddTestCommand() *cobra.Command {
 		return fmt.Errorf("test sentinel")
 	}
 	return cmd
+}
+
+func installManagedUpdateServiceForTest(cmd *cobra.Command, dbPath string, check func(*models.App) (*appupdate.ManagedUpdate, error), apply func(context.Context, appupdate.ManagedUpdate, appservices.ManagedApplyReporter) (*models.App, error)) {
+	store := repo.NewStore(dbPath)
+	updateService := appservices.NewSourceUpdateWorkflowService(appservices.SourceUpdateService{
+		Store:              store,
+		CheckManagedUpdate: check,
+		ApplyManagedUpdate: apply,
+		PersistApps:        store.AddAppsBatch,
+		PersistApp:         store.AddApp,
+	})
+	cmd.SetContext(withRuntimeServices(context.Background(), runtimeServices{Update: updateService, Locker: noopLocker{}}))
 }
 
 func newManagedUpdateTestCommand(t *testing.T, values map[string]string) *cobra.Command {

@@ -29,7 +29,7 @@ func newUnavailablePackageMetadata(provider string, ref domain.PackageRef, repoU
 
 func newInstallablePackageMetadata(provider string, ref domain.PackageRef, repoURL, name, summary, assetPattern string, release resolvedReleaseMetadata) *domain.PackageMetadata {
 	return &domain.PackageMetadata{
-		Name:            firstNonEmpty(name, DisplayNameFromRef(ref.ProviderRef)),
+		Name:            firstNonEmpty(name, domain.DisplayNameFromRef(ref.ProviderRef)),
 		Provider:        strings.TrimSpace(provider),
 		Ref:             ref,
 		RepoURL:         strings.TrimSpace(repoURL),

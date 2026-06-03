@@ -6,10 +6,6 @@ import (
 	"strings"
 )
 
-func InstallDesktopIcon(iconID, iconSrc string) (string, string, error) {
-	return Service{}.InstallDesktopIcon(iconID, iconSrc)
-}
-
 func (service Service) InstallDesktopIcon(iconID, iconSrc string) (string, string, error) {
 	iconID = strings.TrimSpace(iconID)
 	if iconID == "" {

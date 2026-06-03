@@ -177,8 +177,8 @@ Application/use-case layer.
 Typical responsibilities:
 
 - Orchestrating workflows.
-- Defining ports/interfaces needed from infrastructure.
 - Coordinating domain rules and infrastructure adapters.
+- Calling concrete infrastructure packages directly when that keeps workflows simpler.
 - Returning errors rather than exiting the process.
 - Keeping behavior testable with fakes.
 - Returning structured result types so CLI can render text/JSON without app services knowing terminal formatting.
@@ -217,7 +217,8 @@ Typical responsibilities:
 - Config persistence.
 - Repository/storage implementations.
 - AppImage-specific low-level integration with the host system.
-- Implements interfaces defined by `internal/app`.
+- Exposes reusable concrete adapters/helpers for application workflows.
+- Should not import `internal/app`; keep dependencies pointing from app to infra.
 
 Current infra areas include:
 
@@ -242,7 +243,7 @@ internal/infra/zsync
 
 ## Dependency Rules
 
-The intended dependency direction is inward toward application/domain logic.
+The intended dependency direction is pragmatic: CLI points into app, app owns workflows and may use concrete infra, and domain remains pure.
 
 Preferred:
 
@@ -253,7 +254,7 @@ cmd/aim -> infra
 
 cli -> app
 app -> domain
-infra -> app
+app -> infra
 infra -> domain
 ```
 
@@ -264,14 +265,13 @@ domain -> app
 domain -> infra
 domain -> cli
 
-app -> infra
 app -> cli
 
+infra -> app
 infra -> cli
 ```
 
-Dependency injection and concrete adapter wiring should happen at the edge, primarily in
-`cmd/aim` and CLI/runtime wiring code. Concrete infrastructure adapters should stay out of normal CLI command files; use runtime/composition wiring for adapter construction.
+Application workflows may construct or call concrete infrastructure directly when that keeps the design simpler. Concrete infrastructure adapters should still stay out of normal CLI command files; CLI should call app services/use cases instead of performing infrastructure work itself.
 
 These boundaries are enforced by:
 

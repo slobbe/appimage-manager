@@ -11,7 +11,6 @@ import (
 	appimageapp "github.com/slobbe/appimage-manager/internal/app/appimage"
 	"github.com/slobbe/appimage-manager/internal/app/discovery"
 	appintegrate "github.com/slobbe/appimage-manager/internal/app/integrate"
-	appremove "github.com/slobbe/appimage-manager/internal/app/remove"
 	appselfupdate "github.com/slobbe/appimage-manager/internal/app/selfupdate"
 	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
 	"github.com/slobbe/appimage-manager/internal/domain"
@@ -497,11 +496,10 @@ func (service RemoveWorkflowService) Remove(ctx context.Context, req RemoveReque
 		return removeResultFromDomain(app, req.Unlink), nil
 	}
 
-	remove := service.RemoveFunc
-	if remove == nil {
-		remove = appremove.Remove
+	if service.RemoveFunc == nil {
+		return nil, internalErrorf("remove service is not configured")
 	}
-	app, err := remove(ctx, req.ID, req.Unlink)
+	app, err := service.RemoveFunc(ctx, req.ID, req.Unlink)
 	if err != nil {
 		return nil, err
 	}
@@ -1253,7 +1251,7 @@ func (service SourceUpdateService) planUnsetSource(ctx context.Context, id strin
 }
 
 func ParseGitHubProviderRef(value string) (ProviderRef, error) {
-	ref, err := discovery.ParseGitHubRepoValue(value)
+	ref, err := domain.ParseGitHubRepoValue(value)
 	if err != nil {
 		return ProviderRef{}, err
 	}
@@ -1261,7 +1259,7 @@ func ParseGitHubProviderRef(value string) (ProviderRef, error) {
 }
 
 func ParsePackageProviderRefURL(value string) (ProviderRef, error) {
-	ref, err := discovery.ParsePackageRefURL(value)
+	ref, err := domain.ParsePackageRefURL(value)
 	if err != nil {
 		return ProviderRef{}, err
 	}

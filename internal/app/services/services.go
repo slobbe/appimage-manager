@@ -49,6 +49,11 @@ type StateLocker interface {
 	WithWriteLock(fn func() error) error
 }
 
+type ManagedAppCompletion struct {
+	ID   string
+	Name string
+}
+
 type AddRequest struct {
 	Target AddTargetInput
 

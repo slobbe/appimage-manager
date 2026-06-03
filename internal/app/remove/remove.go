@@ -20,10 +20,6 @@ func NewService(service Service) Service {
 	return service
 }
 
-func Remove(ctx context.Context, id string, unlink bool) (*models.App, error) {
-	return Service{}.Remove(ctx, id, unlink)
-}
-
 func (service Service) Remove(ctx context.Context, id string, unlink bool) (*models.App, error) {
 	store, err := service.requireStore()
 	if err != nil {

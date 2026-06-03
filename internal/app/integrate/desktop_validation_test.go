@@ -32,7 +32,7 @@ func TestValidateDesktopEntryPropagatesValidatorError(t *testing.T) {
 }
 
 func TestValidateDesktopEntryRejectsEmptyPath(t *testing.T) {
-	err := ValidateDesktopEntry(context.Background(), "")
+	err := (Service{}).ValidateDesktopEntry(context.Background(), "")
 	if err == nil {
 		t.Fatal("expected error for empty path")
 	}

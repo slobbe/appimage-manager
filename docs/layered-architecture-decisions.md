@@ -29,9 +29,10 @@ This document records the agreed target architecture for AppImage Manager as a r
      - typed `DryRunPlan`
    - App services map from domain/internal app types to these boundary DTOs.
 
-5. **Runtime wiring can stay in `internal/cli`**
-   - `internal/cli/runtime.go` and `internal/cli/runtime_wiring.go` are explicit composition exceptions.
-   - They may import infrastructure, domain, and lower app packages for production wiring only.
+5. **Workflow wiring should move out of `internal/cli`**
+   - `internal/cli/runtime.go` and `internal/cli/runtime_wiring.go` are temporary composition exceptions.
+   - Prefer moving concrete workflow wiring into `internal/app`, which may import `internal/infra`.
+   - CLI should retain only presentation/runtime concerns such as flags, prompts, progress rendering, and output formatting.
 
 6. **Normal CLI tests should use fake `app/services`**
    - Long term, normal CLI command tests should avoid importing domain, infrastructure, or lower app packages.
@@ -88,7 +89,7 @@ cmd/aim
 internal/cli normal command files
   -> internal/app/services
 
-internal/cli/runtime.go and internal/cli/runtime_wiring.go
+internal/cli/runtime.go and internal/cli/runtime_wiring.go temporary exceptions
   -> internal/app/services
   -> lower internal/app packages
   -> internal/domain
@@ -97,12 +98,13 @@ internal/cli/runtime.go and internal/cli/runtime_wiring.go
 internal/app/services
   -> lower internal/app packages
   -> internal/domain
+  -> internal/infra
 
 internal/app
   -> internal/domain
+  -> internal/infra
 
 internal/infra
-  -> internal/app
   -> internal/domain
 ```
 

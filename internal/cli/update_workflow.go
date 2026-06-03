@@ -7,7 +7,6 @@ import (
 	appservices "github.com/slobbe/appimage-manager/internal/app/services"
 	"github.com/spf13/cobra"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -565,26 +564,6 @@ func renderManagedUpdateRows(cmd *cobra.Command, opts runtimeOptions, rows []upd
 		return true, nil
 	}
 	return false, nil
-}
-
-func stagedDownloadDir() string {
-	return filepath.Join(runtimeTempDir(), "downloads")
-}
-
-func updateCheckCacheFilePath() string {
-	return filepath.Join(runtimeTempDir(), "update-check-cache.json")
-}
-
-func stableDownloadDestination(assetURL, nameHint string) (string, error) {
-	destination, err := runtimeStableDownloadDestination(stagedDownloadDir(), assetURL, nameHint)
-	if err != nil {
-		return "", wrapWriteError(err)
-	}
-	return destination, nil
-}
-
-func removeStagedDownload(downloadPath string) {
-	runtimeRemoveStagedDownload(downloadPath)
 }
 
 var managedApplyRenderInterval = progressThrottleInterval

@@ -13,18 +13,6 @@ import (
 
 type UpdateOverwritePrompt func(existing, incoming *models.UpdateSource) (bool, error)
 
-func IntegrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwrite UpdateOverwritePrompt) (*models.App, error) {
-	return Service{}.integrateFromLocalFile(ctx, src, confirmUpdateOverwrite, true, true)
-}
-
-func IntegrateFromLocalFileWithoutCacheRefresh(ctx context.Context, src string, confirmUpdateOverwrite UpdateOverwritePrompt) (*models.App, error) {
-	return Service{}.integrateFromLocalFile(ctx, src, confirmUpdateOverwrite, false, true)
-}
-
-func IntegrateFromLocalFileWithoutCacheRefreshOrPersist(ctx context.Context, src string, confirmUpdateOverwrite UpdateOverwritePrompt) (*models.App, error) {
-	return Service{}.integrateFromLocalFile(ctx, src, confirmUpdateOverwrite, false, false)
-}
-
 func (service Service) integrateFromLocalFile(ctx context.Context, src string, confirmUpdateOverwrite UpdateOverwritePrompt, refreshCaches bool, persist bool) (*models.App, error) {
 	store, err := service.requireStore()
 	if err != nil {
@@ -293,10 +281,6 @@ func (service Service) removeManagedApp(ctx context.Context, store AppStore, id 
 	return nil
 }
 
-func IntegrateExisting(ctx context.Context, id string) (*models.App, error) {
-	return Service{}.integrateExisting(ctx, id)
-}
-
 func (service Service) integrateExisting(ctx context.Context, id string) (*models.App, error) {
 	if id == "" {
 		return nil, fmt.Errorf("id cannot be empty")
@@ -336,10 +320,6 @@ func (service Service) integrateExisting(ctx context.Context, id string) (*model
 	}
 
 	return app, nil
-}
-
-func MakeDesktopLink(src, preferredName, fallbackName string) (string, error) {
-	return Service{}.MakeDesktopLink(src, preferredName, fallbackName)
 }
 
 func (service Service) MakeDesktopLink(src, preferredName, fallbackName string) (string, error) {
