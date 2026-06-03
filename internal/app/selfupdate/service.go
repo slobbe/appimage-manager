@@ -49,7 +49,7 @@ func (service Service) Check(ctx context.Context, currentVersion string, include
 		return result, nil
 	}
 
-	comparison, err := models.CompareComparableVersions(currentComparable, latestComparable)
+	comparison, err := models.CompareSelfUpdateVersions(currentComparable, latestComparable)
 	if err != nil {
 		return nil, err
 	}

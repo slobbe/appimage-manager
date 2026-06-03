@@ -99,27 +99,51 @@ func CompareComparableVersions(left, right string) (int, error) {
 		return 0, err
 	}
 
-	for i := range leftVersion {
-		if leftVersion[i] > rightVersion[i] {
-			return 1, nil
-		}
-		if leftVersion[i] < rightVersion[i] {
-			return -1, nil
-		}
+	return compareVersionCores(leftVersion, rightVersion), nil
+}
+
+func CompareSelfUpdateVersions(left, right string) (int, error) {
+	leftVersion, err := parseSelfUpdateSemver(left)
+	if err != nil {
+		return 0, err
+	}
+	rightVersion, err := parseSelfUpdateSemver(right)
+	if err != nil {
+		return 0, err
 	}
 
-	return 0, nil
+	if coreComparison := compareVersionCores(leftVersion.core, rightVersion.core); coreComparison != 0 {
+		return coreComparison, nil
+	}
+	return comparePrerelease(leftVersion.prerelease, rightVersion.prerelease), nil
+}
+
+type selfUpdateSemver struct {
+	core       [3]int
+	prerelease string
 }
 
 func parseComparableSemver(version string) ([3]int, error) {
-	var parsed [3]int
+	parsed, err := parseSelfUpdateSemver(version)
+	if err != nil {
+		return [3]int{}, err
+	}
+	return parsed.core, nil
+}
+
+func parseSelfUpdateSemver(version string) (selfUpdateSemver, error) {
+	var parsed selfUpdateSemver
 
 	normalized := strings.TrimSpace(strings.Trim(version, `"'`))
 	if normalized == "" {
 		return parsed, fmt.Errorf("invalid version %q", version)
 	}
 
-	if idx := strings.IndexAny(normalized, "+-"); idx >= 0 {
+	if idx := strings.Index(normalized, "+"); idx >= 0 {
+		normalized = normalized[:idx]
+	}
+	if idx := strings.Index(normalized, "-"); idx >= 0 {
+		parsed.prerelease = normalized[idx+1:]
 		normalized = normalized[:idx]
 	}
 
@@ -133,10 +157,91 @@ func parseComparableSemver(version string) ([3]int, error) {
 		if err != nil || value < 0 {
 			return parsed, fmt.Errorf("invalid version %q", version)
 		}
-		parsed[i] = value
+		parsed.core[i] = value
 	}
 
 	return parsed, nil
+}
+
+func compareVersionCores(left, right [3]int) int {
+	for i := range left {
+		if left[i] > right[i] {
+			return 1
+		}
+		if left[i] < right[i] {
+			return -1
+		}
+	}
+	return 0
+}
+
+func comparePrerelease(left, right string) int {
+	if left == "" && right == "" {
+		return 0
+	}
+	if left == "" {
+		return 1
+	}
+	if right == "" {
+		return -1
+	}
+
+	leftParts := strings.Split(left, ".")
+	rightParts := strings.Split(right, ".")
+	maxLen := len(leftParts)
+	if len(rightParts) > maxLen {
+		maxLen = len(rightParts)
+	}
+
+	for i := 0; i < maxLen; i++ {
+		if i >= len(leftParts) {
+			return -1
+		}
+		if i >= len(rightParts) {
+			return 1
+		}
+		if comparison := comparePrereleaseIdentifier(leftParts[i], rightParts[i]); comparison != 0 {
+			return comparison
+		}
+	}
+	return 0
+}
+
+func comparePrereleaseIdentifier(left, right string) int {
+	leftNumber, leftNumeric := parsePrereleaseNumber(left)
+	rightNumber, rightNumeric := parsePrereleaseNumber(right)
+	if leftNumeric && rightNumeric {
+		if leftNumber > rightNumber {
+			return 1
+		}
+		if leftNumber < rightNumber {
+			return -1
+		}
+		return 0
+	}
+	if leftNumeric {
+		return -1
+	}
+	if rightNumeric {
+		return 1
+	}
+	return strings.Compare(left, right)
+}
+
+func parsePrereleaseNumber(value string) (int, bool) {
+	if value == "" {
+		return 0, false
+	}
+	if len(value) > 1 && value[0] == '0' {
+		return 0, false
+	}
+	for _, r := range value {
+		if r < '0' || r > '9' {
+			return 0, false
+		}
+	}
+	number, err := strconv.Atoi(value)
+	return number, err == nil
 }
 
 func trimLeadingVIfNumeric(value string) string {

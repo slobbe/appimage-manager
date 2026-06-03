@@ -55,6 +55,33 @@ func TestNormalizeSelfUpdateVersion(t *testing.T) {
 	}
 }
 
+func TestCompareSelfUpdateVersionsHonorsPrereleaseOrdering(t *testing.T) {
+	tests := []struct {
+		name   string
+		left   string
+		right  string
+		expect int
+	}{
+		{name: "newer prerelease numeric identifier", left: "0.17.1-pre.3", right: "0.17.1-pre.2", expect: 1},
+		{name: "older prerelease numeric identifier", left: "0.17.1-pre.2", right: "0.17.1-pre.3", expect: -1},
+		{name: "stable is newer than prerelease", left: "0.17.1", right: "0.17.1-pre.3", expect: 1},
+		{name: "prerelease is older than stable", left: "0.17.1-pre.3", right: "0.17.1", expect: -1},
+		{name: "numeric identifiers compare numerically", left: "0.17.1-rc.10", right: "0.17.1-rc.2", expect: 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := CompareSelfUpdateVersions(tt.left, tt.right)
+			if err != nil {
+				t.Fatalf("CompareSelfUpdateVersions returned error: %v", err)
+			}
+			if got != tt.expect {
+				t.Fatalf("CompareSelfUpdateVersions(%q, %q) = %d, want %d", tt.left, tt.right, got, tt.expect)
+			}
+		})
+	}
+}
+
 func TestCompareComparableVersions(t *testing.T) {
 	tests := []struct {
 		name    string
