@@ -107,7 +107,7 @@ type updateOutputRow struct {
 	LastCheckedAt   string `json:"last_checked_at,omitempty"`
 }
 
-func newListOutputRow(app *appservices.AppDetails) listOutputRow {
+func newListOutputRow(app *appservices.App) listOutputRow {
 	if app == nil {
 		return listOutputRow{}
 	}
@@ -115,7 +115,7 @@ func newListOutputRow(app *appservices.AppDetails) listOutputRow {
 		ID:              app.ID,
 		Name:            app.Name,
 		Version:         app.Version,
-		Integrated:      app.Integrated,
+		Integrated:      appIsIntegrated(app),
 		ExecPath:        app.ExecPath,
 		UpdateAvailable: app.UpdateAvailable,
 		LatestVersion:   app.LatestVersion,
@@ -140,7 +140,7 @@ func listCSVHeader() []string {
 	return []string{"id", "name", "version", "integrated", "exec_path", "update_available", "latest_version", "last_checked_at"}
 }
 
-func newUpdateOutputRow(app *appservices.AppSummary, update *appservices.ManagedUpdateView, status, checkedAt string) updateOutputRow {
+func newUpdateOutputRow(app *appservices.App, update *appservices.ManagedUpdate, status, checkedAt string) updateOutputRow {
 	row := updateOutputRow{
 		Status:        status,
 		LastCheckedAt: checkedAt,
@@ -155,7 +155,7 @@ func newUpdateOutputRow(app *appservices.AppSummary, update *appservices.Managed
 		row.UpdateAvailable = update.Available && update.URL != ""
 		row.DownloadURL = update.URL
 		row.Asset = update.Asset
-		row.SourceKind = update.FromKind
+		row.SourceKind = strings.TrimSpace(string(update.FromKind))
 	}
 	return row
 }
@@ -206,8 +206,8 @@ func updatePlainHeader() []string {
 	return []string{"id", "current_version", "latest_version", "status", "source_kind"}
 }
 
-func appDetailsByID(apps []*appservices.AppDetails) map[string]*appservices.AppDetails {
-	byID := make(map[string]*appservices.AppDetails, len(apps))
+func appsByID(apps []*appservices.App) map[string]*appservices.App {
+	byID := make(map[string]*appservices.App, len(apps))
 	for _, app := range apps {
 		if app != nil {
 			byID[app.ID] = app
@@ -216,18 +216,22 @@ func appDetailsByID(apps []*appservices.AppDetails) map[string]*appservices.AppD
 	return byID
 }
 
-func sortAppDetailsByID(apps map[string]*appservices.AppDetails) []*appservices.AppDetails {
+func sortAppsByID(apps map[string]*appservices.App) []*appservices.App {
 	ids := make([]string, 0, len(apps))
 	for id := range apps {
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
 
-	ordered := make([]*appservices.AppDetails, 0, len(ids))
+	ordered := make([]*appservices.App, 0, len(ids))
 	for _, id := range ids {
 		ordered = append(ordered, apps[id])
 	}
 	return ordered
+}
+
+func appIsIntegrated(app *appservices.App) bool {
+	return app != nil && strings.TrimSpace(app.DesktopEntryLink) != ""
 }
 
 func boolString(value bool) string {
@@ -244,7 +248,7 @@ func writePlainRows(cmd *cobra.Command, header []string, rows [][]string) {
 	}
 }
 
-func writePlainList(cmd *cobra.Command, apps []*appservices.AppDetails) {
+func writePlainList(cmd *cobra.Command, apps []*appservices.App) {
 	rows := make([][]string, 0, len(apps))
 	for _, app := range apps {
 		rows = append(rows, newListOutputRow(app).plainRow())

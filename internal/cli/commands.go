@@ -103,7 +103,7 @@ func AddCmd(cmd *cobra.Command, args []string) error {
 		return usageError(fmt.Errorf("--sha256 is only supported with direct https URLs"))
 	}
 
-	var provider *appservices.ProviderRef
+	var provider *appservices.PackageRef
 	if selection.HasRef {
 		provider = &selection.Ref
 	}
@@ -116,13 +116,13 @@ func AddCmd(cmd *cobra.Command, args []string) error {
 		DryRun:       opts.DryRun,
 		SHA256:       sha256,
 		AssetPattern: assetPattern,
-		ConfirmUpdateSourceReplace: updateSourceReplaceConfirmerFunc(func(existing, incoming *appservices.UpdateSourceView) (bool, error) {
+		ConfirmUpdateSourceReplace: updateSourceReplaceConfirmerFunc(func(existing, incoming *appservices.UpdateSource) (bool, error) {
 			printCurrentIncoming(cmd, updateSourceViewSummaryOrNone(existing), updateSourceViewSummaryOrNone(incoming))
 			prompt := formatPrompt("Replace source from", "AppImage metadata")
 			return confirmAction(cmd, prompt)
 		}),
-		ResolvePackageAmbiguity: packageAmbiguityResolverFunc(func(metadata *appservices.PackageView) (*appservices.PackageView, error) {
-			return resolvePackageViewAmbiguity(cmd, metadata)
+		ResolvePackageAmbiguity: packageAmbiguityResolverFunc(func(metadata *appservices.PackageMetadata) (*appservices.PackageMetadata, error) {
+			return resolvePackageMetadataAmbiguity(cmd, metadata)
 		}),
 	}
 
@@ -155,7 +155,7 @@ func AddCmd(cmd *cobra.Command, args []string) error {
 type addInputSelection struct {
 	Positional string
 	DirectURL  string
-	Ref        appservices.ProviderRef
+	Ref        appservices.PackageRef
 	HasRef     bool
 }
 
@@ -164,7 +164,7 @@ func runAddRequest(ctx context.Context, cmd *cobra.Command, selection addInputSe
 		ctx = context.Background()
 	}
 	if req.Target.Provider != nil {
-		label := appservices.FormatProviderRef(*req.Target.Provider)
+		label := appservices.FormatPackageRef(*req.Target.Provider)
 		if req.DryRun {
 			return resolveAddPlanWithProgress(cmd, label, func() (*appservices.AddResult, error) {
 				return runtimeServicesFrom(cmd).Add.Add(ctx, req)
@@ -210,7 +210,7 @@ func renderAddResult(cmd *cobra.Command, selection addInputSelection, result *ap
 		if opts.JSON {
 			return printJSONSuccess(cmd, map[string]interface{}{"status": "already_integrated", "app": result.App})
 		}
-		printSuccess(cmd, fmt.Sprintf("Already integrated: %s", formatAppDetailsRef(result.App)))
+		printSuccess(cmd, fmt.Sprintf("Already integrated: %s", formatAppRef(result.App)))
 		return nil
 	}
 	status := strings.TrimSpace(result.Status)
@@ -222,11 +222,11 @@ func renderAddResult(cmd *cobra.Command, selection addInputSelection, result *ap
 	}
 	switch status {
 	case "integrated":
-		printSuccess(cmd, fmt.Sprintf("Integrated: %s", formatAppDetailsRef(result.App)))
+		printSuccess(cmd, fmt.Sprintf("Integrated: %s", formatAppRef(result.App)))
 	case "reintegrated":
-		printSuccess(cmd, fmt.Sprintf("Reintegrated: %s", formatAppDetailsRef(result.App)))
+		printSuccess(cmd, fmt.Sprintf("Reintegrated: %s", formatAppRef(result.App)))
 	case "installed":
-		printSuccess(cmd, fmt.Sprintf("Installed: %s", formatAppDetailsRef(result.App)))
+		printSuccess(cmd, fmt.Sprintf("Installed: %s", formatAppRef(result.App)))
 	default:
 		return softwareError(fmt.Errorf("unknown add result status %q for target %q", status, selection.Positional))
 	}
@@ -463,14 +463,14 @@ func (progress *remoteInstallProgressController) StartIntegrating() {
 	writeLogf(progress.cmd, "%s...\n", label)
 }
 
-func providerInstallProgressResolver(progress *remoteInstallProgressController, resolver appservices.PackageViewAmbiguityResolver) appservices.PackageViewAmbiguityResolver {
-	return packageAmbiguityResolverFunc(func(metadata *appservices.PackageView) (*appservices.PackageView, error) {
+func providerInstallProgressResolver(progress *remoteInstallProgressController, resolver appservices.PackageMetadataAmbiguityResolver) appservices.PackageMetadataAmbiguityResolver {
+	return packageAmbiguityResolverFunc(func(metadata *appservices.PackageMetadata) (*appservices.PackageMetadata, error) {
 		progress.Stop()
 
 		resolved := metadata
 		if resolver != nil {
 			var err error
-			resolved, err = resolver.ResolvePackageViewAmbiguity(metadata)
+			resolved, err = resolver.ResolvePackageMetadataAmbiguity(metadata)
 			if err != nil {
 				return nil, err
 			}
@@ -488,9 +488,9 @@ func providerInstallProgressResolver(progress *remoteInstallProgressController, 
 	})
 }
 
-type packageAmbiguityResolverFunc func(*appservices.PackageView) (*appservices.PackageView, error)
+type packageAmbiguityResolverFunc func(*appservices.PackageMetadata) (*appservices.PackageMetadata, error)
 
-func (fn packageAmbiguityResolverFunc) ResolvePackageViewAmbiguity(metadata *appservices.PackageView) (*appservices.PackageView, error) {
+func (fn packageAmbiguityResolverFunc) ResolvePackageMetadataAmbiguity(metadata *appservices.PackageMetadata) (*appservices.PackageMetadata, error) {
 	return fn(metadata)
 }
 
@@ -603,7 +603,7 @@ func ListCmd(cmd *cobra.Command, args []string) error {
 	}
 
 	opts := runtimeOptionsFrom(cmd)
-	selected := sortAppDetailsByID(appDetailsByID(result.Apps))
+	selected := sortAppsByID(appsByID(result.Apps))
 	if len(selected) == 0 {
 		if opts.JSON {
 			return printJSONSuccess(cmd, []listOutputRow{})
@@ -627,10 +627,10 @@ func ListCmd(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	integratedRows := make([]*appservices.AppDetails, 0, len(selected))
-	unlinkedRows := make([]*appservices.AppDetails, 0, len(selected))
+	integratedRows := make([]*appservices.App, 0, len(selected))
+	unlinkedRows := make([]*appservices.App, 0, len(selected))
 	for _, app := range selected {
-		if app.Integrated {
+		if appIsIntegrated(app) {
 			integratedRows = append(integratedRows, app)
 			continue
 		}
@@ -683,7 +683,7 @@ func InfoCmd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	var provider *appservices.ProviderRef
+	var provider *appservices.PackageRef
 	if ok {
 		provider = &ref
 	}
@@ -715,7 +715,7 @@ func loadInfoResult(ctx context.Context, cmd *cobra.Command, req appservices.Inf
 		ctx = context.Background()
 	}
 	if req.Provider != nil {
-		label := appservices.FormatProviderRef(*req.Provider)
+		label := appservices.FormatPackageRef(*req.Provider)
 		return resolvePackageInfoWithProgress(cmd, label, func() (*appservices.InfoResult, error) {
 			return runtimeServicesFrom(cmd).Info.Info(ctx, req)
 		})
@@ -749,7 +749,7 @@ func renderInfoResult(cmd *cobra.Command, input string, result *appservices.Info
 }
 
 func renderPackageInfo(cmd *cobra.Command, result *appservices.InfoResult) error {
-	metadata := result.PackageView
+	metadata := result.PackageMetadata
 	if runtimeOptionsFrom(cmd).JSON {
 		return printJSONSuccess(cmd, map[string]interface{}{
 			"kind":     "package_metadata",
@@ -757,15 +757,15 @@ func renderPackageInfo(cmd *cobra.Command, result *appservices.InfoResult) error
 		})
 	}
 	var err error
-	metadata, err = resolvePackageViewAmbiguity(cmd, metadata)
+	metadata, err = resolvePackageMetadataAmbiguity(cmd, metadata)
 	if err != nil {
 		return err
 	}
-	printPackageView(cmd, metadata)
+	printPackageMetadata(cmd, metadata)
 	return nil
 }
 
-func runShowPackageRef(ctx context.Context, cmd *cobra.Command, ref appservices.ProviderRef) error {
+func runShowPackageRef(ctx context.Context, cmd *cobra.Command, ref appservices.PackageRef) error {
 	result, err := loadInfoResult(ctx, cmd, appservices.InfoRequest{Provider: &ref})
 	if err != nil {
 		return err
@@ -797,7 +797,7 @@ func runInstallTarget(ctx context.Context, cmd *cobra.Command, refArg string) er
 	return renderAddResult(cmd, selection, result)
 }
 
-func runInstallPackageRef(ctx context.Context, cmd *cobra.Command, ref appservices.ProviderRef) error {
+func runInstallPackageRef(ctx context.Context, cmd *cobra.Command, ref appservices.PackageRef) error {
 	assetPattern, err := flagString(cmd, "asset")
 	if err != nil {
 		return err
@@ -862,7 +862,7 @@ func managedAppInfo(ctx context.Context, cmd *cobra.Command, id string) (*appser
 }
 
 func renderManagedAppInfo(cmd *cobra.Command, info *appservices.InfoResult) error {
-	app := info.AppDetails
+	app := info.App
 	if app == nil {
 		return fmt.Errorf("managed app cannot be empty")
 	}
@@ -883,7 +883,7 @@ func renderManagedAppInfo(cmd *cobra.Command, info *appservices.InfoResult) erro
 	writeDataf(cmd, "Exec path: %s\n", strings.TrimSpace(app.ExecPath))
 
 	printSection(cmd, sectionUpdates)
-	writeDataf(cmd, "Configured source: %s\n", updateSourceViewSummaryOrNone(app.UpdateSource))
+	writeDataf(cmd, "Configured source: %s\n", updateSourceViewSummaryOrNone(app.Update))
 	writeDataf(cmd, "Embedded source: %s\n", updateSourceViewSummaryOrNone(embeddedSource))
 
 	printSection(cmd, sectionState)
@@ -931,12 +931,12 @@ func renderLocalAppImageInfo(cmd *cobra.Command, src string, result *appservices
 	return nil
 }
 
-func updateSourceViewSummaryOrNone(update *appservices.UpdateSourceView) string {
-	if update == nil || strings.TrimSpace(update.Kind) == appservices.UpdateKindNone {
+func updateSourceViewSummaryOrNone(update *appservices.UpdateSource) string {
+	if update == nil || update.Kind == appservices.UpdateKindNone {
 		return "none"
 	}
 
-	switch strings.TrimSpace(update.Kind) {
+	switch update.Kind {
 	case appservices.UpdateKindZsync:
 		if update.Zsync == nil {
 			return "zsync: <missing>"
@@ -951,19 +951,12 @@ func updateSourceViewSummaryOrNone(update *appservices.UpdateSourceView) string 
 		}
 		return fmt.Sprintf("github: %s, asset: %s", strings.TrimSpace(update.GitHubRelease.Repo), strings.TrimSpace(update.GitHubRelease.Asset))
 	default:
-		return strings.TrimSpace(update.Kind)
+		return strings.TrimSpace(string(update.Kind))
 	}
 }
 
-func updateSourceViewFromAppDetails(app *appservices.AppDetails) *appservices.UpdateSourceView {
-	if app == nil {
-		return nil
-	}
-	return app.UpdateSource
-}
-
-func updateSourceViewIsNone(update *appservices.UpdateSourceView) bool {
-	return update == nil || strings.TrimSpace(update.Kind) == "" || strings.TrimSpace(update.Kind) == appservices.UpdateKindNone
+func updateSourceViewIsNone(update *appservices.UpdateSource) bool {
+	return update == nil || strings.TrimSpace(string(update.Kind)) == "" || update.Kind == appservices.UpdateKindNone
 }
 
 func updateSourcePlanOutput(plan *appservices.DryRunPlan) map[string]interface{} {
@@ -1101,7 +1094,7 @@ func runUpdateSetMode(cmd *cobra.Command, id string) error {
 	if err != nil {
 		return err
 	}
-	var incomingSource *appservices.UpdateSourceInput
+	var incomingSource *appservices.UpdateSource
 	if embedded {
 		if err := validateEmbeddedUpdateSetFlags(cmd); err != nil {
 			return err
@@ -1118,11 +1111,11 @@ func runUpdateSetMode(cmd *cobra.Command, id string) error {
 		DryRun:            runtimeOptionsFrom(cmd).DryRun,
 		Source:            incomingSource,
 		UseEmbeddedSource: embedded,
-		ConfirmSourceReplace: updateSourceReplaceConfirmerFunc(func(existing, incoming *appservices.UpdateSourceView) (bool, error) {
+		ConfirmSourceReplace: updateSourceReplaceConfirmerFunc(func(existing, incoming *appservices.UpdateSource) (bool, error) {
 			printCurrentIncoming(cmd, updateSourceViewSummaryOrNone(existing), updateSourceViewSummaryOrNone(incoming))
 			return confirmAction(cmd, formatPrompt("Replace source for", id))
 		}),
-		ConfirmSourceUnset: updateSourceUnsetConfirmerFunc(func(current *appservices.UpdateSourceView) (bool, error) {
+		ConfirmSourceUnset: updateSourceUnsetConfirmerFunc(func(current *appservices.UpdateSource) (bool, error) {
 			printCurrentValue(cmd, updateSourceViewSummaryOrNone(current))
 			return confirmAction(cmd, formatPrompt("Unset source for", id))
 		}),
@@ -1141,7 +1134,7 @@ func runUpdateUnsetMode(cmd *cobra.Command, id string) error {
 		TargetID: id,
 		Mode:     appservices.UpdateModeUnsetSource,
 		DryRun:   runtimeOptionsFrom(cmd).DryRun,
-		ConfirmSourceUnset: updateSourceUnsetConfirmerFunc(func(current *appservices.UpdateSourceView) (bool, error) {
+		ConfirmSourceUnset: updateSourceUnsetConfirmerFunc(func(current *appservices.UpdateSource) (bool, error) {
 			printCurrentValue(cmd, updateSourceViewSummaryOrNone(current))
 			return confirmAction(cmd, formatPrompt("Unset source for", id))
 		}),
@@ -1152,9 +1145,9 @@ func runUpdateUnsetMode(cmd *cobra.Command, id string) error {
 	return renderUpdateSourceModeResult(cmd, id, result)
 }
 
-type updateSourceUnsetConfirmerFunc func(current *appservices.UpdateSourceView) (bool, error)
+type updateSourceUnsetConfirmerFunc func(current *appservices.UpdateSource) (bool, error)
 
-func (fn updateSourceUnsetConfirmerFunc) ConfirmUpdateSourceUnset(current *appservices.UpdateSourceView) (bool, error) {
+func (fn updateSourceUnsetConfirmerFunc) ConfirmUpdateSourceUnset(current *appservices.UpdateSource) (bool, error) {
 	return fn(current)
 }
 
@@ -1178,7 +1171,7 @@ func renderUpdateSourceModeResult(cmd *cobra.Command, id string, result *appserv
 		return nil
 	}
 	if result.SourceUnchanged {
-		var currentSource *appservices.UpdateSourceView
+		var currentSource *appservices.UpdateSource
 		if result.SourceChange != nil {
 			currentSource = result.SourceChange.Current
 		}
@@ -1216,7 +1209,7 @@ func renderUpdateSourceModeResult(cmd *cobra.Command, id string, result *appserv
 	return nil
 }
 
-func resolveUpdateSourceFromSetFlags(cmd *cobra.Command) (*appservices.UpdateSourceInput, error) {
+func resolveUpdateSourceFromSetFlags(cmd *cobra.Command) (*appservices.UpdateSource, error) {
 	githubRepo, err := flagString(cmd, "github")
 	if err != nil {
 		return nil, err
@@ -1252,10 +1245,10 @@ func resolveUpdateSourceFromSetFlags(cmd *cobra.Command) (*appservices.UpdateSou
 		if assetPattern == "" {
 			assetPattern = defaultReleaseAssetPattern
 		}
-		return &appservices.UpdateSourceInput{
+		return &appservices.UpdateSource{
 			Kind: appservices.UpdateKindGitHubRelease,
-			GitHubRelease: &appservices.GitHubReleaseUpdateView{
-				Repo:  ref.Ref,
+			GitHubRelease: &appservices.GitHubReleaseUpdateSource{
+				Repo:  ref.ProviderRef,
 				Asset: assetPattern,
 			},
 		}, nil
@@ -1268,9 +1261,9 @@ func resolveUpdateSourceFromSetFlags(cmd *cobra.Command) (*appservices.UpdateSou
 		if !isHTTPSURL(zsyncURL) {
 			return nil, usageError(fmt.Errorf("--zsync must be a valid https URL"))
 		}
-		return &appservices.UpdateSourceInput{
+		return &appservices.UpdateSource{
 			Kind: appservices.UpdateKindZsync,
-			Zsync: &appservices.ZsyncUpdateSourceView{
+			Zsync: &appservices.ZsyncUpdateSource{
 				UpdateInfo: "zsync|" + zsyncURL,
 				Transport:  "zsync",
 			},
@@ -1335,7 +1328,7 @@ func isHTTPSURL(value string) bool {
 
 const maxListNameColumnWidth = 28
 
-func listIDColumnWidth(groups ...[]*appservices.AppDetails) int {
+func listIDColumnWidth(groups ...[]*appservices.App) int {
 	width := len("ID")
 	for _, group := range groups {
 		for _, app := range group {
@@ -1351,7 +1344,7 @@ func listIDColumnWidth(groups ...[]*appservices.AppDetails) int {
 	return width
 }
 
-func listNameDisplayWidth(groups ...[]*appservices.AppDetails) int {
+func listNameDisplayWidth(groups ...[]*appservices.App) int {
 	width := len("App Name")
 	for _, group := range groups {
 		for _, app := range group {
@@ -1369,7 +1362,7 @@ func listNameDisplayWidth(groups ...[]*appservices.AppDetails) int {
 	return width
 }
 
-func formatListRow(app *appservices.AppDetails, idWidth, nameWidth int) string {
+func formatListRow(app *appservices.App, idWidth, nameWidth int) string {
 	if app == nil {
 		return ""
 	}

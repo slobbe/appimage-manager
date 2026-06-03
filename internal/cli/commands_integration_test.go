@@ -1008,8 +1008,8 @@ func TestUpdateCmdCharacterizesCheckDryRunNoPendingDeclinedAppliedAndFailure(t *
 	config.ApplyPaths(config.ResolvePathsFromStateRoot(filepath.Join(tempDir, "xdg")))
 	t.Cleanup(func() { config.ApplyPaths(originalPaths) })
 
-	pendingApp := &appservices.AppSummary{ID: "app", Name: "App", Version: "1.0.0"}
-	pendingView := appservices.ManagedUpdateView{App: pendingApp, Available: true, Latest: "2.0.0", URL: "https://example.com/App.AppImage"}
+	pendingApp := &appservices.App{ID: "app", Name: "App", Version: "1.0.0"}
+	pendingView := appservices.ManagedUpdate{App: pendingApp, Available: true, Latest: "2.0.0", URL: "https://example.com/App.AppImage"}
 
 	tests := []struct {
 		name            string
@@ -1060,7 +1060,7 @@ func TestUpdateCmdCharacterizesCheckDryRunNoPendingDeclinedAppliedAndFailure(t *
 			flags:          map[string]string{"yes": "true"},
 			opts:           runtimeOptions{Plain: true},
 			checkResult:    &appservices.ManagedUpdateCheckResult{Rows: []appservices.ManagedUpdateCheckRow{{App: pendingApp, Update: &pendingView, Status: "update_available"}}, PendingHandles: []appservices.ManagedUpdateHandle{{View: pendingView}}},
-			applyResult:    &appservices.UpdateApplyBatchResult{Results: []appservices.ManagedApplyResultView{{Index: 0, App: pendingApp, UpdatedApp: appDetails("app", "App", true)}}},
+			applyResult:    &appservices.UpdateApplyBatchResult{Results: []appservices.ManagedApplyResult{{Index: 0, App: pendingApp, UpdatedApp: appDetails("app", "App", true)}}},
 			wantCheckReq:   appservices.ManagedUpdateCheckRequest{UseCache: true},
 			wantApplyCalls: 1,
 			wantOutput:     []string{"Updated 1 app(s); 0 failed", "updated"},
@@ -2307,11 +2307,11 @@ func TestResolveUpdateSourceFromSetFlags(t *testing.T) {
 			if source == nil {
 				t.Fatal("expected source")
 			}
-			if source.Kind != string(tt.expect) {
+			if source.Kind != tt.expect {
 				t.Fatalf("source.Kind = %q, want %q", source.Kind, tt.expect)
 			}
 			switch source.Kind {
-			case string(models.UpdateGitHubRelease):
+			case models.UpdateGitHubRelease:
 				if source.GitHubRelease == nil || source.GitHubRelease.Asset != tt.asset {
 					t.Fatalf("github asset = %q, want %q", source.GitHubRelease.Asset, tt.asset)
 				}
@@ -4951,7 +4951,7 @@ func TestCheckAppUpdateZsyncUsesNormalizedVersionWhenAvailable(t *testing.T) {
 		t.Fatalf("Latest = %q, want %q", result.Latest, "0.10.6.1")
 	}
 
-	msg := buildManagedUpdateMessage(testManagedUpdateView(*result), false)
+	msg := buildManagedUpdateMessage(testManagedUpdate(*result), false)
 	if !strings.Contains(msg, "[helium] v0.10.5.1 -> v0.10.6.1") {
 		t.Fatalf("expected normalized version transition, got:\n%s", msg)
 	}
@@ -5025,7 +5025,7 @@ func TestCheckAppUpdateZsyncFallsBackToUnknownWithoutNormalizedVersion(t *testin
 		t.Fatalf("Latest = %q, want empty", result.Latest)
 	}
 
-	msg := buildManagedUpdateMessage(testManagedUpdateView(*result), false)
+	msg := buildManagedUpdateMessage(testManagedUpdate(*result), false)
 	if !strings.Contains(msg, "[helium] v0.10.5.1 -> unknown") {
 		t.Fatalf("expected unknown fallback, got:\n%s", msg)
 	}
@@ -5063,7 +5063,7 @@ func TestCheckAppUpdateGitHubDisplaysNormalizedLatest(t *testing.T) {
 		t.Fatalf("Latest = %q, want %q", result.Latest, "3.202.0")
 	}
 
-	msg := buildManagedUpdateMessage(testManagedUpdateView(*result), false)
+	msg := buildManagedUpdateMessage(testManagedUpdate(*result), false)
 	if !strings.Contains(msg, "[standard-notes] v3.201.19 -> v3.202.0") {
 		t.Fatalf("expected normalized version transition, got:\n%s", msg)
 	}
@@ -5299,7 +5299,7 @@ func TestBuildManagedUpdateMessage(t *testing.T) {
 		Asset:  "Obsidian-1.11.7.AppImage",
 	}
 
-	msgManaged := buildManagedUpdateMessage(testManagedUpdateView(update), false)
+	msgManaged := buildManagedUpdateMessage(testManagedUpdate(update), false)
 	if strings.Contains(msgManaged, "Download:") {
 		t.Fatalf("managed update message should not include manual download hint: %s", msgManaged)
 	}
@@ -5307,7 +5307,7 @@ func TestBuildManagedUpdateMessage(t *testing.T) {
 		t.Fatalf("managed update message should include version transition: %s", msgManaged)
 	}
 
-	msgCheckOnly := buildManagedUpdateMessage(testManagedUpdateView(update), true)
+	msgCheckOnly := buildManagedUpdateMessage(testManagedUpdate(update), true)
 	if msgCheckOnly != msgManaged {
 		t.Fatalf("check-only message should use the same summary line, got %q want %q", msgCheckOnly, msgManaged)
 	}
@@ -5332,7 +5332,7 @@ func TestUpdateVersionTransitionUnknownLatest(t *testing.T) {
 		Latest: "",
 	}
 
-	transition := updateVersionTransition(testManagedUpdateView(update))
+	transition := updateVersionTransition(testManagedUpdate(update))
 	if transition != "v2.0.0 -> unknown" {
 		t.Fatalf("updateVersionTransition = %q", transition)
 	}
@@ -5472,8 +5472,8 @@ func TestBatchManagedApplyControllerFinishPrintsFailuresAndSummary(t *testing.T)
 		controller.Event(appservices.ManagedApplyEvent{Index: 0, AppID: "app-a", Stage: appservices.ManagedApplyStageDone})
 		controller.Event(appservices.ManagedApplyEvent{Index: 1, AppID: "app-b", Stage: appservices.ManagedApplyStageFailed})
 		controller.Finish([]managedApplyResult{
-			{index: 0, app: &appservices.AppSummary{ID: "app-a"}, updatedApp: &appservices.AppDetails{AppSummary: appservices.AppSummary{ID: "app-a", Version: "1.1.0"}}},
-			{index: 1, app: &appservices.AppSummary{ID: "app-b"}, err: fmt.Errorf("boom")},
+			{index: 0, app: &appservices.App{ID: "app-a"}, updatedApp: &appservices.App{ID: "app-a", Version: "1.1.0"}},
+			{index: 1, app: &appservices.App{ID: "app-b"}, err: fmt.Errorf("boom")},
 		})
 	})
 
@@ -6223,8 +6223,8 @@ func runManagedChecks(apps []*models.App, check appupdate.ManagedCheckFunc) []ap
 	return appupdate.CheckManagedUpdates(apps, check)
 }
 
-func testManagedUpdateView(update appupdate.ManagedUpdate) appservices.ManagedUpdateView {
-	view := appservices.ManagedUpdateView{
+func testManagedUpdate(update appupdate.ManagedUpdate) appservices.ManagedUpdate {
+	view := appservices.ManagedUpdate{
 		URL:            strings.TrimSpace(update.URL),
 		Asset:          strings.TrimSpace(update.Asset),
 		Label:          strings.TrimSpace(update.Label),
@@ -6234,18 +6234,16 @@ func testManagedUpdateView(update appupdate.ManagedUpdate) appservices.ManagedUp
 		ExpectedSHA256: strings.TrimSpace(update.ExpectedSHA256),
 		Transport:      strings.TrimSpace(update.Transport),
 		ZsyncURL:       strings.TrimSpace(update.ZsyncURL),
-		FromKind:       strings.TrimSpace(string(update.FromKind)),
+		FromKind:       update.FromKind,
 	}
 	if update.App != nil {
-		view.App = &appservices.AppSummary{
-			ID:              strings.TrimSpace(update.App.ID),
-			Name:            strings.TrimSpace(update.App.Name),
-			Version:         strings.TrimSpace(update.App.Version),
-			Integrated:      strings.TrimSpace(update.App.DesktopEntryLink) != "",
-			UpdateAvailable: update.App.UpdateAvailable,
-			LatestVersion:   strings.TrimSpace(update.App.LatestVersion),
-			LastCheckedAt:   strings.TrimSpace(update.App.LastCheckedAt),
-		}
+		app := *update.App
+		app.ID = strings.TrimSpace(app.ID)
+		app.Name = strings.TrimSpace(app.Name)
+		app.Version = strings.TrimSpace(app.Version)
+		app.LatestVersion = strings.TrimSpace(app.LatestVersion)
+		app.LastCheckedAt = strings.TrimSpace(app.LastCheckedAt)
+		view.App = &app
 	}
 	return view
 }
@@ -6506,7 +6504,7 @@ func (service *recordingUpdateService) Update(ctx context.Context, req appservic
 	if apply != nil {
 		result.Applied = apply.Results
 		for _, applied := range apply.Results {
-			if strings.TrimSpace(applied.Error) != "" {
+			if applied.Error != nil {
 				result.ApplyFailures++
 				continue
 			}

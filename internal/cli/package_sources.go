@@ -9,27 +9,27 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func validateGitHubRepoFlag(value string) (appservices.ProviderRef, error) {
-	ref, err := appservices.ParseGitHubProviderRef(value)
+func validateGitHubRepoFlag(value string) (appservices.PackageRef, error) {
+	ref, err := appservices.ParseGitHubPackageRef(value)
 	if err != nil {
-		return appservices.ProviderRef{}, usageError(fmt.Errorf("--github must be in owner/repo form"))
+		return appservices.PackageRef{}, usageError(fmt.Errorf("--github must be in owner/repo form"))
 	}
 	return ref, nil
 }
 
-func resolveProviderFlagRef(cmd *cobra.Command, args []string) (appservices.ProviderRef, bool, error) {
+func resolveProviderFlagRef(cmd *cobra.Command, args []string) (appservices.PackageRef, bool, error) {
 	githubValue, err := flagString(cmd, "github")
 	if err != nil {
-		return appservices.ProviderRef{}, false, err
+		return appservices.PackageRef{}, false, err
 	}
 
 	hasGitHub := strings.TrimSpace(githubValue) != ""
 
 	if !hasGitHub {
-		return appservices.ProviderRef{}, false, nil
+		return appservices.PackageRef{}, false, nil
 	}
 	if len(args) > 0 {
-		return appservices.ProviderRef{}, false, usageError(fmt.Errorf("when using --github, do not pass a positional target"))
+		return appservices.PackageRef{}, false, usageError(fmt.Errorf("when using --github, do not pass a positional target"))
 	}
 
 	ref, err := validateGitHubRepoFlag(githubValue)
@@ -42,11 +42,11 @@ func looksLikeGitHubPackageURL(input string) bool {
 }
 
 func providerURLGuidance(cmdName, providerFlag, subject, input string) error {
-	ref, err := appservices.ParsePackageProviderRefURL(input)
+	ref, err := appservices.ParsePackageRefURL(input)
 	if err != nil {
 		return nil
 	}
-	return usageError(fmt.Errorf("%s must use %s; use 'aim %s %s %s'", subject, providerFlag, cmdName, providerFlag, ref.Ref))
+	return usageError(fmt.Errorf("%s must use %s; use 'aim %s %s %s'", subject, providerFlag, cmdName, providerFlag, ref.ProviderRef))
 }
 
 func addTargetLooksRemote(input string) bool {
@@ -85,7 +85,7 @@ func positionalInfoRemoteGuidance(input string) error {
 	}
 }
 
-func resolveInfoInput(cmd *cobra.Command, args []string) (string, appservices.ProviderRef, bool, error) {
+func resolveInfoInput(cmd *cobra.Command, args []string) (string, appservices.PackageRef, bool, error) {
 	ref, ok, err := resolveProviderFlagRef(cmd, args)
 	if err != nil || ok {
 		return "", ref, ok, err
@@ -93,21 +93,21 @@ func resolveInfoInput(cmd *cobra.Command, args []string) (string, appservices.Pr
 	value, err := resolveSingleInputOrPrompt(cmd, args, "<id|Path/To.AppImage>", "Managed app id or local AppImage path: ", missingInputErrorForInfo())
 	if err != nil {
 		if isMissingArgumentError(err) || err.Error() == missingInputErrorForInfo().Error() {
-			return "", appservices.ProviderRef{}, false, printConciseHelpError(cmd, missingInputErrorForInfo().Error())
+			return "", appservices.PackageRef{}, false, printConciseHelpError(cmd, missingInputErrorForInfo().Error())
 		}
-		return "", appservices.ProviderRef{}, false, err
+		return "", appservices.PackageRef{}, false, err
 	}
-	return value, appservices.ProviderRef{}, false, nil
+	return value, appservices.PackageRef{}, false, nil
 }
 
-func resolvePackageRefInput(input string) (appservices.ProviderRef, error) {
+func resolvePackageRefInput(input string) (appservices.PackageRef, error) {
 	trimmed := strings.TrimSpace(input)
 	if trimmed == "" {
-		return appservices.ProviderRef{}, usageError(fmt.Errorf("missing package ref"))
+		return appservices.PackageRef{}, usageError(fmt.Errorf("missing package ref"))
 	}
-	ref, err := appservices.ParsePackageProviderRefURL(trimmed)
+	ref, err := appservices.ParsePackageRefURL(trimmed)
 	if err != nil {
-		return appservices.ProviderRef{}, err
+		return appservices.PackageRef{}, err
 	}
 	return ref, nil
 }
@@ -120,12 +120,12 @@ func resolvePackagePlanWithProgress(cmd *cobra.Command, label string, resolve fu
 	return runWithBusyIndicator(cmd, fmt.Sprintf("Resolving package metadata for %s", label), resolve)
 }
 
-func resolvePackageViewAmbiguity(cmd *cobra.Command, metadata *appservices.PackageView) (*appservices.PackageView, error) {
+func resolvePackageMetadataAmbiguity(cmd *cobra.Command, metadata *appservices.PackageMetadata) (*appservices.PackageMetadata, error) {
 	if metadata == nil || !metadata.AssetAmbiguous {
 		return metadata, nil
 	}
 	if runtimeOptionsFrom(cmd).JSON || !canPromptForInput(cmd) {
-		return nil, usageError(fmt.Errorf("%s; use --asset to choose one of: %s", packageViewAssetAmbiguityReason(metadata), strings.Join(packageViewAssetCandidateNames(metadata.AssetCandidates), ", ")))
+		return nil, usageError(fmt.Errorf("%s; use --asset to choose one of: %s", packageMetadataAssetAmbiguityReason(metadata), strings.Join(packageMetadataAssetCandidateNames(metadata.AssetCandidates), ", ")))
 	}
 
 	writeDataf(cmd, "Multiple AppImage assets match this release:\n")
@@ -156,14 +156,14 @@ func resolvePackageViewAmbiguity(cmd *cobra.Command, metadata *appservices.Packa
 	return &resolved, nil
 }
 
-func packageViewAssetAmbiguityReason(metadata *appservices.PackageView) string {
+func packageMetadataAssetAmbiguityReason(metadata *appservices.PackageMetadata) string {
 	if metadata != nil && strings.TrimSpace(metadata.AssetReason) != "" {
 		return strings.TrimSpace(metadata.AssetReason)
 	}
 	return "multiple assets match"
 }
 
-func packageViewAssetCandidateNames(candidates []appservices.AssetCandidateView) []string {
+func packageMetadataAssetCandidateNames(candidates []appservices.AssetCandidate) []string {
 	names := make([]string, 0, len(candidates))
 	for _, candidate := range candidates {
 		if strings.TrimSpace(candidate.Name) != "" {
@@ -173,7 +173,7 @@ func packageViewAssetCandidateNames(candidates []appservices.AssetCandidateView)
 	return names
 }
 
-func printPackageView(cmd *cobra.Command, metadata *appservices.PackageView) {
+func printPackageMetadata(cmd *cobra.Command, metadata *appservices.PackageMetadata) {
 	if metadata == nil {
 		return
 	}
@@ -209,13 +209,13 @@ func printPackageView(cmd *cobra.Command, metadata *appservices.PackageView) {
 	writeDataf(cmd, "  %s\n", formatAddProviderViewCommand(metadata.Ref))
 }
 
-func formatProviderViewRef(ref appservices.ProviderRef) string {
-	value := strings.TrimSpace(ref.Ref)
+func formatProviderViewRef(ref appservices.PackageRef) string {
+	value := strings.TrimSpace(ref.ProviderRef)
 	if value == "" {
 		return ""
 	}
 
-	switch strings.TrimSpace(ref.Provider) {
+	switch strings.TrimSpace(ref.Kind) {
 	case appservices.ProviderGitHub:
 		return "GitHub " + value
 	default:
@@ -242,13 +242,13 @@ func installTargetLabel(target *installTarget) string {
 	return "package"
 }
 
-func formatAddProviderViewCommand(ref appservices.ProviderRef) string {
-	value := strings.TrimSpace(ref.Ref)
+func formatAddProviderViewCommand(ref appservices.PackageRef) string {
+	value := strings.TrimSpace(ref.ProviderRef)
 	if value == "" {
 		return "aim add"
 	}
 
-	switch strings.TrimSpace(ref.Provider) {
+	switch strings.TrimSpace(ref.Kind) {
 	case appservices.ProviderGitHub:
 		return "aim add --github " + value
 	default:

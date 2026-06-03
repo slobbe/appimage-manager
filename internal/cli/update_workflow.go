@@ -12,7 +12,7 @@ import (
 	"sync"
 )
 
-func buildManagedUpdateMessage(update appservices.ManagedUpdateView, checkOnly bool) string {
+func buildManagedUpdateMessage(update appservices.ManagedUpdate, checkOnly bool) string {
 	base := strings.TrimSpace(update.Label)
 	if transition := strings.TrimSpace(updateVersionTransition(update)); transition != "" {
 		if update.App != nil && strings.TrimSpace(update.App.ID) != "" {
@@ -31,7 +31,7 @@ func buildManagedUpdateMessage(update appservices.ManagedUpdateView, checkOnly b
 	return base
 }
 
-func updateVersionTransition(update appservices.ManagedUpdateView) string {
+func updateVersionTransition(update appservices.ManagedUpdate) string {
 	if update.App == nil {
 		return ""
 	}
@@ -61,13 +61,6 @@ func formatVersionTransition(current, latest string) string {
 func showManagedUpdateAsset(asset string) bool {
 	trimmed := strings.TrimSpace(asset)
 	return trimmed != "" && trimmed != "update.AppImage"
-}
-
-func formatAppDetailsRef(app *appservices.AppDetails) string {
-	if app == nil {
-		return "unknown"
-	}
-	return fmt.Sprintf("%s %s [%s]", app.Name, displayVersion(app.Version), app.ID)
 }
 
 func printManagedCheckFailures(cmd *cobra.Command, failures []managedCheckFailure) {
@@ -245,7 +238,7 @@ func runManagedUpdate(ctx context.Context, cmd *cobra.Command, targetID string) 
 		printPendingManagedUpdates(cmd, cfg, confirmation.Pending, false)
 		return confirmManagedUpdateApply(cmd, cfg, confirmation.Pending)
 	})
-	req.ReporterFor = func(index, total int, update appservices.ManagedUpdateView) appservices.ManagedApplyReporter {
+	req.ReporterFor = func(index, total int, update appservices.ManagedUpdate) appservices.ManagedApplyReporter {
 		controllerMu.Lock()
 		if controller == nil {
 			if total == 1 {
@@ -271,9 +264,9 @@ func runManagedUpdate(ctx context.Context, cmd *cobra.Command, targetID string) 
 		currentController := controller
 		controllerMu.Unlock()
 		if currentController != nil {
-			currentController.Finish(managedApplyResultsFromViews(result.Applied))
+			currentController.Finish(managedApplyResultsFromApplyResults(result.Applied))
 		} else if len(result.Applied) > 0 {
-			printManagedApplySummary(cmd, managedApplyResultsFromViews(result.Applied))
+			printManagedApplySummary(cmd, managedApplyResultsFromApplyResults(result.Applied))
 		}
 	}
 	if result != nil {
@@ -439,7 +432,7 @@ func renderUpdateNoPending(cmd *cobra.Command, cfg managedUpdateRunConfig, resul
 	return nil
 }
 
-func printPendingManagedUpdates(cmd *cobra.Command, cfg managedUpdateRunConfig, pending []appservices.ManagedUpdateView, checkOnly bool) {
+func printPendingManagedUpdates(cmd *cobra.Command, cfg managedUpdateRunConfig, pending []appservices.ManagedUpdate, checkOnly bool) {
 	for _, update := range pending {
 		msg := buildManagedUpdateMessage(update, checkOnly)
 		if cfg.targetID == "" && update.App != nil {
@@ -484,14 +477,10 @@ func printManagedApplySummary(cmd *cobra.Command, results []managedApplyResult) 
 	printSuccess(cmd, summary)
 }
 
-func managedApplyResultsFromViews(views []appservices.ManagedApplyResultView) []managedApplyResult {
-	results := make([]managedApplyResult, 0, len(views))
-	for _, view := range views {
-		result := managedApplyResult{index: view.Index, app: view.App, updatedApp: view.UpdatedApp}
-		if strings.TrimSpace(view.Error) != "" {
-			result.err = errors.New(view.Error)
-		}
-		results = append(results, result)
+func managedApplyResultsFromApplyResults(applyResults []appservices.ManagedApplyResult) []managedApplyResult {
+	results := make([]managedApplyResult, 0, len(applyResults))
+	for _, apply := range applyResults {
+		results = append(results, managedApplyResult{index: apply.Index, app: apply.App, updatedApp: apply.UpdatedApp, err: apply.Error})
 	}
 	return results
 }
@@ -528,7 +517,7 @@ func renderManagedUpdateDryRun(cmd *cobra.Command, cfg managedUpdateRunConfig, r
 	return nil
 }
 
-func confirmManagedUpdateApply(cmd *cobra.Command, cfg managedUpdateRunConfig, pending []appservices.ManagedUpdateView) (bool, error) {
+func confirmManagedUpdateApply(cmd *cobra.Command, cfg managedUpdateRunConfig, pending []appservices.ManagedUpdate) (bool, error) {
 	if cfg.autoApply {
 		return true, nil
 	}
@@ -570,8 +559,8 @@ var managedApplyRenderInterval = progressThrottleInterval
 
 type managedApplyResult struct {
 	index      int
-	app        *appservices.AppSummary
-	updatedApp *appservices.AppDetails
+	app        *appservices.App
+	updatedApp *appservices.App
 	err        error
 }
 

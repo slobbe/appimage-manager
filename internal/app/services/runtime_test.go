@@ -22,7 +22,7 @@ func TestStoreListServiceFiltersApps(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List returned error: %v", err)
 	}
-	if len(result.Apps) != 1 || result.Apps[0].ID != "integrated" || !result.Apps[0].Integrated {
+	if len(result.Apps) != 1 || result.Apps[0].ID != "integrated" || result.Apps[0].DesktopEntryLink == "" {
 		t.Fatalf("List returned %+v, want integrated app only", result.Apps)
 	}
 	if result.TotalCount != 2 || result.IntegratedCount != 1 || result.UnlinkedCount != 1 {
@@ -49,7 +49,7 @@ func TestStoreInfoServiceRoutesInfoRequests(t *testing.T) {
 	if err != nil {
 		t.Fatalf("managed Info returned error: %v", err)
 	}
-	if managed.Kind != InfoKindManagedApp || managed.AppDetails == nil || managed.AppDetails.ID != "managed" {
+	if managed.Kind != InfoKindManagedApp || managed.App == nil || managed.App.ID != "managed" {
 		t.Fatalf("managed Info = %+v", managed)
 	}
 
@@ -61,12 +61,12 @@ func TestStoreInfoServiceRoutesInfoRequests(t *testing.T) {
 		t.Fatalf("local Info = %+v", local)
 	}
 
-	provider := ProviderRef{Provider: ProviderGitHub, Ref: "owner/repo"}
+	provider := domain.PackageRef{Kind: domain.ProviderGitHub, ProviderRef: "owner/repo"}
 	pkg, err := service.Info(context.Background(), InfoRequest{Provider: &provider})
 	if err != nil {
 		t.Fatalf("package Info returned error: %v", err)
 	}
-	if pkg.Kind != InfoKindPackage || pkg.PackageView == nil || pkg.PackageView.Name != "Package App" {
+	if pkg.Kind != InfoKindPackage || pkg.PackageMetadata == nil || pkg.PackageMetadata.Name != "Package App" {
 		t.Fatalf("package Info = %+v", pkg)
 	}
 }
@@ -80,7 +80,7 @@ func TestStoreInfoServiceManagedOnlyTreatsAppImageLikeInputAsID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Info returned error: %v", err)
 	}
-	if result.Kind != InfoKindManagedApp || result.AppDetails == nil || result.AppDetails.ID != "managed.AppImage" {
+	if result.Kind != InfoKindManagedApp || result.App == nil || result.App.ID != "managed.AppImage" {
 		t.Fatalf("Info result = %+v", result)
 	}
 }
@@ -117,12 +117,12 @@ func TestAddWorkflowServiceInstallsPackageRefViaDiscoveryAndInstaller(t *testing
 		Discovery: DiscoveryWorkflowService{Backends: []discovery.DiscoveryBackend{fakeDiscoveryBackend{metadata: metadata}}},
 		Installer: installer,
 	}
-	provider := ProviderRef{Provider: ProviderGitHub, Ref: "owner/repo"}
+	provider := domain.PackageRef{Kind: domain.ProviderGitHub, ProviderRef: "owner/repo"}
 
 	result, err := service.Add(context.Background(), AddRequest{
 		Target:       AddTargetInput{Provider: &provider},
 		AssetPattern: "*.AppImage",
-		ResolvePackageAmbiguity: packageAmbiguityResolverFunc(func(view *PackageView) (*PackageView, error) {
+		ResolvePackageAmbiguity: packageAmbiguityResolverFunc(func(view *domain.PackageMetadata) (*domain.PackageMetadata, error) {
 			view.AssetName = "selected.AppImage"
 			view.DownloadURL = "https://example.com/selected.AppImage"
 			return view, nil
@@ -202,9 +202,9 @@ func TestSourceUpdateServiceSetAndPlan(t *testing.T) {
 	store := fakeAppStore{apps: map[string]*domain.App{
 		"app": {ID: "app", Update: &domain.UpdateSource{Kind: domain.UpdateNone}},
 	}}
-	source := &UpdateSourceInput{
-		Kind: UpdateKindGitHubRelease,
-		GitHubRelease: &GitHubReleaseUpdateView{
+	source := &domain.UpdateSource{
+		Kind: domain.UpdateGitHubRelease,
+		GitHubRelease: &domain.GitHubReleaseUpdateSource{
 			Repo:  "owner/repo",
 			Asset: "*.AppImage",
 		},
@@ -402,7 +402,7 @@ func TestDiscoveryWorkflowServiceUsesConfiguredBackends(t *testing.T) {
 	}}
 
 	got, err := service.ResolvePackage(context.Background(), PackageRefInfoRequest{
-		Ref: ProviderRef{Provider: ProviderGitHub, Ref: "owner/repo"},
+		Ref: domain.PackageRef{Kind: domain.ProviderGitHub, ProviderRef: "owner/repo"},
 	})
 	if err != nil {
 		t.Fatalf("ResolvePackage returned error: %v", err)
@@ -521,9 +521,9 @@ func (installer *fakeRemoteInstaller) InstallPackageMetadata(ctx context.Context
 	return &domain.App{ID: "package", Name: "Package App"}, nil
 }
 
-type packageAmbiguityResolverFunc func(*PackageView) (*PackageView, error)
+type packageAmbiguityResolverFunc func(*domain.PackageMetadata) (*domain.PackageMetadata, error)
 
-func (fn packageAmbiguityResolverFunc) ResolvePackageViewAmbiguity(view *PackageView) (*PackageView, error) {
+func (fn packageAmbiguityResolverFunc) ResolvePackageMetadataAmbiguity(view *domain.PackageMetadata) (*domain.PackageMetadata, error) {
 	return fn(view)
 }
 

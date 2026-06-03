@@ -334,9 +334,9 @@ type runtimeServices struct {
 	ManagedAppCompletions func(string) ([]appservices.ManagedAppCompletion, error)
 }
 
-type updateSourceReplaceConfirmerFunc func(existing, incoming *appservices.UpdateSourceView) (bool, error)
+type updateSourceReplaceConfirmerFunc func(existing, incoming *appservices.UpdateSource) (bool, error)
 
-func (fn updateSourceReplaceConfirmerFunc) ConfirmUpdateSourceReplace(existing, incoming *appservices.UpdateSourceView) (bool, error) {
+func (fn updateSourceReplaceConfirmerFunc) ConfirmUpdateSourceReplace(existing, incoming *appservices.UpdateSource) (bool, error) {
 	return fn(existing, incoming)
 }
 

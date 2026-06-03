@@ -127,7 +127,7 @@ func (service AddWorkflowService) resolveIntegrateTarget(ctx context.Context, in
 			if strings.TrimSpace(app.DesktopEntryLink) == "" {
 				kind = IntegrateTargetUnlinked
 			}
-			return &IntegrateTargetResult{Kind: kind, App: appDetailsFromDomain(app)}, nil
+			return &IntegrateTargetResult{Kind: kind, App: app}, nil
 		}
 	}
 
@@ -156,7 +156,7 @@ func (service AddWorkflowService) addLocal(ctx context.Context, req IntegrateLoc
 	var prompt appintegrate.UpdateOverwritePrompt
 	if req.ConfirmUpdateSourceReplace != nil {
 		prompt = func(existing, incoming *domain.UpdateSource) (bool, error) {
-			return req.ConfirmUpdateSourceReplace.ConfirmUpdateSourceReplace(updateSourceViewFromDomain(existing), updateSourceViewFromDomain(incoming))
+			return req.ConfirmUpdateSourceReplace.ConfirmUpdateSourceReplace(existing, incoming)
 		}
 	}
 	app, err := service.IntegrateLocalApp(ctx, req.Path, prompt)
@@ -204,11 +204,11 @@ func (service AddWorkflowService) installPackageRef(ctx context.Context, req Ins
 		return nil, err
 	}
 	if req.ResolveViewAmbiguity != nil {
-		resolved, err := req.ResolveViewAmbiguity.ResolvePackageViewAmbiguity(packageViewFromDomain(metadata))
+		resolved, err := req.ResolveViewAmbiguity.ResolvePackageMetadataAmbiguity(metadata)
 		if err != nil {
 			return nil, err
 		}
-		applyPackageViewSelection(metadata, resolved)
+		applyPackageMetadataSelection(metadata, resolved)
 	}
 	app, err := service.Installer.InstallPackageMetadata(ctx, metadata)
 	if err != nil {
@@ -218,7 +218,7 @@ func (service AddWorkflowService) installPackageRef(ctx context.Context, req Ins
 }
 
 func addResultFromDomain(status string, app *domain.App) *AddResult {
-	result := &AddResult{Status: strings.TrimSpace(status), App: appDetailsFromDomain(app)}
+	result := &AddResult{Status: strings.TrimSpace(status), App: app}
 	switch result.Status {
 	case "integrated":
 		result.Action = AddActionIntegrate
@@ -294,15 +294,15 @@ func (service AddWorkflowService) planPackageRefInstall(ctx context.Context, req
 	if err != nil {
 		return nil, err
 	}
-	target := FormatProviderRef(req.Ref)
+	target := FormatPackageRef(req.Ref)
 	values := map[string]interface{}{
 		"action":   "install",
 		"target":   target,
 		"provider": req.Ref,
-		"metadata": packageViewFromDomain(metadata),
+		"metadata": metadata,
 		"db_write": true,
 	}
-	return &DryRunPlan{Action: "install", Target: target, Values: values, TargetKind: "package", Package: packageViewFromDomain(metadata), DBWrite: true}, nil
+	return &DryRunPlan{Action: "install", Target: target, Values: values, TargetKind: "package", Package: metadata, DBWrite: true}, nil
 }
 
 type StoreListService struct {
@@ -328,7 +328,7 @@ func (service StoreListService) List(ctx context.Context, req ListRequest) (*Lis
 		filter = ListAll
 	}
 
-	result := &ListResult{Apps: make([]*AppDetails, 0, len(apps))}
+	result := &ListResult{Apps: make([]*domain.App, 0, len(apps))}
 	for _, app := range apps {
 		if app == nil {
 			continue
@@ -341,7 +341,7 @@ func (service StoreListService) List(ctx context.Context, req ListRequest) (*Lis
 			result.UnlinkedCount++
 		}
 		if listFilterIncludes(filter, integrated) {
-			result.Apps = append(result.Apps, appDetailsFromDomain(app))
+			result.Apps = append(result.Apps, app)
 		}
 	}
 	return result, nil
@@ -407,8 +407,8 @@ func (service StoreInfoService) managedAppInfo(ctx context.Context, id string) (
 	embedded, _ := service.embeddedUpdateSource(app.ExecPath)
 	return &InfoResult{
 		Kind:           InfoKindManagedApp,
-		AppDetails:     appDetailsFromDomain(app),
-		EmbeddedUpdate: updateSourceViewFromDomain(embedded),
+		App:            app,
+		EmbeddedUpdate: embedded,
 	}, nil
 }
 
@@ -424,7 +424,7 @@ func (service StoreInfoService) localAppImageInfo(ctx context.Context, path stri
 	return &InfoResult{
 		Kind:           InfoKindLocalAppImage,
 		AppImageInfo:   appImageInfoViewFromAppImageInfo(info),
-		EmbeddedUpdate: updateSourceViewFromDomain(embedded),
+		EmbeddedUpdate: embedded,
 	}, nil
 }
 
@@ -437,8 +437,8 @@ func (service StoreInfoService) packageRefInfo(ctx context.Context, req PackageR
 		return nil, err
 	}
 	return &InfoResult{
-		Kind:        InfoKindPackage,
-		PackageView: packageViewFromDomain(metadata),
+		Kind:            InfoKindPackage,
+		PackageMetadata: metadata,
 	}, nil
 }
 
@@ -520,7 +520,7 @@ func (service DiscoveryWorkflowService) ResolvePackage(ctx context.Context, req 
 	if service.BackendsFunc != nil {
 		backends = service.BackendsFunc()
 	}
-	return discovery.NewService(backends...).Resolve(ctx, providerRefToDomain(req.Ref), req.AssetPattern)
+	return discovery.NewService(backends...).Resolve(ctx, req.Ref, req.AssetPattern)
 }
 
 type SelfUpdateWorkflowService struct {
@@ -678,7 +678,7 @@ func (service SourceUpdateService) updateSetSource(ctx context.Context, req Upda
 	if err != nil {
 		return nil, err
 	}
-	current := updateSourceViewFromDomain(app.Update)
+	current := app.Update
 	incoming := req.Source
 	noEmbedded := false
 	if req.UseEmbeddedSource {
@@ -686,23 +686,21 @@ func (service SourceUpdateService) updateSetSource(ctx context.Context, req Upda
 		if err != nil {
 			noEmbedded = true
 		} else {
-			incoming = updateSourceInputFromDomain(source)
+			incoming = source
 		}
 	}
-	incomingDomain := updateSourceInputToDomain(incoming)
-	incomingView := updateSourceViewFromDomain(incomingDomain)
-	if noEmbedded && updateSourceViewIsNone(current) {
+	if noEmbedded && updateSourceIsNone(current) {
 		return &UpdateResult{Mode: UpdateModeSetSource, NoEmbeddedSource: true, SourceUnchanged: true, SourceChange: &UpdateSourceChangeView{ID: id, Current: current}}, nil
 	}
 	if noEmbedded {
 		return service.updateUnsetSource(ctx, UpdateRequest{TargetID: id, Mode: UpdateModeUnsetSource, DryRun: req.DryRun, ConfirmSourceUnset: req.ConfirmSourceUnset, UseEmbeddedSource: true})
 	}
-	if err := domain.ValidateUpdateSource(incomingDomain); err != nil {
+	if err := domain.ValidateUpdateSource(incoming); err != nil {
 		return nil, NewError(ErrorInvalidInput, "", err)
 	}
-	change := &UpdateSourceChangeView{ID: id, Current: current, Incoming: incomingView}
-	if !updateSourceViewIsNone(current) && !updateSourceViewsEqual(current, incomingView) && req.ConfirmSourceReplace != nil {
-		confirmed, err := req.ConfirmSourceReplace.ConfirmUpdateSourceReplace(current, incomingView)
+	change := &UpdateSourceChangeView{ID: id, Current: current, Incoming: incoming}
+	if !updateSourceIsNone(current) && !updateSourcesEqual(current, incoming) && req.ConfirmSourceReplace != nil {
+		confirmed, err := req.ConfirmSourceReplace.ConfirmUpdateSourceReplace(current, incoming)
 		if err != nil {
 			return &UpdateResult{Mode: UpdateModeSetSource, SourceChange: change}, err
 		}
@@ -739,9 +737,9 @@ func (service SourceUpdateService) updateUnsetSource(ctx context.Context, req Up
 	if err != nil {
 		return nil, err
 	}
-	current := updateSourceViewFromDomain(app.Update)
+	current := app.Update
 	change := &UpdateSourceChangeView{ID: id, Current: current}
-	if updateSourceViewIsNone(current) {
+	if updateSourceIsNone(current) {
 		return &UpdateResult{Mode: UpdateModeUnsetSource, Source: &UpdateSourceResult{ID: id, Source: current, Changed: false}, SourceChange: change, SourceUnchanged: true, NoEmbeddedSource: req.UseEmbeddedSource}, nil
 	}
 	if req.DryRun {
@@ -794,24 +792,24 @@ func (service SourceUpdateService) withOptionalWriteLock(fn func() error) error 
 	return service.Locker.WithWriteLock(fn)
 }
 
-func updateSourceViewIsNone(update *UpdateSourceView) bool {
-	return update == nil || strings.TrimSpace(update.Kind) == "" || strings.TrimSpace(update.Kind) == UpdateKindNone
+func updateSourceIsNone(update *domain.UpdateSource) bool {
+	return update == nil || strings.TrimSpace(string(update.Kind)) == "" || update.Kind == domain.UpdateNone
 }
 
-func updateSourceViewsEqual(left, right *UpdateSourceView) bool {
-	if updateSourceViewIsNone(left) && updateSourceViewIsNone(right) {
+func updateSourcesEqual(left, right *domain.UpdateSource) bool {
+	if updateSourceIsNone(left) && updateSourceIsNone(right) {
 		return true
 	}
-	if updateSourceViewIsNone(left) || updateSourceViewIsNone(right) {
+	if updateSourceIsNone(left) || updateSourceIsNone(right) {
 		return false
 	}
-	if strings.TrimSpace(left.Kind) != strings.TrimSpace(right.Kind) {
+	if left.Kind != right.Kind {
 		return false
 	}
-	switch strings.TrimSpace(left.Kind) {
-	case UpdateKindZsync:
+	switch left.Kind {
+	case domain.UpdateZsync:
 		return left.Zsync != nil && right.Zsync != nil && strings.TrimSpace(left.Zsync.UpdateInfo) == strings.TrimSpace(right.Zsync.UpdateInfo) && strings.TrimSpace(left.Zsync.Transport) == strings.TrimSpace(right.Zsync.Transport)
-	case UpdateKindGitHubRelease:
+	case domain.UpdateGitHubRelease:
 		return left.GitHubRelease != nil && right.GitHubRelease != nil && strings.TrimSpace(left.GitHubRelease.Repo) == strings.TrimSpace(right.GitHubRelease.Repo) && strings.TrimSpace(left.GitHubRelease.Asset) == strings.TrimSpace(right.GitHubRelease.Asset)
 	default:
 		return true
@@ -838,10 +836,10 @@ func markUpdateRows(rows []ManagedUpdateCheckRow, from, to string) {
 	}
 }
 
-func countApplyFailures(results []ManagedApplyResultView) int {
+func countApplyFailures(results []appupdate.ManagedApplyResult) int {
 	failures := 0
 	for _, result := range results {
-		if strings.TrimSpace(result.Error) != "" {
+		if result.Error != nil {
 			failures++
 		}
 	}
@@ -864,7 +862,7 @@ func (service SourceUpdateService) applyBatchWithOptionalLock(ctx context.Contex
 	return result, applyErr
 }
 
-func (service SourceUpdateService) reconcileAppliedUpdateRows(rows []ManagedUpdateCheckRow, results []ManagedApplyResultView) {
+func (service SourceUpdateService) reconcileAppliedUpdateRows(rows []ManagedUpdateCheckRow, results []appupdate.ManagedApplyResult) {
 	rowIndexByID := make(map[string]int, len(rows))
 	for idx, row := range rows {
 		if row.App != nil && strings.TrimSpace(row.App.ID) != "" {
@@ -872,7 +870,7 @@ func (service SourceUpdateService) reconcileAppliedUpdateRows(rows []ManagedUpda
 		}
 	}
 	for _, apply := range results {
-		if strings.TrimSpace(apply.Error) != "" || apply.UpdatedApp == nil {
+		if apply.Error != nil || apply.UpdatedApp == nil {
 			continue
 		}
 		idx, ok := rowIndexByID[strings.TrimSpace(apply.UpdatedApp.ID)]
@@ -939,7 +937,7 @@ func (service SourceUpdateService) checkManagedUpdates(ctx context.Context, req 
 	metadataUpdates := make([]CheckMetadataUpdate, 0, len(checkResults))
 	result := &ManagedUpdateCheckResult{
 		Rows:           make([]ManagedUpdateCheckRow, 0, len(checkResults)),
-		Pending:        make([]ManagedUpdateView, 0),
+		Pending:        make([]appupdate.ManagedUpdate, 0),
 		PendingHandles: make([]ManagedUpdateHandle, 0),
 		Failures:       make([]ManagedCheckFailureView, 0),
 	}
@@ -957,7 +955,7 @@ func (service SourceUpdateService) checkManagedUpdates(ctx context.Context, req 
 					LastCheckedAt: checkedAt,
 				})
 			}
-			result.Rows = append(result.Rows, ManagedUpdateCheckRow{App: appSummaryFromDomain(app), Update: managedUpdateViewFromAppUpdate(update), Status: "check_failed", CheckedAt: checkedAt, Error: checkResult.Error.Error()})
+			result.Rows = append(result.Rows, ManagedUpdateCheckRow{App: app, Update: update, Status: "check_failed", CheckedAt: checkedAt, Error: checkResult.Error.Error()})
 			result.CheckFailures++
 			result.Failures = append(result.Failures, ManagedCheckFailureView{AppID: appID(app), Reason: checkResult.Error.Error()})
 			if strings.TrimSpace(req.TargetID) != "" {
@@ -975,7 +973,7 @@ func (service SourceUpdateService) checkManagedUpdates(ctx context.Context, req 
 			if app == nil || app.Update == nil || app.Update.Kind == domain.UpdateNone {
 				status = "no_update_source"
 			}
-			result.Rows = append(result.Rows, ManagedUpdateCheckRow{App: appSummaryFromDomain(app), Status: status, CheckedAt: checkedAt})
+			result.Rows = append(result.Rows, ManagedUpdateCheckRow{App: app, Status: status, CheckedAt: checkedAt})
 			continue
 		}
 
@@ -997,7 +995,7 @@ func (service SourceUpdateService) checkManagedUpdates(ctx context.Context, req 
 				result.PendingHandles = append(result.PendingHandles, *handle)
 			}
 		}
-		result.Rows = append(result.Rows, ManagedUpdateCheckRow{App: appSummaryFromDomain(app), Update: managedUpdateViewFromAppUpdate(update), Status: status, CheckedAt: checkedAt})
+		result.Rows = append(result.Rows, ManagedUpdateCheckRow{App: app, Update: update, Status: status, CheckedAt: checkedAt})
 	}
 
 	if !req.DryRun {
@@ -1082,16 +1080,11 @@ func (service SourceUpdateService) applyBatch(ctx context.Context, req UpdateApp
 		if req.ReporterFor == nil {
 			return nil
 		}
-		view := managedUpdateViewFromAppUpdate(&update)
-		if view == nil {
-			view = &ManagedUpdateView{}
-		}
-		return appupdate.WithManagedApplyEventDefaults(req.ReporterFor(index, total, *view), index, total, update)
+		return appupdate.WithManagedApplyEventDefaults(req.ReporterFor(index, total, update), index, total, update)
 	})
-	results := make([]ManagedApplyResultView, 0, len(applyResults))
+	results := applyResults
 	appliedApps := make([]*domain.App, 0, len(applyResults))
 	for _, result := range applyResults {
-		results = append(results, managedApplyResultViewFromAppUpdate(result))
 		if result.Error == nil && result.UpdatedApp != nil {
 			appliedApps = append(appliedApps, result.UpdatedApp)
 		}
@@ -1183,7 +1176,7 @@ func (service SourceUpdateService) setSource(ctx context.Context, req updateSour
 	if service.Store == nil {
 		return nil, internalErrorf("app store is not configured")
 	}
-	source := updateSourceInputToDomain(req.Source)
+	source := req.Source
 	if err := domain.ValidateUpdateSource(source); err != nil {
 		return nil, NewError(ErrorInvalidInput, "", err)
 	}
@@ -1195,11 +1188,11 @@ func (service SourceUpdateService) setSource(ctx context.Context, req updateSour
 	if err := service.Store.UpdateApp(app); err != nil {
 		return nil, err
 	}
-	return &UpdateSourceResult{ID: req.ID, Source: updateSourceViewFromDomain(source), Changed: true}, nil
+	return &UpdateSourceResult{ID: req.ID, Source: source, Changed: true}, nil
 }
 
 func (service SourceUpdateService) unsetSource(ctx context.Context, id string) (*UpdateSourceResult, error) {
-	return service.setSource(ctx, updateSourceRequest{ID: id, Source: &UpdateSourceInput{Kind: UpdateKindNone}})
+	return service.setSource(ctx, updateSourceRequest{ID: id, Source: &domain.UpdateSource{Kind: domain.UpdateNone}})
 }
 
 func (service SourceUpdateService) planSetSource(ctx context.Context, req updateSourceRequest) (*DryRunPlan, error) {
@@ -1211,7 +1204,7 @@ func (service SourceUpdateService) planSetSource(ctx context.Context, req update
 	if err != nil {
 		return nil, err
 	}
-	source := updateSourceInputToDomain(req.Source)
+	source := req.Source
 	values := UpdateSetDryRunValues(req.ID, app.Update, source)
 	return &DryRunPlan{
 		Action:     "set_update_source",
@@ -1220,8 +1213,8 @@ func (service SourceUpdateService) planSetSource(ctx context.Context, req update
 		TargetKind: "managed_app",
 		UpdateSourceChange: &UpdateSourceChangeView{
 			ID:       strings.TrimSpace(req.ID),
-			Current:  updateSourceViewFromDomain(app.Update),
-			Incoming: updateSourceViewFromDomain(source),
+			Current:  app.Update,
+			Incoming: source,
 		},
 		DBWrite: true,
 	}, nil
@@ -1244,35 +1237,27 @@ func (service SourceUpdateService) planUnsetSource(ctx context.Context, id strin
 		TargetKind: "managed_app",
 		UpdateSourceChange: &UpdateSourceChangeView{
 			ID:      strings.TrimSpace(id),
-			Current: updateSourceViewFromDomain(app.Update),
+			Current: app.Update,
 		},
 		DBWrite: true,
 	}, nil
 }
 
-func ParseGitHubProviderRef(value string) (ProviderRef, error) {
-	ref, err := domain.ParseGitHubRepoValue(value)
-	if err != nil {
-		return ProviderRef{}, err
-	}
-	return providerRefFromDomain(ref), nil
+func ParseGitHubPackageRef(value string) (domain.PackageRef, error) {
+	return domain.ParseGitHubRepoValue(value)
 }
 
-func ParsePackageProviderRefURL(value string) (ProviderRef, error) {
-	ref, err := domain.ParsePackageRefURL(value)
-	if err != nil {
-		return ProviderRef{}, err
-	}
-	return providerRefFromDomain(ref), nil
+func ParsePackageRefURL(value string) (domain.PackageRef, error) {
+	return domain.ParsePackageRefURL(value)
 }
 
-func FormatProviderRef(ref ProviderRef) string {
-	value := strings.TrimSpace(ref.Ref)
+func FormatPackageRef(ref domain.PackageRef) string {
+	value := strings.TrimSpace(ref.ProviderRef)
 	if value == "" {
 		return ""
 	}
-	switch strings.TrimSpace(ref.Provider) {
-	case ProviderGitHub:
+	switch strings.TrimSpace(ref.Kind) {
+	case domain.ProviderGitHub:
 		return "GitHub " + value
 	default:
 		return value
@@ -1287,7 +1272,7 @@ func ManagedUpdateDownloadFilename(assetName, downloadURL string) string {
 	return appupdate.ManagedUpdateDownloadFilename(assetName, downloadURL)
 }
 
-func applyPackageViewSelection(metadata *domain.PackageMetadata, view *PackageView) {
+func applyPackageMetadataSelection(metadata *domain.PackageMetadata, view *domain.PackageMetadata) {
 	if metadata == nil || view == nil {
 		return
 	}
@@ -1317,7 +1302,7 @@ func removeResultFromDomain(app *domain.App, unlink bool) *RemoveResult {
 	action, _ := values["action"].(string)
 	return &RemoveResult{
 		Action: action,
-		App:    appDetailsFromDomain(app),
+		App:    app,
 		Unlink: unlink,
 		Paths:  paths,
 	}

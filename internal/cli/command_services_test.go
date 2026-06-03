@@ -13,9 +13,7 @@ import (
 
 func TestListCmdCallsListServiceWithParsedFilter(t *testing.T) {
 	service := &recordingListService{
-		result: &appservices.ListResult{Apps: []*appservices.AppDetails{{
-			AppSummary: appservices.AppSummary{ID: "app", Name: "App", Integrated: true},
-		}}},
+		result: &appservices.ListResult{Apps: []*appservices.App{{ID: "app", Name: "App", DesktopEntryLink: "/tmp/app.desktop"}}},
 	}
 	cmd := newListCommand()
 	installRuntimeServicesForTest(cmd, runtimeServices{List: service, Locker: noopLocker{}})
@@ -37,7 +35,7 @@ func TestListCmdCallsListServiceWithParsedFilter(t *testing.T) {
 
 func TestRemoveCmdUsesRemoveServiceAndLocker(t *testing.T) {
 	remove := &recordingRemoveService{
-		result: &appservices.RemoveResult{Action: "remove", App: &appservices.AppDetails{AppSummary: appservices.AppSummary{ID: "app", Name: "App"}}},
+		result: &appservices.RemoveResult{Action: "remove", App: &appservices.App{ID: "app", Name: "App"}},
 	}
 	locker := &recordingLocker{}
 	cmd := newRemoveCommand()
@@ -160,7 +158,7 @@ func TestAddCmdDryRunRoutesPackageRefToPlan(t *testing.T) {
 		t.Fatalf("AddCmd returned error: %v", err)
 	}
 
-	if service.planPackageReq.Ref.Provider != appservices.ProviderGitHub || service.planPackageReq.Ref.Ref != "owner/repo" || service.planPackageReq.AssetPattern != "*.AppImage" {
+	if service.planPackageReq.Ref.Kind != appservices.ProviderGitHub || service.planPackageReq.Ref.ProviderRef != "owner/repo" || service.planPackageReq.AssetPattern != "*.AppImage" {
 		t.Fatalf("PlanPackageRefInstall request = %+v", service.planPackageReq)
 	}
 	if service.installPackageCalls != 0 {
@@ -174,9 +172,9 @@ func TestAddCmdDryRunRoutesPackageRefToPlan(t *testing.T) {
 func TestRunAddRequestGitHubProgressTransitionsToIntegratingCleanly(t *testing.T) {
 	withTerminalOutput(t, true)
 
-	provider := appservices.ProviderRef{Provider: appservices.ProviderGitHub, Ref: "cjpais/Handy"}
+	provider := appservices.PackageRef{Kind: appservices.ProviderGitHub, ProviderRef: "cjpais/Handy"}
 	service := &recordingAddService{
-		packageView: &appservices.PackageView{AssetName: "Handy_0.8.3_amd64.AppImage"},
+		packageView: &appservices.PackageMetadata{AssetName: "Handy_0.8.3_amd64.AppImage"},
 	}
 	cmd, output := commandWithRuntimeForTest(newAddCommand(), runtimeOptions{}, runtimeServices{Add: service, Locker: noopLocker{}})
 
@@ -291,7 +289,7 @@ func TestRemoveCmdUnlinkUsesRemoveServiceAndLocker(t *testing.T) {
 }
 
 func TestListCmdFiltersAndOutputFormats(t *testing.T) {
-	apps := []*appservices.AppDetails{
+	apps := []*appservices.App{
 		appDetails("alpha", "Alpha", true),
 		appDetails("beta", "Beta", false),
 	}
@@ -355,9 +353,9 @@ func TestInfoCmdRoutesManagedLocalAndPackageTargets(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			service := &recordingInfoService{
-				managed: &appservices.InfoResult{Kind: appservices.InfoKindManagedApp, AppDetails: appDetails("app", "App", true)},
+				managed: &appservices.InfoResult{Kind: appservices.InfoKindManagedApp, App: appDetails("app", "App", true)},
 				local:   &appservices.InfoResult{Kind: appservices.InfoKindLocalAppImage, AppImageInfo: &appservices.AppImageInfoView{Name: "App", ID: "app", Version: "1.0.0"}},
-				pkg:     &appservices.InfoResult{Kind: appservices.InfoKindPackage, PackageView: &appservices.PackageView{Name: "App", Provider: "GitHub", Ref: appservices.ProviderRef{Provider: appservices.ProviderGitHub, Ref: "owner/repo"}, LatestVersion: "1.0.0", Installable: true}},
+				pkg:     &appservices.InfoResult{Kind: appservices.InfoKindPackage, PackageMetadata: &appservices.PackageMetadata{Name: "App", Provider: "GitHub", Ref: appservices.PackageRef{Kind: appservices.ProviderGitHub, ProviderRef: "owner/repo"}, LatestVersion: "1.0.0", Installable: true}},
 			}
 			cmd, output := commandWithRuntimeForTest(newInfoCommand(), runtimeOptions{}, runtimeServices{Info: service, Locker: noopLocker{}})
 			for name, value := range tt.flags {
@@ -392,8 +390,12 @@ func commandWithRuntimeForTest(cmd *cobra.Command, opts runtimeOptions, services
 	return cmd, &output
 }
 
-func appDetails(id, name string, integrated bool) *appservices.AppDetails {
-	return &appservices.AppDetails{AppSummary: appservices.AppSummary{ID: id, Name: name, Version: "1.0.0", Integrated: integrated}}
+func appDetails(id, name string, integrated bool) *appservices.App {
+	app := &appservices.App{ID: id, Name: name, Version: "1.0.0"}
+	if integrated {
+		app.DesktopEntryLink = "/tmp/" + id + ".desktop"
+	}
+	return app
 }
 
 type recordingAddService struct {
@@ -408,7 +410,7 @@ type recordingAddService struct {
 	planLocalPath       string
 	planDirectReq       appservices.InstallDirectURLRequest
 	planPackageReq      appservices.InstallPackageRefRequest
-	packageView         *appservices.PackageView
+	packageView         *appservices.PackageMetadata
 	plan                *appservices.DryRunPlan
 }
 
@@ -500,9 +502,9 @@ func (service *recordingAddService) InstallPackageRef(ctx context.Context, req a
 	if req.ResolveViewAmbiguity != nil {
 		view := service.packageView
 		if view == nil {
-			view = &appservices.PackageView{AssetName: "App.AppImage"}
+			view = &appservices.PackageMetadata{AssetName: "App.AppImage"}
 		}
-		if _, err := req.ResolveViewAmbiguity.ResolvePackageViewAmbiguity(view); err != nil {
+		if _, err := req.ResolveViewAmbiguity.ResolvePackageMetadataAmbiguity(view); err != nil {
 			return nil, err
 		}
 	}
@@ -545,19 +547,20 @@ func (service *recordingListService) List(ctx context.Context, req appservices.L
 		return nil, nil
 	}
 	result := &appservices.ListResult{
-		Apps:       make([]*appservices.AppDetails, 0, len(service.result.Apps)),
+		Apps:       make([]*appservices.App, 0, len(service.result.Apps)),
 		TotalCount: len(service.result.Apps),
 	}
 	for _, app := range service.result.Apps {
 		if app == nil {
 			continue
 		}
-		if app.Integrated {
+		integrated := appIsIntegrated(app)
+		if integrated {
 			result.IntegratedCount++
 		} else {
 			result.UnlinkedCount++
 		}
-		if req.Filter == "" || req.Filter == appservices.ListAll || (req.Filter == appservices.ListIntegrated && app.Integrated) || (req.Filter == appservices.ListUnlinked && !app.Integrated) {
+		if req.Filter == "" || req.Filter == appservices.ListAll || (req.Filter == appservices.ListIntegrated && integrated) || (req.Filter == appservices.ListUnlinked && !integrated) {
 			result.Apps = append(result.Apps, app)
 		}
 	}

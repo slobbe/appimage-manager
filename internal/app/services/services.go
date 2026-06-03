@@ -8,6 +8,22 @@ import (
 	"github.com/slobbe/appimage-manager/internal/domain"
 )
 
+type App = domain.App
+
+type PackageRef = domain.PackageRef
+
+type PackageMetadata = domain.PackageMetadata
+
+type AssetCandidate = domain.AssetCandidate
+
+type UpdateKind = domain.UpdateKind
+
+type UpdateSource = domain.UpdateSource
+
+type ZsyncUpdateSource = domain.ZsyncUpdateSource
+
+type GitHubReleaseUpdateSource = domain.GitHubReleaseUpdateSource
+
 type AddService interface {
 	Add(ctx context.Context, req AddRequest) (*AddResult, error)
 }
@@ -63,13 +79,13 @@ type AddRequest struct {
 	AssetPattern string
 
 	ConfirmUpdateSourceReplace UpdateSourceReplaceConfirmer
-	ResolvePackageAmbiguity    PackageViewAmbiguityResolver
+	ResolvePackageAmbiguity    PackageMetadataAmbiguityResolver
 }
 
 type AddTargetInput struct {
 	Positional string
 	URL        string
-	Provider   *ProviderRef
+	Provider   *domain.PackageRef
 }
 
 type IntegrateLocalRequest struct {
@@ -87,7 +103,7 @@ const (
 
 type IntegrateTargetResult struct {
 	Kind      IntegrateTargetKind
-	App       *AppDetails
+	App       *domain.App
 	LocalPath string
 }
 
@@ -97,19 +113,19 @@ type InstallDirectURLRequest struct {
 }
 
 type InstallPackageRefRequest struct {
-	Ref                  ProviderRef
+	Ref                  domain.PackageRef
 	AssetPattern         string
-	ResolveViewAmbiguity PackageViewAmbiguityResolver
+	ResolveViewAmbiguity PackageMetadataAmbiguityResolver
 }
 
 type PackageRefInfoRequest struct {
-	Ref          ProviderRef
+	Ref          domain.PackageRef
 	AssetPattern string
 }
 
 type InfoRequest struct {
 	Input        string
-	Provider     *ProviderRef
+	Provider     *domain.PackageRef
 	AssetPattern string
 	ManagedOnly  bool
 }
@@ -154,7 +170,7 @@ type UpdateRequest struct {
 	AutoApply bool
 	UseCache  bool
 
-	Source            *UpdateSourceInput
+	Source            *domain.UpdateSource
 	UseEmbeddedSource bool
 
 	OnCacheHit           func(appID string)
@@ -166,7 +182,7 @@ type UpdateRequest struct {
 
 type UpdateApplyConfirmation struct {
 	TargetID string
-	Pending  []ManagedUpdateView
+	Pending  []ManagedUpdate
 }
 
 type UpdateApplyConfirmer interface {
@@ -174,7 +190,7 @@ type UpdateApplyConfirmer interface {
 }
 
 type UpdateSourceUnsetConfirmer interface {
-	ConfirmUpdateSourceUnset(current *UpdateSourceView) (bool, error)
+	ConfirmUpdateSourceUnset(current *domain.UpdateSource) (bool, error)
 }
 
 type ManagedUpdateCheckRequest struct {
@@ -196,13 +212,17 @@ const (
 	ManagedApplyStageFailed    ManagedApplyStage = update.ManagedApplyStageFailed
 )
 
+type ManagedUpdate = update.ManagedUpdate
+
+type ManagedApplyResult = update.ManagedApplyResult
+
 type ManagedApplyEvent = update.ManagedApplyEvent
 
 type ManagedApplyReporter = update.ManagedApplyReporter
 
 type ManagedApplyReporterFunc = update.ManagedApplyReporterFunc
 
-type ManagedApplyReporterFactory func(index, total int, update ManagedUpdateView) ManagedApplyReporter
+type ManagedApplyReporterFactory func(index, total int, update ManagedUpdate) ManagedApplyReporter
 
 type UpdateApplyBatchRequest struct {
 	Pending     []ManagedUpdateHandle
@@ -211,7 +231,7 @@ type UpdateApplyBatchRequest struct {
 
 type updateSourceRequest struct {
 	ID     string
-	Source *UpdateSourceInput
+	Source *domain.UpdateSource
 }
 
 type AddAction string
@@ -227,31 +247,31 @@ type AddResult struct {
 	Action AddAction
 	Status string
 
-	App     *AppDetails
+	App     *domain.App
 	Plan    *DryRunPlan
-	Package *PackageView
+	Package *domain.PackageMetadata
 
 	AlreadyIntegrated bool
 }
 
 type ListResult struct {
-	Apps            []*AppDetails
+	Apps            []*domain.App
 	TotalCount      int
 	IntegratedCount int
 	UnlinkedCount   int
 }
 
 type InfoResult struct {
-	Kind           InfoKind
-	AppDetails     *AppDetails
-	AppImageInfo   *AppImageInfoView
-	PackageView    *PackageView
-	EmbeddedUpdate *UpdateSourceView
+	Kind            InfoKind
+	App             *domain.App
+	AppImageInfo    *AppImageInfoView
+	PackageMetadata *domain.PackageMetadata
+	EmbeddedUpdate  *domain.UpdateSource
 }
 
 type RemoveResult struct {
 	Action string
-	App    *AppDetails
+	App    *domain.App
 	Unlink bool
 	Paths  []string
 }
@@ -269,10 +289,10 @@ type SelfUpdateResult struct {
 type UpdateResult struct {
 	Mode          UpdateMode
 	Rows          []ManagedUpdateCheckRow
-	Pending       []ManagedUpdateView
+	Pending       []ManagedUpdate
 	CheckFailures int
 	Failures      []ManagedCheckFailureView
-	Applied       []ManagedApplyResultView
+	Applied       []ManagedApplyResult
 	ApplySkipped  bool
 	ApplyFailures int
 
@@ -285,18 +305,18 @@ type UpdateResult struct {
 
 type ManagedUpdateCheckResult struct {
 	Rows           []ManagedUpdateCheckRow
-	Pending        []ManagedUpdateView
+	Pending        []ManagedUpdate
 	PendingHandles []ManagedUpdateHandle `json:"-"`
 	CheckFailures  int
 	Failures       []ManagedCheckFailureView
 }
 
 type ManagedUpdateCheckRow struct {
-	App       *AppSummary        `json:"app,omitempty"`
-	Update    *ManagedUpdateView `json:"update,omitempty"`
-	Status    string             `json:"status"`
-	CheckedAt string             `json:"checked_at,omitempty"`
-	Error     string             `json:"error,omitempty"`
+	App       *domain.App    `json:"app,omitempty"`
+	Update    *ManagedUpdate `json:"update,omitempty"`
+	Status    string         `json:"status"`
+	CheckedAt string         `json:"checked_at,omitempty"`
+	Error     string         `json:"error,omitempty"`
 }
 
 type ManagedCheckFailureView struct {
@@ -305,12 +325,12 @@ type ManagedCheckFailureView struct {
 }
 
 type UpdateApplyBatchResult struct {
-	Results []ManagedApplyResultView
+	Results []ManagedApplyResult
 }
 
 type UpdateSourceResult struct {
 	ID      string
-	Source  *UpdateSourceView
+	Source  *domain.UpdateSource
 	Changed bool
 }
 
@@ -320,8 +340,8 @@ type DryRunPlan struct {
 	Values map[string]interface{}
 
 	TargetKind         string
-	App                *AppDetails
-	Package            *PackageView
+	App                *domain.App
+	Package            *domain.PackageMetadata
 	AppImage           *AppImageInfoView
 	UpdateSourceChange *UpdateSourceChangeView
 	Paths              []string
@@ -337,9 +357,9 @@ const (
 )
 
 type UpdateSourceReplaceConfirmer interface {
-	ConfirmUpdateSourceReplace(existing, incoming *UpdateSourceView) (bool, error)
+	ConfirmUpdateSourceReplace(existing, incoming *domain.UpdateSource) (bool, error)
 }
 
-type PackageViewAmbiguityResolver interface {
-	ResolvePackageViewAmbiguity(metadata *PackageView) (*PackageView, error)
+type PackageMetadataAmbiguityResolver interface {
+	ResolvePackageMetadataAmbiguity(metadata *domain.PackageMetadata) (*domain.PackageMetadata, error)
 }
