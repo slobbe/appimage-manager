@@ -16,6 +16,8 @@ func TestNormalizeComparableVersion(t *testing.T) {
 		{name: "extracts embedded v version", input: "desktop-v1.2.3", expect: "1.2.3"},
 		{name: "strips linux arch suffix", input: "1.17.0-linux-x86-64", expect: "1.17.0"},
 		{name: "strips arch suffix", input: "1.17.0-x86_64", expect: "1.17.0"},
+		{name: "extracts version before underscore arch suffix", input: "Handy_0.8.3_amd64.AppImage", expect: "0.8.3"},
+		{name: "extracts version before staged arch hash suffix", input: "handy_0.8.3_amd64-265e144b8aba0ca4", expect: "0.8.3"},
 		{name: "keeps prerelease", input: "v1.2.3-rc1", expect: "1.2.3-rc1"},
 		{name: "keeps prerelease before packaging suffix", input: "1.17.0-rc1-linux-x86_64", expect: "1.17.0-rc1"},
 		{name: "keeps dotted prerelease", input: "foo@1.2.3-beta.1", expect: "1.2.3-beta.1"},

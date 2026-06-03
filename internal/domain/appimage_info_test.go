@@ -33,6 +33,33 @@ func TestParseDesktopEntryAppInfoUsesUnknownWhenVersionUnavailable(t *testing.T)
 	}
 }
 
+func TestParseDesktopEntryAppInfoFallsBackToVersionBeforeStagedFilenameSuffix(t *testing.T) {
+	desktopPath := filepath.Join(t.TempDir(), "handy_0.8.3_amd64-265e144b8aba0ca4.desktop")
+	content := strings.Join([]string{
+		"[Desktop Entry]",
+		"Name=Handy",
+	}, "\n") + "\n"
+
+	appInfo := ParseDesktopEntryAppInfo(desktopPath, content, "handy")
+	if appInfo.Version != "0.8.3" {
+		t.Fatalf("appInfo.Version = %q, want %q", appInfo.Version, "0.8.3")
+	}
+}
+
+func TestParseDesktopEntryAppInfoNormalizesStagedMetadataVersion(t *testing.T) {
+	desktopPath := filepath.Join(t.TempDir(), "handy.desktop")
+	content := strings.Join([]string{
+		"[Desktop Entry]",
+		"Name=Handy",
+		"X-AppImage-Version=handy_0.8.3_amd64-265e144b8aba0ca4",
+	}, "\n") + "\n"
+
+	appInfo := ParseDesktopEntryAppInfo(desktopPath, content, "handy")
+	if appInfo.Version != "0.8.3" {
+		t.Fatalf("appInfo.Version = %q, want %q", appInfo.Version, "0.8.3")
+	}
+}
+
 func TestParseDesktopEntryAppInfoNormalizesMetadataVersion(t *testing.T) {
 	desktopPath := filepath.Join(t.TempDir(), "standard-notes.desktop")
 	content := strings.Join([]string{

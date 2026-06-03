@@ -55,15 +55,16 @@ func NormalizeComparableVersion(raw string) string {
 		start, end := matchRanges[i][0], matchRanges[i][1]
 		candidate := value[start:end]
 		if end < len(value) && isVersionContinuationByte(value[end]) {
+			if value[end] == '_' && isPackagingSuffixStart(value[end+1:]) {
+				return normalizeComparableVersionCandidate(candidate)
+			}
 			if cut := strings.LastIndexAny(candidate, "-+"); cut >= 0 {
 				candidate = candidate[:cut]
 			} else {
 				continue
 			}
 		}
-		normalized := trimLeadingVIfNumeric(candidate)
-		normalized = stripPackagingVersionSuffix(normalized)
-		if normalized != "" {
+		if normalized := normalizeComparableVersionCandidate(candidate); normalized != "" {
 			return normalized
 		}
 	}
@@ -244,6 +245,11 @@ func parsePrereleaseNumber(value string) (int, bool) {
 	return number, err == nil
 }
 
+func normalizeComparableVersionCandidate(candidate string) string {
+	normalized := trimLeadingVIfNumeric(candidate)
+	return stripPackagingVersionSuffix(normalized)
+}
+
 func trimLeadingVIfNumeric(value string) string {
 	value = strings.ToLower(strings.TrimSpace(value))
 	if len(value) > 1 && value[0] == 'v' {
@@ -305,6 +311,26 @@ func stripPackagingVersionSuffix(value string) string {
 	}
 
 	return core + "-" + strings.Join(segments[:packagingStart], "-")
+}
+
+func isPackagingSuffixStart(suffix string) bool {
+	segment := leadingPackagingSuffixSegment(suffix)
+	return isPackagingVersionSegment(segment)
+}
+
+func leadingPackagingSuffixSegment(suffix string) string {
+	suffix = strings.TrimLeft(strings.TrimSpace(suffix), "-_ .")
+	if suffix == "" {
+		return ""
+	}
+	end := len(suffix)
+	for i, r := range suffix {
+		if r == '-' || r == '_' || r == '.' || r == '+' {
+			end = i
+			break
+		}
+	}
+	return suffix[:end]
 }
 
 func isPackagingVersionSegment(segment string) bool {
