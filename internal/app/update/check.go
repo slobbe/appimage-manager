@@ -27,6 +27,10 @@ type UpdateData struct {
 }
 
 func ZsyncUpdateCheckWithFetcher(upd *models.UpdateSource, localSHA1 string, fetcher ZsyncMetadataFetcher) (*UpdateData, error) {
+	return ZsyncUpdateCheckWithResolver(upd, localSHA1, fetcher, nil)
+}
+
+func ZsyncUpdateCheckWithResolver(upd *models.UpdateSource, localSHA1 string, fetcher ZsyncMetadataFetcher, resolver GitHubReleaseResolver) (*UpdateData, error) {
 	if upd.Kind != models.UpdateZsync || upd.Zsync == nil {
 		return nil, fmt.Errorf("no zsync update information")
 	}
@@ -35,7 +39,7 @@ func ZsyncUpdateCheckWithFetcher(upd *models.UpdateSource, localSHA1 string, fet
 		return nil, fmt.Errorf("missing zsync update info")
 	}
 
-	updateInfo, err := parseUpdateInfoString(upd.Zsync.UpdateInfo)
+	updateInfo, err := parseUpdateInfoStringWithResolver(upd.Zsync.UpdateInfo, resolver)
 	if err != nil {
 		return nil, err
 	}

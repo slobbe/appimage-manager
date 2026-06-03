@@ -475,7 +475,7 @@ func configureAppPorts(networkTimeout time.Duration) {
 	}
 	if runZsyncUpdateCheck == nil {
 		runZsyncUpdateCheck = func(update *models.UpdateSource, localSHA1 string) (*appupdate.UpdateData, error) {
-			return appupdate.ZsyncUpdateCheckWithFetcher(update, localSHA1, zsyncFetcher)
+			return appupdate.ZsyncUpdateCheckWithResolver(update, localSHA1, zsyncFetcher, githubReleaseResolver)
 		}
 	}
 	if runGitHubReleaseUpdateCheck == nil {

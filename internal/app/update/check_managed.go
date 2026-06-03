@@ -37,7 +37,7 @@ func (checker ManagedUpdateChecker) checkZsync(app *models.App) (*ManagedUpdate,
 	check := checker.ZsyncCheck
 	if check == nil {
 		check = func(update *models.UpdateSource, localSHA1 string) (*UpdateData, error) {
-			return ZsyncUpdateCheckWithFetcher(update, localSHA1, checker.ZsyncMetadataFetcher)
+			return ZsyncUpdateCheckWithResolver(update, localSHA1, checker.ZsyncMetadataFetcher, checker.GitHubReleaseResolver)
 		}
 	}
 	update, err := check(app.Update, app.SHA1)

@@ -49,6 +49,19 @@ func (r fakeGitHubReleaseResolver) ResolveLatestReleaseTag(owner, repo string) (
 
 type failingGitHubReleaseResolver struct{}
 
+type recordingZsyncMetadataFetcher struct {
+	url string
+}
+
+func (fetcher *recordingZsyncMetadataFetcher) FetchMetadata(url string) (*models.ZsyncMetadata, error) {
+	fetcher.url = url
+	return &models.ZsyncMetadata{
+		RemoteSHA1:     strings.Repeat("b", 40),
+		RemoteFilename: "helium-v2.0.0-x86_64.AppImage",
+		RemoteTime:     "2026-01-02T03:04:05Z",
+	}, nil
+}
+
 func (failingGitHubReleaseResolver) ResolveReleaseAsset(repoSlug, assetPattern string) (*GitHubReleaseAsset, error) {
 	return nil, nil
 }
@@ -128,6 +141,64 @@ func TestParseUpdateInfoStringGitHubReleasesZsyncLatestTagError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "latest unavailable") {
 		t.Fatalf("error = %q, want latest unavailable substring", err.Error())
+	}
+}
+
+func TestZsyncUpdateCheckResolvesGitHubReleasesLatestTag(t *testing.T) {
+	fetcher := &recordingZsyncMetadataFetcher{}
+	update, err := ZsyncUpdateCheckWithResolver(&models.UpdateSource{
+		Kind: models.UpdateZsync,
+		Zsync: &models.ZsyncUpdateSource{
+			UpdateInfo: "gh-releases-zsync|owner|repo|latest|*-x86_64.AppImage.zsync",
+			Transport:  "gh-releases",
+		},
+	}, strings.Repeat("a", 40), fetcher, fakeGitHubReleaseResolver{latestTag: "v2.0.0"})
+	if err != nil {
+		t.Fatalf("ZsyncUpdateCheckWithResolver returned error: %v", err)
+	}
+
+	expectURL := "https://github.com/owner/repo/releases/download/v2.0.0/v2.0.0-x86_64.AppImage.zsync"
+	if fetcher.url != expectURL {
+		t.Fatalf("metadata URL = %q, want %q", fetcher.url, expectURL)
+	}
+	if update == nil || !update.Available {
+		t.Fatalf("update = %#v, want available update", update)
+	}
+	if update.DownloadUrlZsync != expectURL {
+		t.Fatalf("DownloadUrlZsync = %q, want %q", update.DownloadUrlZsync, expectURL)
+	}
+}
+
+func TestManagedUpdateCheckerZsyncUsesGitHubReleaseResolverForLatestTag(t *testing.T) {
+	fetcher := &recordingZsyncMetadataFetcher{}
+	update, err := NewManagedUpdateChecker(ManagedUpdateChecker{
+		ZsyncMetadataFetcher:  fetcher,
+		GitHubReleaseResolver: fakeGitHubReleaseResolver{latestTag: "v2.0.0"},
+	}).Check(&models.App{
+		ID:      "helium",
+		Version: "0.10.5.1",
+		SHA1:    strings.Repeat("a", 40),
+		Update: &models.UpdateSource{
+			Kind: models.UpdateZsync,
+			Zsync: &models.ZsyncUpdateSource{
+				UpdateInfo: "gh-releases-zsync|owner|repo|latest|*-x86_64.AppImage.zsync",
+				Transport:  "gh-releases",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("ManagedUpdateChecker.Check returned error: %v", err)
+	}
+
+	expectURL := "https://github.com/owner/repo/releases/download/v2.0.0/v2.0.0-x86_64.AppImage.zsync"
+	if fetcher.url != expectURL {
+		t.Fatalf("metadata URL = %q, want %q", fetcher.url, expectURL)
+	}
+	if update == nil || !update.Available {
+		t.Fatalf("update = %#v, want available update", update)
+	}
+	if update.FromKind != models.UpdateZsync {
+		t.Fatalf("FromKind = %q, want %q", update.FromKind, models.UpdateZsync)
 	}
 }
 
