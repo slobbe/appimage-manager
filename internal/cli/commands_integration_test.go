@@ -305,6 +305,43 @@ func TestSelfUpdateCmdFallsBackWhenInstalledVersionUnknown(t *testing.T) {
 	}
 }
 
+func TestSelfUpdateCmdReportsCurrentAheadOfLatestStable(t *testing.T) {
+	originalCheck := checkAimSelfUpdate
+	originalRun := runSelfUpdateInstaller
+	originalVersion := version
+	t.Cleanup(func() {
+		checkAimSelfUpdate = originalCheck
+		runSelfUpdateInstaller = originalRun
+		version = originalVersion
+	})
+
+	version = "0.17.1-pre.4"
+	checkAimSelfUpdate = func(context.Context, string, bool) (*appselfupdate.AimSelfUpdateCheckResult, error) {
+		return &appselfupdate.AimSelfUpdateCheckResult{
+			CurrentVersion: "0.17.1-pre.4",
+			LatestVersion:  "v0.17.0",
+			HasUpdate:      false,
+			Comparable:     true,
+			CurrentAhead:   true,
+		}, nil
+	}
+	runSelfUpdateInstaller = func(context.Context, appselfupdate.InstallerSelfUpdateRequest) (*appselfupdate.InstallerSelfUpdateResult, error) {
+		t.Fatal("installer should not run when current is ahead of latest stable")
+		return nil, nil
+	}
+
+	cmd := newSelfUpdateTestCommand()
+	output := captureStdout(t, func() {
+		if err := executeTestCommand(context.Background(), cmd, "self-update"); err != nil {
+			t.Fatalf("run returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "aim v0.17.1-pre.4 is newer than latest stable release (v0.17.0)") {
+		t.Fatalf("unexpected output:\n%s", output)
+	}
+}
+
 func TestSelfUpdateCmdReportsUpToDateWhenNoNewReleaseExists(t *testing.T) {
 	originalCheck := checkAimSelfUpdate
 	originalRun := runSelfUpdateInstaller

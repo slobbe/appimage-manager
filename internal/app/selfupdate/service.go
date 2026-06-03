@@ -56,6 +56,7 @@ func (service Service) Check(ctx context.Context, currentVersion string, include
 
 	result.Comparable = true
 	result.HasUpdate = comparison < 0
+	result.CurrentAhead = comparison > 0
 	return result, nil
 }
 

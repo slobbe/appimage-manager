@@ -344,6 +344,30 @@ func TestSelfUpdateWorkflowServiceSkipsInstallerWhenUpToDate(t *testing.T) {
 	}
 }
 
+func TestSelfUpdateWorkflowServiceReportsCurrentAheadWithoutRunningInstaller(t *testing.T) {
+	var installerCalls int
+	service := SelfUpdateWorkflowService{
+		CheckFunc: func(context.Context, string, bool) (*AimSelfUpdateCheckResult, error) {
+			return &AimSelfUpdateCheckResult{CurrentVersion: "0.17.1-pre.4", LatestVersion: "v0.17.0", Comparable: true, HasUpdate: false, CurrentAhead: true}, nil
+		},
+		SelfUpdateFunc: func(context.Context, appselfupdate.InstallerSelfUpdateRequest) (*InstallerSelfUpdateResult, error) {
+			installerCalls++
+			return nil, nil
+		},
+	}
+
+	result, err := service.SelfUpdate(context.Background(), SelfUpdateRequest{CurrentVersion: "0.17.1-pre.4"})
+	if err != nil {
+		t.Fatalf("SelfUpdate returned error: %v", err)
+	}
+	if installerCalls != 0 {
+		t.Fatalf("installer calls = %d, want 0", installerCalls)
+	}
+	if result == nil || !result.CurrentAhead || result.UpToDate || result.Updated {
+		t.Fatalf("SelfUpdate result = %+v, want current ahead without update", result)
+	}
+}
+
 func TestSelfUpdateWorkflowServiceRunsInstallerWhenUpdateAvailable(t *testing.T) {
 	var gotPreRelease bool
 	service := SelfUpdateWorkflowService{

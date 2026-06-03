@@ -106,6 +106,29 @@ func TestCheckForAimSelfUpdateDetectsNewerPrerelease(t *testing.T) {
 	}
 }
 
+func TestCheckForAimSelfUpdateReportsCurrentAheadOfLatestStable(t *testing.T) {
+	updater := fakeSelfUpdater{
+		fetchLatestReleaseTag: func(context.Context, string) (string, error) {
+			return "v0.17.0", nil
+		},
+	}
+	service := NewService(Service{SelfUpdater: updater})
+
+	result, err := service.Check(context.Background(), "0.17.1-pre.4", false)
+	if err != nil {
+		t.Fatalf("Check returned error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected self-update check result")
+	}
+	if result.HasUpdate {
+		t.Fatalf("HasUpdate = true, want false for %+v", result)
+	}
+	if !result.CurrentAhead {
+		t.Fatalf("CurrentAhead = false, want true for %+v", result)
+	}
+}
+
 func TestCheckForAimSelfUpdateReturnsNoUpdateWhenVersionsMatch(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(testLatestReleaseResponse{TagName: "v0.12.5"})

@@ -256,6 +256,8 @@ type SelfUpdateResult struct {
 	LatestVersion    string
 	InstalledVersion string
 	UpToDate         bool
+	CurrentAhead     bool
+	PreRelease       bool
 	Updated          bool
 }
 

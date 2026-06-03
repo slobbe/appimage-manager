@@ -5,6 +5,7 @@ type AimSelfUpdateCheckResult struct {
 	LatestVersion  string
 	HasUpdate      bool
 	Comparable     bool
+	CurrentAhead   bool
 }
 
 type InstallerSelfUpdateRequest struct {

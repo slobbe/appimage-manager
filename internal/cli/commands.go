@@ -46,6 +46,19 @@ func runSelfUpdate(ctx context.Context, cmd *cobra.Command, preRelease bool) err
 }
 
 func renderSelfUpdateResult(cmd *cobra.Command, result *appservices.SelfUpdateResult) error {
+	if result != nil && result.CurrentAhead {
+		channel := "stable"
+		if result.PreRelease {
+			channel = "prerelease"
+		}
+		printSuccess(cmd, fmt.Sprintf(
+			"aim %s is newer than latest %s release (%s)",
+			displayVersion(result.CurrentVersion),
+			channel,
+			displayVersion(result.LatestVersion),
+		))
+		return nil
+	}
 	if result != nil && result.UpToDate {
 		current := result.LatestVersion
 		if strings.TrimSpace(current) == "" {

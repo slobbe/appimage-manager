@@ -542,7 +542,7 @@ func (service SelfUpdateWorkflowService) SelfUpdate(ctx context.Context, req Sel
 	if err != nil {
 		return nil, err
 	}
-	result := &SelfUpdateResult{CurrentVersion: strings.TrimSpace(req.CurrentVersion)}
+	result := &SelfUpdateResult{CurrentVersion: strings.TrimSpace(req.CurrentVersion), PreRelease: req.PreRelease}
 	if check != nil {
 		result.CurrentVersion = strings.TrimSpace(check.CurrentVersion)
 		result.LatestVersion = strings.TrimSpace(check.LatestVersion)
@@ -550,7 +550,11 @@ func (service SelfUpdateWorkflowService) SelfUpdate(ctx context.Context, req Sel
 			result.CurrentVersion = strings.TrimSpace(req.CurrentVersion)
 		}
 		if check.Comparable && !check.HasUpdate {
-			result.UpToDate = true
+			if check.CurrentAhead {
+				result.CurrentAhead = true
+			} else {
+				result.UpToDate = true
+			}
 			return result, nil
 		}
 	}
