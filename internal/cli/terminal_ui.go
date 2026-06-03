@@ -40,6 +40,20 @@ func (b *busyIndicator) Stop() {
 	b.handle = nil
 }
 
+func (b *busyIndicator) Describe(label string) {
+	if b == nil {
+		return
+	}
+	label = strings.TrimSpace(label)
+	if label == "" {
+		return
+	}
+	b.label = label
+	if b.handle != nil {
+		b.handle.Describe(label)
+	}
+}
+
 func runWithBusyIndicator[T any](cmd *cobra.Command, label string, fn func() (T, error)) (T, error) {
 	logOperationf(cmd, "%s", label)
 	indicator := newBusyIndicator(cmd, label)

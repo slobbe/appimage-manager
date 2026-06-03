@@ -122,14 +122,7 @@ func AddCmd(cmd *cobra.Command, args []string) error {
 			return confirmAction(cmd, prompt)
 		}),
 		ResolvePackageAmbiguity: packageAmbiguityResolverFunc(func(metadata *appservices.PackageView) (*appservices.PackageView, error) {
-			resolved, err := resolvePackageViewAmbiguity(cmd, metadata)
-			if err != nil {
-				return nil, err
-			}
-			if resolved != nil && strings.TrimSpace(resolved.AssetName) != "" {
-				writeDataf(cmd, "Integrating %s...\n", strings.TrimSpace(resolved.AssetName))
-			}
-			return resolved, nil
+			return resolvePackageViewAmbiguity(cmd, metadata)
 		}),
 	}
 
@@ -177,9 +170,17 @@ func runAddRequest(ctx context.Context, cmd *cobra.Command, selection addInputSe
 				return runtimeServicesFrom(cmd).Add.Add(ctx, req)
 			})
 		}
-		return runWithBusyIndicator(cmd, fmt.Sprintf("Resolving package metadata for %s", label), func() (*appservices.AddResult, error) {
-			return runtimeServicesFrom(cmd).Add.Add(ctx, req)
-		})
+
+		progressLabel := fmt.Sprintf("Resolving package metadata for %s", label)
+		logOperationf(cmd, "%s", progressLabel)
+		indicator := newBusyIndicator(cmd, progressLabel)
+		indicator.Start()
+		defer indicator.Stop()
+
+		progress := &remoteInstallProgressController{cmd: cmd, indicator: indicator}
+		installReq := req
+		installReq.ResolvePackageAmbiguity = providerInstallProgressResolver(progress, req.ResolvePackageAmbiguity)
+		return runtimeServicesFrom(cmd).Add.Add(withRemoteInstallProgress(ctx, progress), installReq)
 	}
 	if !req.DryRun && strings.TrimSpace(selection.Positional) != "" && runtimeHasExtension(selection.Positional, ".AppImage") {
 		inputLabel := strings.TrimSpace(filepath.Base(selection.Positional))
@@ -393,6 +394,98 @@ func validateInstallTargetFlags(cmd *cobra.Command, target *installTarget) error
 	}
 
 	return nil
+}
+
+type remoteInstallProgressContextKey struct{}
+
+type remoteInstallProgressController struct {
+	cmd       *cobra.Command
+	indicator *busyIndicator
+	assetName string
+}
+
+func withRemoteInstallProgress(ctx context.Context, progress *remoteInstallProgressController) context.Context {
+	if progress == nil {
+		return ctx
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, remoteInstallProgressContextKey{}, progress)
+}
+
+func remoteInstallProgressFromContext(ctx context.Context) *remoteInstallProgressController {
+	if ctx == nil {
+		return nil
+	}
+	progress, _ := ctx.Value(remoteInstallProgressContextKey{}).(*remoteInstallProgressController)
+	return progress
+}
+
+func (progress *remoteInstallProgressController) Stop() {
+	if progress == nil || progress.indicator == nil {
+		return
+	}
+	progress.indicator.Stop()
+}
+
+func (progress *remoteInstallProgressController) SetAssetName(assetName string) {
+	if progress == nil {
+		return
+	}
+	progress.assetName = strings.TrimSpace(assetName)
+}
+
+func (progress *remoteInstallProgressController) DownloadDescription(fallback string) string {
+	if progress == nil || strings.TrimSpace(progress.assetName) == "" {
+		return strings.TrimSpace(fallback)
+	}
+	return fmt.Sprintf("Downloading %s", strings.TrimSpace(progress.assetName))
+}
+
+func (progress *remoteInstallProgressController) StartIntegrating() {
+	if progress == nil || strings.TrimSpace(progress.assetName) == "" {
+		return
+	}
+
+	label := fmt.Sprintf("Integrating %s", strings.TrimSpace(progress.assetName))
+	logOperationf(progress.cmd, "%s", label)
+	if runtimeOptionsFrom(progress.cmd).Quiet || !shouldRenderLogs(progress.cmd) {
+		return
+	}
+	if isTerminalStderr() {
+		if progress.indicator != nil {
+			progress.indicator.Describe(label)
+			progress.indicator.Start()
+		}
+		return
+	}
+	writeLogf(progress.cmd, "%s...\n", label)
+}
+
+func providerInstallProgressResolver(progress *remoteInstallProgressController, resolver appservices.PackageViewAmbiguityResolver) appservices.PackageViewAmbiguityResolver {
+	return packageAmbiguityResolverFunc(func(metadata *appservices.PackageView) (*appservices.PackageView, error) {
+		progress.Stop()
+
+		resolved := metadata
+		if resolver != nil {
+			var err error
+			resolved, err = resolver.ResolvePackageViewAmbiguity(metadata)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		assetName := ""
+		if resolved != nil {
+			assetName = strings.TrimSpace(resolved.AssetName)
+		}
+		if assetName == "" && metadata != nil {
+			assetName = strings.TrimSpace(metadata.AssetName)
+		}
+		progress.SetAssetName(assetName)
+		return resolved, nil
+	})
 }
 
 type packageAmbiguityResolverFunc func(*appservices.PackageView) (*appservices.PackageView, error)

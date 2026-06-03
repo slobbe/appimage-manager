@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -1844,6 +1845,76 @@ func TestAddCmdGitHubPromptsForAmbiguousAsset(t *testing.T) {
 	}
 	if !strings.Contains(output, "Select asset [1-2]") {
 		t.Fatalf("prompt missing from output:\n%s", output)
+	}
+}
+
+func TestAddCmdGitHubDownloadProgressTransitionsToIntegratingCleanly(t *testing.T) {
+	withTerminalOutput(t, true)
+	tempDir := t.TempDir()
+	setupAddCommandConfigForTest(t, tempDir)
+
+	payload := []byte(strings.Repeat("x", 2048))
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", strconv.Itoa(len(payload)))
+		_, _ = w.Write(payload)
+	}))
+	defer server.Close()
+
+	originalBackends := discoveryBackends
+	originalDownload := downloadRemoteAsset
+	originalIntegrate := integrateLocalApp
+	originalAddSingle := addSingleApp
+	t.Cleanup(func() {
+		discoveryBackends = originalBackends
+		downloadRemoteAsset = originalDownload
+		integrateLocalApp = originalIntegrate
+		addSingleApp = originalAddSingle
+	})
+
+	assetName := "MyApp-x86_64.AppImage"
+	discoveryBackends = func() []discovery.DiscoveryBackend {
+		return []discovery.DiscoveryBackend{
+			&stubDiscoveryBackend{
+				name: "GitHub",
+				resolveFn: func(context.Context, models.PackageRef, string) (*models.PackageMetadata, error) {
+					return &models.PackageMetadata{
+						Name:          "My App",
+						Provider:      "GitHub",
+						Ref:           models.PackageRef{Kind: models.ProviderGitHub, ProviderRef: "owner/repo"},
+						LatestVersion: "1.2.3",
+						AssetName:     assetName,
+						AssetPattern:  "*.AppImage",
+						DownloadURL:   server.URL + "/" + assetName,
+						Installable:   true,
+						ReleaseTag:    "v1.2.3",
+					}, nil
+				},
+			},
+		}
+	}
+	downloadRemoteAsset = downloadUpdateAsset
+	integrateLocalApp = func(context.Context, string, appintegrate.UpdateOverwritePrompt) (*models.App, error) {
+		return &models.App{ID: "my-app", Name: "My App", Version: "1.2.3", UpdatedAt: "2026-03-08T12:00:00Z"}, nil
+	}
+	addSingleApp = defaultAddSingleApp
+
+	output := captureStdout(t, func() {
+		if err := runAddCommand(context.Background(), []string{"--github", "owner/repo"}); err != nil {
+			t.Fatalf("runAddCommand returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(output, "Downloading "+assetName) {
+		t.Fatalf("expected asset-specific download progress, got:\n%q", output)
+	}
+	if strings.Contains(output, "Downloading update") {
+		t.Fatalf("expected provider add download progress to use asset label, got:\n%q", output)
+	}
+	if !strings.Contains(output, "Integrating "+assetName) {
+		t.Fatalf("expected integrating progress after download, got:\n%q", output)
+	}
+	if strings.Contains(output, "Downloading "+assetName+"Integrating") || strings.Contains(output, "Downloading updateIntegrating") {
+		t.Fatalf("download and integration progress fused together:\n%q", output)
 	}
 }
 

@@ -491,15 +491,25 @@ func defaultRuntimeServicesForSettings(settings runtimeSettings) runtimeServices
 		Filename:          updateDownloadFilename,
 		StableDestination: stableDownloadDestination,
 		Download: func(ctx context.Context, assetURL, destination string) error {
+			if progress := remoteInstallProgressFromContext(ctx); progress != nil {
+				progress.Stop()
+				description := progress.DownloadDescription(downloadDescriptionFromContext(ctx, "Downloading update"))
+				ctx = withDownloadDescription(ctx, description)
+			}
 			return downloadRemoteAsset(ctx, assetURL, destination, isTerminalStderr())
 		},
 		VerifySHA256: func(path, expectedSHA256 string) error {
 			return verifyDownloadedUpdate(path, appupdate.ManagedUpdate{ExpectedSHA256: expectedSHA256})
 		},
-		IntegrateLocalApp: integrateLocalApp,
-		PersistApp:        addSingleApp,
-		RemoveApp:         removeManagedApp,
-		RemoveStaged:      removeStagedDownload,
+		IntegrateLocalApp: func(ctx context.Context, path string, confirm appintegrate.UpdateOverwritePrompt) (*domain.App, error) {
+			if progress := remoteInstallProgressFromContext(ctx); progress != nil {
+				progress.StartIntegrating()
+			}
+			return integrateLocalApp(ctx, path, confirm)
+		},
+		PersistApp:   addSingleApp,
+		RemoveApp:    removeManagedApp,
+		RemoveStaged: removeStagedDownload,
 	})
 	return runtimeServices{
 		Add: appservices.NewAddWorkflowService(appservices.AddWorkflowService{

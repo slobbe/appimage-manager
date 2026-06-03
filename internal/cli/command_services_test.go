@@ -171,6 +171,36 @@ func TestAddCmdDryRunRoutesPackageRefToPlan(t *testing.T) {
 	}
 }
 
+func TestRunAddRequestGitHubProgressTransitionsToIntegratingCleanly(t *testing.T) {
+	withTerminalOutput(t, true)
+
+	provider := appservices.ProviderRef{Provider: appservices.ProviderGitHub, Ref: "cjpais/Handy"}
+	service := &recordingAddService{
+		packageView: &appservices.PackageView{AssetName: "Handy_0.8.3_amd64.AppImage"},
+	}
+	cmd, output := commandWithRuntimeForTest(newAddCommand(), runtimeOptions{}, runtimeServices{Add: service, Locker: noopLocker{}})
+
+	_, err := runAddRequest(context.Background(), cmd, addInputSelection{Ref: provider, HasRef: true}, appservices.AddRequest{
+		Target: appservices.AddTargetInput{Provider: &provider},
+	})
+	if err != nil {
+		t.Fatalf("runAddRequest returned error: %v", err)
+	}
+
+	got := output.String()
+	if !strings.Contains(got, "Resolving package metadata for GitHub cjpais/Handy") {
+		t.Fatalf("expected resolving progress, got:\n%q", got)
+	}
+	if !strings.Contains(got, "Integrating Handy_0.8.3_amd64.AppImage") {
+		t.Fatalf("expected integrating progress, got:\n%q", got)
+	}
+	for _, fused := range []string{"HandyIntegrating", "cjpais/HandyIntegrating"} {
+		if strings.Contains(got, fused) {
+			t.Fatalf("progress output contains fused status %q:\n%q", fused, got)
+		}
+	}
+}
+
 func TestAddCmdReintegrateAndAlreadyIntegratedDoNotTakeWriteLockInDryRun(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -378,6 +408,7 @@ type recordingAddService struct {
 	planLocalPath       string
 	planDirectReq       appservices.InstallDirectURLRequest
 	planPackageReq      appservices.InstallPackageRefRequest
+	packageView         *appservices.PackageView
 	plan                *appservices.DryRunPlan
 }
 
@@ -385,7 +416,7 @@ func (service *recordingAddService) Add(ctx context.Context, req appservices.Add
 	service.addCalls++
 	service.req = req
 	if req.Target.Provider != nil {
-		planReq := appservices.InstallPackageRefRequest{Ref: *req.Target.Provider, AssetPattern: req.AssetPattern}
+		planReq := appservices.InstallPackageRefRequest{Ref: *req.Target.Provider, AssetPattern: req.AssetPattern, ResolveViewAmbiguity: req.ResolvePackageAmbiguity}
 		if req.DryRun {
 			plan, err := service.PlanPackageRefInstall(ctx, planReq)
 			if err != nil {
@@ -465,9 +496,21 @@ func (service *recordingAddService) InstallDirectURL(ctx context.Context, req ap
 
 func (service *recordingAddService) InstallPackageRef(ctx context.Context, req appservices.InstallPackageRefRequest) (*appservices.AddResult, error) {
 	_ = ctx
-	_ = req
 	service.installPackageCalls++
-	return &appservices.AddResult{App: appDetails("app", "App", true)}, nil
+	if req.ResolveViewAmbiguity != nil {
+		view := service.packageView
+		if view == nil {
+			view = &appservices.PackageView{AssetName: "App.AppImage"}
+		}
+		if _, err := req.ResolveViewAmbiguity.ResolvePackageViewAmbiguity(view); err != nil {
+			return nil, err
+		}
+	}
+	if progress := remoteInstallProgressFromContext(ctx); progress != nil {
+		progress.Stop()
+		progress.StartIntegrating()
+	}
+	return &appservices.AddResult{Action: appservices.AddActionInstall, Status: "installed", App: appDetails("app", "App", true)}, nil
 }
 
 func (service *recordingAddService) PlanLocalIntegration(ctx context.Context, path string) (*appservices.DryRunPlan, error) {
