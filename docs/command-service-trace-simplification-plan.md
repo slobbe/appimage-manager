@@ -11,7 +11,7 @@ cobra command
   -> render one structured result
 ```
 
-Today several commands still have a split trace where CLI code chooses modes, calls multiple service methods, handles dry-run separately, manages locks/directories, and renders ad hoc output. The biggest examples are `add` and `update`, with smaller simplification opportunities in `remove`, `list`, `info`, and `upgrade`.
+Today several commands still have a split trace where CLI code chooses modes, calls multiple service methods, handles dry-run separately, manages locks/directories, and renders ad hoc output. The biggest examples are `add` and `update`, with smaller simplification opportunities in `remove`, `list`, `info`, and `self-update`.
 
 Relevant current files:
 
@@ -101,8 +101,8 @@ type UpdateService interface {
     Update(ctx context.Context, req UpdateRequest) (*UpdateResult, error)
 }
 
-type UpgradeService interface {
-    Upgrade(ctx context.Context, req UpgradeRequest) (*UpgradeResult, error)
+type SelfUpdateService interface {
+    SelfUpdate(ctx context.Context, req SelfUpdateRequest) (*SelfUpdateResult, error)
 }
 ```
 
@@ -408,38 +408,38 @@ Choose **Option B** because the project already uses app-layer callback seams li
 
 So a `ConfirmApply` port is consistent, and the app layer still does not know terminal details.
 
-### 6. `UpgradeRequest`
+### 6. `SelfUpdateRequest`
 
-`upgrade` currently has two app calls from CLI:
+`self-update` currently has two app calls from CLI:
 
-- `Upgrade.Check`
-- `Upgrade.Upgrade`
+- `SelfUpdate.Check`
+- `SelfUpdate.SelfUpdate`
 
-Make upgrade one use case:
+Make self-update one use case:
 
 ```go
-type UpgradeRequest struct {
+type SelfUpdateRequest struct {
     CurrentVersion string
     DryRun         bool // if useful later
 }
 
-type UpgradeResult struct {
+type SelfUpdateResult struct {
     CurrentVersion   string
     LatestVersion    string
     InstalledVersion string
     UpToDate         bool
-    Upgraded         bool
+    Updated         bool
 }
 ```
 
-Then `runUpgrade` becomes:
+Then `runSelfUpdate` becomes:
 
 ```txt
-Upgrade.Upgrade(ctx, req)
--> renderUpgradeResult
+SelfUpdate.SelfUpdate(ctx, req)
+-> renderSelfUpdateResult
 ```
 
-The app service owns “check first, upgrade only if needed.”
+The app service owns “check first, self-update only if needed.”
 
 ## Runtime wiring simplification
 
@@ -447,7 +447,7 @@ The app service owns “check first, upgrade only if needed.”
 
 - `runAppUpdateCheck`
 - `downloadRemoteAsset`
-- `checkAimUpgrade`
+- `checkAimSelfUpdate`
 - `runManagedApply`
 - `integrateManagedUpdate`
 - `integrateLocalApp`
@@ -576,25 +576,25 @@ Move list filtering into `StoreListService`.
 
 This reduces CLI business-ish grouping logic and gives a clean example for read-only commands.
 
-### Phase 4: simplify `UpgradeService`
+### Phase 4: simplify `SelfUpdateService`
 
-Collapse check + upgrade into one app use case.
+Collapse check + self-update into one app use case.
 
-Current CLI `runUpgrade` has upgrade decision logic. Move that into `UpgradeWorkflowService`.
+Current CLI `runSelfUpdate` has self-update decision logic. Move that into `SelfUpdateWorkflowService`.
 
 Target:
 
 ```go
-result, err := runtimeServicesFrom(cmd).Upgrade.Upgrade(ctx, appservices.UpgradeRequest{
+result, err := runtimeServicesFrom(cmd).SelfUpdate.SelfUpdate(ctx, appservices.SelfUpdateRequest{
     CurrentVersion: version,
 })
-return renderUpgradeResult(cmd, result)
+return renderSelfUpdateResult(cmd, result)
 ```
 
 Keep busy indicators in CLI either by:
 
 - wrapping the whole call once, or
-- giving `UpgradeRequest` an app-defined progress reporter
+- giving `SelfUpdateRequest` an app-defined progress reporter
 
 Prefer one busy indicator initially.
 
@@ -763,6 +763,6 @@ make check
 
 ## Top recommendation
 
-Start with **`remove`**, then **`list`**, then **`upgrade`**.
+Start with **`remove`**, then **`list`**, then **`self-update`**.
 
 They are small enough to establish the new trace safely. Once the pattern is proven, apply it to **`add`**, and only then tackle **`update`**, which has the most workflow complexity and the highest regression risk.

@@ -12,40 +12,40 @@ import (
 )
 
 func RootCmd(cmd *cobra.Command, args []string) error {
-	upgrade, err := cmd.Flags().GetBool("upgrade")
-	if err != nil {
-		return usageError(err)
-	}
-	if upgrade {
-		if len(args) > 0 {
-			return usageError(fmt.Errorf("--upgrade does not accept positional arguments"))
-		}
-		if err := mustEnsureRuntimeDirs(); err != nil {
-			return err
-		}
-		return runUpgrade(cmd.Context(), cmd)
-	}
-
 	writeDataf(cmd, "%s", renderConciseHelp(cmd))
 	return nil
 }
 
-func runUpgrade(ctx context.Context, cmd *cobra.Command) error {
+func SelfUpdateCmd(cmd *cobra.Command, args []string) error {
+	if len(args) > 0 {
+		return usageError(fmt.Errorf("self-update does not accept positional arguments"))
+	}
+	preRelease, err := cmd.Flags().GetBool("pre")
+	if err != nil {
+		return usageError(err)
+	}
+	if err := mustEnsureRuntimeDirs(); err != nil {
+		return err
+	}
+	return runSelfUpdate(cmd.Context(), cmd, preRelease)
+}
+
+func runSelfUpdate(ctx context.Context, cmd *cobra.Command, preRelease bool) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
 	logOperationf(cmd, "Checking for aim updates")
-	result, err := runWithBusyIndicator(cmd, progressUpgradeAim(), func() (*appservices.UpgradeResult, error) {
-		return runtimeServicesFrom(cmd).Upgrade.Upgrade(ctx, appservices.UpgradeRequest{CurrentVersion: version})
+	result, err := runWithBusyIndicator(cmd, progressSelfUpdateAim(), func() (*appservices.SelfUpdateResult, error) {
+		return runtimeServicesFrom(cmd).SelfUpdate.SelfUpdate(ctx, appservices.SelfUpdateRequest{CurrentVersion: version, PreRelease: preRelease})
 	})
 	if err != nil {
 		return err
 	}
-	return renderUpgradeResult(cmd, result)
+	return renderSelfUpdateResult(cmd, result)
 }
 
-func renderUpgradeResult(cmd *cobra.Command, result *appservices.UpgradeResult) error {
+func renderSelfUpdateResult(cmd *cobra.Command, result *appservices.SelfUpdateResult) error {
 	if result != nil && result.UpToDate {
 		current := result.LatestVersion
 		if strings.TrimSpace(current) == "" {
@@ -56,13 +56,13 @@ func renderUpgradeResult(cmd *cobra.Command, result *appservices.UpgradeResult) 
 	}
 	if result != nil && strings.TrimSpace(result.InstalledVersion) != "" {
 		printSuccess(cmd, fmt.Sprintf(
-			"Upgraded aim %s -> %s",
+			"Updated aim %s -> %s",
 			displayVersion(result.CurrentVersion),
 			displayVersion(result.InstalledVersion),
 		))
 		return nil
 	}
-	printSuccess(cmd, "Upgraded aim")
+	printSuccess(cmd, "Updated aim")
 	return nil
 }
 

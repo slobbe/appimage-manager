@@ -31,7 +31,7 @@ func newRootCommand(version string) *cobra.Command {
   aim --json
   aim add -n ./Example.AppImage
   aim update --yes
-  aim --upgrade
+  aim self-update
 `),
 		Version: version,
 		CompletionOptions: cobra.CompletionOptions{
@@ -52,9 +52,9 @@ func newRootCommand(version string) *cobra.Command {
 		newListCommand(),
 		newInfoCommand(),
 		newUpdateCommand(),
+		newSelfUpdateCommand(),
 	)
 	root.SuggestionsMinimumDistance = 2
-	root.Flags().Bool("upgrade", false, "upgrade aim via the official installer")
 	persistentFlags := root.PersistentFlags()
 	persistentFlags.BoolP("debug", "d", false, "enable diagnostic logging")
 	persistentFlags.BoolP("quiet", "q", false, "suppress non-essential status output")
@@ -144,6 +144,20 @@ func newInfoCommand() *cobra.Command {
 	}
 	flags := cmd.Flags()
 	stringFlagWithMetavar(flags, "github", "", "", "GitHub repo in the form owner/repo", "owner/repo")
+	return cmd
+}
+
+func newSelfUpdateCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "self-update",
+		Short: "Update aim itself via the official installer",
+		Example: strings.TrimSpace(`
+  aim self-update
+  aim self-update --pre
+`),
+		RunE: SelfUpdateCmd,
+	}
+	cmd.Flags().Bool("pre", false, "include prerelease versions")
 	return cmd
 }
 

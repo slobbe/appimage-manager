@@ -12,8 +12,8 @@ import (
 	"github.com/slobbe/appimage-manager/internal/app/discovery"
 	appintegrate "github.com/slobbe/appimage-manager/internal/app/integrate"
 	appremove "github.com/slobbe/appimage-manager/internal/app/remove"
+	appselfupdate "github.com/slobbe/appimage-manager/internal/app/selfupdate"
 	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
-	appupgrade "github.com/slobbe/appimage-manager/internal/app/upgrade"
 	"github.com/slobbe/appimage-manager/internal/domain"
 )
 
@@ -525,24 +525,24 @@ func (service DiscoveryWorkflowService) ResolvePackage(ctx context.Context, req 
 	return discovery.NewService(backends...).Resolve(ctx, providerRefToDomain(req.Ref), req.AssetPattern)
 }
 
-type UpgradeWorkflowService struct {
-	CheckFunc   func(context.Context, string) (*appupgrade.AimUpgradeCheckResult, error)
-	UpgradeFunc func(context.Context, string) (*appupgrade.InstallerUpgradeResult, error)
+type SelfUpdateWorkflowService struct {
+	CheckFunc      func(context.Context, string, bool) (*appselfupdate.AimSelfUpdateCheckResult, error)
+	SelfUpdateFunc func(context.Context, appselfupdate.InstallerSelfUpdateRequest) (*appselfupdate.InstallerSelfUpdateResult, error)
 }
 
-func NewUpgradeWorkflowService(service UpgradeWorkflowService) UpgradeWorkflowService {
+func NewSelfUpdateWorkflowService(service SelfUpdateWorkflowService) SelfUpdateWorkflowService {
 	return service
 }
 
-func (service UpgradeWorkflowService) Upgrade(ctx context.Context, req UpgradeRequest) (*UpgradeResult, error) {
+func (service SelfUpdateWorkflowService) SelfUpdate(ctx context.Context, req SelfUpdateRequest) (*SelfUpdateResult, error) {
 	if service.CheckFunc == nil {
-		return nil, internalErrorf("upgrade check service is not configured")
+		return nil, internalErrorf("self-update check service is not configured")
 	}
-	check, err := service.CheckFunc(ctx, req.CurrentVersion)
+	check, err := service.CheckFunc(ctx, req.CurrentVersion, req.PreRelease)
 	if err != nil {
 		return nil, err
 	}
-	result := &UpgradeResult{CurrentVersion: strings.TrimSpace(req.CurrentVersion)}
+	result := &SelfUpdateResult{CurrentVersion: strings.TrimSpace(req.CurrentVersion)}
 	if check != nil {
 		result.CurrentVersion = strings.TrimSpace(check.CurrentVersion)
 		result.LatestVersion = strings.TrimSpace(check.LatestVersion)
@@ -557,14 +557,14 @@ func (service UpgradeWorkflowService) Upgrade(ctx context.Context, req UpgradeRe
 	if req.DryRun {
 		return result, nil
 	}
-	if service.UpgradeFunc == nil {
-		return nil, internalErrorf("upgrade installer service is not configured")
+	if service.SelfUpdateFunc == nil {
+		return nil, internalErrorf("self-update installer service is not configured")
 	}
-	installer, err := service.UpgradeFunc(ctx, req.CurrentVersion)
+	installer, err := service.SelfUpdateFunc(ctx, appselfupdate.InstallerSelfUpdateRequest{CurrentVersion: req.CurrentVersion, TargetVersion: result.LatestVersion})
 	if err != nil {
 		return nil, err
 	}
-	result.Upgraded = true
+	result.Updated = true
 	if installer != nil {
 		if strings.TrimSpace(installer.PreviousVersion) != "" {
 			result.CurrentVersion = strings.TrimSpace(installer.PreviousVersion)

@@ -58,20 +58,37 @@ func TestRemoveCmdUsesRemoveServiceAndLocker(t *testing.T) {
 	}
 }
 
-func TestUpgradeCmdCallsUpgradeService(t *testing.T) {
-	service := &recordingUpgradeService{}
-	cmd := newUpgradeTestCommand()
-	ctx := withRuntimeServices(context.Background(), runtimeServices{Upgrade: service, Locker: noopLocker{}})
+func TestSelfUpdateCmdCallsSelfUpdateService(t *testing.T) {
+	service := &recordingSelfUpdateService{}
+	cmd := newSelfUpdateTestCommand()
+	ctx := withRuntimeServices(context.Background(), runtimeServices{SelfUpdate: service, Locker: noopLocker{}})
 
-	if err := executeTestCommand(ctx, cmd, "--upgrade"); err != nil {
-		t.Fatalf("upgrade command returned error: %v", err)
+	if err := executeTestCommand(ctx, cmd, "self-update"); err != nil {
+		t.Fatalf("self-update command returned error: %v", err)
 	}
 
 	if service.calls != 1 {
-		t.Fatalf("upgrade service calls = %d, want 1", service.calls)
+		t.Fatalf("self-update service calls = %d, want 1", service.calls)
 	}
 	if service.req.CurrentVersion != version {
-		t.Fatalf("upgrade request current version = %q, want %q", service.req.CurrentVersion, version)
+		t.Fatalf("self-update request current version = %q, want %q", service.req.CurrentVersion, version)
+	}
+	if service.req.PreRelease {
+		t.Fatal("self-update request prerelease = true, want false")
+	}
+}
+
+func TestSelfUpdateCmdPassesPreReleaseFlag(t *testing.T) {
+	service := &recordingSelfUpdateService{}
+	cmd := newSelfUpdateTestCommand()
+	ctx := withRuntimeServices(context.Background(), runtimeServices{SelfUpdate: service, Locker: noopLocker{}})
+
+	if err := executeTestCommand(ctx, cmd, "self-update", "--pre"); err != nil {
+		t.Fatalf("self-update command returned error: %v", err)
+	}
+
+	if !service.req.PreRelease {
+		t.Fatal("self-update request prerelease = false, want true")
 	}
 }
 
@@ -538,16 +555,16 @@ func (service *recordingInfoService) Info(ctx context.Context, req appservices.I
 	return service.managed, nil
 }
 
-type recordingUpgradeService struct {
+type recordingSelfUpdateService struct {
 	calls int
-	req   appservices.UpgradeRequest
+	req   appservices.SelfUpdateRequest
 }
 
-func (service *recordingUpgradeService) Upgrade(ctx context.Context, req appservices.UpgradeRequest) (*appservices.UpgradeResult, error) {
+func (service *recordingSelfUpdateService) SelfUpdate(ctx context.Context, req appservices.SelfUpdateRequest) (*appservices.SelfUpdateResult, error) {
 	_ = ctx
 	service.calls++
 	service.req = req
-	return &appservices.UpgradeResult{CurrentVersion: req.CurrentVersion, InstalledVersion: "0.0.1", Upgraded: true}, nil
+	return &appservices.SelfUpdateResult{CurrentVersion: req.CurrentVersion, InstalledVersion: "0.0.1", Updated: true}, nil
 }
 
 type recordingLocker struct {

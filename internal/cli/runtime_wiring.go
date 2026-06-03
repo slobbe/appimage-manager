@@ -9,9 +9,9 @@ import (
 	"github.com/slobbe/appimage-manager/internal/app/discovery"
 	appintegrate "github.com/slobbe/appimage-manager/internal/app/integrate"
 	appremove "github.com/slobbe/appimage-manager/internal/app/remove"
+	appselfupdate "github.com/slobbe/appimage-manager/internal/app/selfupdate"
 	appservices "github.com/slobbe/appimage-manager/internal/app/services"
 	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
-	appupgrade "github.com/slobbe/appimage-manager/internal/app/upgrade"
 	models "github.com/slobbe/appimage-manager/internal/domain"
 	appimageinfra "github.com/slobbe/appimage-manager/internal/infra/appimage"
 	"github.com/slobbe/appimage-manager/internal/infra/config"
@@ -41,8 +41,8 @@ var discoveryBackends = func() []discovery.DiscoveryBackend {
 }
 var resolveGitHubReleaseAsset func(repoSlug, assetPattern string) (*appupdate.GitHubReleaseAsset, error)
 var downloadRemoteAsset = downloadUpdateAsset
-var checkAimUpgrade func(context.Context, string) (*appupgrade.AimUpgradeCheckResult, error)
-var runUpgradeViaInstaller func(context.Context, string) (*appupgrade.InstallerUpgradeResult, error)
+var checkAimSelfUpdate func(context.Context, string, bool) (*appselfupdate.AimSelfUpdateCheckResult, error)
+var runSelfUpdateInstaller func(context.Context, appselfupdate.InstallerSelfUpdateRequest) (*appselfupdate.InstallerSelfUpdateResult, error)
 var runManagedApply = applyManagedUpdate
 var integrateManagedUpdate = appintegrate.IntegrateFromLocalFileWithoutCacheRefreshOrPersist
 var runtimeNowISO = clock.NowISO
@@ -392,8 +392,8 @@ func (adapter selfUpdaterAdapter) ResolveInstalledPath() (string, error) {
 	return adapter.clientAdapter().ResolveInstalledPath()
 }
 
-func (adapter selfUpdaterAdapter) RunInstallerScript(ctx context.Context, scriptURL string, tempDir func() (string, error)) error {
-	return adapter.clientAdapter().RunInstallerScript(ctx, scriptURL, tempDir)
+func (adapter selfUpdaterAdapter) RunInstallerScript(ctx context.Context, scriptURL string, tempDir func() (string, error), env map[string]string) error {
+	return adapter.clientAdapter().RunInstallerScript(ctx, scriptURL, tempDir, env)
 }
 
 type gitHubReleaseAdapter struct {
@@ -487,12 +487,12 @@ func configureAppPorts(networkTimeout time.Duration) {
 		resolveGitHubReleaseAsset = githubReleaseResolver.ResolveReleaseAsset
 	}
 	selfUpdater := selfUpdaterAdapter{client: apiClient}
-	upgradeService := appupgrade.NewService(appupgrade.Service{TempDir: config.TempDir, SelfUpdater: selfUpdater})
-	if checkAimUpgrade == nil {
-		checkAimUpgrade = upgradeService.Check
+	selfUpdateService := appselfupdate.NewService(appselfupdate.Service{TempDir: config.TempDir, SelfUpdater: selfUpdater})
+	if checkAimSelfUpdate == nil {
+		checkAimSelfUpdate = selfUpdateService.Check
 	}
-	if runUpgradeViaInstaller == nil {
-		runUpgradeViaInstaller = upgradeService.Upgrade
+	if runSelfUpdateInstaller == nil {
+		runSelfUpdateInstaller = selfUpdateService.SelfUpdate
 	}
 }
 

@@ -22,7 +22,9 @@ type Client struct {
 }
 
 type latestReleaseResponse struct {
-	TagName string `json:"tag_name"`
+	TagName    string `json:"tag_name"`
+	Draft      bool   `json:"draft"`
+	Prerelease bool   `json:"prerelease"`
 }
 
 func (c Client) FetchLatestReleaseTag(ctx context.Context, url string) (string, error) {
@@ -42,20 +44,52 @@ func (c Client) FetchLatestReleaseTag(ctx context.Context, url string) (string, 
 		return "", fmt.Errorf("latest release request failed with status %s", resp.Status)
 	}
 
-	var payload latestReleaseResponse
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
 		return "", err
 	}
 
+	tag, err := latestReleaseTagFromJSON(body)
+	if err != nil {
+		return "", err
+	}
+	return tag, nil
+}
+
+func latestReleaseTagFromJSON(body []byte) (string, error) {
+	trimmed := bytes.TrimSpace(body)
+	if len(trimmed) == 0 {
+		return "", fmt.Errorf("latest release response was empty")
+	}
+
+	if trimmed[0] == '[' {
+		var payload []latestReleaseResponse
+		if err := json.Unmarshal(trimmed, &payload); err != nil {
+			return "", err
+		}
+		for _, release := range payload {
+			if release.Draft {
+				continue
+			}
+			if tag := strings.TrimSpace(release.TagName); tag != "" {
+				return tag, nil
+			}
+		}
+		return "", fmt.Errorf("release list response did not include a selectable tag_name")
+	}
+
+	var payload latestReleaseResponse
+	if err := json.Unmarshal(trimmed, &payload); err != nil {
+		return "", err
+	}
 	tag := strings.TrimSpace(payload.TagName)
 	if tag == "" {
 		return "", fmt.Errorf("latest release response did not include a tag_name")
 	}
-
 	return tag, nil
 }
 
-func (c Client) RunInstallerScript(ctx context.Context, scriptURL string, tempDir func() (string, error)) error {
+func (c Client) RunInstallerScript(ctx context.Context, scriptURL string, tempDir func() (string, error), env map[string]string) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, scriptURL, nil)
 	if err != nil {
 		return err
@@ -80,7 +114,7 @@ func (c Client) RunInstallerScript(ctx context.Context, scriptURL string, tempDi
 		return err
 	}
 
-	scriptPath := filepath.Join(dir, "aim-upgrade-installer.sh")
+	scriptPath := filepath.Join(dir, "aim-self-update-installer.sh")
 	scriptFile, err := os.OpenFile(scriptPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o700)
 	if err != nil {
 		return err
@@ -94,7 +128,7 @@ func (c Client) RunInstallerScript(ctx context.Context, scriptURL string, tempDi
 		return err
 	}
 
-	return c.runShellScript(ctx, scriptPath)
+	return c.runShellScript(ctx, scriptPath, env)
 }
 
 func (c Client) ResolveInstalledPath() (string, error) {
@@ -124,8 +158,18 @@ func (c Client) ReadInstalledVersion(ctx context.Context, binaryPath string) (st
 	return version, nil
 }
 
-func (c Client) runShellScript(ctx context.Context, scriptPath string) error {
+func (c Client) runShellScript(ctx context.Context, scriptPath string, env map[string]string) error {
 	cmd := exec.CommandContext(ctx, c.shellCommand(), scriptPath)
+	if len(env) > 0 {
+		cmd.Env = os.Environ()
+		for key, value := range env {
+			key = strings.TrimSpace(key)
+			if key == "" {
+				continue
+			}
+			cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", key, value))
+		}
+	}
 	var output bytes.Buffer
 	cmd.Stdout = &output
 	cmd.Stderr = &output
@@ -133,9 +177,9 @@ func (c Client) runShellScript(ctx context.Context, scriptPath string) error {
 	if err := cmd.Run(); err != nil {
 		message := strings.TrimSpace(output.String())
 		if message == "" {
-			return fmt.Errorf("upgrade via installer failed: %w", err)
+			return fmt.Errorf("self-update via installer failed: %w", err)
 		}
-		return fmt.Errorf("upgrade via installer failed: %w: %s", err, message)
+		return fmt.Errorf("self-update via installer failed: %w: %s", err, message)
 	}
 
 	return nil

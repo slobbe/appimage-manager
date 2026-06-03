@@ -50,10 +50,6 @@ Install, integrate, update, and remove AppImages from one terminal tool.
 	suppress non-essential status output
 
 .PP
-\fB--upgrade\fP[=false]
-	upgrade aim via the official installer
-
-.PP
 \fB-v\fP, \fB--version\fP[=false]
 	version for aim
 
@@ -69,7 +65,7 @@ aim --help
   aim --json
   aim add -n ./Example.AppImage
   aim update --yes
-  aim --upgrade
+  aim self-update
 .EE
 
 
@@ -283,6 +279,49 @@ aim remove \-n example\-app \-\-json
 .TP
 \-\-link
 remove only desktop integration; keep managed AppImage files
+.TP
+\-\-csv
+output CSV where supported
+.TP
+\-d, \-\-debug
+enable diagnostic logging
+.TP
+\-n, \-\-dry\-run
+simulate changes without applying them
+.TP
+\-\-json
+output formatted JSON
+.TP
+\-\-no\-color
+disable ANSI color output
+.TP
+\-\-no\-input
+disable interactive prompts
+.TP
+\-\-plain
+output plain tab\-separated text
+.TP
+\-q, \-\-quiet
+suppress non\-essential status output
+.TP
+\-y, \-\-yes
+skip confirmation prompts
+.SS aim self\-update
+.TP
+\fBSynopsis\fP
+aim self\-update
+.TP
+\fBDescription\fP
+Update aim itself via the official installer
+.TP
+\fBExamples\fP
+aim self\-update
+aim self\-update \-\-pre
+.TP
+\fBOptions\fP
+.TP
+\-\-pre
+include prerelease versions
 .TP
 \-\-csv
 output CSV where supported

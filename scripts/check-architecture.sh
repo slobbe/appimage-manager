@@ -57,7 +57,7 @@ is_allowed_cli_test_boundary_migration_import() {
 				*'/internal/app/discovery' | \
 				*'/internal/app/integrate' | \
 				*'/internal/app/update' | \
-				*'/internal/app/upgrade' | \
+				*'/internal/app/selfupdate' | \
 				*'/internal/domain' | \
 				*'/internal/infra/config' | \
 				*'/internal/infra/download' | \

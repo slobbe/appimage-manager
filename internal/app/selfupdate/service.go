@@ -1,4 +1,4 @@
-package upgrade
+package selfupdate
 
 import (
 	"context"
@@ -25,25 +25,25 @@ func NewService(service Service) Service {
 	return service
 }
 
-func (service Service) Check(ctx context.Context, currentVersion string) (*AimUpgradeCheckResult, error) {
+func (service Service) Check(ctx context.Context, currentVersion string, includePrerelease bool) (*AimSelfUpdateCheckResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
 	currentRaw := strings.TrimSpace(currentVersion)
-	latestRaw, err := service.fetchLatestReleaseTag(ctx)
+	latestRaw, err := service.fetchLatestReleaseTag(ctx, includePrerelease)
 	if err != nil {
 		return nil, err
 	}
 
-	result := &AimUpgradeCheckResult{
+	result := &AimSelfUpdateCheckResult{
 		CurrentVersion: currentRaw,
 		LatestVersion:  latestRaw,
 		HasUpdate:      true,
 	}
 
-	currentComparable := models.NormalizeUpgradeVersion(currentRaw)
-	latestComparable := models.NormalizeUpgradeVersion(latestRaw)
+	currentComparable := models.NormalizeSelfUpdateVersion(currentRaw)
+	latestComparable := models.NormalizeSelfUpdateVersion(latestRaw)
 	if currentComparable == "" || latestComparable == "" || strings.EqualFold(currentRaw, "dev") {
 		result.Comparable = false
 		return result, nil
@@ -59,19 +59,23 @@ func (service Service) Check(ctx context.Context, currentVersion string) (*AimUp
 	return result, nil
 }
 
-func (service Service) Upgrade(ctx context.Context, currentVersion string) (*InstallerUpgradeResult, error) {
+func (service Service) SelfUpdate(ctx context.Context, req InstallerSelfUpdateRequest) (*InstallerSelfUpdateResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	result := &InstallerUpgradeResult{PreviousVersion: strings.TrimSpace(currentVersion)}
+	result := &InstallerSelfUpdateResult{PreviousVersion: strings.TrimSpace(req.CurrentVersion)}
 
 	updater, err := service.requireSelfUpdater()
 	if err != nil {
 		return nil, err
 	}
+	env := map[string]string{}
+	if targetVersion := strings.TrimSpace(req.TargetVersion); targetVersion != "" {
+		env["AIM_VERSION"] = targetVersion
+	}
 	if err := updater.RunInstallerScript(ctx, service.installScriptURL(service.repoSlug()), func() (string, error) {
 		return strings.TrimSpace(service.TempDir), nil
-	}); err != nil {
+	}, env); err != nil {
 		return nil, err
 	}
 
@@ -88,7 +92,7 @@ func (service Service) Upgrade(ctx context.Context, currentVersion string) (*Ins
 	return result, nil
 }
 
-func (service Service) fetchLatestReleaseTag(ctx context.Context) (string, error) {
+func (service Service) fetchLatestReleaseTag(ctx context.Context, includePrerelease bool) (string, error) {
 	finder := service.ReleaseFinder
 	if finder == nil {
 		updater, err := service.requireSelfUpdater()
@@ -97,7 +101,7 @@ func (service Service) fetchLatestReleaseTag(ctx context.Context) (string, error
 		}
 		finder = updater
 	}
-	return finder.FetchLatestReleaseTag(ctx, service.latestReleaseURL(service.repoSlug()))
+	return finder.FetchLatestReleaseTag(ctx, service.latestReleaseURL(service.repoSlug(), includePrerelease))
 }
 
 func (service Service) requireSelfUpdater() (SelfUpdater, error) {
@@ -121,9 +125,12 @@ func (service Service) installScriptURL(repoSlug string) string {
 	return fmt.Sprintf("https://raw.githubusercontent.com/%s/main/scripts/install.sh", repoSlug)
 }
 
-func (service Service) latestReleaseURL(repoSlug string) string {
+func (service Service) latestReleaseURL(repoSlug string, includePrerelease bool) string {
 	if service.LatestReleaseURL != nil {
 		return service.LatestReleaseURL(repoSlug)
+	}
+	if includePrerelease {
+		return fmt.Sprintf("https://api.github.com/repos/%s/releases?per_page=100", repoSlug)
 	}
 	return fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repoSlug)
 }

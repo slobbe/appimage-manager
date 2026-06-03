@@ -1,4 +1,4 @@
-package upgrade
+package selfupdate
 
 import (
 	"context"
@@ -17,7 +17,7 @@ type testLatestReleaseResponse struct {
 
 type fakeSelfUpdater struct {
 	fetchLatestReleaseTag func(context.Context, string) (string, error)
-	runInstallerScript    func(context.Context, string, func() (string, error)) error
+	runInstallerScript    func(context.Context, string, func() (string, error), map[string]string) error
 	resolveInstalledPath  func() (string, error)
 	readInstalledVersion  func(context.Context, string) (string, error)
 }
@@ -29,9 +29,9 @@ func (f fakeSelfUpdater) FetchLatestReleaseTag(ctx context.Context, releaseURL s
 	return "", fmt.Errorf("fetch latest release tag not configured")
 }
 
-func (f fakeSelfUpdater) RunInstallerScript(ctx context.Context, scriptURL string, tempDir func() (string, error)) error {
+func (f fakeSelfUpdater) RunInstallerScript(ctx context.Context, scriptURL string, tempDir func() (string, error), env map[string]string) error {
 	if f.runInstallerScript != nil {
-		return f.runInstallerScript(ctx, scriptURL, tempDir)
+		return f.runInstallerScript(ctx, scriptURL, tempDir, env)
 	}
 	return fmt.Errorf("run installer script not configured")
 }
@@ -50,7 +50,7 @@ func (f fakeSelfUpdater) ReadInstalledVersion(ctx context.Context, binaryPath st
 	return "", fmt.Errorf("read installed version not configured")
 }
 
-func TestCheckForAimUpgradeReturnsUpdateWhenLatestIsNewer(t *testing.T) {
+func TestCheckForAimSelfUpdateReturnsUpdateWhenLatestIsNewer(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/releases/latest" {
 			http.NotFound(w, r)
@@ -60,17 +60,17 @@ func TestCheckForAimUpgradeReturnsUpdateWhenLatestIsNewer(t *testing.T) {
 	}))
 	defer server.Close()
 
-	originalHTTPClient := upgradeHTTPClient
-	t.Cleanup(func() { upgradeHTTPClient = originalHTTPClient })
-	upgradeHTTPClient = server.Client()
+	originalHTTPClient := selfUpdateHTTPClient
+	t.Cleanup(func() { selfUpdateHTTPClient = originalHTTPClient })
+	selfUpdateHTTPClient = server.Client()
 	service := NewService(Service{SelfUpdater: testSelfUpdater{}, LatestReleaseURL: func(string) string { return server.URL + "/releases/latest" }})
 
-	result, err := service.Check(context.Background(), "0.12.4")
+	result, err := service.Check(context.Background(), "0.12.4", false)
 	if err != nil {
-		t.Fatalf("CheckForAimUpgrade returned error: %v", err)
+		t.Fatalf("CheckForAimSelfUpdate returned error: %v", err)
 	}
 	if result == nil {
-		t.Fatal("expected upgrade check result")
+		t.Fatal("expected self-update check result")
 	}
 	if !result.Comparable {
 		t.Fatal("expected comparable result")
@@ -83,23 +83,23 @@ func TestCheckForAimUpgradeReturnsUpdateWhenLatestIsNewer(t *testing.T) {
 	}
 }
 
-func TestCheckForAimUpgradeReturnsNoUpdateWhenVersionsMatch(t *testing.T) {
+func TestCheckForAimSelfUpdateReturnsNoUpdateWhenVersionsMatch(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(testLatestReleaseResponse{TagName: "v0.12.5"})
 	}))
 	defer server.Close()
 
-	originalHTTPClient := upgradeHTTPClient
-	t.Cleanup(func() { upgradeHTTPClient = originalHTTPClient })
-	upgradeHTTPClient = server.Client()
+	originalHTTPClient := selfUpdateHTTPClient
+	t.Cleanup(func() { selfUpdateHTTPClient = originalHTTPClient })
+	selfUpdateHTTPClient = server.Client()
 	service := NewService(Service{SelfUpdater: testSelfUpdater{}, LatestReleaseURL: func(string) string { return server.URL }})
 
-	result, err := service.Check(context.Background(), "0.12.5")
+	result, err := service.Check(context.Background(), "0.12.5", false)
 	if err != nil {
-		t.Fatalf("CheckForAimUpgrade returned error: %v", err)
+		t.Fatalf("CheckForAimSelfUpdate returned error: %v", err)
 	}
 	if result == nil {
-		t.Fatal("expected upgrade check result")
+		t.Fatal("expected self-update check result")
 	}
 	if !result.Comparable {
 		t.Fatal("expected comparable result")
@@ -109,44 +109,64 @@ func TestCheckForAimUpgradeReturnsNoUpdateWhenVersionsMatch(t *testing.T) {
 	}
 }
 
-func TestCheckForAimUpgradeTreatsDevAsNonComparable(t *testing.T) {
+func TestCheckForAimSelfUpdateTreatsDevAsNonComparable(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(testLatestReleaseResponse{TagName: "v0.12.5"})
 	}))
 	defer server.Close()
 
-	originalHTTPClient := upgradeHTTPClient
-	t.Cleanup(func() { upgradeHTTPClient = originalHTTPClient })
-	upgradeHTTPClient = server.Client()
+	originalHTTPClient := selfUpdateHTTPClient
+	t.Cleanup(func() { selfUpdateHTTPClient = originalHTTPClient })
+	selfUpdateHTTPClient = server.Client()
 	service := NewService(Service{SelfUpdater: testSelfUpdater{}, LatestReleaseURL: func(string) string { return server.URL }})
 
-	result, err := service.Check(context.Background(), "dev")
+	result, err := service.Check(context.Background(), "dev", false)
 	if err != nil {
-		t.Fatalf("CheckForAimUpgrade returned error: %v", err)
+		t.Fatalf("CheckForAimSelfUpdate returned error: %v", err)
 	}
 	if result == nil {
-		t.Fatal("expected upgrade check result")
+		t.Fatal("expected self-update check result")
 	}
 	if result.Comparable {
 		t.Fatal("did not expect comparable result for dev")
 	}
 	if !result.HasUpdate {
-		t.Fatal("expected upgrade path to remain allowed for dev")
+		t.Fatal("expected self-update path to remain allowed for dev")
 	}
 }
 
-func TestCheckForAimUpgradeRejectsBadGitHubStatus(t *testing.T) {
+func TestCheckForAimSelfUpdateUsesReleaseListWhenIncludingPrereleases(t *testing.T) {
+	updater := fakeSelfUpdater{
+		fetchLatestReleaseTag: func(_ context.Context, releaseURL string) (string, error) {
+			if releaseURL != "https://api.github.com/repos/test/repo/releases?per_page=100" {
+				t.Fatalf("release URL = %q", releaseURL)
+			}
+			return "v0.13.0-rc.1", nil
+		},
+	}
+	service := NewService(Service{RepoSlug: "test/repo", SelfUpdater: updater})
+
+	result, err := service.Check(context.Background(), "0.12.5", true)
+	if err != nil {
+		t.Fatalf("Check returned error: %v", err)
+	}
+	if result == nil || result.LatestVersion != "v0.13.0-rc.1" || !result.HasUpdate {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+}
+
+func TestCheckForAimSelfUpdateRejectsBadGitHubStatus(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "nope", http.StatusBadGateway)
 	}))
 	defer server.Close()
 
-	originalHTTPClient := upgradeHTTPClient
-	t.Cleanup(func() { upgradeHTTPClient = originalHTTPClient })
-	upgradeHTTPClient = server.Client()
+	originalHTTPClient := selfUpdateHTTPClient
+	t.Cleanup(func() { selfUpdateHTTPClient = originalHTTPClient })
+	selfUpdateHTTPClient = server.Client()
 	service := NewService(Service{SelfUpdater: testSelfUpdater{}, LatestReleaseURL: func(string) string { return server.URL }})
 
-	_, err := service.Check(context.Background(), "0.12.4")
+	_, err := service.Check(context.Background(), "0.12.4", false)
 	if err == nil {
 		t.Fatal("expected latest release request error")
 	}
@@ -155,13 +175,16 @@ func TestCheckForAimUpgradeRejectsBadGitHubStatus(t *testing.T) {
 	}
 }
 
-func TestUpgradeViaInstallerReturnsInstalledVersion(t *testing.T) {
+func TestSelfUpdateInstallsAndReturnsInstalledVersion(t *testing.T) {
 	called := false
 	updater := fakeSelfUpdater{
-		runInstallerScript: func(_ context.Context, scriptURL string, _ func() (string, error)) error {
+		runInstallerScript: func(_ context.Context, scriptURL string, _ func() (string, error), env map[string]string) error {
 			called = true
 			if scriptURL != "https://raw.githubusercontent.com/test/repo/main/scripts/install.sh" {
 				t.Fatalf("unexpected script URL %q", scriptURL)
+			}
+			if env["AIM_VERSION"] != "v0.12.5" {
+				t.Fatalf("AIM_VERSION = %q, want %q", env["AIM_VERSION"], "v0.12.5")
 			}
 			return nil
 		},
@@ -178,15 +201,15 @@ func TestUpgradeViaInstallerReturnsInstalledVersion(t *testing.T) {
 	}
 	service := NewService(Service{RepoSlug: "test/repo", SelfUpdater: updater})
 
-	result, err := service.Upgrade(context.Background(), "0.12.4")
+	result, err := service.SelfUpdate(context.Background(), InstallerSelfUpdateRequest{CurrentVersion: "0.12.4", TargetVersion: "v0.12.5"})
 	if err != nil {
-		t.Fatalf("UpgradeViaInstaller returned error: %v", err)
+		t.Fatalf("SelfUpdate returned error: %v", err)
 	}
 	if !called {
 		t.Fatal("expected installer script runner to be called")
 	}
 	if result == nil {
-		t.Fatal("expected upgrade result")
+		t.Fatal("expected self-update result")
 	}
 	if result.PreviousVersion != "0.12.4" {
 		t.Fatalf("PreviousVersion = %q, want %q", result.PreviousVersion, "0.12.4")
@@ -196,9 +219,9 @@ func TestUpgradeViaInstallerReturnsInstalledVersion(t *testing.T) {
 	}
 }
 
-func TestUpgradeViaInstallerHandlesNilContext(t *testing.T) {
+func TestSelfUpdateHandlesNilContext(t *testing.T) {
 	updater := fakeSelfUpdater{}
-	updater.runInstallerScript = func(ctx context.Context, scriptURL string, _ func() (string, error)) error {
+	updater.runInstallerScript = func(ctx context.Context, scriptURL string, _ func() (string, error), _ map[string]string) error {
 		if ctx == nil {
 			t.Fatal("expected non-nil context")
 		}
@@ -224,18 +247,19 @@ func TestUpgradeViaInstallerHandlesNilContext(t *testing.T) {
 	}
 
 	service := NewService(Service{SelfUpdater: updater})
-	result, err := service.Upgrade(nil, "0.12.4")
+	var nilContext context.Context
+	result, err := service.SelfUpdate(nilContext, InstallerSelfUpdateRequest{CurrentVersion: "0.12.4"})
 	if err != nil {
-		t.Fatalf("UpgradeViaInstaller returned error: %v", err)
+		t.Fatalf("SelfUpdate returned error: %v", err)
 	}
 	if result == nil || result.InstalledVersion != "0.12.5" {
 		t.Fatalf("unexpected result: %#v", result)
 	}
 }
 
-func TestUpgradeViaInstallerFallsBackWhenVersionProbeFails(t *testing.T) {
+func TestSelfUpdateFallsBackWhenVersionProbeFails(t *testing.T) {
 	updater := fakeSelfUpdater{
-		runInstallerScript:   func(context.Context, string, func() (string, error)) error { return nil },
+		runInstallerScript:   func(context.Context, string, func() (string, error), map[string]string) error { return nil },
 		resolveInstalledPath: func() (string, error) { return "/tmp/aim", nil },
 		readInstalledVersion: func(context.Context, string) (string, error) {
 			return "", fmt.Errorf("version probe failed")
@@ -243,12 +267,12 @@ func TestUpgradeViaInstallerFallsBackWhenVersionProbeFails(t *testing.T) {
 	}
 	service := NewService(Service{SelfUpdater: updater})
 
-	result, err := service.Upgrade(context.Background(), "0.12.4")
+	result, err := service.SelfUpdate(context.Background(), InstallerSelfUpdateRequest{CurrentVersion: "0.12.4"})
 	if err != nil {
-		t.Fatalf("UpgradeViaInstaller returned error: %v", err)
+		t.Fatalf("SelfUpdate returned error: %v", err)
 	}
 	if result == nil {
-		t.Fatal("expected upgrade result")
+		t.Fatal("expected self-update result")
 	}
 	if result.PreviousVersion != "0.12.4" {
 		t.Fatalf("PreviousVersion = %q, want %q", result.PreviousVersion, "0.12.4")
@@ -258,13 +282,13 @@ func TestUpgradeViaInstallerFallsBackWhenVersionProbeFails(t *testing.T) {
 	}
 }
 
-func TestUpgradeViaInstallerPropagatesInstallerFailure(t *testing.T) {
-	updater := fakeSelfUpdater{runInstallerScript: func(context.Context, string, func() (string, error)) error {
+func TestSelfUpdatePropagatesInstallerFailure(t *testing.T) {
+	updater := fakeSelfUpdater{runInstallerScript: func(context.Context, string, func() (string, error), map[string]string) error {
 		return fmt.Errorf("installer failed")
 	}}
 	service := NewService(Service{SelfUpdater: updater})
 
-	result, err := service.Upgrade(context.Background(), "0.12.4")
+	result, err := service.SelfUpdate(context.Background(), InstallerSelfUpdateRequest{CurrentVersion: "0.12.4"})
 	if err == nil {
 		t.Fatal("expected installer failure")
 	}
@@ -277,9 +301,9 @@ func TestUpgradeViaInstallerPropagatesInstallerFailure(t *testing.T) {
 }
 
 func TestReadInstalledAimVersionTrimsWhitespace(t *testing.T) {
-	originalRunVersionCommand := upgradeRunVersionCommand
-	t.Cleanup(func() { upgradeRunVersionCommand = originalRunVersionCommand })
-	upgradeRunVersionCommand = func(context.Context, string) (string, error) { return "0.12.5\n", nil }
+	originalRunVersionCommand := selfUpdateRunVersionCommand
+	t.Cleanup(func() { selfUpdateRunVersionCommand = originalRunVersionCommand })
+	selfUpdateRunVersionCommand = func(context.Context, string) (string, error) { return "0.12.5\n", nil }
 
 	version, err := (testSelfUpdater{}).ReadInstalledVersion(context.Background(), "/tmp/aim")
 	if err != nil {
@@ -296,13 +320,13 @@ func TestRunInstallerScriptRejectsBadStatus(t *testing.T) {
 	}))
 	defer server.Close()
 
-	originalHTTPClient := upgradeHTTPClient
+	originalHTTPClient := selfUpdateHTTPClient
 	t.Cleanup(func() {
-		upgradeHTTPClient = originalHTTPClient
+		selfUpdateHTTPClient = originalHTTPClient
 	})
-	upgradeHTTPClient = server.Client()
+	selfUpdateHTTPClient = server.Client()
 
-	err := (testSelfUpdater{}).RunInstallerScript(context.Background(), server.URL, func() (string, error) { return t.TempDir(), nil })
+	err := (testSelfUpdater{}).RunInstallerScript(context.Background(), server.URL, func() (string, error) { return t.TempDir(), nil }, nil)
 	if err == nil {
 		t.Fatal("expected download status error")
 	}
@@ -320,17 +344,17 @@ func TestRunInstallerScriptExecutesDownloadedScript(t *testing.T) {
 	}))
 	defer server.Close()
 
-	originalHTTPClient := upgradeHTTPClient
-	originalShellCommand := upgradeShellCommand
+	originalHTTPClient := selfUpdateHTTPClient
+	originalShellCommand := selfUpdateShellCommand
 	t.Cleanup(func() {
-		upgradeHTTPClient = originalHTTPClient
-		upgradeShellCommand = originalShellCommand
+		selfUpdateHTTPClient = originalHTTPClient
+		selfUpdateShellCommand = originalShellCommand
 	})
-	upgradeHTTPClient = server.Client()
-	upgradeShellCommand = "/bin/sh"
+	selfUpdateHTTPClient = server.Client()
+	selfUpdateShellCommand = "/bin/sh"
 
-	if err := (testSelfUpdater{}).RunInstallerScript(context.Background(), server.URL, func() (string, error) { return tempDir, nil }); err != nil {
-		t.Fatalf("upgradeRunInstallerScript returned error: %v", err)
+	if err := (testSelfUpdater{}).RunInstallerScript(context.Background(), server.URL, func() (string, error) { return tempDir, nil }, nil); err != nil {
+		t.Fatalf("selfUpdateRunInstallerScript returned error: %v", err)
 	}
 }
 
@@ -343,20 +367,20 @@ func TestRunInstallerScriptSurfacesFailureOutput(t *testing.T) {
 	}))
 	defer server.Close()
 
-	originalHTTPClient := upgradeHTTPClient
-	originalShellCommand := upgradeShellCommand
+	originalHTTPClient := selfUpdateHTTPClient
+	originalShellCommand := selfUpdateShellCommand
 	t.Cleanup(func() {
-		upgradeHTTPClient = originalHTTPClient
-		upgradeShellCommand = originalShellCommand
+		selfUpdateHTTPClient = originalHTTPClient
+		selfUpdateShellCommand = originalShellCommand
 	})
-	upgradeHTTPClient = server.Client()
-	upgradeShellCommand = "/bin/sh"
+	selfUpdateHTTPClient = server.Client()
+	selfUpdateShellCommand = "/bin/sh"
 
-	err := (testSelfUpdater{}).RunInstallerScript(context.Background(), server.URL, func() (string, error) { return tempDir, nil })
+	err := (testSelfUpdater{}).RunInstallerScript(context.Background(), server.URL, func() (string, error) { return tempDir, nil }, nil)
 	if err == nil {
 		t.Fatal("expected execution failure")
 	}
-	if !strings.Contains(err.Error(), "upgrade via installer failed") {
+	if !strings.Contains(err.Error(), "self-update via installer failed") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !strings.Contains(err.Error(), "failure-output") {

@@ -8,9 +8,9 @@ import (
 	appimageapp "github.com/slobbe/appimage-manager/internal/app/appimage"
 	appintegrate "github.com/slobbe/appimage-manager/internal/app/integrate"
 	appremove "github.com/slobbe/appimage-manager/internal/app/remove"
+	appselfupdate "github.com/slobbe/appimage-manager/internal/app/selfupdate"
 	appservices "github.com/slobbe/appimage-manager/internal/app/services"
 	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
-	appupgrade "github.com/slobbe/appimage-manager/internal/app/upgrade"
 	"github.com/slobbe/appimage-manager/internal/domain"
 	"github.com/slobbe/appimage-manager/internal/infra/config"
 	"github.com/slobbe/appimage-manager/internal/infra/httpclient"
@@ -229,8 +229,8 @@ func removePathsFromConfig(paths config.Paths) appremove.Paths {
 	}
 }
 
-func upgradePathsFromConfig(paths config.Paths) appupgrade.Paths {
-	return appupgrade.Paths{
+func selfUpdatePathsFromConfig(paths config.Paths) appselfupdate.Paths {
+	return appselfupdate.Paths{
 		TempDir: paths.TempDir,
 	}
 }
@@ -457,14 +457,14 @@ func detectTerminalInput() bool {
 type runtimeServicesContextKey struct{}
 
 type runtimeServices struct {
-	Add       appservices.AddService
-	List      appservices.ListService
-	Info      appservices.InfoService
-	Remove    appservices.RemoveService
-	Update    appservices.UpdateService
-	Upgrade   appservices.UpgradeService
-	Discovery appservices.DiscoveryService
-	Locker    appservices.StateLocker
+	Add        appservices.AddService
+	List       appservices.ListService
+	Info       appservices.InfoService
+	Remove     appservices.RemoveService
+	Update     appservices.UpdateService
+	SelfUpdate appservices.SelfUpdateService
+	Discovery  appservices.DiscoveryService
+	Locker     appservices.StateLocker
 }
 
 type updateSourceReplaceConfirmerFunc func(existing, incoming *appservices.UpdateSourceView) (bool, error)
@@ -482,7 +482,7 @@ func defaultRuntimeServicesForSettings(settings runtimeSettings) runtimeServices
 	discoveryService := appservices.NewDiscoveryWorkflowService(appservices.DiscoveryWorkflowService{BackendsFunc: discoveryBackends})
 	apiClient := httpclient.New(settings.NetworkTimeout)
 	selfUpdater := selfUpdaterAdapter{client: apiClient}
-	upgradeService := appupgrade.NewService(appupgrade.Service{
+	selfUpdateService := appselfupdate.NewService(appselfupdate.Service{
 		TempDir:     config.TempDir,
 		SelfUpdater: selfUpdater,
 	})
@@ -546,18 +546,18 @@ func defaultRuntimeServicesForSettings(settings runtimeSettings) runtimeServices
 				appintegrate.RefreshDesktopIntegrationCaches(ctx)
 			},
 		}),
-		Upgrade: appservices.NewUpgradeWorkflowService(appservices.UpgradeWorkflowService{
-			CheckFunc: func(ctx context.Context, currentVersion string) (*appupgrade.AimUpgradeCheckResult, error) {
-				if checkAimUpgrade != nil {
-					return checkAimUpgrade(ctx, currentVersion)
+		SelfUpdate: appservices.NewSelfUpdateWorkflowService(appservices.SelfUpdateWorkflowService{
+			CheckFunc: func(ctx context.Context, currentVersion string, preRelease bool) (*appselfupdate.AimSelfUpdateCheckResult, error) {
+				if checkAimSelfUpdate != nil {
+					return checkAimSelfUpdate(ctx, currentVersion, preRelease)
 				}
-				return upgradeService.Check(ctx, currentVersion)
+				return selfUpdateService.Check(ctx, currentVersion, preRelease)
 			},
-			UpgradeFunc: func(ctx context.Context, currentVersion string) (*appupgrade.InstallerUpgradeResult, error) {
-				if runUpgradeViaInstaller != nil {
-					return runUpgradeViaInstaller(ctx, currentVersion)
+			SelfUpdateFunc: func(ctx context.Context, req appselfupdate.InstallerSelfUpdateRequest) (*appselfupdate.InstallerSelfUpdateResult, error) {
+				if runSelfUpdateInstaller != nil {
+					return runSelfUpdateInstaller(ctx, req)
 				}
-				return upgradeService.Upgrade(ctx, currentVersion)
+				return selfUpdateService.SelfUpdate(ctx, req)
 			},
 		}),
 		Discovery: discoveryService,

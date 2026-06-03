@@ -46,12 +46,12 @@ func TestReleaseAvailability(t *testing.T) {
 	}
 }
 
-func TestNormalizeUpgradeVersion(t *testing.T) {
-	if got := NormalizeUpgradeVersion("dev"); got != "" {
-		t.Fatalf("NormalizeUpgradeVersion(dev) = %q, want empty", got)
+func TestNormalizeSelfUpdateVersion(t *testing.T) {
+	if got := NormalizeSelfUpdateVersion("dev"); got != "" {
+		t.Fatalf("NormalizeSelfUpdateVersion(dev) = %q, want empty", got)
 	}
-	if got := NormalizeUpgradeVersion("v1.2.3"); got != "1.2.3" {
-		t.Fatalf("NormalizeUpgradeVersion(v1.2.3) = %q, want 1.2.3", got)
+	if got := NormalizeSelfUpdateVersion("v1.2.3"); got != "1.2.3" {
+		t.Fatalf("NormalizeSelfUpdateVersion(v1.2.3) = %q, want 1.2.3", got)
 	}
 }
 

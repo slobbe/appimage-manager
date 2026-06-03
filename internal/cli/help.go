@@ -610,7 +610,7 @@ func renderFullMoreInfoSection(cmd *cobra.Command) string {
 	if commandName(cmd) == "aim" {
 		lines = append(lines, `Manual: aim help`)
 		lines = append(lines, "App updates: aim update")
-		lines = append(lines, "CLI self-update: aim --upgrade")
+		lines = append(lines, "CLI self-update: aim self-update")
 		lines = append(lines, "Prompts: only on interactive stdin; pass --no-input to disable them.")
 		lines = append(lines, "Cancellation: press Ctrl-C to cancel in-flight work.")
 		lines = append(lines, "Settings: ${XDG_CONFIG_HOME:-~/.config}/aim/settings.toml (for example: network_timeout = \"30s\")")
@@ -628,7 +628,7 @@ func renderManualMoreInfoSection(cmd *cobra.Command) string {
 	if commandName(cmd) == "aim" {
 		lines = append(lines, `Inline help: aim --help`)
 		lines = append(lines, "App updates: aim update")
-		lines = append(lines, "CLI self-update: aim --upgrade")
+		lines = append(lines, "CLI self-update: aim self-update")
 		lines = append(lines, "Prompts: only on interactive stdin; pass --no-input to disable them.")
 		lines = append(lines, "Cancellation: press Ctrl-C to cancel in-flight work.")
 		lines = append(lines, "Settings: ${XDG_CONFIG_HOME:-~/.config}/aim/settings.toml (for example: network_timeout = \"30s\")")
@@ -652,7 +652,7 @@ func renderNamedBlock(title string, lines []string) string {
 func renderRootUpdateModesSection() string {
 	return renderNamedBlock("UPDATE MODES", []string{
 		"Use 'aim update' to check or apply AppImage updates.",
-		"Use 'aim --upgrade' to upgrade the aim CLI itself.",
+		"Use 'aim self-update' to update the aim CLI itself.",
 	})
 }
 

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/slobbe/appimage-manager/internal/app/discovery"
+	appselfupdate "github.com/slobbe/appimage-manager/internal/app/selfupdate"
 	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
 	"github.com/slobbe/appimage-manager/internal/domain"
 )
@@ -319,46 +320,54 @@ func TestSourceUpdateServicePersistAppliedAppsRemovesSupersededApps(t *testing.T
 	}
 }
 
-func TestUpgradeWorkflowServiceSkipsInstallerWhenUpToDate(t *testing.T) {
+func TestSelfUpdateWorkflowServiceSkipsInstallerWhenUpToDate(t *testing.T) {
 	var installerCalls int
-	service := UpgradeWorkflowService{
-		CheckFunc: func(context.Context, string) (*AimUpgradeCheckResult, error) {
-			return &AimUpgradeCheckResult{CurrentVersion: "1.0.0", LatestVersion: "1.0.0", Comparable: true, HasUpdate: false}, nil
+	service := SelfUpdateWorkflowService{
+		CheckFunc: func(context.Context, string, bool) (*AimSelfUpdateCheckResult, error) {
+			return &AimSelfUpdateCheckResult{CurrentVersion: "1.0.0", LatestVersion: "1.0.0", Comparable: true, HasUpdate: false}, nil
 		},
-		UpgradeFunc: func(context.Context, string) (*InstallerUpgradeResult, error) {
+		SelfUpdateFunc: func(context.Context, appselfupdate.InstallerSelfUpdateRequest) (*InstallerSelfUpdateResult, error) {
 			installerCalls++
 			return nil, nil
 		},
 	}
 
-	result, err := service.Upgrade(context.Background(), UpgradeRequest{CurrentVersion: "1.0.0"})
+	result, err := service.SelfUpdate(context.Background(), SelfUpdateRequest{CurrentVersion: "1.0.0"})
 	if err != nil {
-		t.Fatalf("Upgrade returned error: %v", err)
+		t.Fatalf("SelfUpdate returned error: %v", err)
 	}
 	if installerCalls != 0 {
 		t.Fatalf("installer calls = %d, want 0", installerCalls)
 	}
-	if result == nil || !result.UpToDate || result.Upgraded {
-		t.Fatalf("Upgrade result = %+v, want up-to-date without upgrade", result)
+	if result == nil || !result.UpToDate || result.Updated {
+		t.Fatalf("SelfUpdate result = %+v, want up-to-date without self-update", result)
 	}
 }
 
-func TestUpgradeWorkflowServiceRunsInstallerWhenUpdateAvailable(t *testing.T) {
-	service := UpgradeWorkflowService{
-		CheckFunc: func(context.Context, string) (*AimUpgradeCheckResult, error) {
-			return &AimUpgradeCheckResult{CurrentVersion: "1.0.0", LatestVersion: "1.1.0", Comparable: true, HasUpdate: true}, nil
+func TestSelfUpdateWorkflowServiceRunsInstallerWhenUpdateAvailable(t *testing.T) {
+	var gotPreRelease bool
+	service := SelfUpdateWorkflowService{
+		CheckFunc: func(_ context.Context, _ string, preRelease bool) (*AimSelfUpdateCheckResult, error) {
+			gotPreRelease = preRelease
+			return &AimSelfUpdateCheckResult{CurrentVersion: "1.0.0", LatestVersion: "1.1.0", Comparable: true, HasUpdate: true}, nil
 		},
-		UpgradeFunc: func(context.Context, string) (*InstallerUpgradeResult, error) {
-			return &InstallerUpgradeResult{PreviousVersion: "1.0.0", InstalledVersion: "1.1.0"}, nil
+		SelfUpdateFunc: func(_ context.Context, req appselfupdate.InstallerSelfUpdateRequest) (*InstallerSelfUpdateResult, error) {
+			if req.CurrentVersion != "1.0.0" || req.TargetVersion != "1.1.0" {
+				t.Fatalf("installer request = %+v", req)
+			}
+			return &InstallerSelfUpdateResult{PreviousVersion: "1.0.0", InstalledVersion: "1.1.0"}, nil
 		},
 	}
 
-	result, err := service.Upgrade(context.Background(), UpgradeRequest{CurrentVersion: "1.0.0"})
+	result, err := service.SelfUpdate(context.Background(), SelfUpdateRequest{CurrentVersion: "1.0.0", PreRelease: true})
 	if err != nil {
-		t.Fatalf("Upgrade returned error: %v", err)
+		t.Fatalf("SelfUpdate returned error: %v", err)
 	}
-	if result == nil || !result.Upgraded || result.UpToDate || result.CurrentVersion != "1.0.0" || result.LatestVersion != "1.1.0" || result.InstalledVersion != "1.1.0" {
-		t.Fatalf("Upgrade result = %+v", result)
+	if !gotPreRelease {
+		t.Fatal("CheckFunc preRelease = false, want true")
+	}
+	if result == nil || !result.Updated || result.UpToDate || result.CurrentVersion != "1.0.0" || result.LatestVersion != "1.1.0" || result.InstalledVersion != "1.1.0" {
+		t.Fatalf("SelfUpdate result = %+v", result)
 	}
 }
 

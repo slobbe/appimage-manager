@@ -75,7 +75,7 @@ func NormalizeComparableVersion(raw string) string {
 	return trimLeadingVIfNumeric(value)
 }
 
-func NormalizeUpgradeVersion(raw string) string {
+func NormalizeSelfUpdateVersion(raw string) string {
 	value := strings.TrimSpace(strings.Trim(raw, `"'`))
 	if value == "" || strings.EqualFold(value, "dev") {
 		return ""

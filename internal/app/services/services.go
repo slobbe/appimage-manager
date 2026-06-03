@@ -3,8 +3,8 @@ package services
 import (
 	"context"
 
+	"github.com/slobbe/appimage-manager/internal/app/selfupdate"
 	"github.com/slobbe/appimage-manager/internal/app/update"
-	"github.com/slobbe/appimage-manager/internal/app/upgrade"
 	"github.com/slobbe/appimage-manager/internal/domain"
 )
 
@@ -28,12 +28,12 @@ type UpdateService interface {
 	Update(ctx context.Context, req UpdateRequest) (*UpdateResult, error)
 }
 
-type AimUpgradeCheckResult = upgrade.AimUpgradeCheckResult
+type AimSelfUpdateCheckResult = selfupdate.AimSelfUpdateCheckResult
 
-type InstallerUpgradeResult = upgrade.InstallerUpgradeResult
+type InstallerSelfUpdateResult = selfupdate.InstallerSelfUpdateResult
 
-type UpgradeService interface {
-	Upgrade(ctx context.Context, req UpgradeRequest) (*UpgradeResult, error)
+type SelfUpdateService interface {
+	SelfUpdate(ctx context.Context, req SelfUpdateRequest) (*SelfUpdateResult, error)
 }
 
 type DiscoveryService interface {
@@ -127,9 +127,10 @@ type RemoveRequest struct {
 	DryRun bool
 }
 
-type UpgradeRequest struct {
+type SelfUpdateRequest struct {
 	CurrentVersion string
 	DryRun         bool
+	PreRelease     bool
 }
 
 type UpdateMode string
@@ -250,12 +251,12 @@ type RemoveResult struct {
 	Paths  []string
 }
 
-type UpgradeResult struct {
+type SelfUpdateResult struct {
 	CurrentVersion   string
 	LatestVersion    string
 	InstalledVersion string
 	UpToDate         bool
-	Upgraded         bool
+	Updated          bool
 }
 
 type UpdateResult struct {

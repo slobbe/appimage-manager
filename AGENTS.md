@@ -3,7 +3,7 @@
 ## Project Context
 
 AppImage Manager (`aim`) is a Go CLI for managing AppImages: discovery, integration,
-removal, updates, upgrades, and related desktop integration behavior.
+removal, updates, self-updates, and related desktop integration behavior.
 
 The project is still in beta. Backwards compatibility is not required.
 
@@ -194,7 +194,7 @@ internal/app/integrate
 internal/app/remove
 internal/app/services
 internal/app/update
-internal/app/upgrade
+internal/app/selfupdate
 ```
 
 #### `internal/domain`
@@ -300,7 +300,7 @@ weakening the test.
 
 ### Post-refactor service conventions
 
-- Keep command services shaped around CLI use cases: `AddService`, `ListService`, `InfoService`, `RemoveService`, `UpdateService`, `UpgradeService`, and `DiscoveryService`.
+- Keep command services shaped around CLI use cases: `AddService`, `ListService`, `InfoService`, `RemoveService`, `UpdateService`, `SelfUpdateService`, and `DiscoveryService`.
 - Keep app services explicit: construct services with dependencies rather than relying on package globals.
 - Use structured app results for CLI output and dry-run planning; CLI owns rendering, prompts, progress display, and friendly error text.
 - Keep state locking and persistence coordination behind app/runtime-level ports instead of embedding it directly in command handlers.

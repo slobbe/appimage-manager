@@ -69,7 +69,8 @@ aim list                 # list managed AppImages
 aim info example-app     # inspect a managed app
 aim info ./Example.AppImage
 aim info --github owner/repo
-aim --upgrade            # upgrade aim itself
+aim self-update          # update aim itself
+aim self-update --pre    # include prerelease versions
 ```
 
 ## Key Flags

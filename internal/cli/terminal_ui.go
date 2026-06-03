@@ -340,8 +340,8 @@ func progressCheckAimUpdates() string {
 	return "Checking for aim updates"
 }
 
-func progressUpgradeAim() string {
-	return "Upgrading aim"
+func progressSelfUpdateAim() string {
+	return "Self-updating aim"
 }
 
 func warningNoEmbeddedSource() string {

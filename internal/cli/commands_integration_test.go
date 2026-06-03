@@ -22,9 +22,9 @@ import (
 	appimage "github.com/slobbe/appimage-manager/internal/app/appimage"
 	"github.com/slobbe/appimage-manager/internal/app/discovery"
 	appintegrate "github.com/slobbe/appimage-manager/internal/app/integrate"
+	appselfupdate "github.com/slobbe/appimage-manager/internal/app/selfupdate"
 	appservices "github.com/slobbe/appimage-manager/internal/app/services"
 	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
-	appupgrade "github.com/slobbe/appimage-manager/internal/app/upgrade"
 	models "github.com/slobbe/appimage-manager/internal/domain"
 	"github.com/slobbe/appimage-manager/internal/infra/config"
 	"github.com/slobbe/appimage-manager/internal/infra/download"
@@ -205,23 +205,23 @@ func TestUpdateDownloadFilename(t *testing.T) {
 	}
 }
 
-func TestUpgradeCmdRunsInstallerUpgrade(t *testing.T) {
-	originalCheck := checkAimUpgrade
-	original := runUpgradeViaInstaller
+func TestSelfUpdateCmdRunsInstaller(t *testing.T) {
+	originalCheck := checkAimSelfUpdate
+	original := runSelfUpdateInstaller
 	t.Cleanup(func() {
-		checkAimUpgrade = originalCheck
-		runUpgradeViaInstaller = original
+		checkAimSelfUpdate = originalCheck
+		runSelfUpdateInstaller = original
 	})
-	checkAimUpgrade = func(context.Context, string) (*appupgrade.AimUpgradeCheckResult, error) {
-		return &appupgrade.AimUpgradeCheckResult{CurrentVersion: "0.12.4", LatestVersion: "0.12.5", HasUpdate: true, Comparable: true}, nil
+	checkAimSelfUpdate = func(context.Context, string, bool) (*appselfupdate.AimSelfUpdateCheckResult, error) {
+		return &appselfupdate.AimSelfUpdateCheckResult{CurrentVersion: "0.12.4", LatestVersion: "0.12.5", HasUpdate: true, Comparable: true}, nil
 	}
-	runUpgradeViaInstaller = func(context.Context, string) (*appupgrade.InstallerUpgradeResult, error) {
+	runSelfUpdateInstaller = func(context.Context, appselfupdate.InstallerSelfUpdateRequest) (*appselfupdate.InstallerSelfUpdateResult, error) {
 		return nil, fmt.Errorf("installer failed")
 	}
 
-	cmd := newUpgradeTestCommand()
+	cmd := newSelfUpdateTestCommand()
 
-	err := executeTestCommand(context.Background(), cmd, "--upgrade")
+	err := executeTestCommand(context.Background(), cmd, "self-update")
 	if err == nil {
 		t.Fatal("expected installer error")
 	}
@@ -230,26 +230,26 @@ func TestUpgradeCmdRunsInstallerUpgrade(t *testing.T) {
 	}
 }
 
-func TestUpgradeCmdOutputsVersionTransitionMessage(t *testing.T) {
-	originalCheck := checkAimUpgrade
-	original := runUpgradeViaInstaller
+func TestSelfUpdateCmdOutputsVersionTransitionMessage(t *testing.T) {
+	originalCheck := checkAimSelfUpdate
+	original := runSelfUpdateInstaller
 	t.Cleanup(func() {
-		checkAimUpgrade = originalCheck
-		runUpgradeViaInstaller = original
+		checkAimSelfUpdate = originalCheck
+		runSelfUpdateInstaller = original
 	})
-	checkAimUpgrade = func(context.Context, string) (*appupgrade.AimUpgradeCheckResult, error) {
-		return &appupgrade.AimUpgradeCheckResult{CurrentVersion: "0.12.4", LatestVersion: "0.12.5", HasUpdate: true, Comparable: true}, nil
+	checkAimSelfUpdate = func(context.Context, string, bool) (*appselfupdate.AimSelfUpdateCheckResult, error) {
+		return &appselfupdate.AimSelfUpdateCheckResult{CurrentVersion: "0.12.4", LatestVersion: "0.12.5", HasUpdate: true, Comparable: true}, nil
 	}
-	runUpgradeViaInstaller = func(context.Context, string) (*appupgrade.InstallerUpgradeResult, error) {
-		return &appupgrade.InstallerUpgradeResult{
+	runSelfUpdateInstaller = func(context.Context, appselfupdate.InstallerSelfUpdateRequest) (*appselfupdate.InstallerSelfUpdateResult, error) {
+		return &appselfupdate.InstallerSelfUpdateResult{
 			PreviousVersion:  "0.12.4",
 			InstalledVersion: "0.12.5",
 		}, nil
 	}
 
-	cmd := newUpgradeTestCommand()
+	cmd := newSelfUpdateTestCommand()
 	output := captureStdout(t, func() {
-		if err := executeTestCommand(context.Background(), cmd, "--upgrade"); err != nil {
+		if err := executeTestCommand(context.Background(), cmd, "self-update"); err != nil {
 			t.Fatalf("run returned error: %v", err)
 		}
 	})
@@ -257,16 +257,16 @@ func TestUpgradeCmdOutputsVersionTransitionMessage(t *testing.T) {
 	if strings.Contains(output, "Checking for aim updates...") {
 		t.Fatalf("did not expect separate check progress output:\n%s", output)
 	}
-	if !strings.Contains(output, "Upgrading aim...") {
+	if !strings.Contains(output, "Self-updating aim...") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
-	if !strings.Contains(output, "Upgraded aim v0.12.4 -> v0.12.5") {
+	if !strings.Contains(output, "Updated aim v0.12.4 -> v0.12.5") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
 }
 
-func TestUpgradeShortFlagIsRejected(t *testing.T) {
-	cmd := newUpgradeTestCommand()
+func TestSelfUpdateShortFlagIsRejected(t *testing.T) {
+	cmd := newSelfUpdateTestCommand()
 	err := executeTestCommand(context.Background(), cmd, "-U")
 	if err == nil {
 		t.Fatal("expected unknown shorthand flag error")
@@ -276,59 +276,59 @@ func TestUpgradeShortFlagIsRejected(t *testing.T) {
 	}
 }
 
-func TestUpgradeCmdFallsBackWhenInstalledVersionUnknown(t *testing.T) {
-	originalCheck := checkAimUpgrade
-	original := runUpgradeViaInstaller
+func TestSelfUpdateCmdFallsBackWhenInstalledVersionUnknown(t *testing.T) {
+	originalCheck := checkAimSelfUpdate
+	original := runSelfUpdateInstaller
 	t.Cleanup(func() {
-		checkAimUpgrade = originalCheck
-		runUpgradeViaInstaller = original
+		checkAimSelfUpdate = originalCheck
+		runSelfUpdateInstaller = original
 	})
-	checkAimUpgrade = func(context.Context, string) (*appupgrade.AimUpgradeCheckResult, error) {
-		return &appupgrade.AimUpgradeCheckResult{CurrentVersion: "0.12.4", LatestVersion: "0.12.5", HasUpdate: true, Comparable: true}, nil
+	checkAimSelfUpdate = func(context.Context, string, bool) (*appselfupdate.AimSelfUpdateCheckResult, error) {
+		return &appselfupdate.AimSelfUpdateCheckResult{CurrentVersion: "0.12.4", LatestVersion: "0.12.5", HasUpdate: true, Comparable: true}, nil
 	}
-	runUpgradeViaInstaller = func(context.Context, string) (*appupgrade.InstallerUpgradeResult, error) {
-		return &appupgrade.InstallerUpgradeResult{
+	runSelfUpdateInstaller = func(context.Context, appselfupdate.InstallerSelfUpdateRequest) (*appselfupdate.InstallerSelfUpdateResult, error) {
+		return &appselfupdate.InstallerSelfUpdateResult{
 			PreviousVersion:  "0.12.4",
 			InstalledVersion: "",
 		}, nil
 	}
 
-	cmd := newUpgradeTestCommand()
+	cmd := newSelfUpdateTestCommand()
 	output := captureStdout(t, func() {
-		if err := executeTestCommand(context.Background(), cmd, "--upgrade"); err != nil {
+		if err := executeTestCommand(context.Background(), cmd, "self-update"); err != nil {
 			t.Fatalf("run returned error: %v", err)
 		}
 	})
 
-	if !strings.Contains(output, "Upgraded aim") {
+	if !strings.Contains(output, "Updated aim") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
 }
 
-func TestUpgradeCmdReportsUpToDateWhenNoNewReleaseExists(t *testing.T) {
-	originalCheck := checkAimUpgrade
-	originalRun := runUpgradeViaInstaller
+func TestSelfUpdateCmdReportsUpToDateWhenNoNewReleaseExists(t *testing.T) {
+	originalCheck := checkAimSelfUpdate
+	originalRun := runSelfUpdateInstaller
 	t.Cleanup(func() {
-		checkAimUpgrade = originalCheck
-		runUpgradeViaInstaller = originalRun
+		checkAimSelfUpdate = originalCheck
+		runSelfUpdateInstaller = originalRun
 	})
 
-	checkAimUpgrade = func(context.Context, string) (*appupgrade.AimUpgradeCheckResult, error) {
-		return &appupgrade.AimUpgradeCheckResult{
+	checkAimSelfUpdate = func(context.Context, string, bool) (*appselfupdate.AimSelfUpdateCheckResult, error) {
+		return &appselfupdate.AimSelfUpdateCheckResult{
 			CurrentVersion: "0.12.5",
 			LatestVersion:  "0.12.5",
 			HasUpdate:      false,
 			Comparable:     true,
 		}, nil
 	}
-	runUpgradeViaInstaller = func(context.Context, string) (*appupgrade.InstallerUpgradeResult, error) {
+	runSelfUpdateInstaller = func(context.Context, appselfupdate.InstallerSelfUpdateRequest) (*appselfupdate.InstallerSelfUpdateResult, error) {
 		t.Fatal("installer should not run when already up to date")
 		return nil, nil
 	}
 
-	cmd := newUpgradeTestCommand()
+	cmd := newSelfUpdateTestCommand()
 	output := captureStdout(t, func() {
-		if err := executeTestCommand(context.Background(), cmd, "--upgrade"); err != nil {
+		if err := executeTestCommand(context.Background(), cmd, "self-update"); err != nil {
 			t.Fatalf("run returned error: %v", err)
 		}
 	})
@@ -341,37 +341,37 @@ func TestUpgradeCmdReportsUpToDateWhenNoNewReleaseExists(t *testing.T) {
 	}
 }
 
-func TestUpgradeCmdDevBuildSkipsNoUpdateOptimization(t *testing.T) {
-	originalCheck := checkAimUpgrade
-	originalRun := runUpgradeViaInstaller
+func TestSelfUpdateCmdDevBuildSkipsNoUpdateOptimization(t *testing.T) {
+	originalCheck := checkAimSelfUpdate
+	originalRun := runSelfUpdateInstaller
 	originalVersion := version
 	t.Cleanup(func() {
-		checkAimUpgrade = originalCheck
-		runUpgradeViaInstaller = originalRun
+		checkAimSelfUpdate = originalCheck
+		runSelfUpdateInstaller = originalRun
 		version = originalVersion
 	})
 
 	version = "dev"
 	called := false
-	checkAimUpgrade = func(context.Context, string) (*appupgrade.AimUpgradeCheckResult, error) {
-		return &appupgrade.AimUpgradeCheckResult{
+	checkAimSelfUpdate = func(context.Context, string, bool) (*appselfupdate.AimSelfUpdateCheckResult, error) {
+		return &appselfupdate.AimSelfUpdateCheckResult{
 			CurrentVersion: "dev",
 			LatestVersion:  "0.12.5",
 			HasUpdate:      true,
 			Comparable:     false,
 		}, nil
 	}
-	runUpgradeViaInstaller = func(context.Context, string) (*appupgrade.InstallerUpgradeResult, error) {
+	runSelfUpdateInstaller = func(context.Context, appselfupdate.InstallerSelfUpdateRequest) (*appselfupdate.InstallerSelfUpdateResult, error) {
 		called = true
-		return &appupgrade.InstallerUpgradeResult{
+		return &appselfupdate.InstallerSelfUpdateResult{
 			PreviousVersion:  "dev",
 			InstalledVersion: "0.12.5",
 		}, nil
 	}
 
-	cmd := newUpgradeTestCommand()
+	cmd := newSelfUpdateTestCommand()
 	output := captureStdout(t, func() {
-		if err := executeTestCommand(context.Background(), cmd, "--upgrade"); err != nil {
+		if err := executeTestCommand(context.Background(), cmd, "self-update"); err != nil {
 			t.Fatalf("run returned error: %v", err)
 		}
 	})
@@ -379,31 +379,31 @@ func TestUpgradeCmdDevBuildSkipsNoUpdateOptimization(t *testing.T) {
 	if !called {
 		t.Fatal("expected installer to run for dev build")
 	}
-	if !strings.Contains(output, "Upgraded aim dev -> v0.12.5") {
+	if !strings.Contains(output, "Updated aim dev -> v0.12.5") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
 }
 
-func TestRootUpgradeRejectsExtraArgs(t *testing.T) {
-	cmd := newUpgradeTestCommand()
+func TestSelfUpdateRejectsExtraArgs(t *testing.T) {
+	cmd := newSelfUpdateTestCommand()
 
-	err := executeTestCommand(context.Background(), cmd, "--upgrade", "extra")
+	err := executeTestCommand(context.Background(), cmd, "self-update", "extra")
 	if err == nil {
 		t.Fatal("expected argument error")
 	}
-	if !strings.Contains(err.Error(), "unknown command \"extra\" for \"aim\"") {
+	if !strings.Contains(err.Error(), "self-update does not accept positional arguments") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
-func TestSubcommandsDoNotAcceptUpgradeFlag(t *testing.T) {
+func TestSubcommandsDoNotAcceptSelfUpdateFlags(t *testing.T) {
 	cmd := newRootTestCommand()
 
-	err := executeTestCommand(context.Background(), cmd, "add", "--upgrade")
+	err := executeTestCommand(context.Background(), cmd, "add", "--pre")
 	if err == nil {
 		t.Fatal("expected unknown flag error")
 	}
-	if !strings.Contains(err.Error(), "unknown flag: --upgrade") {
+	if !strings.Contains(err.Error(), "unknown flag: --pre") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -416,32 +416,20 @@ func TestSubcommandsDoNotAcceptUpgradeFlag(t *testing.T) {
 	}
 }
 
-func TestUpgradeCommandIsUnavailable(t *testing.T) {
-	cmd := newRootTestCommand()
-
-	err := executeTestCommand(context.Background(), cmd, "upgrade")
-	if err == nil {
-		t.Fatal("expected unknown command error")
-	}
-	if !strings.Contains(err.Error(), "unknown command \"upgrade\" for \"aim\"") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestRootUpgradeFlagInvokesInstallerUpgrade(t *testing.T) {
-	originalCheck := checkAimUpgrade
-	original := runUpgradeViaInstaller
+func TestSelfUpdateCommandInvokesInstaller(t *testing.T) {
+	originalCheck := checkAimSelfUpdate
+	original := runSelfUpdateInstaller
 	t.Cleanup(func() {
-		checkAimUpgrade = originalCheck
-		runUpgradeViaInstaller = original
+		checkAimSelfUpdate = originalCheck
+		runSelfUpdateInstaller = original
 	})
 	called := false
-	checkAimUpgrade = func(context.Context, string) (*appupgrade.AimUpgradeCheckResult, error) {
-		return &appupgrade.AimUpgradeCheckResult{CurrentVersion: "0.12.4", LatestVersion: "0.12.5", HasUpdate: true, Comparable: true}, nil
+	checkAimSelfUpdate = func(context.Context, string, bool) (*appselfupdate.AimSelfUpdateCheckResult, error) {
+		return &appselfupdate.AimSelfUpdateCheckResult{CurrentVersion: "0.12.4", LatestVersion: "0.12.5", HasUpdate: true, Comparable: true}, nil
 	}
-	runUpgradeViaInstaller = func(context.Context, string) (*appupgrade.InstallerUpgradeResult, error) {
+	runSelfUpdateInstaller = func(context.Context, appselfupdate.InstallerSelfUpdateRequest) (*appselfupdate.InstallerSelfUpdateResult, error) {
 		called = true
-		return &appupgrade.InstallerUpgradeResult{
+		return &appselfupdate.InstallerSelfUpdateResult{
 			PreviousVersion:  "0.12.4",
 			InstalledVersion: "0.12.5",
 		}, nil
@@ -449,49 +437,49 @@ func TestRootUpgradeFlagInvokesInstallerUpgrade(t *testing.T) {
 
 	cmd := newRootTestCommand()
 	output := captureStdout(t, func() {
-		if err := executeTestCommand(context.Background(), cmd, "--upgrade"); err != nil {
+		if err := executeTestCommand(context.Background(), cmd, "self-update"); err != nil {
 			t.Fatalf("run returned error: %v", err)
 		}
 	})
 
 	if !called {
-		t.Fatal("expected installer upgrade to run")
+		t.Fatal("expected self-update installer to run")
 	}
-	if !strings.Contains(output, "Upgraded aim v0.12.4 -> v0.12.5") {
+	if !strings.Contains(output, "Updated aim v0.12.4 -> v0.12.5") {
 		t.Fatalf("unexpected output:\n%s", output)
 	}
 }
 
-func TestRootUpgradeFlagPassesNonNilContext(t *testing.T) {
-	originalCheck := checkAimUpgrade
-	original := runUpgradeViaInstaller
+func TestSelfUpdateCommandPassesNonNilContext(t *testing.T) {
+	originalCheck := checkAimSelfUpdate
+	original := runSelfUpdateInstaller
 	t.Cleanup(func() {
-		checkAimUpgrade = originalCheck
-		runUpgradeViaInstaller = original
+		checkAimSelfUpdate = originalCheck
+		runSelfUpdateInstaller = original
 	})
-	checkAimUpgrade = func(context.Context, string) (*appupgrade.AimUpgradeCheckResult, error) {
-		return &appupgrade.AimUpgradeCheckResult{CurrentVersion: "dev", LatestVersion: "0.12.5", HasUpdate: true, Comparable: false}, nil
+	checkAimSelfUpdate = func(context.Context, string, bool) (*appselfupdate.AimSelfUpdateCheckResult, error) {
+		return &appselfupdate.AimSelfUpdateCheckResult{CurrentVersion: "dev", LatestVersion: "0.12.5", HasUpdate: true, Comparable: false}, nil
 	}
 
-	runUpgradeViaInstaller = func(ctx context.Context, currentVersion string) (*appupgrade.InstallerUpgradeResult, error) {
+	runSelfUpdateInstaller = func(ctx context.Context, req appselfupdate.InstallerSelfUpdateRequest) (*appselfupdate.InstallerSelfUpdateResult, error) {
 		if ctx == nil {
 			t.Fatal("expected non-nil context")
 		}
 		if err := ctx.Err(); err != nil {
 			t.Fatalf("unexpected context error: %v", err)
 		}
-		if currentVersion != version {
-			t.Fatalf("currentVersion = %q, want %q", currentVersion, version)
+		if req.CurrentVersion != version {
+			t.Fatalf("currentVersion = %q, want %q", req.CurrentVersion, version)
 		}
-		return &appupgrade.InstallerUpgradeResult{
-			PreviousVersion:  currentVersion,
+		return &appselfupdate.InstallerSelfUpdateResult{
+			PreviousVersion:  req.CurrentVersion,
 			InstalledVersion: "0.12.5",
 		}, nil
 	}
 
 	cmd := newRootTestCommand()
 	_ = captureStdout(t, func() {
-		if err := executeTestCommand(context.Background(), cmd, "--upgrade"); err != nil {
+		if err := executeTestCommand(context.Background(), cmd, "self-update"); err != nil {
 			t.Fatalf("run returned error: %v", err)
 		}
 	})
@@ -600,7 +588,7 @@ func TestRootHelpDoesNotAdvertiseRemovedCommands(t *testing.T) {
 		}
 	})
 
-	for _, unwanted := range []string{"\n  upgrade", "\n  migrate", "\n  pin", "\n  unpin", "\n  completion", "\n  integrate", "\n  install", "\n  show", "\n  inspect"} {
+	for _, unwanted := range []string{"\n  migrate", "\n  pin", "\n  unpin", "\n  completion", "\n  integrate", "\n  install", "\n  show", "\n  inspect"} {
 		if strings.Contains(output, unwanted) {
 			t.Fatalf("root help unexpectedly contains %q:\n%s", unwanted, output)
 		}
@@ -646,9 +634,7 @@ func TestRootRegistersPackageCommands(t *testing.T) {
 			t.Fatalf("expected command %q to be registered", name)
 		}
 	}
-	if findSubcommand(cmd, "upgrade") != nil {
-		t.Fatal("did not expect upgrade subcommand to be registered")
-	}
+
 }
 
 func TestRootPackageCommandFlags(t *testing.T) {
@@ -4283,37 +4269,37 @@ func TestDebugLogsWriteToStderr(t *testing.T) {
 	}
 }
 
-func TestUpgradeMessagingUsesStderr(t *testing.T) {
-	originalCheck := checkAimUpgrade
-	originalUpgrade := runUpgradeViaInstaller
+func TestSelfUpdateMessagingUsesStderr(t *testing.T) {
+	originalCheck := checkAimSelfUpdate
+	originalSelfUpdate := runSelfUpdateInstaller
 	t.Cleanup(func() {
-		checkAimUpgrade = originalCheck
-		runUpgradeViaInstaller = originalUpgrade
+		checkAimSelfUpdate = originalCheck
+		runSelfUpdateInstaller = originalSelfUpdate
 	})
-	checkAimUpgrade = func(context.Context, string) (*appupgrade.AimUpgradeCheckResult, error) {
-		return &appupgrade.AimUpgradeCheckResult{
+	checkAimSelfUpdate = func(context.Context, string, bool) (*appselfupdate.AimSelfUpdateCheckResult, error) {
+		return &appselfupdate.AimSelfUpdateCheckResult{
 			CurrentVersion: "0.12.4",
 			LatestVersion:  "0.12.5",
 			HasUpdate:      true,
 			Comparable:     true,
 		}, nil
 	}
-	runUpgradeViaInstaller = func(context.Context, string) (*appupgrade.InstallerUpgradeResult, error) {
-		return &appupgrade.InstallerUpgradeResult{
+	runSelfUpdateInstaller = func(context.Context, appselfupdate.InstallerSelfUpdateRequest) (*appselfupdate.InstallerSelfUpdateResult, error) {
+		return &appselfupdate.InstallerSelfUpdateResult{
 			PreviousVersion:  "0.12.4",
 			InstalledVersion: "0.12.5",
 		}, nil
 	}
 
-	cmd := newUpgradeTestCommand()
-	stdout, stderr, err := executeCommandWithIO(context.Background(), cmd, "--upgrade")
+	cmd := newSelfUpdateTestCommand()
+	stdout, stderr, err := executeCommandWithIO(context.Background(), cmd, "self-update")
 	if err != nil {
 		t.Fatalf("executeCommandWithIO returned error: %v", err)
 	}
 	if strings.TrimSpace(stdout) != "" {
 		t.Fatalf("expected no stdout output, got:\n%s", stdout)
 	}
-	if strings.Contains(stderr, "Checking for aim updates...") || !strings.Contains(stderr, "Upgrading aim...") || !strings.Contains(stderr, "Upgraded aim v0.12.4 -> v0.12.5") {
+	if strings.Contains(stderr, "Checking for aim updates...") || !strings.Contains(stderr, "Self-updating aim...") || !strings.Contains(stderr, "Updated aim v0.12.4 -> v0.12.5") {
 		t.Fatalf("unexpected stderr output:\n%s", stderr)
 	}
 }
@@ -4419,7 +4405,7 @@ func TestRenderManPageIncludesMetadata(t *testing.T) {
 		"Sebastian Lobbe <slobbe@lobbe.cc>",
 		"Copyright (c) 2025 Sebastian Lobbe",
 		"MIT",
-		"\\fB--upgrade\\fP",
+		"self\\-update",
 		"https://github.com/slobbe/appimage\\-manager",
 		"https://github.com/slobbe/appimage\\-manager/issues",
 	} {
@@ -6908,7 +6894,7 @@ func captureStdoutWithInput(t *testing.T, input string, fn func()) string {
 	return captureStdout(t, fn)
 }
 
-func newUpgradeTestCommand() *cobra.Command {
+func newSelfUpdateTestCommand() *cobra.Command {
 	cmd := newRootCommand("0.0.0-test")
 	cmd.SilenceUsage = true
 	cmd.SilenceErrors = true

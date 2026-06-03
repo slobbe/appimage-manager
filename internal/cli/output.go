@@ -799,7 +799,7 @@ func suggestionForError(root *cobra.Command, err error) string {
 		return ""
 	}
 	name := unknownCommandNameFromError(err)
-	if name == "" || name == "upgrade" {
+	if name == "" {
 		return ""
 	}
 	return suggestedCommandName(root, name)
