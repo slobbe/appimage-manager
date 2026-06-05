@@ -51,6 +51,10 @@ func (service Service) IntegrateLocalWithoutCacheRefreshOrPersist(ctx context.Co
 	return service.integrateFromLocalFile(ctx, src, prompt, false, false)
 }
 
+func (service Service) IntegrateManagedUpdateWithoutCacheRefreshOrPersist(ctx context.Context, src string, existingApp *models.App, prompt UpdateOverwritePrompt) (*models.App, error) {
+	return service.integrateManagedUpdateFromLocalFile(ctx, src, existingApp, prompt, false, false)
+}
+
 func (service Service) Reintegrate(ctx context.Context, id string) (*models.App, error) {
 	if service.ReintegrateExistingApp != nil {
 		return service.ReintegrateExistingApp(ctx, id)

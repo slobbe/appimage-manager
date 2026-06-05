@@ -18,6 +18,21 @@ func (service Service) integrateFromLocalFile(ctx context.Context, src string, c
 	if err != nil {
 		return nil, err
 	}
+	return service.integrateFromLocalFileWithStore(ctx, src, confirmUpdateOverwrite, refreshCaches, persist, store, nil)
+}
+
+func (service Service) integrateManagedUpdateFromLocalFile(ctx context.Context, src string, existingApp *models.App, confirmUpdateOverwrite UpdateOverwritePrompt, refreshCaches bool, persist bool) (*models.App, error) {
+	var store AppStore
+	if service.Store != nil {
+		store = service.Store
+	}
+	return service.integrateFromLocalFileWithStore(ctx, src, confirmUpdateOverwrite, refreshCaches, persist, store, existingApp)
+}
+
+func (service Service) integrateFromLocalFileWithStore(ctx context.Context, src string, confirmUpdateOverwrite UpdateOverwritePrompt, refreshCaches bool, persist bool, store AppStore, explicitExistingApp *models.App) (*models.App, error) {
+	if store == nil && explicitExistingApp == nil {
+		return nil, fmt.Errorf("app store is not configured")
+	}
 	paths, err := service.requirePaths()
 	if err != nil {
 		return nil, err
@@ -103,13 +118,26 @@ func (service Service) integrateFromLocalFile(ctx context.Context, src string, c
 		Update: update,
 	}
 
-	appID, replacementApp, err := resolveManagedAppID(store, appInfo.Name, upstreamID, src, incomingIdentity)
-	if err != nil {
-		return nil, err
+	var (
+		appID          string
+		replacementApp *models.App
+	)
+	if explicitExistingApp != nil {
+		appID = strings.TrimSpace(explicitExistingApp.ID)
+		if appID == "" {
+			return nil, fmt.Errorf("managed app id cannot be empty")
+		}
+	} else {
+		appID, replacementApp, err = resolveManagedAppID(store, appInfo.Name, upstreamID, src, incomingIdentity)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	var existingApp *models.App
-	if replacementApp != nil {
+	if explicitExistingApp != nil {
+		existingApp = explicitExistingApp
+	} else if replacementApp != nil {
 		existingApp = replacementApp
 	} else if appData, err := store.GetApp(appID); err == nil {
 		existingApp = appData
@@ -159,7 +187,7 @@ func (service Service) integrateFromLocalFile(ctx context.Context, src string, c
 	}
 	extractionData.IconPath = installedIconPath
 
-	if existingApp != nil && replacementApp == nil {
+	if store != nil && existingApp != nil && replacementApp == nil {
 		service.removeStaleInstalledIcon(store, existingApp.IconPath, installedIconPath, appID)
 	}
 

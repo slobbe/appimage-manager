@@ -99,8 +99,8 @@ func NewDefaultWorkflowServices(opts DefaultWorkflowOptions) DefaultWorkflowServ
 	updateInfoService := NewDefaultUpdateInfoService(apiClient)
 	integrateService := NewDefaultIntegrateService(store, opts.Paths, updateInfoService.GetUpdateInfo)
 	removeService := NewDefaultRemoveService(store, opts.Paths)
-	managedUpdateService := NewDefaultManagedUpdateService(opts.Paths, apiClient, opts.NowISO, func(ctx context.Context, src string, confirm func(existing, incoming *domain.UpdateSource) (bool, error)) (*domain.App, error) {
-		return integrateService.IntegrateLocalWithoutCacheRefreshOrPersist(ctx, src, confirm)
+	managedUpdateService := NewDefaultManagedUpdateService(opts.Paths, apiClient, opts.NowISO, func(ctx context.Context, src string, existingApp *domain.App, confirm func(existing, incoming *domain.UpdateSource) (bool, error)) (*domain.App, error) {
+		return integrateService.IntegrateManagedUpdateWithoutCacheRefreshOrPersist(ctx, src, existingApp, confirm)
 	})
 	updateCheckCacheStore := NewDefaultManagedUpdateCheckCacheStore(opts.Paths)
 

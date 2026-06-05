@@ -113,6 +113,37 @@ func TestIntegrateFromLocalFileWithoutCacheRefreshOrPersistSkipsDatabaseSave(t *
 	}
 }
 
+func TestIntegrateManagedUpdateWithoutCacheRefreshOrPersistUsesExistingAppWithoutStore(t *testing.T) {
+	tmp := t.TempDir()
+	setupIntegrationConfigForTest(t, tmp)
+	stubDesktopValidationForTest(t)
+	stubIntegrationCacheRefreshForTest(t)
+	testService.Store = nil
+
+	appImagePath := filepath.Join(tmp, "0ad-0.28.0-x86_64.AppImage")
+	writeFakeAppImageExtractor(t, appImagePath)
+	existing := &models.App{
+		ID:      "t3-code-alpha",
+		Name:    "T3 Code (Alpha)",
+		Version: "v0.0.24",
+		Update: &models.UpdateSource{Kind: models.UpdateGitHubRelease, GitHubRelease: &models.GitHubReleaseUpdateSource{
+			Repo:  "pingdotgg/t3code",
+			Asset: "*.AppImage",
+		}},
+	}
+
+	app, err := testService.IntegrateManagedUpdateWithoutCacheRefreshOrPersist(context.Background(), appImagePath, existing, nil)
+	if err != nil {
+		t.Fatalf("IntegrateManagedUpdateWithoutCacheRefreshOrPersist returned error: %v", err)
+	}
+	if app.ID != existing.ID {
+		t.Fatalf("app.ID = %q, want existing id %q", app.ID, existing.ID)
+	}
+	if !strings.Contains(app.ExecPath, filepath.Join("aim", existing.ID, existing.ID+".AppImage")) {
+		t.Fatalf("ExecPath = %q, want path under existing app id", app.ExecPath)
+	}
+}
+
 func TestIntegrateFromLocalFileReturnsPromptlyWhenContextCanceled(t *testing.T) {
 	tmp := t.TempDir()
 	setupIntegrationConfigForTest(t, tmp)

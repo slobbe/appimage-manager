@@ -3912,7 +3912,7 @@ func TestApplyManagedUpdateMissingZsyncRewritesError(t *testing.T) {
 			t.Fatal("download should not run when testing zsync lookup failure directly")
 			return nil
 		},
-		func(context.Context, string, func(*models.UpdateSource, *models.UpdateSource) (bool, error)) (*models.App, error) {
+		func(context.Context, string, *models.App, func(*models.UpdateSource, *models.UpdateSource) (bool, error)) (*models.App, error) {
 			t.Fatal("integrate should not run when zsync lookup fails")
 			return nil, nil
 		},
@@ -5929,7 +5929,8 @@ func TestApplyManagedUpdateUsesZsyncWhenAvailable(t *testing.T) {
 			t.Fatal("download should not be called when zsync succeeds")
 			return nil
 		},
-		func(ctx context.Context, src string, confirm func(*models.UpdateSource, *models.UpdateSource) (bool, error)) (*models.App, error) {
+		func(ctx context.Context, src string, existingApp *models.App, confirm func(*models.UpdateSource, *models.UpdateSource) (bool, error)) (*models.App, error) {
+			_ = existingApp
 			if _, err := os.Stat(src); err != nil {
 				t.Fatalf("expected zsync output file: %v", err)
 			}
@@ -5994,7 +5995,7 @@ func TestApplyManagedUpdateFallsBackWhenZsyncMissing(t *testing.T) {
 			}
 			return os.WriteFile(destination, payload, 0o644)
 		},
-		func(context.Context, string, func(*models.UpdateSource, *models.UpdateSource) (bool, error)) (*models.App, error) {
+		func(context.Context, string, *models.App, func(*models.UpdateSource, *models.UpdateSource) (bool, error)) (*models.App, error) {
 			return &models.App{ID: "my-app", Version: "2.0.0"}, nil
 		},
 	)
@@ -6044,7 +6045,7 @@ func TestApplyManagedUpdateFallsBackWhenZsyncFails(t *testing.T) {
 			}
 			return os.WriteFile(destination, payload, 0o644)
 		},
-		func(context.Context, string, func(*models.UpdateSource, *models.UpdateSource) (bool, error)) (*models.App, error) {
+		func(context.Context, string, *models.App, func(*models.UpdateSource, *models.UpdateSource) (bool, error)) (*models.App, error) {
 			return &models.App{ID: "my-app", Version: "2.0.0"}, nil
 		},
 	)
@@ -6089,7 +6090,7 @@ func TestApplyManagedUpdateWithoutZsyncUsesFullDownload(t *testing.T) {
 			}
 			return os.WriteFile(destination, []byte("downloaded"), 0o644)
 		},
-		func(context.Context, string, func(*models.UpdateSource, *models.UpdateSource) (bool, error)) (*models.App, error) {
+		func(context.Context, string, *models.App, func(*models.UpdateSource, *models.UpdateSource) (bool, error)) (*models.App, error) {
 			return &models.App{ID: "my-app", Version: "2.0.0"}, nil
 		},
 	)

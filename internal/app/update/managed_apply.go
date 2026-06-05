@@ -59,7 +59,7 @@ func (f ManagedApplyReporterFunc) Event(event ManagedApplyEvent) {
 	}
 }
 
-type IntegrateFunc func(context.Context, string, func(existing, incoming *models.UpdateSource) (bool, error)) (*models.App, error)
+type IntegrateFunc func(context.Context, string, *models.App, func(existing, incoming *models.UpdateSource) (bool, error)) (*models.App, error)
 
 type Service struct {
 	TempDir               string
@@ -128,7 +128,7 @@ func (s Service) ApplyManagedUpdate(ctx context.Context, update ManagedUpdate, r
 	}
 
 	emitManagedApplyEvent(reporter, ManagedApplyEvent{Stage: ManagedApplyStageIntegrate})
-	app, err := s.integrate(ctx, downloadPath)
+	app, err := s.integrate(ctx, downloadPath, update.App)
 	if err != nil {
 		emitManagedApplyEvent(reporter, ManagedApplyEvent{Stage: ManagedApplyStageFailed, Message: err.Error()})
 		return nil, err
@@ -188,11 +188,11 @@ func (s Service) stableManagedUpdateDownloadDestination(assetURL, nameHint strin
 	return stagedDownload.StableDestination(filepath.Join(s.TempDir, "downloads"), assetURL, nameHint)
 }
 
-func (s Service) integrate(ctx context.Context, downloadPath string) (*models.App, error) {
+func (s Service) integrate(ctx context.Context, downloadPath string, existingApp *models.App) (*models.App, error) {
 	if s.Integrate == nil {
 		return nil, fmt.Errorf("managed update integration is not configured")
 	}
-	return s.Integrate(ctx, downloadPath, func(existing, incoming *models.UpdateSource) (bool, error) {
+	return s.Integrate(ctx, downloadPath, existingApp, func(existing, incoming *models.UpdateSource) (bool, error) {
 		return false, nil
 	})
 }
