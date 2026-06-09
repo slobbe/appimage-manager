@@ -255,12 +255,12 @@ func NewDefaultUpdateInfoService(apiClient *http.Client) appupdate.Service {
 	})
 }
 
-func NewDefaultManagedUpdateService(paths RuntimePaths, apiClient *http.Client, nowISO func() string, integrate appupdate.IntegrateFunc) appupdate.Service {
+func NewDefaultManagedUpdateService(paths RuntimePaths, _ *http.Client, nowISO func() string, integrate appupdate.IntegrateFunc) appupdate.Service {
 	return appupdate.NewService(appupdate.Service{
 		TempDir:        paths.TempDir,
 		NowISO:         nowISO,
 		Zsync:          zsync.Runner{},
-		StagedDownload: defaultStagedDownloadAdapter{client: apiClient, nowISO: nowISO},
+		StagedDownload: defaultStagedDownloadAdapter{client: download.SharedHTTPClient(), nowISO: nowISO},
 		HashVerifier:   defaultHashVerifierAdapter{},
 		Integrate:      integrate,
 	})

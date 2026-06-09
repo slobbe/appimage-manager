@@ -3,14 +3,46 @@ package services
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/slobbe/appimage-manager/internal/app/discovery"
 	appselfupdate "github.com/slobbe/appimage-manager/internal/app/selfupdate"
 	appupdate "github.com/slobbe/appimage-manager/internal/app/update"
 	"github.com/slobbe/appimage-manager/internal/domain"
+	"github.com/slobbe/appimage-manager/internal/infra/download"
 )
+
+func TestDefaultManagedUpdateServiceUsesDownloadHTTPClient(t *testing.T) {
+	originalDownloadClient := download.SharedHTTPClient()
+	originalDownloadTimeout := download.SharedHTTPClient().Timeout
+	t.Cleanup(func() {
+		download.SetHTTPClientTimeout(originalDownloadTimeout)
+		if originalDownloadClient != nil && originalDownloadClient.Transport != nil {
+			download.SharedHTTPClient().Transport = originalDownloadClient.Transport
+		}
+	})
+	download.SetHTTPClientTimeout(75 * time.Millisecond)
+
+	apiClient := &http.Client{Timeout: 75 * time.Millisecond}
+	service := NewDefaultManagedUpdateService(RuntimePaths{TempDir: t.TempDir()}, apiClient, func() string { return "now" }, nil)
+
+	staged, ok := service.StagedDownload.(defaultStagedDownloadAdapter)
+	if !ok {
+		t.Fatalf("staged download adapter = %T, want defaultStagedDownloadAdapter", service.StagedDownload)
+	}
+	if staged.client != download.SharedHTTPClient() {
+		t.Fatal("managed update staged download should use shared download HTTP client")
+	}
+	if staged.client == apiClient {
+		t.Fatal("managed update staged download should not use API HTTP client with whole-body timeout")
+	}
+	if got := staged.client.Timeout; got != 0 {
+		t.Fatalf("managed update download client timeout = %s, want 0", got)
+	}
+}
 
 func TestStoreListServiceFiltersApps(t *testing.T) {
 	store := fakeAppStore{apps: map[string]*domain.App{
