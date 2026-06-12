@@ -2,7 +2,9 @@ package domain
 
 import "testing"
 
-func TestNormalizeComparableVersion(t *testing.T) {
+func TestNormalizeVersion(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name   string
 		input  string
@@ -24,95 +26,118 @@ func TestNormalizeComparableVersion(t *testing.T) {
 		{name: "uses last matching token", input: "pkg-2024.1@1.2.3", expect: "1.2.3"},
 		{name: "clears unknown", input: "unknown", expect: ""},
 		{name: "handles empty", input: "", expect: ""},
+		{name: "normalizes dashed calendar date", input: "2024-06-12", expect: "2024.06.12"},
+		{name: "normalizes compact calendar date", input: "release-20240612", expect: "2024.06.12"},
+		{name: "keeps calendar date prerelease", input: "app-2024.06.12-beta.1-x86_64.AppImage", expect: "2024.06.12-beta.1"},
+		{name: "normalizes leading zeroes", input: "v01.002.0003", expect: "1.2.3"},
+		{name: "keeps build metadata", input: "1.2.3-build.456", expect: "1.2.3+456"},
+		{name: "normalizes uppercase prerelease", input: "v1.2.3-BETA.01", expect: "1.2.3-beta.1"},
+		{name: "strips appimage zsync extension", input: "Example-2.4.0.AppImage.zsync", expect: "2.4.0"},
+		{name: "rejects invalid calendar date", input: "2024-02-31", expect: ""},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := NormalizeComparableVersion(tt.input)
+			got, ok := NormalizeVersion(tt.input)
+			if tt.expect == "" {
+				if ok {
+					t.Fatalf("NormalizeVersion(%q) ok = true, want false", tt.input)
+				}
+				if got != "" {
+					t.Fatalf("NormalizeVersion(%q) = %q, want empty", tt.input, got)
+				}
+				return
+			}
+
+			if !ok {
+				t.Fatalf("NormalizeVersion(%q) ok = false, want true", tt.input)
+			}
 			if got != tt.expect {
-				t.Fatalf("NormalizeComparableVersion(%q) = %q, want %q", tt.input, got, tt.expect)
+				t.Fatalf("NormalizeVersion(%q) = %q, want %q", tt.input, got, tt.expect)
 			}
 		})
 	}
 }
 
-func TestReleaseAvailability(t *testing.T) {
-	latest, available := ReleaseAvailability("1.0.0", "v1.1.0")
-	if latest != "1.1.0" || !available {
-		t.Fatalf("ReleaseAvailability returned %q, %v; want 1.1.0, true", latest, available)
+func TestParseVersionKeepsRawCandidate(t *testing.T) {
+	t.Parallel()
+
+	version, ok := ParseVersion("desktop-v1.2.3-beta.1-x86_64.AppImage")
+	if !ok {
+		t.Fatal("ParseVersion() ok = false, want true")
 	}
 
-	latest, available = ReleaseAvailability("1.1.0-linux-x86_64", "v1.1.0")
-	if latest != "1.1.0" || available {
-		t.Fatalf("ReleaseAvailability returned %q, %v; want 1.1.0, false", latest, available)
+	if got, want := version.String(), "1.2.3-beta.1"; got != want {
+		t.Fatalf("Version.String() = %q, want %q", got, want)
+	}
+
+	if got, want := version.Raw(), "1.2.3-beta.1-x86_64.AppImage"; got != want {
+		t.Fatalf("Version.Raw() = %q, want %q", got, want)
+	}
+
+	if version.IsZero() {
+		t.Fatal("Version.IsZero() = true, want false")
 	}
 }
 
-func TestNormalizeSelfUpdateVersion(t *testing.T) {
-	if got := NormalizeSelfUpdateVersion("dev"); got != "" {
-		t.Fatalf("NormalizeSelfUpdateVersion(dev) = %q, want empty", got)
+func TestZeroVersion(t *testing.T) {
+	t.Parallel()
+
+	var version Version
+	if !version.IsZero() {
+		t.Fatal("zero Version IsZero() = false, want true")
 	}
-	if got := NormalizeSelfUpdateVersion("v1.2.3"); got != "1.2.3" {
-		t.Fatalf("NormalizeSelfUpdateVersion(v1.2.3) = %q, want 1.2.3", got)
+	if got := version.String(); got != "" {
+		t.Fatalf("zero Version String() = %q, want empty", got)
+	}
+	if got := version.Raw(); got != "" {
+		t.Fatalf("zero Version Raw() = %q, want empty", got)
 	}
 }
 
-func TestCompareSelfUpdateVersionsHonorsPrereleaseOrdering(t *testing.T) {
+func TestCompareVersions(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name   string
 		left   string
 		right  string
 		expect int
 	}{
-		{name: "newer prerelease numeric identifier", left: "0.17.1-pre.3", right: "0.17.1-pre.2", expect: 1},
-		{name: "older prerelease numeric identifier", left: "0.17.1-pre.2", right: "0.17.1-pre.3", expect: -1},
-		{name: "stable is newer than prerelease", left: "0.17.1", right: "0.17.1-pre.3", expect: 1},
-		{name: "prerelease is older than stable", left: "0.17.1-pre.3", right: "0.17.1", expect: -1},
-		{name: "numeric identifiers compare numerically", left: "0.17.1-rc.10", right: "0.17.1-rc.2", expect: 1},
+		{name: "equal versions", left: "1.2.3", right: "1.2.3", expect: 0},
+		{name: "ignores missing trailing zero", left: "1.2", right: "1.2.0", expect: 0},
+		{name: "newer patch", left: "1.2.4", right: "1.2.3", expect: 1},
+		{name: "older patch", left: "1.2.3", right: "1.2.4", expect: -1},
+		{name: "newer minor", left: "1.3.0", right: "1.2.9", expect: 1},
+		{name: "newer major", left: "2.0.0", right: "1.99.99", expect: 1},
+		{name: "calendar date newer day", left: "2024.06.12", right: "2024.06.11", expect: 1},
+		{name: "calendar date older month", left: "2024.05.31", right: "2024.06.01", expect: -1},
+		{name: "stable is newer than beta", left: "1.2.3", right: "1.2.3-beta.1", expect: 1},
+		{name: "beta is older than stable", left: "1.2.3-beta.1", right: "1.2.3", expect: -1},
+		{name: "newer alpha beats older stable", left: "1.2.3-alpha.1", right: "1.2.2", expect: 1},
+		{name: "newer beta beats older stable", left: "1.2.3-beta.1", right: "1.2.2", expect: 1},
+		{name: "newer pre beats older stable", left: "1.2.3-pre.1", right: "1.2.2", expect: 1},
+		{name: "newer preview beats older stable", left: "1.2.3-preview.1", right: "1.2.2", expect: 1},
+		{name: "newer rc beats older stable", left: "1.2.3-rc.1", right: "1.2.2", expect: 1},
+		{name: "newer nightly beats older stable", left: "1.2.3-nightly.20240612", right: "1.2.2", expect: 1},
+		{name: "newer snapshot beats older stable", left: "1.2.3-snapshot.1", right: "1.2.2", expect: 1},
+		{name: "newer unknown prerelease beats older stable", left: "1.2.3-exp.1", right: "1.2.2", expect: 1},
+		{name: "older prerelease loses to newer stable", left: "1.2.2-rc.9", right: "1.2.3", expect: -1},
+		{name: "newer beta number", left: "1.2.3-beta.2", right: "1.2.3-beta.1", expect: 1},
+		{name: "rc is newer than beta", left: "1.2.3-rc.1", right: "1.2.3-beta.9", expect: 1},
+		{name: "rc suffix number compares", left: "1.2.3-rc2", right: "1.2.3-rc1", expect: 1},
+		{name: "alpha is older than beta", left: "1.2.3-alpha.9", right: "1.2.3-beta.1", expect: -1},
+		{name: "longer prerelease is newer when prefix equal", left: "1.2.3-alpha.1", right: "1.2.3-alpha", expect: 1},
+		{name: "numeric prerelease identifiers compare numerically", left: "1.2.3-beta.10", right: "1.2.3-beta.2", expect: 1},
+		{name: "build metadata does not affect precedence", left: "1.2.3+456", right: "1.2.3+123", expect: 0},
+		{name: "build metadata after prerelease does not affect precedence", left: "1.2.3-beta.1+456", right: "1.2.3-beta.1+123", expect: 0},
+		{name: "date prerelease is older than date stable", left: "2024.06.12-beta.1", right: "2024.06.12", expect: -1},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := CompareSelfUpdateVersions(tt.left, tt.right)
-			if err != nil {
-				t.Fatalf("CompareSelfUpdateVersions returned error: %v", err)
-			}
-			if got != tt.expect {
-				t.Fatalf("CompareSelfUpdateVersions(%q, %q) = %d, want %d", tt.left, tt.right, got, tt.expect)
-			}
-		})
-	}
-}
-
-func TestCompareComparableVersions(t *testing.T) {
-	tests := []struct {
-		name    string
-		left    string
-		right   string
-		expect  int
-		wantErr bool
-	}{
-		{name: "newer", left: "0.12.5", right: "0.12.4", expect: 1},
-		{name: "same", left: "0.12.5", right: "0.12.5", expect: 0},
-		{name: "older", left: "0.12.4", right: "0.12.5", expect: -1},
-		{name: "ignores prerelease suffix", left: "0.12.5-rc1", right: "0.12.5", expect: 0},
-		{name: "invalid", left: "dev", right: "0.12.5", wantErr: true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := CompareComparableVersions(tt.left, tt.right)
-			if tt.wantErr {
-				if err == nil {
-					t.Fatal("expected error")
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("CompareComparableVersions returned error: %v", err)
-			}
-			if got != tt.expect {
-				t.Fatalf("CompareComparableVersions(%q, %q) = %d, want %d", tt.left, tt.right, got, tt.expect)
+			if got := CompareVersions(tt.left, tt.right); got != tt.expect {
+				t.Fatalf("CompareVersions(%q, %q) = %d, want %d", tt.left, tt.right, got, tt.expect)
 			}
 		})
 	}

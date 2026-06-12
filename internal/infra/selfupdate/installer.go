@@ -1,0 +1,90 @@
+package selfupdate
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"os/exec"
+	"strings"
+
+	"aim/internal/app"
+)
+
+const defaultInstallScriptURL = "https://raw.githubusercontent.com/slobbe/appimage-manager/main/scripts/install.sh"
+
+// Installer runs the hosted install script to replace the current aim binary.
+type Installer struct {
+	HTTPClient *http.Client
+	ScriptURL  string
+}
+
+func NewInstaller() Installer {
+	return Installer{ScriptURL: defaultInstallScriptURL}
+}
+
+var _ app.SelfUpdater = Installer{}
+
+func (i Installer) Install(ctx context.Context, version string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	version = strings.TrimSpace(version)
+	if version == "" {
+		return errors.New("self-update version is required")
+	}
+
+	script, err := i.fetchInstallScript(ctx)
+	if err != nil {
+		return err
+	}
+	defer script.Close()
+
+	cmd := exec.CommandContext(ctx, "sh")
+	cmd.Stdin = script
+	cmd.Env = append(cmd.Environ(), "AIM_VERSION="+strings.TrimPrefix(version, "v"))
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		return fmt.Errorf("run self-update installer: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+
+	return nil
+}
+
+func (i Installer) fetchInstallScript(ctx context.Context) (io.ReadCloser, error) {
+	url := strings.TrimSpace(i.ScriptURL)
+	if url == "" {
+		url = defaultInstallScriptURL
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create install script request: %w", err)
+	}
+	req.Header.Set("User-Agent", "aim")
+
+	resp, err := i.httpClient().Do(req)
+	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
+		return nil, fmt.Errorf("download install script %q: %w", url, err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		resp.Body.Close()
+		return nil, fmt.Errorf("download install script %q: server returned %s", url, resp.Status)
+	}
+
+	return resp.Body, nil
+}
+
+func (i Installer) httpClient() *http.Client {
+	if i.HTTPClient != nil {
+		return i.HTTPClient
+	}
+	return http.DefaultClient
+}

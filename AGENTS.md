@@ -1,322 +1,129 @@
-# Agent Notes for AppImage Manager
+# Agent Notes
 
 ## Project Context
 
-AppImage Manager (`aim`) is a Go CLI for managing AppImages: discovery, integration,
-removal, updates, self-updates, and related desktop integration behavior.
+AppImage Manager (`aim`) is a Go CLI for managing AppImages: integration, removal, updates, self-updates, and related desktop integration behavior.
 
 The project is still in beta. Backwards compatibility is not required.
-
-## Compatibility Policy
-
-- We are still in beta; backwards compatibility is not required.
-- Changes are allowed to break existing behavior when they simplify or improve the design.
-- When refactoring, do **not** add compatibility shims.
-- Prefer direct migrations/refactors over preserving old internal APIs.
-
-## Commands
-
-Prefer the `Makefile` targets for local development tasks. The raw commands are documented
-for CI parity and troubleshooting.
-
-### Make targets
-
-```sh
-make build
-make build-version VERSION=0.0.0-dev
-make run
-make test
-make test-architecture
-make test-race
-make vet
-make fmt
-make check
-make verify
-make audit
-make clean
-```
-
-### Build
-
-```sh
-make build
-# equivalent: go build -o ./bin/aim ./cmd/aim
-```
-
-Build with embedded version:
-
-```sh
-make build-version VERSION=0.0.0-dev
-# equivalent: go build -ldflags "-X main.version=0.0.0-dev" -o ./bin/aim ./cmd/aim
-```
-
-### Run
-
-```sh
-make run
-# equivalent: go run ./cmd/aim --help
-```
-
-### Verify
-
-```sh
-make verify
-# equivalent: make check && make test-race && make test-architecture
-```
-
-### Test
-
-```sh
-make test
-# equivalent: go test ./...
-```
-
-Run one package:
-
-```sh
-go test ./internal/app/integrate
-go test ./cmd/aim
-```
-
-### Static checks
-
-No dedicated third-party linter is configured. Use Go standard tooling.
-
-```sh
-make vet
-# equivalent: go vet ./...
-```
-
-### Format
-
-Format touched Go files before finalizing changes:
-
-```sh
-make fmt
-# equivalent: gofmt -w ./cmd ./internal
-```
-
-### Quality pass
-
-Before finalizing non-trivial changes, run:
-
-```sh
-make check
-```
-
-For broader pre-push verification, run:
-
-```sh
-make verify
-```
-
-Security/script audits are grouped separately because they require external tools such as
-`govulncheck` and `shellcheck`:
-
-```sh
-make audit
-```
-
-### GoReleaser
-
-Check GoReleaser config:
-
-```sh
-goreleaser check
-```
-
-Create a local snapshot release without publishing:
-
-```sh
-goreleaser release --snapshot --clean
-```
-
-Official releases are run by GitHub Actions with:
-
-```sh
-goreleaser release --clean
-```
 
 ## Architecture
 
 This project uses a layered architecture.
 
 ```txt
-cmd/aim
-  -> internal/cli          presentation layer
-  -> internal/app          application/use-case layer
-  -> internal/domain       domain model and rules
-  -> internal/infra        infrastructure adapters
-  -> scripts/check-architecture.sh architecture boundary check
+cmd/aim                   composition root / entrypoint
+  -> internal/cli         presentation layer
+    -> internal/app       application/use-case layer
+      -> internal/domain  domain model and rules
+
+internal/infra            infrastructure adapters that implement app ports
+  -> internal/app
 ```
-
-### Responsibilities
-
-#### `cmd/aim`
-
-- Application entrypoint.
-- Bootstrap and dependency wiring.
-- Version injection.
-- Should stay minimal.
-- Should not contain business logic.
-
-#### `internal/cli`
-
-- CLI commands, flags, arguments, help text.
-- User-facing stdout/stderr behavior.
-- Exit-code mapping.
-- Calls application services/use cases.
-- Should not contain business logic.
-- Should not perform infrastructure work directly when an app service or port should own it.
-- Regular command/workflow files should not import concrete `internal/infra` packages; keep concrete adapter construction in runtime/composition wiring such as `runtime.go` and `runtime_wiring.go`.
-
-#### `internal/app`
-
-Application/use-case layer.
-
-Typical responsibilities:
-
-- Orchestrating workflows.
-- Coordinating domain rules and infrastructure adapters.
-- Calling concrete infrastructure packages directly when that keeps workflows simpler.
-- Returning errors rather than exiting the process.
-- Keeping behavior testable with fakes.
-- Returning structured result types so CLI can render text/JSON without app services knowing terminal formatting.
-- Owning transaction/workflow coordination: load app, decide with domain rules, call repository/downloader/filesystem ports, persist results, and refresh caches where appropriate.
-
-Current app areas include:
-
-```txt
-internal/app/appimage
-internal/app/clock
-internal/app/discovery
-internal/app/integrate
-internal/app/remove
-internal/app/services
-internal/app/update
-internal/app/selfupdate
-```
-
-#### `internal/domain`
-
-- Domain entities, value objects, and business rules.
-- Framework-independent.
-- No CLI, filesystem, HTTP, process, or desktop-environment concerns.
-- Should not import `internal/app`, `internal/infra`, or `internal/cli`.
-
-#### `internal/infra`
-
-Infrastructure adapters.
-
-Typical responsibilities:
-
-- Filesystem access.
-- HTTP clients/downloads.
-- GitHub API/release access.
-- Desktop files/icons.
-- Config persistence.
-- Repository/storage implementations.
-- AppImage-specific low-level integration with the host system.
-- Exposes reusable concrete adapters/helpers for application workflows.
-- Should not import `internal/app`; keep dependencies pointing from app to infra.
-
-Current infra areas include:
-
-```txt
-internal/infra/appimage
-internal/infra/config
-internal/infra/desktop
-internal/infra/download
-internal/infra/filesystem
-internal/infra/github
-internal/infra/httpclient
-internal/infra/repository
-internal/infra/selfupdate
-internal/infra/zsync
-```
-
-#### `scripts/check-architecture.sh`
-
-- Architecture boundary check.
-- Enforces import boundaries between layers.
-- Do not weaken this check to make a refactor easier.
 
 ## Dependency Rules
 
-The intended dependency direction is pragmatic: CLI points into app, app owns workflows and may use concrete infra, and domain remains pure.
+Architecture decision: use a Clean Architecture dependency direction with app-defined ports and infrastructure adapters wired at the composition root.
 
-Preferred:
+Allowed:
 
 ```txt
-cmd/aim -> cli
-cmd/aim -> app
-cmd/aim -> infra
+cmd/aim -> internal/cli
+cmd/aim -> internal/app
+cmd/aim -> internal/infra
 
-cli -> app
-app -> domain
-app -> infra
-infra -> domain
+internal/cli -> internal/app
+
+internal/app -> internal/domain
+
+internal/infra -> internal/app
+internal/infra -> internal/domain
 ```
 
 Forbidden:
 
 ```txt
-domain -> app
-domain -> infra
-domain -> cli
+internal/domain -> internal/app
+internal/domain -> internal/infra
+internal/domain -> internal/cli
 
-app -> cli
+internal/app -> internal/infra
+internal/app -> internal/cli
 
-infra -> app
-infra -> cli
+internal/cli -> internal/infra
+internal/cli -> internal/domain
+
+internal/infra -> internal/cli
 ```
 
-Application workflows may construct or call concrete infrastructure directly when that keeps the design simpler. Concrete infrastructure adapters should still stay out of normal CLI command files; CLI should call app services/use cases instead of performing infrastructure work itself.
+## Layer Rules
 
-These boundaries are enforced by:
+### CLI Layer Rules
 
-```txt
-scripts/check-architecture.sh
-make test-architecture
-```
+`internal/cli` is responsible only for:
 
-If a change violates the architecture test, fix the dependency direction instead of
-weakening the test.
+- parsing commands, arguments, and flags
+- converting CLI input into `internal/app` request types
+- calling `internal/app.Service`
+- formatting human-readable and JSON output
+- implementing terminal prompts and activity rendering for app-defined interfaces
 
-## Application Design Conventions
+`internal/cli` must not:
 
-- Keep command handlers thin.
-- Put orchestration in `internal/app`.
-- Put external-system details in `internal/infra`.
-- Define interfaces at the consumer side, usually in `internal/app`.
-- Prefer small interfaces tailored to a use case.
-- Return errors instead of calling `os.Exit` outside the entrypoint.
-- Use `context.Context` for blocking operations, HTTP, filesystem-heavy workflows, and process execution.
-- Prefer standard library packages unless a dependency adds clear value.
-- Prefer composition over global mutable state.
-- Avoid package-level mutable state unless there is a strong reason.
-- Do not reintroduce app-layer package-level default ports or setters such as `SetFilesystem`, `SetGitHubReleaseResolver`, or `SetSelfUpdater`; pass explicit services/ports instead.
-- Keep behavior deterministic and easy to test.
+- perform AppImage integration/removal/update logic
+- read or write application state directly
+- call GitHub or network APIs directly
+- import `internal/infra`
+- import `internal/domain`
 
-### Post-refactor service conventions
+### App Layer Rules
 
-- Keep command services shaped around CLI use cases: `AddService`, `ListService`, `InfoService`, `RemoveService`, `UpdateService`, `SelfUpdateService`, and `DiscoveryService`.
-- Keep app services explicit: construct services with dependencies rather than relying on package globals.
-- Use structured app results for CLI output and dry-run planning; CLI owns rendering, prompts, progress display, and friendly error text.
-- Keep state locking and persistence coordination behind app/runtime-level ports instead of embedding it directly in command handlers.
-- Keep direct URL install and managed package install as app-level workflows with explicit download, verify, integrate, persist, remove, and staged-file cleanup ports.
+`internal/app` owns use-case workflows and request/result contracts.
 
-## Go Conventions
+The app layer may define interfaces for external concerns, such as:
 
-- Keep packages small and focused around a clear responsibility.
-- Prefer explicit dependencies passed through constructors or function parameters.
-- Keep interfaces close to the consumer, usually in `internal/app`.
-- Use descriptive names; avoid abbreviations unless they are common Go conventions.
-- Keep exported APIs minimal and document exported identifiers when they are part of package contracts.
-- Use table-driven tests when they improve readability.
-- Use `errors.Is`/`errors.As` for sentinel or typed error handling when appropriate.
-- Avoid panics in application code; return errors instead.
-- Run `make fmt` before finalizing Go changes.
+- storage
+- filesystem operations
+- GitHub/release lookup
+- downloads
+- progress/activity reporting
+- confirmation prompts
+
+Concrete implementations belong outside the app layer:
+
+- terminal prompt/activity implementations live in `internal/cli`
+- filesystem/network/config implementations live in `internal/infra`
+
+Activity and prompt wording is a presentation concern.
+
+The app layer should report semantic activity through structured fields, such as activity kind, app ID, repo, asset name, path, total bytes, etc. The CLI layer chooses the exact user-facing text.
+
+### Domain Layer Rules
+
+`internal/domain` contains pure domain models and rules.
+
+`internal/domain` must not:
+
+- perform filesystem or network I/O
+- know about CLI formatting, prompts, colors, or JSON
+- know about config file formats or XDG paths
+- import `internal/app`, `internal/cli`, or `internal/infra`
+
+### Infra Layer Rules
+
+`internal/infra` contains adapters for external systems, such as:
+
+- filesystem operations
+- XDG path resolution
+- config loading and TOML parsing
+- GitHub/release APIs
+- downloads
+- desktop entry/icon integration
+
+Infra implements app-defined interfaces and is wired from `cmd/aim`.
+
+`internal/infra` may import `internal/domain` to persist and hydrate domain models, but must not put business rules in infrastructure adapters.
+
+`internal/infra` must not import `internal/cli` or directly perform terminal prompts/progress rendering.
 
 ## Git Conventions
 
@@ -353,139 +160,3 @@ build: add local Makefile targets
 - Keep commit subjects concise, imperative, and lowercase after the type.
 - Do not mix unrelated refactors, behavior changes, and formatting-only changes in one commit when avoidable.
 - Do not create commits unless explicitly asked by the user.
-
-## Error Handling
-
-- Return descriptive errors with context.
-- Wrap errors where it helps callers understand the failed operation.
-- Do not print and return the same error from lower layers.
-- CLI should decide how errors are presented to users.
-- Application and domain layers should not write directly to stdout/stderr.
-
-## Testing
-
-- Add or update tests for behavior changes.
-- Prefer table-driven tests where they improve clarity.
-- Test domain behavior directly.
-- Test application services with fake ports/interfaces.
-- Test CLI behavior through command execution or command-level helpers.
-- Keep infrastructure tests focused on adapter behavior and edge cases, such as filesystem, HTTP test servers, command execution fakes, repository persistence, and DTO mapping.
-- Run architecture checks with `make test-architecture`.
-
-Useful commands:
-
-```sh
-make test
-go test ./internal/app/integrate
-make test-architecture
-```
-
-## Agent Rules
-
-When modifying this repository:
-
-- Do not put business logic in `internal/cli` or `internal/infra`.
-- Do not bypass the `internal/app` layer from CLI code.
-- Keep `cmd/aim/main.go` minimal.
-- Respect the architecture boundaries enforced by `scripts/check-architecture.sh`.
-- Do not add backwards-compatibility shims for old internal behavior.
-- Do not bypass GoReleaser for official release packaging.
-- Keep `.goreleaser.yaml`, `.github/workflows/release.yml`, and `scripts/release-prepare.sh` in sync when changing release artifacts.
-- If changing CLI flags, commands, help text, completions, or man-page generation, consider testing the release preparation path.
-- Prefer focused refactors over broad rewrites.
-- Keep changes consistent with existing package style.
-- Add tests for behavior changes.
-- Run `make fmt` on touched Go files.
-- Run `make test` for meaningful code changes.
-- Run `make vet` before release-related or broad refactor work.
-- Run `make check` before finalizing non-trivial changes.
-- Run `make verify` before pushing broad refactors or release-preparation changes.
-
-## Release Flow
-
-Official releases are published by GitHub Actions using GoReleaser.
-
-Release workflow:
-
-```txt
-git push origin main
-  -> GitHub Actions CI workflow completes successfully
-  -> GitHub Actions release workflow starts from workflow_run
-  -> finds a stable or prerelease SemVer tag pointing at the CI commit
-  -> runs goreleaser check
-  -> runs goreleaser release --clean
-```
-
-The release workflow can also be run manually with `workflow_dispatch` by providing a
-SemVer tag.
-
-Release config lives in:
-
-```txt
-.goreleaser.yaml
-.github/workflows/release.yml
-scripts/release-prepare.sh
-```
-
-GoReleaser builds Linux artifacts for:
-
-```txt
-linux/amd64
-linux/arm64
-```
-
-The release build embeds the version with:
-
-```sh
--X main.version={{ .Version }}
-```
-
-Before creating a release tag, run:
-
-```sh
-make check
-goreleaser check
-```
-
-Optionally verify release packaging locally with:
-
-```sh
-goreleaser release --snapshot --clean
-```
-
-Official releases are triggered after CI succeeds for `main` when a stable or prerelease SemVer tag points at the successful commit:
-
-```txt
-vX.Y.Z
-vX.Y.Z-rc.1
-vX.Y.Z-beta.1
-```
-
-Examples:
-
-```sh
-git tag v1.2.3
-git push origin v1.2.3
-
-git tag v1.2.4-rc.1
-git push origin v1.2.4-rc.1
-```
-
-GoReleaser marks prerelease tags as GitHub prereleases automatically.
-
-Because the release workflow is triggered by the completed CI run instead of the tag push, push the tag before or while CI is running for the target commit. If CI has already completed before the tag is pushed, run the Release workflow manually with the tag input.
-
-The GoReleaser `before` hook runs:
-
-```sh
-scripts/release-prepare.sh "{{ .Tag }}"
-```
-
-That script generates and validates release assets, including:
-
-- man page
-- bash completion
-- zsh completion
-- fish completion
-
-Do not manually edit generated release assets in `dist/`; they are prepared during release.

@@ -132,7 +132,7 @@ release_asset_url() {
 
   if [ -z "$url" ]; then
     case "$label" in
-      "release archive") fail "no ${label} found for ${goarch}" ;;
+      "release archive") fail "no ${label} found for ${goarch:-unknown architecture}" ;;
       *) fail "no ${label} found" ;;
     esac
   fi
@@ -440,10 +440,70 @@ configure_shell_completion() {
   printf '  added shell completion config to %s\n' "$rc_file"
 }
 
+install_man_pages() {
+  outdir="${tmpdir}/man"
+  mkdir -p "$outdir"
+
+  if ! "${inst}/${bin}" gen man --dir "$outdir" >/dev/null 2>&1; then
+    warn "failed to generate man pages"
+    return
+  fi
+
+  found=0
+  for manpage in "$outdir"/${bin}*.1; do
+    [ -f "$manpage" ] || continue
+    chmod 0644 "$manpage"
+    mv -f "$manpage" "${mandir}/$(basename "$manpage")"
+    found=1
+  done
+
+  if [ "$found" -eq 1 ]; then
+    man_installed=1
+  else
+    warn "no man pages generated"
+  fi
+}
+
+install_completion() {
+  shell_name="$1"
+  destination="$2"
+  outdir="${tmpdir}/completion-${shell_name}"
+  mkdir -p "$outdir" "$(dirname "$destination")"
+
+  if ! "${inst}/${bin}" gen completion "$shell_name" --dir "$outdir" >/dev/null 2>&1; then
+    warn "failed to generate ${shell_name} completion"
+    return 1
+  fi
+
+  case "$shell_name" in
+    bash) generated="${outdir}/${bin}.bash" ;;
+    zsh) generated="${outdir}/_${bin}" ;;
+    fish) generated="${outdir}/${bin}.fish" ;;
+    *) return 1 ;;
+  esac
+
+  if [ ! -f "$generated" ]; then
+    warn "${shell_name} completion was not generated"
+    return 1
+  fi
+
+  chmod 0644 "$generated"
+  mv -f "$generated" "$destination"
+  return 0
+}
+
+normalize_version_tag() {
+  value="$1"
+  case "$value" in
+    v*) printf '%s\n' "$value" ;;
+    *) printf 'v%s\n' "$value" ;;
+  esac
+}
+
 repo="slobbe/appimage-manager"
 bin="aim"
 version="${AIM_VERSION:-}"
-inst="${HOME}/.local/bin"
+inst="${AIM_INSTALL_DIR:-${HOME}/.local/bin}"
 data_home="${XDG_DATA_HOME:-${HOME}/.local/share}"
 mandir="${data_home}/man/man1"
 bashcompdir="${data_home}/bash-completion/completions"
@@ -452,8 +512,12 @@ fishcompdir="${data_home}/fish/vendor_completions.d"
 arch="$(uname -m)"
 
 case "$arch" in
-  x86_64 | amd64) goarch="amd64" ;;
-  aarch64 | arm64) goarch="arm64" ;;
+  x86_64 | amd64)
+    goarch="amd64"
+    ;;
+  aarch64 | arm64)
+    goarch="arm64"
+    ;;
   *)
     fail "unsupported architecture: $arch"
     ;;
@@ -473,8 +537,9 @@ if [ -z "$version" ]; then
   api_url="https://api.github.com/repos/${repo}/releases/latest"
   install_label="latest"
 else
+  version="$(normalize_version_tag "$version")"
   if ! is_version_tag "$version"; then
-    fail "AIM_VERSION must match v<major>.<minor>.<patch> or v<major>.<minor>.<patch>-<prerelease>"
+    fail "AIM_VERSION must match <major>.<minor>.<patch>, v<major>.<minor>.<patch>, or a semver prerelease variant"
   fi
 
   api_url="https://api.github.com/repos/${repo}/releases/tags/${version}"
@@ -488,7 +553,7 @@ if [ -z "$release_tag" ]; then
   release_tag="$install_label"
 fi
 
-archive_url="$(release_asset_url "$release_json" "^aim-[0-9].*-linux-${goarch}[.]tar[.]gz$" "release archive")"
+archive_url="$(release_asset_url "$release_json" "^aim-v?[0-9].*-linux-${goarch}[.]tar[.]gz$" "release archive")"
 checksums_url="$(release_asset_url "$release_json" "^checksums[.]txt$" "checksums.txt")"
 
 curl -fL "$archive_url" -o "$tgz"
@@ -498,53 +563,30 @@ verify_archive_checksum "$tgz" "$checksums" "$archive_url"
 
 tar -xzf "$tgz" -C "$tmpdir"
 
-# The tarball contains a versioned filename: aim-<version>-linux-<arch>
-found="$(find "$tmpdir" -type f -name "${bin}-*-linux-${goarch}" | head -n 1)"
+found="$(find "$tmpdir" -type f \( -name "${bin}" -o -name "${bin}-*-linux-${goarch}" \) | head -n 1)"
 if [ -z "$found" ]; then
-  fail "expected ${bin}-*-linux-${goarch} inside release archive"
+  fail "expected ${bin} or ${bin}-*-linux-${goarch} inside release archive"
 fi
 
 chmod +x "$found"
 mv -f "$found" "${inst}/${bin}"
 
 man_installed=0
-manpage="$(find "$tmpdir" -type f -path "*/share/man/man1/${bin}.1" | head -n 1)"
-if [ -n "$manpage" ]; then
-  chmod 0644 "$manpage"
-  mv -f "$manpage" "${mandir}/${bin}.1"
-  man_installed=1
-else
-  warn "man page not included in release archive"
-fi
+install_man_pages
 
 bash_completion_installed=0
-bash_completion="$(find "$tmpdir" -type f -path "*/share/bash-completion/completions/${bin}" | head -n 1)"
-if [ -n "$bash_completion" ]; then
-  chmod 0644 "$bash_completion"
-  mv -f "$bash_completion" "${bashcompdir}/${bin}"
+if install_completion bash "${bashcompdir}/${bin}"; then
   bash_completion_installed=1
-else
-  warn "bash completion not included in release archive"
 fi
 
 zsh_completion_installed=0
-zsh_completion="$(find "$tmpdir" -type f -path "*/share/zsh/site-functions/_${bin}" | head -n 1)"
-if [ -n "$zsh_completion" ]; then
-  chmod 0644 "$zsh_completion"
-  mv -f "$zsh_completion" "${zshcompdir}/_${bin}"
+if install_completion zsh "${zshcompdir}/_${bin}"; then
   zsh_completion_installed=1
-else
-  warn "zsh completion not included in release archive"
 fi
 
 fish_completion_installed=0
-fish_completion="$(find "$tmpdir" -type f -path "*/share/fish/vendor_completions.d/${bin}.fish" | head -n 1)"
-if [ -n "$fish_completion" ]; then
-  chmod 0644 "$fish_completion"
-  mv -f "$fish_completion" "${fishcompdir}/${bin}.fish"
+if install_completion fish "${fishcompdir}/${bin}.fish"; then
   fish_completion_installed=1
-else
-  warn "fish completion not included in release archive"
 fi
 
 print_summary

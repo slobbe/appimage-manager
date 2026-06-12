@@ -20,7 +20,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.25.11"
+          go-version-file: go.mod
           cache: true
 
       - name: Check formatting
@@ -31,7 +31,7 @@ jobs:
             exit 1
           fi
 
-      - name: Verify build, tests, race, and vet
+      - name: Verify build, tests, vet, and architecture
         run: make verify
 
   coverage:
@@ -44,7 +44,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.25.11"
+          go-version-file: go.mod
           cache: true
 
       - name: Check coverage
@@ -84,7 +84,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.25.11"
+          go-version-file: go.mod
           cache: true
 
       - name: Install audit tools
@@ -108,7 +108,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.25.11"
+          go-version-file: go.mod
           cache: true
 
       - name: Check GoReleaser config

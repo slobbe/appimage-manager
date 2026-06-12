@@ -2,28 +2,80 @@ package main
 
 import (
 	"context"
-	"log"
+	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
-	"github.com/slobbe/appimage-manager/internal/cli"
+	"aim/internal/app"
+	"aim/internal/cli"
+	"aim/internal/infra/appimage"
+	"aim/internal/infra/config"
+	"aim/internal/infra/desktop"
+	"aim/internal/infra/download"
+	"aim/internal/infra/github"
+	"aim/internal/infra/icon"
+	"aim/internal/infra/selfupdate"
+	"aim/internal/infra/storage"
+	"aim/internal/infra/workspace"
+	"aim/internal/infra/xdg"
 )
 
-var version = "dev" // overridden by ldflags: `go build -ldflags "-X main.version=VERSION" -o ./bin/aim ./cmd/aim`
+var (
+	version = "dev"
+	commit  = "unknown"
+	date    = "unknown"
+)
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	if cli.ShouldGenerateDocsFromEnv() {
-		if err := cli.GenerateDocs(version); err != nil {
-			log.Fatal(err)
-		}
-		return
+	dirs, err := xdg.Resolve()
+	if err != nil {
+		exitWithError(err)
 	}
 
-	if err := cli.Run(ctx, version, os.Args[1:], os.Stdout, os.Stderr); err != nil {
-		os.Exit(cli.ExitCode(err))
+	cfg, err := config.Load(xdg.ConfigFile(dirs), dirs)
+	if err != nil {
+		exitWithError(err)
 	}
+
+	service, err := app.NewService(app.ServiceDeps{
+		Config:                cfg,
+		Workspaces:            workspace.NewProvider(""),
+		AppImages:             appimage.NewExtractor(),
+		DesktopEntries:        desktop.NewDiscoverer(),
+		Icons:                 icon.NewDiscoverer(),
+		AppImageInstaller:     appimage.NewInstaller(cfg.AppImageDir),
+		AppImageRemover:       appimage.NewRemover(),
+		IconInstaller:         icon.NewInstaller(cfg.IconDir),
+		IconRemover:           icon.NewRemover(),
+		DesktopEntryInstaller: desktop.NewInstaller(cfg.DesktopDir),
+		DesktopEntryRemover:   desktop.NewRemover(),
+		GitHubReleases:        github.NewClient(),
+		Downloads:             download.NewDownloader(),
+		SelfUpdater:           selfupdate.NewInstaller(),
+		CurrentVersion:        version,
+		Apps:                  storage.NewRepository(filepath.Join(xdg.DataDir(dirs), "apps.json")),
+	})
+	if err != nil {
+		exitWithError(err)
+	}
+
+	os.Exit(cli.Execute(
+		ctx,
+		os.Args[1:],
+		os.Stdout,
+		os.Stderr,
+		service,
+		version,
+	))
+
+}
+
+func exitWithError(err error) {
+	fmt.Fprintln(os.Stderr, err)
+	os.Exit(1)
 }
