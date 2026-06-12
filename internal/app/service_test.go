@@ -639,6 +639,42 @@ func TestServiceUpdateUsesEmbeddedGitHubReleaseTagAndAssetPattern(t *testing.T) 
 	}
 }
 
+func TestServiceUpdateUsesGitHubAssetPattern(t *testing.T) {
+	t.Parallel()
+
+	deps := integrationTestDeps()
+	installed := testInstalledApp(t)
+	installed.UpdateSource = domain.NewGitHubUpdateSource("owner/repo", false)
+	installed.UpdateSource.AssetPattern = "Example-arm64.AppImage"
+	deps.apps.listApps = []domain.App{installed}
+	deps.desktopEntries.content = []byte(strings.Join([]string{
+		"[Desktop Entry]",
+		"Name=Example App",
+		"Exec=old-exec",
+		"Icon=example-icon",
+		"",
+	}, "\n"))
+	releases := &fakeGitHubReleaseFinder{release: testGitHubReleaseWithTag("v2.0.0", "Example-arm64.AppImage", "Example-x86_64.AppImage")}
+	deps.ServiceDeps.GitHubReleases = releases
+	deps.ServiceDeps.Downloads = &fakeAssetDownloader{}
+	service, err := NewService(deps.ServiceDeps)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+
+	_, err = service.Update(context.Background(), UpdateRequest{Confirmation: &fakeUpdateConfirmation{confirmed: true}})
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+
+	if got, want := deps.appImageInstaller.sourcePath, "/workspace/Example-arm64.AppImage"; got != want {
+		t.Fatalf("appimage installer source = %q, want %q", got, want)
+	}
+	if got, want := deps.saved.App.UpdateSource.AssetPattern, "Example-arm64.AppImage"; got != want {
+		t.Fatalf("saved App.UpdateSource.AssetPattern = %q, want %q", got, want)
+	}
+}
+
 func TestServiceUpdateUsesEmbeddedGitHubExactReleaseTag(t *testing.T) {
 	t.Parallel()
 
@@ -1006,7 +1042,7 @@ func TestServiceSetUpdateSourceSetsGitHubSource(t *testing.T) {
 		t.Fatalf("NewService() error = %v", err)
 	}
 
-	result, err := service.SetUpdateSource(context.Background(), SetUpdateSourceRequest{ID: " example-app ", GitHubRepo: " owner/repo ", Prerelease: true})
+	result, err := service.SetUpdateSource(context.Background(), SetUpdateSourceRequest{ID: " example-app ", GitHubRepo: " owner/repo ", AssetPattern: "Example-arm64.AppImage", Prerelease: true})
 	if err != nil {
 		t.Fatalf("SetUpdateSource() error = %v", err)
 	}
@@ -1022,6 +1058,9 @@ func TestServiceSetUpdateSourceSetsGitHubSource(t *testing.T) {
 	}
 	if got, want := result.UpdateSource.Repo, "owner/repo"; got != want {
 		t.Fatalf("UpdateSource.Repo = %q, want %q", got, want)
+	}
+	if got, want := result.UpdateSource.AssetPattern, "Example-arm64.AppImage"; got != want {
+		t.Fatalf("UpdateSource.AssetPattern = %q, want %q", got, want)
 	}
 	if !result.UpdateSource.Prerelease {
 		t.Fatal("UpdateSource.Prerelease = false, want true")
@@ -1359,6 +1398,44 @@ func TestServiceAddFromGitHubIntegratesDownloadedAppImage(t *testing.T) {
 	}
 	if !deps.workspaces.cleaned {
 		t.Fatal("workspace was not cleaned")
+	}
+}
+
+func TestServiceAddFromGitHubUsesAssetPattern(t *testing.T) {
+	t.Parallel()
+
+	deps := integrationTestDeps()
+	releases := &fakeGitHubReleaseFinder{release: testGitHubRelease("Example-arm64.AppImage", "Example-x86_64.AppImage")}
+	downloads := &fakeAssetDownloader{}
+	deps.ServiceDeps.GitHubReleases = releases
+	deps.ServiceDeps.Downloads = downloads
+	service, err := NewService(deps.ServiceDeps)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+
+	result, err := service.Add(context.Background(), AddRequest{GitHubRepo: "owner/repo", AssetPattern: "Example-arm64.AppImage"})
+	if err != nil {
+		t.Fatalf("Add() error = %v", err)
+	}
+
+	if got, want := downloads.source.FileName, "Example-arm64.AppImage"; got != want {
+		t.Fatalf("Download() source FileName = %q, want %q", got, want)
+	}
+	if got, want := result.App.Source.GitHubRelease.Asset, "Example-arm64.AppImage"; got != want {
+		t.Fatalf("App.Source.GitHubRelease.Asset = %q, want %q", got, want)
+	}
+	if got, want := result.App.UpdateSource.AssetPattern, "Example-arm64.AppImage"; got != want {
+		t.Fatalf("App.UpdateSource.AssetPattern = %q, want %q", got, want)
+	}
+	if got, want := deps.saved.App.UpdateSource.AssetPattern, "Example-arm64.AppImage"; got != want {
+		t.Fatalf("saved App.UpdateSource.AssetPattern = %q, want %q", got, want)
+	}
+	if got, want := deps.appImageInstaller.sourcePath, "/workspace/Example-arm64.AppImage"; got != want {
+		t.Fatalf("appimage installer source = %q, want %q", got, want)
+	}
+	if got, want := releases.repo, "owner/repo"; got != want {
+		t.Fatalf("LatestRelease() repo = %q, want %q", got, want)
 	}
 }
 

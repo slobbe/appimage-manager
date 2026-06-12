@@ -90,6 +90,9 @@ func (s *service) Add(ctx context.Context, req AddRequest) (AddResult, error) {
 		activity = NoopActivityReporter{}
 	}
 
+	if strings.TrimSpace(req.AssetPattern) != "" && strings.TrimSpace(req.GitHubRepo) == "" {
+		return AddResult{}, errors.New("asset pattern requires github repo")
+	}
 	if strings.TrimSpace(req.GitHubRepo) != "" {
 		return s.addFromGitHub(ctx, req, activity)
 	}
@@ -147,7 +150,12 @@ func (s *service) addFromGitHub(ctx context.Context, req AddRequest, activity Ac
 	}
 	check.Done("Checked " + repo)
 
-	asset, err := selectGitHubAppImageAsset(release)
+	var asset GitHubReleaseAsset
+	if strings.TrimSpace(req.AssetPattern) != "" {
+		asset, err = selectGitHubAppImageAssetMatchingPattern(release, req.AssetPattern)
+	} else {
+		asset, err = selectGitHubAppImageAsset(release)
+	}
 	if err != nil {
 		return AddResult{}, err
 	}
@@ -184,10 +192,11 @@ func (s *service) addFromGitHub(ctx context.Context, req AddRequest, activity Ac
 
 	source := domain.NewGitHubReleaseSource(repo, release.TagName, asset.Name, asset.DownloadURL, asset.SizeBytes, time.Now())
 	return s.addLocalWithSource(ctx, AddRequest{
-		Path:       integratePath,
-		GitHubRepo: repo,
-		Prerelease: req.Prerelease,
-		Activity:   activity,
+		Path:         integratePath,
+		GitHubRepo:   repo,
+		AssetPattern: req.AssetPattern,
+		Prerelease:   req.Prerelease,
+		Activity:     activity,
 	}, activity, source, release.TagName)
 }
 
@@ -440,7 +449,7 @@ func (s *service) githubReleaseForUpdateSource(ctx context.Context, source domai
 }
 
 func selectGitHubUpdateAsset(release GitHubRelease, source domain.UpdateSource) (GitHubReleaseAsset, error) {
-	if source.Embedded && strings.TrimSpace(source.AssetPattern) != "" {
+	if strings.TrimSpace(source.AssetPattern) != "" {
 		return selectGitHubAppImageAssetMatchingPattern(release, source.AssetPattern)
 	}
 	return selectGitHubAppImageAsset(release)
@@ -594,6 +603,9 @@ func (s *service) SetUpdateSource(ctx context.Context, req SetUpdateSourceReques
 	if strings.TrimSpace(req.GitHubRepo) == "" && !req.Embedded {
 		return SetUpdateSourceResult{}, errors.New("update source is required")
 	}
+	if strings.TrimSpace(req.AssetPattern) != "" && strings.TrimSpace(req.GitHubRepo) == "" {
+		return SetUpdateSourceResult{}, errors.New("asset pattern requires github repo")
+	}
 
 	installedApp, err := s.apps.Find(ctx, id)
 	if err != nil {
@@ -607,6 +619,7 @@ func (s *service) SetUpdateSource(ctx context.Context, req SetUpdateSourceReques
 			return SetUpdateSourceResult{}, errors.New("github repo must be in owner/repo format")
 		}
 		updateSource = domain.NewGitHubUpdateSource(repo, req.Prerelease)
+		updateSource.AssetPattern = strings.TrimSpace(req.AssetPattern)
 	} else {
 		updateSource, err = s.embeddedUpdateSource(ctx, installedApp)
 		if err != nil {
@@ -834,7 +847,9 @@ func withFallbackVersion(entry domain.DesktopEntry, fallbackVersion string) doma
 
 func integrationSource(req AddRequest, embeddedUpdateInfo string) domain.UpdateSource {
 	if req.GitHubRepo != "" {
-		return domain.NewGitHubUpdateSource(req.GitHubRepo, req.Prerelease)
+		updateSource := domain.NewGitHubUpdateSource(req.GitHubRepo, req.Prerelease)
+		updateSource.AssetPattern = strings.TrimSpace(req.AssetPattern)
+		return updateSource
 	}
 
 	return domain.NewEmbeddedUpdateSource(embeddedUpdateInfo)

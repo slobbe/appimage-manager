@@ -24,6 +24,7 @@ func NewCommand(rt *clienv.Runtime, service app.Service) *cobra.Command {
 	var setID string
 	var unsetID string
 	var githubRepo string
+	var assetPattern string
 	var embedded bool
 	var prerelease bool
 
@@ -34,13 +35,14 @@ func NewCommand(rt *clienv.Runtime, service app.Service) *cobra.Command {
 		Long:    "Check integrated AppImages for updates and optionally update them.",
 		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if setID != "" || unsetID != "" || githubRepo != "" || embedded || prerelease {
+			if setID != "" || unsetID != "" || githubRepo != "" || assetPattern != "" || embedded || prerelease {
 				return runUpdateSourceCommand(cmd, rt, service, updateSourceFlags{
-					setID:      setID,
-					unsetID:    unsetID,
-					githubRepo: githubRepo,
-					embedded:   embedded,
-					prerelease: prerelease,
+					setID:        setID,
+					unsetID:      unsetID,
+					githubRepo:   githubRepo,
+					assetPattern: assetPattern,
+					embedded:     embedded,
+					prerelease:   prerelease,
 				}, args)
 			}
 
@@ -102,6 +104,7 @@ func NewCommand(rt *clienv.Runtime, service app.Service) *cobra.Command {
 	cmd.Flags().StringVar(&setID, "set", "", "set update source for app ID")
 	cmd.Flags().StringVar(&unsetID, "unset", "", "unset update source for app ID")
 	cmd.Flags().StringVar(&githubRepo, "github", "", "set GitHub update source in owner/repo format")
+	cmd.Flags().StringVar(&assetPattern, "asset", "", "match the GitHub AppImage asset name using filepath.Match syntax")
 	cmd.Flags().BoolVar(&embedded, "embedded", false, "set update source from embedded AppImage update information")
 	cmd.Flags().BoolVar(&prerelease, "prerelease", false, "include prereleases for GitHub update source")
 
@@ -109,11 +112,12 @@ func NewCommand(rt *clienv.Runtime, service app.Service) *cobra.Command {
 }
 
 type updateSourceFlags struct {
-	setID      string
-	unsetID    string
-	githubRepo string
-	embedded   bool
-	prerelease bool
+	setID        string
+	unsetID      string
+	githubRepo   string
+	assetPattern string
+	embedded     bool
+	prerelease   bool
 }
 
 func runUpdateSourceCommand(cmd *cobra.Command, rt *clienv.Runtime, service app.Service, flags updateSourceFlags, args []string) error {
@@ -124,13 +128,16 @@ func runUpdateSourceCommand(cmd *cobra.Command, rt *clienv.Runtime, service app.
 		return fmt.Errorf("provide either --set or --unset, not both")
 	}
 	if flags.unsetID != "" {
-		if flags.githubRepo != "" || flags.embedded || flags.prerelease {
-			return fmt.Errorf("--unset cannot be combined with --github, --embedded, or --prerelease")
+		if flags.githubRepo != "" || flags.assetPattern != "" || flags.embedded || flags.prerelease {
+			return fmt.Errorf("--unset cannot be combined with --github, --asset, --embedded, or --prerelease")
 		}
 		return unsetUpdateSource(cmd, rt, service, flags.unsetID)
 	}
 	if flags.setID == "" {
-		return fmt.Errorf("--github, --embedded, and --prerelease require --set")
+		return fmt.Errorf("--github, --asset, --embedded, and --prerelease require --set")
+	}
+	if flags.assetPattern != "" && flags.githubRepo == "" {
+		return fmt.Errorf("--asset requires --github")
 	}
 	if flags.githubRepo != "" && flags.embedded {
 		return fmt.Errorf("provide either --github or --embedded, not both")
@@ -147,10 +154,11 @@ func runUpdateSourceCommand(cmd *cobra.Command, rt *clienv.Runtime, service app.
 
 func setUpdateSource(cmd *cobra.Command, rt *clienv.Runtime, service app.Service, flags updateSourceFlags) error {
 	result, err := service.SetUpdateSource(cmd.Context(), app.SetUpdateSourceRequest{
-		ID:         flags.setID,
-		GitHubRepo: flags.githubRepo,
-		Prerelease: flags.prerelease,
-		Embedded:   flags.embedded,
+		ID:           flags.setID,
+		GitHubRepo:   flags.githubRepo,
+		AssetPattern: flags.assetPattern,
+		Prerelease:   flags.prerelease,
+		Embedded:     flags.embedded,
 	})
 	if err != nil {
 		return err

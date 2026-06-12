@@ -124,7 +124,7 @@ func TestCommandSetGitHubUpdateSource(t *testing.T) {
 	cmd := NewCommand(clienv.New(stdout, stderr), service)
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetArgs([]string{"--set", "example-app", "--github", "owner/repo", "--prerelease"})
+	cmd.SetArgs([]string{"--set", "example-app", "--github", "owner/repo", "--asset", "Example-*.AppImage", "--prerelease"})
 
 	if err := cmd.ExecuteContext(context.Background()); err != nil {
 		t.Fatalf("ExecuteContext() error = %v", err)
@@ -135,6 +135,9 @@ func TestCommandSetGitHubUpdateSource(t *testing.T) {
 	}
 	if got, want := service.setReq.GitHubRepo, "owner/repo"; got != want {
 		t.Fatalf("SetUpdateSourceRequest.GitHubRepo = %q, want %q", got, want)
+	}
+	if got, want := service.setReq.AssetPattern, "Example-*.AppImage"; got != want {
+		t.Fatalf("SetUpdateSourceRequest.AssetPattern = %q, want %q", got, want)
 	}
 	if !service.setReq.Prerelease {
 		t.Fatal("SetUpdateSourceRequest.Prerelease = false, want true")

@@ -22,6 +22,7 @@ const (
 
 func NewCommand(rt *clienv.Runtime, service app.Service) *cobra.Command {
 	var githubRepo string
+	var assetPattern string
 	var prerelease bool
 
 	cmd := &cobra.Command{
@@ -32,6 +33,9 @@ func NewCommand(rt *clienv.Runtime, service app.Service) *cobra.Command {
 		Args: func(cmd *cobra.Command, args []string) error {
 			if githubRepo != "" && len(args) > 0 {
 				return fmt.Errorf("provide either <appimage-path> or --github, not both")
+			}
+			if assetPattern != "" && githubRepo == "" {
+				return fmt.Errorf("--asset requires --github")
 			}
 			if githubRepo == "" && len(args) != 1 {
 				return fmt.Errorf("requires exactly one appimage path unless --github is used")
@@ -49,9 +53,10 @@ func NewCommand(rt *clienv.Runtime, service app.Service) *cobra.Command {
 			reporter := activity.NewReporter(cmd.ErrOrStderr(), !rt.Config.JSON)
 
 			req := app.AddRequest{
-				GitHubRepo: githubRepo,
-				Prerelease: prerelease,
-				Activity:   reporter,
+				GitHubRepo:   githubRepo,
+				AssetPattern: assetPattern,
+				Prerelease:   prerelease,
+				Activity:     reporter,
 			}
 			if len(args) == 1 {
 				path, err := normalizeLocalAppImagePath(args[0])
@@ -95,6 +100,7 @@ func NewCommand(rt *clienv.Runtime, service app.Service) *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&githubRepo, "github", "", "download and add an AppImage from a GitHub repository in owner/repo format")
+	cmd.Flags().StringVar(&assetPattern, "asset", "", "match the GitHub AppImage asset name using filepath.Match syntax")
 	cmd.Flags().BoolVar(&prerelease, "prerelease", false, "include GitHub prereleases when adding from --github")
 
 	return cmd
