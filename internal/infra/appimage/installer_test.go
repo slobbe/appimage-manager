@@ -32,8 +32,12 @@ func TestInstallerInstallsAppImage(t *testing.T) {
 	if got, want := string(content), "appimage"; got != want {
 		t.Fatalf("destination content = %q, want %q", got, want)
 	}
-	if _, err := os.Stat(source); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("source stat error = %v, want not exist", err)
+	sourceContent, err := os.ReadFile(source)
+	if err != nil {
+		t.Fatalf("read source: %v", err)
+	}
+	if got, want := string(sourceContent), "appimage"; got != want {
+		t.Fatalf("source content = %q, want %q", got, want)
 	}
 	info, err := os.Stat(destination)
 	if err != nil {
@@ -75,6 +79,13 @@ func TestInstallerOverwritesExistingAppImage(t *testing.T) {
 	if got, want := string(content), "new"; got != want {
 		t.Fatalf("destination content = %q, want %q", got, want)
 	}
+	sourceContent, err := os.ReadFile(source)
+	if err != nil {
+		t.Fatalf("read source: %v", err)
+	}
+	if got, want := string(sourceContent), "new"; got != want {
+		t.Fatalf("source content = %q, want %q", got, want)
+	}
 }
 
 func TestInstallerValidatesInputs(t *testing.T) {
@@ -104,11 +115,28 @@ func TestInstallerValidatesInputs(t *testing.T) {
 func TestInstallerRespectsCanceledContext(t *testing.T) {
 	t.Parallel()
 
+	root := t.TempDir()
+	source := filepath.Join(root, "source.AppImage")
+	if err := os.WriteFile(source, []byte("appimage"), 0o600); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	library := filepath.Join(root, "library")
+
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := NewInstaller("library").Install(ctx, "source.AppImage", "example")
+	_, err := NewInstaller(library).Install(ctx, source, "example")
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Install() error = %v, want context.Canceled", err)
+	}
+	content, err := os.ReadFile(source)
+	if err != nil {
+		t.Fatalf("read source: %v", err)
+	}
+	if got, want := string(content), "appimage"; got != want {
+		t.Fatalf("source content = %q, want %q", got, want)
+	}
+	if _, err := os.Stat(library); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("library stat error = %v, want not exist", err)
 	}
 }

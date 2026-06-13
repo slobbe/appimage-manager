@@ -316,6 +316,9 @@ func TestServiceAddRollsBackAppImageWhenIconInstallFails(t *testing.T) {
 	if !errors.Is(err, failure) {
 		t.Fatalf("Add() error = %v, want %v", err, failure)
 	}
+	if got, want := deps.appImageInstaller.sourcePath, "/downloads/example.AppImage"; got != want {
+		t.Fatalf("appimage installer source = %q, want %q", got, want)
+	}
 	assertRemovedPaths(t, deps.appImageRemover.paths, []string{"/library/example-app.AppImage"})
 	assertRemovedPaths(t, deps.iconRemover.paths, nil)
 	assertRemovedPaths(t, deps.desktopEntryRemover.paths, nil)

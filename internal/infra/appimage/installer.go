@@ -24,7 +24,7 @@ func NewInstaller(dir string) Installer {
 
 var _ app.AppImageInstaller = Installer{}
 
-// Install moves sourcePath into the AppImage library as <appID>.AppImage and
+// Install copies sourcePath into the AppImage library as <appID>.AppImage and
 // ensures the installed file is owner-executable.
 func (i Installer) Install(ctx context.Context, sourcePath string, appID string) (string, error) {
 	if err := ctx.Err(); err != nil {
@@ -45,7 +45,7 @@ func (i Installer) Install(ctx context.Context, sourcePath string, appID string)
 	}
 
 	destination := filepath.Join(i.Dir, appID+".AppImage")
-	if err := moveFile(ctx, sourcePath, destination); err != nil {
+	if err := copyFile(ctx, sourcePath, destination); err != nil {
 		return "", fmt.Errorf("install appimage %q to %q: %w", sourcePath, destination, err)
 	}
 	if err := ensureOwnerExecutable(destination); err != nil {
@@ -53,25 +53,6 @@ func (i Installer) Install(ctx context.Context, sourcePath string, appID string)
 	}
 
 	return destination, nil
-}
-
-func moveFile(ctx context.Context, sourcePath string, destination string) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-
-	if err := os.Rename(sourcePath, destination); err == nil {
-		return nil
-	}
-
-	if err := copyFile(ctx, sourcePath, destination); err != nil {
-		return err
-	}
-	if err := os.Remove(sourcePath); err != nil {
-		return fmt.Errorf("remove source after copy: %w", err)
-	}
-
-	return nil
 }
 
 func copyFile(ctx context.Context, sourcePath string, destination string) error {
