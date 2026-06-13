@@ -14,11 +14,11 @@ import (
 const currentSchemaVersion = 2
 
 type V1Options struct {
-	SourcePath   string
-	DestPath     string
-	AppImageDir  string
-	DesktopDir   string
-	Force        bool
+	SourcePath  string
+	DestPath    string
+	AppImageDir string
+	DesktopDir  string
+	Force       bool
 }
 
 func MigrateV1(ctx context.Context, opts V1Options) (bool, error) {
@@ -110,7 +110,7 @@ type legacySourceRecord struct {
 
 type legacyLocalFileSource struct {
 	IntegratedAt string `json:"integrated_at"`
-	OriginalPath  string `json:"original_path"`
+	OriginalPath string `json:"original_path"`
 }
 
 type legacyGitHubReleaseSource struct {
