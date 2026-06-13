@@ -450,7 +450,7 @@ install_man_pages() {
   fi
 
   found=0
-  for manpage in "$outdir"/${bin}*.1; do
+  for manpage in "$outdir"/"$bin"*.1; do
     [ -f "$manpage" ] || continue
     chmod 0644 "$manpage"
     mv -f "$manpage" "${mandir}/$(basename "$manpage")"
