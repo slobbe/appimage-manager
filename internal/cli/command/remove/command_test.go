@@ -116,11 +116,7 @@ type fakeService struct {
 	removeErr    error
 }
 
-var _ app.Service = (*fakeService)(nil)
-
-func (s *fakeService) Add(ctx context.Context, req app.AddRequest) (app.AddResult, error) {
-	return app.AddResult{}, nil
-}
+var _ app.Remover = (*fakeService)(nil)
 
 func (s *fakeService) Remove(ctx context.Context, req app.RemoveRequest) error {
 	s.removeCalled = true
@@ -129,32 +125,4 @@ func (s *fakeService) Remove(ctx context.Context, req app.RemoveRequest) error {
 		return s.removeErr
 	}
 	return nil
-}
-
-func (s *fakeService) Update(ctx context.Context, req app.UpdateRequest) (app.UpdateResult, error) {
-	return app.UpdateResult{}, nil
-}
-
-func (s *fakeService) SetUpdateSource(ctx context.Context, req app.SetUpdateSourceRequest) (app.SetUpdateSourceResult, error) {
-	return app.SetUpdateSourceResult{}, nil
-}
-
-func (s *fakeService) UnsetUpdateSource(ctx context.Context, req app.UnsetUpdateSourceRequest) error {
-	return nil
-}
-
-func (s *fakeService) List(ctx context.Context, req app.ListRequest) (app.ListResult, error) {
-	return app.ListResult{}, nil
-}
-
-func (s *fakeService) Info(ctx context.Context, req app.InfoRequest) (app.InfoResult, error) {
-	return app.InfoResult{}, nil
-}
-
-func (s *fakeService) SelfUpdate(ctx context.Context, req app.SelfUpdateRequest) (app.SelfUpdateResult, error) {
-	return app.SelfUpdateResult{}, nil
-}
-
-func (s *fakeService) Paths(ctx context.Context, req app.PathsRequest) (app.PathsResult, error) {
-	return app.PathsResult{}, nil
 }

@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func NewCommand(rt *clienv.Runtime, service app.Service) *cobra.Command {
+func NewCommand(rt *clienv.Runtime, service app.PathProvider) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "paths",
 		Short: "Show aim paths.",

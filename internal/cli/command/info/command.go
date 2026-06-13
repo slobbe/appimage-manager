@@ -17,7 +17,7 @@ const (
 	reset = "\033[0m"
 )
 
-func NewCommand(rt *clienv.Runtime, service app.Service) *cobra.Command {
+func NewCommand(rt *clienv.Runtime, service app.Informer) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "info <app-id|path>",
 		Short: "Get information about an integrated AppImage or local AppImage file.",

@@ -20,7 +20,7 @@ const (
 	reset = "\033[0m"
 )
 
-func NewCommand(rt *clienv.Runtime, service app.Service) *cobra.Command {
+func NewCommand(rt *clienv.Runtime, service app.SelfUpdateRunner) *cobra.Command {
 	var prerelease bool
 
 	cmd := &cobra.Command{

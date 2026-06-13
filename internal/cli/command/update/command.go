@@ -20,7 +20,7 @@ const (
 	reset = "\033[0m"
 )
 
-func NewCommand(rt *clienv.Runtime, service app.Service) *cobra.Command {
+func NewCommand(rt *clienv.Runtime, service app.Updater) *cobra.Command {
 	var setID string
 	var unsetID string
 	var githubRepo string
@@ -133,7 +133,7 @@ type updateSourceFlags struct {
 	prerelease   bool
 }
 
-func runUpdateSourceCommand(cmd *cobra.Command, rt *clienv.Runtime, service app.Service, flags updateSourceFlags, args []string) error {
+func runUpdateSourceCommand(cmd *cobra.Command, rt *clienv.Runtime, service app.Updater, flags updateSourceFlags, args []string) error {
 	if len(args) > 0 {
 		return fmt.Errorf("update source flags do not accept positional arguments")
 	}
@@ -165,7 +165,7 @@ func runUpdateSourceCommand(cmd *cobra.Command, rt *clienv.Runtime, service app.
 	return setUpdateSource(cmd, rt, service, flags)
 }
 
-func setUpdateSource(cmd *cobra.Command, rt *clienv.Runtime, service app.Service, flags updateSourceFlags) error {
+func setUpdateSource(cmd *cobra.Command, rt *clienv.Runtime, service app.Updater, flags updateSourceFlags) error {
 	result, err := service.SetUpdateSource(cmd.Context(), app.SetUpdateSourceRequest{
 		ID:           flags.setID,
 		GitHubRepo:   flags.githubRepo,
@@ -198,7 +198,7 @@ func setUpdateSource(cmd *cobra.Command, rt *clienv.Runtime, service app.Service
 	)
 }
 
-func unsetUpdateSource(cmd *cobra.Command, rt *clienv.Runtime, service app.Service, id string) error {
+func unsetUpdateSource(cmd *cobra.Command, rt *clienv.Runtime, service app.Updater, id string) error {
 	if err := service.UnsetUpdateSource(cmd.Context(), app.UnsetUpdateSourceRequest{ID: id}); err != nil {
 		return err
 	}

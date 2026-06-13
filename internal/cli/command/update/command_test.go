@@ -364,15 +364,7 @@ type fakeService struct {
 	confirmed          bool
 }
 
-var _ app.Service = (*fakeService)(nil)
-
-func (s *fakeService) Add(ctx context.Context, req app.AddRequest) (app.AddResult, error) {
-	return app.AddResult{}, nil
-}
-
-func (s *fakeService) Remove(ctx context.Context, req app.RemoveRequest) error {
-	return nil
-}
+var _ app.Updater = (*fakeService)(nil)
 
 func (s *fakeService) SetUpdateSource(ctx context.Context, req app.SetUpdateSourceRequest) (app.SetUpdateSourceResult, error) {
 	s.setReq = req
@@ -415,20 +407,4 @@ func (s *fakeService) Update(ctx context.Context, req app.UpdateRequest) (app.Up
 	}
 	s.confirmed = confirmed
 	return app.UpdateResult{Applied: confirmed, Updates: s.updateCandidates}, nil
-}
-
-func (s *fakeService) List(ctx context.Context, req app.ListRequest) (app.ListResult, error) {
-	return app.ListResult{}, nil
-}
-
-func (s *fakeService) Info(ctx context.Context, req app.InfoRequest) (app.InfoResult, error) {
-	return app.InfoResult{}, nil
-}
-
-func (s *fakeService) SelfUpdate(ctx context.Context, req app.SelfUpdateRequest) (app.SelfUpdateResult, error) {
-	return app.SelfUpdateResult{}, nil
-}
-
-func (s *fakeService) Paths(ctx context.Context, req app.PathsRequest) (app.PathsResult, error) {
-	return app.PathsResult{}, nil
 }
