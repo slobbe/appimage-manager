@@ -5,6 +5,9 @@ on:
     workflows: [CI]
     types: [completed]
     branches: [main]
+  push:
+    tags:
+      - "v*"
   workflow_dispatch:
     inputs:
       tag:
@@ -17,7 +20,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.event.workflow_run.head_sha || github.event.inputs.tag || github.run_id }}
+  group: release-${{ github.event.workflow_run.head_sha || github.sha || github.event.inputs.tag || github.run_id }}
   cancel-in-progress: false
 
 jobs:
@@ -26,6 +29,7 @@ jobs:
     if: >-
       ${{
         github.event_name == 'workflow_dispatch' ||
+        github.event_name == 'push' ||
         (
           github.event.workflow_run.event == 'push' &&
           github.event.workflow_run.head_branch == 'main' &&
@@ -34,135 +38,95 @@ jobs:
       }}
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Resolve release tag
         id: release-tag
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const { owner, repo } = context.repo;
-            const semverTag = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|[A-Za-z-][0-9A-Za-z-]*))*))?$/;
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_REF: ${{ github.ref }}
+          DISPATCH_TAG: ${{ github.event.inputs.tag }}
+          WORKFLOW_RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
 
-            let sha;
-            let tag;
+          semver='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*|[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[A-Za-z-][0-9A-Za-z-]*))*))?$'
 
-            if (context.eventName === "workflow_dispatch") {
-              tag = (core.getInput("tag") || "").trim();
-              if (!semverTag.test(tag)) {
-                core.setFailed(`Release tag ${tag} must match vX.Y.Z or vX.Y.Z-<prerelease>, for example v1.2.3 or v1.2.3-rc.1.`);
-                return;
-              }
+          fail_if_invalid_tag() {
+            if [[ ! "$1" =~ $semver ]]; then
+              echo "::error::Release tag $1 must match vX.Y.Z or vX.Y.Z-<prerelease>, for example v1.2.3 or v1.2.3-rc.1."
+              exit 1
+            fi
+          }
 
-              const ref = await github.rest.git.getRef({
-                owner,
-                repo,
-                ref: `tags/${tag}`,
-              });
-              sha = ref.data.object.sha;
-              if (ref.data.object.type === "tag") {
-                const annotatedTag = await github.rest.git.getTag({
-                  owner,
-                  repo,
-                  tag_sha: ref.data.object.sha,
-                });
-                sha = annotatedTag.data.object.sha;
-              }
+          tag_commit() {
+            git rev-parse "$1^{}"
+          }
 
-              const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
-                owner,
-                repo,
-                workflow_id: "ci.yml",
-                branch: "main",
-                event: "push",
-                status: "success",
-                per_page: 100,
-              });
-              const matchingRun = runs.find((run) => run.head_sha === sha && run.conclusion === "success");
-              if (!matchingRun) {
-                core.setFailed(`No successful CI push run for ${sha} on main. Manual releases must reference a commit that passed CI.`);
-                return;
-              }
-              core.info(`Found successful CI run ${matchingRun.html_url} for ${sha}.`);
-            } else {
-              sha = context.payload.workflow_run.head_sha;
+          case "$EVENT_NAME" in
+            workflow_dispatch)
+              tag="$(printf '%s' "$DISPATCH_TAG" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+              fail_if_invalid_tag "$tag"
+              sha="$(tag_commit "$tag")"
+              ;;
+            push)
+              tag="${EVENT_REF#refs/tags/}"
+              fail_if_invalid_tag "$tag"
+              sha="$(tag_commit "$tag")"
+              ;;
+            workflow_run)
+              sha="$WORKFLOW_RUN_SHA"
+              tag="$(git tag --points-at "$sha" --list 'v*' | python3 -c 'import re, sys; p = re.compile(r"^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-((?:0|[1-9][0-9]*|[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[A-Za-z-][0-9A-Za-z-]*))*))?$"); tags = [t for t in map(str.strip, sys.stdin) if p.match(t)]; key = lambda t: (lambda m: (int(m.group(1)), int(m.group(2)), int(m.group(3)), m.group(4) is None, m.group(4) or ""))(p.match(t)); print(max(tags, key=key) if tags else "")')"
+              if [[ -z "$tag" ]]; then
+                echo "CI passed for $sha, but no SemVer release tag points at that commit. Skipping release."
+                echo "should_release=false" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              ;;
+          esac
 
-              const refs = await github.paginate(github.rest.git.listMatchingRefs, {
-                owner,
-                repo,
-                ref: "tags/v",
-                per_page: 100,
-              });
+          ci_run_url="$(gh run list \
+            --repo "$REPO" \
+            --workflow ci.yml \
+            --branch main \
+            --event push \
+            --status success \
+            --commit "$sha" \
+            --json url \
+            --jq '.[0].url // empty')"
 
-              const matchingTags = [];
-              for (const ref of refs) {
-                const name = ref.ref.replace("refs/tags/", "");
-                if (!semverTag.test(name)) {
-                  continue;
-                }
+          if [[ -z "$ci_run_url" ]]; then
+            echo "::error::No successful CI push run for $sha on main. Releases must reference a commit that passed CI."
+            exit 1
+          fi
+          echo "Found successful CI run $ci_run_url for $sha."
 
-                let targetSha = ref.object.sha;
-                if (ref.object.type === "tag") {
-                  const annotatedTag = await github.rest.git.getTag({
-                    owner,
-                    repo,
-                    tag_sha: ref.object.sha,
-                  });
-                  targetSha = annotatedTag.data.object.sha;
-                }
+          if gh release view "$tag" --repo "$REPO" >/dev/null 2>&1; then
+            echo "Release $tag already exists. Skipping release."
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
 
-                if (targetSha === sha) {
-                  matchingTags.push(name);
-                }
-              }
+          if [[ "$tag" == *-* ]]; then
+            echo "Preparing prerelease $tag."
+          else
+            echo "Preparing stable release $tag."
+          fi
 
-              const compareSemverTags = (left, right) => {
-                const parse = (value) => {
-                  const match = value.match(/^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/);
-                  if (!match) {
-                    return null;
-                  }
-                  return {
-                    major: Number(match[1]),
-                    minor: Number(match[2]),
-                    patch: Number(match[3]),
-                    prerelease: match[4] || "",
-                    hasPrerelease: Boolean(match[4]),
-                  };
-                };
-
-                const a = parse(left);
-                const b = parse(right);
-                if (!a || !b) {
-                  return left.localeCompare(right);
-                }
-
-                if (a.major !== b.major) return a.major - b.major;
-                if (a.minor !== b.minor) return a.minor - b.minor;
-                if (a.patch !== b.patch) return a.patch - b.patch;
-                if (a.hasPrerelease !== b.hasPrerelease) return a.hasPrerelease ? -1 : 1;
-                return a.prerelease.localeCompare(b.prerelease);
-              };
-
-              if (matchingTags.length === 0) {
-                core.info(`CI passed for ${sha}, but no SemVer release tag points at that commit. Skipping release.`);
-                core.setOutput("should_release", "false");
-                return;
-              }
-
-              matchingTags.sort(compareSemverTags);
-              tag = matchingTags[matchingTags.length - 1];
-            }
-
-            core.info(tag.includes("-") ? `Preparing prerelease ${tag}.` : `Preparing stable release ${tag}.`);
-            core.setOutput("should_release", "true");
-            core.setOutput("tag", tag);
-            core.setOutput("sha", sha);
+          {
+            echo "should_release=true"
+            echo "tag=$tag"
+            echo "sha=$sha"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Checkout release tag
         if: steps.release-tag.outputs.should_release == 'true'
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ steps.release-tag.outputs.tag }}
-          fetch-depth: 0
+        run: git checkout --force "${{ steps.release-tag.outputs.tag }}"
 
       - name: Setup Go
         if: steps.release-tag.outputs.should_release == 'true'
