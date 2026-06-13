@@ -25,6 +25,22 @@ func TestDiscovererUsesAbsoluteIconPathInsideRoot(t *testing.T) {
 	}
 }
 
+func TestDiscovererResolvesDesktopAbsoluteIconPathInsideRoot(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	iconPath := filepath.Join(root, "usr", "share", "icons", "hicolor", "256x256", "apps", "example.png")
+	writeIcon(t, iconPath)
+
+	file, err := NewDiscoverer().Discover(context.Background(), root, "/usr/share/icons/hicolor/256x256/apps/example.png")
+	if err != nil {
+		t.Fatalf("Discover() error = %v", err)
+	}
+	if got, want := file.Path, iconPath; got != want {
+		t.Fatalf("File.Path = %q, want %q", got, want)
+	}
+}
+
 func TestDiscovererRejectsAbsoluteIconPathOutsideRoot(t *testing.T) {
 	t.Parallel()
 
@@ -38,6 +54,36 @@ func TestDiscovererRejectsAbsoluteIconPathOutsideRoot(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "outside extracted root") {
 		t.Fatalf("Discover() error = %q, want outside root", err.Error())
+	}
+}
+
+func TestDiscovererRejectsDesktopAbsoluteIconPathTraversal(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeIcon(t, filepath.Join(root, "outside.png"))
+
+	_, err := NewDiscoverer().Discover(context.Background(), root, "/../../outside.png")
+	if err == nil {
+		t.Fatal("Discover() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "outside extracted root") {
+		t.Fatalf("Discover() error = %q, want outside root", err.Error())
+	}
+}
+
+func TestDiscovererRejectsDesktopAbsoluteIconPathUnsupportedExtension(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeIcon(t, filepath.Join(root, "usr", "share", "icons", "example.txt"))
+
+	_, err := NewDiscoverer().Discover(context.Background(), root, "/usr/share/icons/example.txt")
+	if err == nil {
+		t.Fatal("Discover() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "unsupported extension") {
+		t.Fatalf("Discover() error = %q, want unsupported extension", err.Error())
 	}
 }
 

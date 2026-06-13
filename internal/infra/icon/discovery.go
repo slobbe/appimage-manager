@@ -73,11 +73,47 @@ func resolveExplicitIconPath(rootDir string, iconName string) (string, bool, err
 		return "", false, nil
 	}
 
-	path, err := filepath.Abs(iconName)
+	hostPath, err := filepath.Abs(iconName)
 	if err != nil {
 		return "", false, fmt.Errorf("resolve icon path %q: %w", iconName, err)
 	}
 
+	inside, err := pathInside(rootDir, hostPath)
+	if err != nil {
+		return "", false, err
+	}
+	if inside {
+		return validateExplicitIconPath(rootDir, hostPath)
+	}
+	if hasParentDirSegment(iconName) {
+		return "", false, fmt.Errorf("icon path %q is outside extracted root %q", iconName, rootDir)
+	}
+
+	candidate := filepath.Join(rootDir, strings.TrimPrefix(filepath.Clean(iconName), string(filepath.Separator)))
+	candidateInside, err := pathInside(rootDir, candidate)
+	if err != nil {
+		return "", false, err
+	}
+	if !candidateInside {
+		return "", false, fmt.Errorf("icon path %q is outside extracted root %q", candidate, rootDir)
+	}
+
+	path, ok, err := validateExplicitIconPath(rootDir, candidate)
+	if err == nil {
+		return path, ok, nil
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return "", false, err
+	}
+
+	if _, hostErr := os.Stat(hostPath); hostErr == nil {
+		return "", false, fmt.Errorf("icon path %q is outside extracted root %q", hostPath, rootDir)
+	}
+
+	return "", false, err
+}
+
+func validateExplicitIconPath(rootDir string, path string) (string, bool, error) {
 	inside, err := pathInside(rootDir, path)
 	if err != nil {
 		return "", false, err
@@ -248,6 +284,15 @@ func pathInside(rootDir string, path string) (bool, error) {
 	}
 
 	return relative == "." || (!strings.HasPrefix(relative, "..") && !filepath.IsAbs(relative)), nil
+}
+
+func hasParentDirSegment(path string) bool {
+	for _, part := range strings.Split(filepath.ToSlash(path), "/") {
+		if part == ".." {
+			return true
+		}
+	}
+	return false
 }
 
 func isASCIIInt(value string) bool {
