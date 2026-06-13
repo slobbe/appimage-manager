@@ -200,11 +200,13 @@ jobs:
           PY
           )"
 
+          notes_file="$RUNNER_TEMP/release-notes.md"
+
           if [[ "$TAG" == *-* ]]; then
             if [[ -n "$previous_tag" ]]; then
-              printf 'Full changelog: [%s..%s](https://github.com/%s/compare/%s...%s)\n' "$previous_tag" "$TAG" "$REPO" "$previous_tag" "$TAG" > release-notes.md
+              printf 'Full changelog: [%s..%s](https://github.com/%s/compare/%s...%s)\n' "$previous_tag" "$TAG" "$REPO" "$previous_tag" "$TAG" > "$notes_file"
             else
-              printf 'Full changelog: https://github.com/%s/commits/%s\n' "$REPO" "$TAG" > release-notes.md
+              printf 'Full changelog: https://github.com/%s/commits/%s\n' "$REPO" "$TAG" > "$notes_file"
             fi
           else
             args=(
@@ -213,10 +215,10 @@ jobs:
             if [[ -n "$previous_tag" ]]; then
               args+=( -f previous_tag_name="$previous_tag" )
             fi
-            gh api "repos/$REPO/releases/generate-notes" "${args[@]}" --jq .body > release-notes.md
+            gh api "repos/$REPO/releases/generate-notes" "${args[@]}" --jq .body > "$notes_file"
           fi
 
-          cat release-notes.md
+          cat "$notes_file"
 
       - name: Run GoReleaser
         if: steps.release-tag.outputs.should_release == 'true'
@@ -224,7 +226,7 @@ jobs:
         with:
           distribution: goreleaser
           version: "v2.16.0"
-          args: release --clean --release-notes release-notes.md
+          args: release --clean --release-notes ${{ runner.temp }}/release-notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GORELEASER_CURRENT_TAG: ${{ steps.release-tag.outputs.tag }}
