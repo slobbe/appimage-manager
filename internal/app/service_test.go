@@ -86,6 +86,9 @@ func TestServiceAddIntegratesLocalAppImage(t *testing.T) {
 	if got, want := deps.iconInstaller.sourcePath, "/extracted/example.png"; got != want {
 		t.Fatalf("icon installer source = %q, want %q", got, want)
 	}
+	if deps.iconInstaller.workspaceCleanedWhenCalled {
+		t.Fatal("workspace was cleaned before icon installer copied the discovered icon")
+	}
 	if got, want := deps.saved.App.ID, result.App.ID; got != want {
 		t.Fatalf("saved App.ID = %q, want %q", got, want)
 	}
@@ -1859,7 +1862,7 @@ func integrationTestDeps() integrationFakes {
 	icons := &fakeIconDiscoverer{path: "/extracted/example.png"}
 	appImageInstaller := &fakeAppImageInstaller{path: "/library/example-app.AppImage"}
 	appImageRemover := &fakeArtifactRemover{}
-	iconInstaller := &fakeIconInstaller{path: "/icons/hicolor/256x256/apps/example-app.png"}
+	iconInstaller := &fakeIconInstaller{path: "/icons/hicolor/256x256/apps/example-app.png", workspace: workspaces}
 	iconRemover := &fakeArtifactRemover{}
 	desktopEntryInstaller := &fakeDesktopEntryInstaller{path: "/desktop/example-app.desktop"}
 	desktopEntryRemover := &fakeArtifactRemover{}
@@ -1993,15 +1996,20 @@ func (f *fakeAppImageInstaller) Install(ctx context.Context, sourcePath string, 
 }
 
 type fakeIconInstaller struct {
-	sourcePath string
-	appID      string
-	path       string
-	err        error
+	sourcePath                 string
+	appID                      string
+	path                       string
+	err                        error
+	workspace                  *fakeWorkspaceProvider
+	workspaceCleanedWhenCalled bool
 }
 
 func (f *fakeIconInstaller) Install(ctx context.Context, sourcePath string, appID string) (string, error) {
 	f.sourcePath = sourcePath
 	f.appID = appID
+	if f.workspace != nil {
+		f.workspaceCleanedWhenCalled = f.workspace.cleaned
+	}
 	if f.err != nil {
 		return "", f.err
 	}

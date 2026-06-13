@@ -212,7 +212,13 @@ func (s *service) integrateLocal(ctx context.Context, req AddRequest, source dom
 		}
 	}()
 
-	metadata, err := s.inspectLocalAppImage(ctx, req, source, fallbackVersion, appID, integrationSource)
+	workspace, err := s.workspaces.Create(ctx)
+	if err != nil {
+		return AddResult{}, err
+	}
+	defer workspace.Cleanup()
+
+	metadata, err := s.inspectLocalAppImageInWorkspace(ctx, req, source, fallbackVersion, appID, integrationSource, workspace.Path)
 	if err != nil {
 		return AddResult{}, err
 	}
@@ -277,12 +283,16 @@ func (s *service) inspectLocalAppImage(ctx context.Context, req AddRequest, sour
 	}
 	defer workspace.Cleanup()
 
-	extractionPath, err := s.extractionPath(ctx, req.Path, workspace.Path)
+	return s.inspectLocalAppImageInWorkspace(ctx, req, source, fallbackVersion, appID, sourceFunc, workspace.Path)
+}
+
+func (s *service) inspectLocalAppImageInWorkspace(ctx context.Context, req AddRequest, source domain.Source, fallbackVersion string, appID string, sourceFunc func(AddRequest, string) domain.UpdateSource, workspacePath string) (localAppImageMetadata, error) {
+	extractionPath, err := s.extractionPath(ctx, req.Path, workspacePath)
 	if err != nil {
 		return localAppImageMetadata{}, err
 	}
 
-	extraction, err := s.appImages.Extract(ctx, extractionPath, filepath.Join(workspace.Path, "extract"))
+	extraction, err := s.appImages.Extract(ctx, extractionPath, filepath.Join(workspacePath, "extract"))
 	if err != nil {
 		return localAppImageMetadata{}, err
 	}
