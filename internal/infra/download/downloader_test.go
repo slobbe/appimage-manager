@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"aim/internal/app"
+	"github.com/slobbe/appimage-manager/internal/app"
 )
 
 func TestDownloaderDownloadsFile(t *testing.T) {

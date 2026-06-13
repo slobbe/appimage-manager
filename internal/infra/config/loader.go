@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"aim/internal/app"
-	"aim/internal/infra/xdg"
+	"github.com/slobbe/appimage-manager/internal/app"
+	"github.com/slobbe/appimage-manager/internal/infra/xdg"
 
 	"github.com/pelletier/go-toml/v2"
 )

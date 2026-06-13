@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"aim/internal/domain"
+	"github.com/slobbe/appimage-manager/internal/domain"
 )
 
 // service implements application workflows using app-defined ports. It owns

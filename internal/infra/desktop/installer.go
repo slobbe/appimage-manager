@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"aim/internal/app"
+	"github.com/slobbe/appimage-manager/internal/app"
 )
 
 // Installer installs desktop entries into the configured applications directory.

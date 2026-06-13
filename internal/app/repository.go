@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"aim/internal/domain"
+	"github.com/slobbe/appimage-manager/internal/domain"
 )
 
 var ErrAppNotFound = errors.New("app not found")

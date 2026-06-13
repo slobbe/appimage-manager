@@ -9,7 +9,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"aim/internal/app"
+	"github.com/slobbe/appimage-manager/internal/app"
 )
 
 const installScriptURLFormat = "https://raw.githubusercontent.com/slobbe/appimage-manager/%s/scripts/install.sh"

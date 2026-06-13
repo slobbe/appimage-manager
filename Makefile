@@ -40,10 +40,10 @@ fmt-check:
 
 .PHONY: test-architecture
 test-architecture:
-	@! grep -R '"aim/internal/infra' internal/app internal/cli internal/domain --include='*.go'
-	@! grep -R '"aim/internal/cli' internal/app internal/domain internal/infra --include='*.go'
-	@! grep -R '"aim/internal/app' internal/domain --include='*.go'
-	@! grep -R '"aim/internal/domain' internal/cli --include='*.go'
+	@! grep -R '"github.com/slobbe/appimage-manager/internal/infra' internal/app internal/cli internal/domain --include='*.go'
+	@! grep -R '"github.com/slobbe/appimage-manager/internal/cli' internal/app internal/domain internal/infra --include='*.go'
+	@! grep -R '"github.com/slobbe/appimage-manager/internal/app' internal/domain --include='*.go'
+	@! grep -R '"github.com/slobbe/appimage-manager/internal/domain' internal/cli --include='*.go'
 
 .PHONY: vulncheck
 vulncheck:

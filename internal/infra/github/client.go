@@ -9,7 +9,7 @@ import (
 	"net/url"
 	"strings"
 
-	"aim/internal/app"
+	"github.com/slobbe/appimage-manager/internal/app"
 )
 
 const defaultBaseURL = "https://api.github.com"

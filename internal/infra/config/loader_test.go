@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"aim/internal/app"
-	"aim/internal/infra/xdg"
+	"github.com/slobbe/appimage-manager/internal/app"
+	"github.com/slobbe/appimage-manager/internal/infra/xdg"
 )
 
 func TestDefaultAppConfigMapsXDGDirs(t *testing.T) {

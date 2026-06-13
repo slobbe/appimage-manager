@@ -3,7 +3,7 @@ package app
 import (
 	"context"
 
-	"aim/internal/domain"
+	"github.com/slobbe/appimage-manager/internal/domain"
 )
 
 type Service interface {

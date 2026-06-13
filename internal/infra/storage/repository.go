@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"aim/internal/app"
-	"aim/internal/domain"
+	"github.com/slobbe/appimage-manager/internal/app"
+	"github.com/slobbe/appimage-manager/internal/domain"
 	"golang.org/x/sys/unix"
 )
 

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"aim/internal/app"
+	"github.com/slobbe/appimage-manager/internal/app"
 )
 
 const defaultPattern = "aim-*"

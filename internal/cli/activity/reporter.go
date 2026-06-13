@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"aim/internal/app"
+	"github.com/slobbe/appimage-manager/internal/app"
 
 	"golang.org/x/sys/unix"
 )

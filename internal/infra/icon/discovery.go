@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"aim/internal/app"
+	"github.com/slobbe/appimage-manager/internal/app"
 )
 
 var supportedIconExtensions = map[string]struct{}{

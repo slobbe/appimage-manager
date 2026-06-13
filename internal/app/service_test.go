@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"aim/internal/domain"
+	"github.com/slobbe/appimage-manager/internal/domain"
 )
 
 func TestServiceAddIntegratesLocalAppImage(t *testing.T) {

@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"aim/internal/app"
+	"github.com/slobbe/appimage-manager/internal/app"
 )
 
 // Downloader downloads remote assets to local files.

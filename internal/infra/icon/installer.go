@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"aim/internal/app"
+	"github.com/slobbe/appimage-manager/internal/app"
 )
 
 // Installer installs icon files into the configured icon theme root.

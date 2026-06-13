@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"aim/internal/app"
+	"github.com/slobbe/appimage-manager/internal/app"
 )
 
 // Remover removes installed icon files.

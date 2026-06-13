@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"aim/internal/app"
-	"aim/internal/domain"
+	"github.com/slobbe/appimage-manager/internal/app"
+	"github.com/slobbe/appimage-manager/internal/domain"
 )
 
 func TestRepositorySaveAndFind(t *testing.T) {

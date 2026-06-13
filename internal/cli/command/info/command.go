@@ -5,9 +5,9 @@ import (
 	"io"
 	"time"
 
-	"aim/internal/app"
-	"aim/internal/cli/clienv"
-	"aim/internal/cli/output"
+	"github.com/slobbe/appimage-manager/internal/app"
+	"github.com/slobbe/appimage-manager/internal/cli/clienv"
+	"github.com/slobbe/appimage-manager/internal/cli/output"
 
 	"github.com/spf13/cobra"
 )

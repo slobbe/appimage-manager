@@ -5,17 +5,17 @@ import (
 	"fmt"
 	"io"
 
-	"aim/internal/app"
-	"aim/internal/cli/clienv"
+	"github.com/slobbe/appimage-manager/internal/app"
+	"github.com/slobbe/appimage-manager/internal/cli/clienv"
 
-	"aim/internal/cli/command/add"
-	"aim/internal/cli/command/gen"
-	"aim/internal/cli/command/info"
-	"aim/internal/cli/command/list"
-	"aim/internal/cli/command/paths"
-	"aim/internal/cli/command/remove"
-	"aim/internal/cli/command/selfupdate"
-	"aim/internal/cli/command/update"
+	"github.com/slobbe/appimage-manager/internal/cli/command/add"
+	"github.com/slobbe/appimage-manager/internal/cli/command/gen"
+	"github.com/slobbe/appimage-manager/internal/cli/command/info"
+	"github.com/slobbe/appimage-manager/internal/cli/command/list"
+	"github.com/slobbe/appimage-manager/internal/cli/command/paths"
+	"github.com/slobbe/appimage-manager/internal/cli/command/remove"
+	"github.com/slobbe/appimage-manager/internal/cli/command/selfupdate"
+	"github.com/slobbe/appimage-manager/internal/cli/command/update"
 
 	"github.com/spf13/cobra"
 )
