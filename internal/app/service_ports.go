@@ -10,6 +10,7 @@ type Service interface {
 	Adder
 	Remover
 	Updater
+	IDManager
 	Lister
 	Informer
 	SelfUpdateRunner
@@ -28,6 +29,10 @@ type Updater interface {
 	Update(ctx context.Context, req UpdateRequest) (UpdateResult, error)
 	SetUpdateSource(ctx context.Context, req SetUpdateSourceRequest) (SetUpdateSourceResult, error)
 	UnsetUpdateSource(ctx context.Context, req UnsetUpdateSourceRequest) error
+}
+
+type IDManager interface {
+	SetID(ctx context.Context, req SetIDRequest) (SetIDResult, error)
 }
 
 type Lister interface {
@@ -100,6 +105,20 @@ type SetUpdateSourceResult struct {
 
 type UnsetUpdateSourceRequest struct {
 	ID string
+}
+
+type SetIDRequest struct {
+	CurrentID string
+	NewID     string
+	Auto      bool
+	Activity  ActivityReporter
+}
+
+type SetIDResult struct {
+	PreviousID string
+	ID         string
+	App        domain.App
+	Changed    bool
 }
 
 type ListRequest struct{}

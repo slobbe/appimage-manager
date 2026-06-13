@@ -10,6 +10,7 @@ import (
 
 	"github.com/slobbe/appimage-manager/internal/cli/command/add"
 	"github.com/slobbe/appimage-manager/internal/cli/command/gen"
+	"github.com/slobbe/appimage-manager/internal/cli/command/id"
 	"github.com/slobbe/appimage-manager/internal/cli/command/info"
 	"github.com/slobbe/appimage-manager/internal/cli/command/list"
 	"github.com/slobbe/appimage-manager/internal/cli/command/paths"
@@ -66,6 +67,7 @@ func NewRootCommand(rt *clienv.Runtime, service app.Service, version string) *co
 	cmd.AddCommand(add.NewCommand(rt, service))
 	cmd.AddCommand(remove.NewCommand(rt, service))
 	cmd.AddCommand(update.NewCommand(rt, service))
+	cmd.AddCommand(id.NewCommand(rt, service))
 	cmd.AddCommand(list.NewCommand(rt, service))
 	cmd.AddCommand(info.NewCommand(rt, service))
 	cmd.AddCommand(selfupdate.NewCommand(rt, service))

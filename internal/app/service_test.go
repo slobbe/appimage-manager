@@ -623,6 +623,174 @@ func TestServiceUpdateCheckOnlyWithNoCandidatesDoesNotApply(t *testing.T) {
 	}
 }
 
+func TestServiceSetIDChangesInstalledAppID(t *testing.T) {
+	t.Parallel()
+
+	deps := integrationTestDeps()
+	installed := testInstalledApp(t)
+	deps.apps.findApps = map[string]domain.App{installed.ID: installed}
+	deps.appImageInstaller.path = "/library/custom-id.AppImage"
+	deps.iconInstaller.path = "/icons/hicolor/256x256/apps/custom-id.png"
+	deps.desktopEntryInstaller.path = "/desktop/custom-id.desktop"
+	service, err := NewService(deps.ServiceDeps)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+
+	result, err := service.SetID(context.Background(), SetIDRequest{CurrentID: installed.ID, NewID: " Custom ID "})
+	if err != nil {
+		t.Fatalf("SetID() error = %v", err)
+	}
+
+	if !result.Changed {
+		t.Fatal("SetID().Changed = false, want true")
+	}
+	if got, want := result.PreviousID, installed.ID; got != want {
+		t.Fatalf("PreviousID = %q, want %q", got, want)
+	}
+	if got, want := result.App.ID, "custom-id"; got != want {
+		t.Fatalf("App.ID = %q, want %q", got, want)
+	}
+	if got, want := deps.saved.App.ID, "custom-id"; got != want {
+		t.Fatalf("saved App.ID = %q, want %q", got, want)
+	}
+	if got, want := deps.appImageInstaller.sourcePath, installed.AppImagePath; got != want {
+		t.Fatalf("appimage installer source = %q, want %q", got, want)
+	}
+	if got, want := deps.appImageInstaller.appID, "custom-id"; got != want {
+		t.Fatalf("appimage installer appID = %q, want %q", got, want)
+	}
+	if got, want := deps.iconInstaller.sourcePath, installed.IconPath; got != want {
+		t.Fatalf("icon installer source = %q, want %q", got, want)
+	}
+	if got, want := deps.iconInstaller.appID, "custom-id"; got != want {
+		t.Fatalf("icon installer appID = %q, want %q", got, want)
+	}
+	if got, want := deps.desktopEntryInstaller.appID, "custom-id"; got != want {
+		t.Fatalf("desktop installer appID = %q, want %q", got, want)
+	}
+	content := string(deps.desktopEntryInstaller.content)
+	if !strings.Contains(content, "Exec=/library/custom-id.AppImage") {
+		t.Fatalf("desktop content = %q, want updated Exec", content)
+	}
+	if !strings.Contains(content, "Icon=custom-id") {
+		t.Fatalf("desktop content = %q, want updated Icon", content)
+	}
+	if got, want := deps.apps.deletedID, installed.ID; got != want {
+		t.Fatalf("deleted app ID = %q, want %q", got, want)
+	}
+	assertRemovedPaths(t, deps.desktopEntryRemover.paths, []string{installed.DesktopEntryPath})
+	assertRemovedPaths(t, deps.iconRemover.paths, []string{installed.IconPath})
+	assertRemovedPaths(t, deps.appImageRemover.paths, []string{installed.AppImagePath})
+	if !deps.desktopIntegrationRefresher.called {
+		t.Fatal("desktop integration refresher was not called")
+	}
+}
+
+func TestServiceSetIDAutoDerivesIDFromInstalledAppImageMetadata(t *testing.T) {
+	t.Parallel()
+
+	deps := integrationTestDeps()
+	installed := testInstalledApp(t)
+	installed.ID = "legacy-id"
+	deps.apps.findApps = map[string]domain.App{installed.ID: installed}
+	deps.appImageInstaller.path = "/library/example-app.AppImage"
+	deps.iconInstaller.path = "/icons/hicolor/256x256/apps/example-app.png"
+	deps.desktopEntryInstaller.path = "/desktop/example-app.desktop"
+	service, err := NewService(deps.ServiceDeps)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+
+	result, err := service.SetID(context.Background(), SetIDRequest{CurrentID: "legacy-id", Auto: true})
+	if err != nil {
+		t.Fatalf("SetID() error = %v", err)
+	}
+	if got, want := result.App.ID, "example-app"; got != want {
+		t.Fatalf("App.ID = %q, want %q", got, want)
+	}
+	if got, want := deps.saved.App.ID, "example-app"; got != want {
+		t.Fatalf("saved App.ID = %q, want %q", got, want)
+	}
+}
+
+func TestServiceSetIDRejectsExistingTargetID(t *testing.T) {
+	t.Parallel()
+
+	deps := integrationTestDeps()
+	installed := testInstalledApp(t)
+	deps.apps.findApps = map[string]domain.App{
+		installed.ID: installed,
+		"taken-id":   {ID: "taken-id", Name: "Taken"},
+	}
+	service, err := NewService(deps.ServiceDeps)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+
+	_, err = service.SetID(context.Background(), SetIDRequest{CurrentID: installed.ID, NewID: "taken-id"})
+	if err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("SetID() error = %v, want already exists", err)
+	}
+	if deps.appImageInstaller.called {
+		t.Fatal("appimage installer called after target collision")
+	}
+}
+
+func TestServiceSetIDAutoNoopsWhenDerivedIDMatchesCurrentID(t *testing.T) {
+	t.Parallel()
+
+	deps := integrationTestDeps()
+	installed := testInstalledApp(t)
+	deps.apps.findApps = map[string]domain.App{installed.ID: installed}
+	service, err := NewService(deps.ServiceDeps)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+
+	result, err := service.SetID(context.Background(), SetIDRequest{CurrentID: installed.ID, Auto: true})
+	if err != nil {
+		t.Fatalf("SetID() error = %v", err)
+	}
+	if result.Changed {
+		t.Fatal("SetID().Changed = true, want false")
+	}
+	if deps.appImageInstaller.called {
+		t.Fatal("appimage installer called for no-op ID change")
+	}
+	if deps.saved.App.ID != "" {
+		t.Fatalf("saved App.ID = %q, want empty", deps.saved.App.ID)
+	}
+	if deps.apps.deletedID != "" {
+		t.Fatalf("deleted app ID = %q, want empty", deps.apps.deletedID)
+	}
+}
+
+func TestServiceSetIDRollsBackNewArtifactsWhenSaveFails(t *testing.T) {
+	t.Parallel()
+
+	deps := integrationTestDeps()
+	installed := testInstalledApp(t)
+	deps.apps.findApps = map[string]domain.App{installed.ID: installed}
+	deps.appImageInstaller.path = "/library/custom-id.AppImage"
+	deps.iconInstaller.path = "/icons/hicolor/256x256/apps/custom-id.png"
+	deps.desktopEntryInstaller.path = "/desktop/custom-id.desktop"
+	failure := errors.New("save failed")
+	deps.apps.err = failure
+	service, err := NewService(deps.ServiceDeps)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+
+	_, err = service.SetID(context.Background(), SetIDRequest{CurrentID: installed.ID, NewID: "custom-id"})
+	if !errors.Is(err, failure) {
+		t.Fatalf("SetID() error = %v, want %v", err, failure)
+	}
+	assertRemovedPaths(t, deps.desktopEntryRemover.paths, []string{"/desktop/custom-id.desktop"})
+	assertRemovedPaths(t, deps.iconRemover.paths, []string{"/icons/hicolor/256x256/apps/custom-id.png"})
+	assertRemovedPaths(t, deps.appImageRemover.paths, []string{"/library/custom-id.AppImage"})
+}
+
 func TestServiceUpdateAppliesGitHubUpdateForTargetApp(t *testing.T) {
 	t.Parallel()
 
@@ -2219,15 +2387,17 @@ func (f *fakeAssetDownloader) Download(ctx context.Context, source DownloadSourc
 }
 
 type fakeAppRepository struct {
-	App       domain.App
-	err       error
-	findID    string
-	findApp   domain.App
-	findErr   error
-	listApps  []domain.App
-	listErr   error
-	deletedID string
-	deleteErr error
+	App        domain.App
+	err        error
+	findID     string
+	findApp    domain.App
+	findApps   map[string]domain.App
+	findErr    error
+	listApps   []domain.App
+	listErr    error
+	deletedID  string
+	deletedIDs []string
+	deleteErr  error
 }
 
 func (f *fakeAppRepository) Save(ctx context.Context, app domain.App) error {
@@ -2239,6 +2409,13 @@ func (f *fakeAppRepository) Find(ctx context.Context, id string) (domain.App, er
 	f.findID = id
 	if f.findErr != nil {
 		return domain.App{}, f.findErr
+	}
+	if f.findApps != nil {
+		app, ok := f.findApps[id]
+		if !ok || app.ID == "" {
+			return domain.App{}, ErrAppNotFound
+		}
+		return app, nil
 	}
 	if f.findApp.ID == "" {
 		return domain.App{}, ErrAppNotFound
@@ -2252,6 +2429,7 @@ func (f *fakeAppRepository) List(ctx context.Context) ([]domain.App, error) {
 
 func (f *fakeAppRepository) Delete(ctx context.Context, id string) error {
 	f.deletedID = id
+	f.deletedIDs = append(f.deletedIDs, id)
 	return f.deleteErr
 }
 

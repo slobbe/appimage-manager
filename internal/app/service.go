@@ -628,6 +628,163 @@ func updateArtifactID(appID string, version domain.Version) string {
 	return appID + "-" + versionSlug
 }
 
+func (s *service) SetID(ctx context.Context, req SetIDRequest) (SetIDResult, error) {
+	if err := ctx.Err(); err != nil {
+		return SetIDResult{}, err
+	}
+	currentID := strings.TrimSpace(req.CurrentID)
+	if currentID == "" {
+		return SetIDResult{}, errors.New("current app id is required")
+	}
+	if req.Auto && strings.TrimSpace(req.NewID) != "" {
+		return SetIDResult{}, errors.New("provide either --set or --auto, not both")
+	}
+	if !req.Auto && strings.TrimSpace(req.NewID) == "" {
+		return SetIDResult{}, errors.New("new app id is required unless --auto is used")
+	}
+
+	activity := req.Activity
+	if activity == nil {
+		activity = NoopActivityReporter{}
+	}
+	task := activity.Start(ctx, Activity{Kind: ActivityKindIntegrating, AppID: currentID})
+
+	result, err := s.setID(ctx, req, currentID)
+	if err != nil {
+		task.Fail(err)
+		return SetIDResult{}, err
+	}
+	if result.Changed {
+		task.Done("Updated app ID " + result.PreviousID + " to " + result.ID)
+	} else {
+		task.Done("App ID already " + result.ID)
+	}
+	return result, nil
+}
+
+func (s *service) setID(ctx context.Context, req SetIDRequest, currentID string) (SetIDResult, error) {
+	installedApp, err := s.apps.Find(ctx, currentID)
+	if err != nil {
+		return SetIDResult{}, err
+	}
+	if strings.TrimSpace(installedApp.AppImagePath) == "" {
+		return SetIDResult{}, errors.New("installed appimage path is required")
+	}
+
+	metadata, err := s.inspectInstalledAppImageForID(ctx, installedApp.AppImagePath)
+	if err != nil {
+		return SetIDResult{}, err
+	}
+
+	targetID := strings.TrimSpace(req.NewID)
+	if req.Auto {
+		targetID = metadata.app.ID
+	}
+	targetID = domain.Slugify(targetID)
+	if targetID == "" {
+		return SetIDResult{}, errors.New("new app id is required")
+	}
+	if targetID == installedApp.ID {
+		return SetIDResult{PreviousID: installedApp.ID, ID: installedApp.ID, App: installedApp, Changed: false}, nil
+	}
+	if _, err := s.apps.Find(ctx, targetID); err == nil {
+		return SetIDResult{}, fmt.Errorf("app id %q already exists", targetID)
+	} else if !errors.Is(err, ErrAppNotFound) {
+		return SetIDResult{}, err
+	}
+
+	var rollback rollbackStack
+	committed := false
+	defer func() {
+		if !committed {
+			rollback.run(ctx)
+		}
+	}()
+
+	installedAppImagePath, err := s.appImageInstaller.Install(ctx, installedApp.AppImagePath, targetID)
+	if err != nil {
+		return SetIDResult{}, err
+	}
+	rollback.add(func(ctx context.Context) error {
+		return removeInstalledArtifact(ctx, installedAppImagePath, s.appImageRemover.Remove)
+	})
+
+	installedIconPath, err := s.iconInstaller.Install(ctx, installedApp.IconPath, targetID)
+	if err != nil {
+		return SetIDResult{}, err
+	}
+	rollback.add(func(ctx context.Context) error {
+		return removeInstalledArtifact(ctx, installedIconPath, s.iconRemover.Remove)
+	})
+
+	updatedDesktopEntry := metadata.desktopEntry.
+		WithExec(installedAppImagePath).
+		WithIcon(targetID)
+	installedDesktopEntryPath, err := s.desktopEntryInstaller.Install(ctx, targetID, updatedDesktopEntry.Bytes())
+	if err != nil {
+		return SetIDResult{}, err
+	}
+	rollback.add(func(ctx context.Context) error {
+		return removeInstalledArtifact(ctx, installedDesktopEntryPath, s.desktopEntryRemover.Remove)
+	})
+
+	updatedApp := domain.NewAppFromDesktopEntry(metadata.desktopEntry, domain.AppInput{
+		ID:               targetID,
+		AppImagePath:     installedAppImagePath,
+		DesktopEntryPath: installedDesktopEntryPath,
+		IconPath:         installedIconPath,
+		Source:           installedApp.Source,
+		UpdateSource:     installedApp.UpdateSource,
+	})
+	rollback.add(func(ctx context.Context) error {
+		return s.apps.Delete(ctx, updatedApp.ID)
+	})
+	if err := s.apps.Save(ctx, updatedApp); err != nil {
+		return SetIDResult{}, err
+	}
+	if err := s.apps.Delete(ctx, installedApp.ID); err != nil {
+		return SetIDResult{}, err
+	}
+	committed = true
+
+	if err := s.removeReplacedArtifacts(ctx, installedApp, updatedApp); err != nil {
+		return SetIDResult{}, fmt.Errorf("updated id from %s to %s but failed to remove replaced artifacts: %w", installedApp.ID, updatedApp.ID, err)
+	}
+	if s.desktopIntegrationRefresher != nil {
+		_ = s.desktopIntegrationRefresher.Refresh(ctx)
+	}
+
+	return SetIDResult{PreviousID: installedApp.ID, ID: updatedApp.ID, App: updatedApp, Changed: true}, nil
+}
+
+type installedAppImageIDMetadata struct {
+	app          domain.App
+	desktopEntry domain.DesktopEntry
+}
+
+func (s *service) inspectInstalledAppImageForID(ctx context.Context, appImagePath string) (installedAppImageIDMetadata, error) {
+	workspace, err := s.workspaces.Create(ctx)
+	if err != nil {
+		return installedAppImageIDMetadata{}, err
+	}
+	defer workspace.Cleanup()
+
+	extraction, err := s.appImages.Extract(ctx, appImagePath, filepath.Join(workspace.Path, "extract"))
+	if err != nil {
+		return installedAppImageIDMetadata{}, err
+	}
+	desktopFile, err := s.desktopEntries.Discover(ctx, extraction.RootDir)
+	if err != nil {
+		return installedAppImageIDMetadata{}, err
+	}
+	desktopEntry, err := domain.ParseDesktopEntry(desktopFile.Content)
+	if err != nil {
+		return installedAppImageIDMetadata{}, err
+	}
+	app := domain.NewAppFromDesktopEntry(desktopEntry, domain.AppInput{AppImagePath: appImagePath})
+	return installedAppImageIDMetadata{app: app, desktopEntry: desktopEntry}, nil
+}
+
 func (s *service) removeReplacedArtifacts(ctx context.Context, previous domain.App, next domain.App) error {
 	if previous.DesktopEntryPath != "" && previous.DesktopEntryPath != next.DesktopEntryPath {
 		if err := s.desktopEntryRemover.Remove(ctx, previous.DesktopEntryPath); err != nil {
