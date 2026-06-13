@@ -64,9 +64,12 @@ aim remove example-app
 
 ```sh
 aim info example-app
+aim info ./Example.AppImage
 aim list
 aim paths
 ```
+
+`aim info <path>` inspects a local AppImage before integration. Inspection executes the AppImage's extraction/update-info modes to read metadata; inspect only AppImages you trust.
 
 ### Update aim itself
 

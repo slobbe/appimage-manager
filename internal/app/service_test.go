@@ -1255,11 +1255,99 @@ func TestServiceInfoReturnsInstalledApp(t *testing.T) {
 	if got, want := result.ExecPath, installed.AppImagePath; got != want {
 		t.Fatalf("Info().ExecPath = %q, want %q", got, want)
 	}
+	if !result.Installed {
+		t.Fatal("Info().Installed = false, want true")
+	}
+	if got, want := result.TargetKind, "installed"; got != want {
+		t.Fatalf("Info().TargetKind = %q, want %q", got, want)
+	}
 	if got, want := result.Source, installed.Source; got != want {
 		t.Fatalf("Info().Source = %#v, want %#v", got, want)
 	}
 	if got, want := result.UpdateSource, installed.UpdateSource; got != want {
 		t.Fatalf("Info().UpdateSource = %#v, want %#v", got, want)
+	}
+}
+
+func TestServiceInfoInspectsLocalAppImageWithoutInstalling(t *testing.T) {
+	t.Parallel()
+
+	deps := integrationTestDeps()
+	raw := "gh-releases-zsync|owner|repo|latest|Example-*x86_64.AppImage.zsync"
+	deps.appImages.updateInfo = raw
+	service, err := NewService(deps.ServiceDeps)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+
+	result, err := service.Info(context.Background(), InfoRequest{Target: " ./Example_App-2.4.6-x86_64.AppImage "})
+	if err != nil {
+		t.Fatalf("Info() error = %v", err)
+	}
+
+	if deps.apps.findID != "" {
+		t.Fatalf("Find() id = %q, want empty for local inspection", deps.apps.findID)
+	}
+	if got, original := deps.appImages.appImagePath, "./Example_App-2.4.6-x86_64.AppImage"; got == original {
+		t.Fatalf("Extract() appImagePath = %q, want staged path", got)
+	}
+	if got, want := deps.appImages.appImagePath, "/workspace/Example_App-2.4.6-x86_64.AppImage"; got != want {
+		t.Fatalf("Extract() appImagePath = %q, want %q", got, want)
+	}
+	if got, want := deps.desktopEntries.rootDir, "/extracted"; got != want {
+		t.Fatalf("DesktopEntryDiscoverer root = %q, want %q", got, want)
+	}
+	if !deps.icons.called {
+		t.Fatal("IconDiscoverer was not called")
+	}
+	if deps.appImageInstaller.called {
+		t.Fatal("AppImageInstaller was called for local inspection")
+	}
+	if deps.iconInstaller.sourcePath != "" {
+		t.Fatalf("IconInstaller source = %q, want empty", deps.iconInstaller.sourcePath)
+	}
+	if deps.desktopEntryInstaller.content != nil {
+		t.Fatalf("DesktopEntryInstaller content = %q, want nil", deps.desktopEntryInstaller.content)
+	}
+	if deps.saved.App.ID != "" {
+		t.Fatalf("repository Save app ID = %q, want empty", deps.saved.App.ID)
+	}
+	if !deps.workspaces.cleaned {
+		t.Fatal("workspace was not cleaned")
+	}
+
+	if result.Installed {
+		t.Fatal("Info().Installed = true, want false")
+	}
+	if got, want := result.TargetKind, "local_path"; got != want {
+		t.Fatalf("Info().TargetKind = %q, want %q", got, want)
+	}
+	if got, want := result.ID, "example-app"; got != want {
+		t.Fatalf("Info().ID = %q, want %q", got, want)
+	}
+	if got, want := result.Name, "Example App"; got != want {
+		t.Fatalf("Info().Name = %q, want %q", got, want)
+	}
+	if got, want := result.Version, "1.2.3-beta.1"; got != want {
+		t.Fatalf("Info().Version = %q, want %q", got, want)
+	}
+	if got, want := result.ExecPath, "./Example_App-2.4.6-x86_64.AppImage"; got != want {
+		t.Fatalf("Info().ExecPath = %q, want %q", got, want)
+	}
+	if got, want := result.Source.Kind, domain.SourceKindLocal; got != want {
+		t.Fatalf("Info().Source.Kind = %q, want %q", got, want)
+	}
+	if got, want := result.Source.LocalFile.Path, "./Example_App-2.4.6-x86_64.AppImage"; got != want {
+		t.Fatalf("Info().Source.LocalFile.Path = %q, want %q", got, want)
+	}
+	if !result.Source.LocalFile.IntegratedAt.IsZero() {
+		t.Fatalf("Info().Source.LocalFile.IntegratedAt = %v, want zero", result.Source.LocalFile.IntegratedAt)
+	}
+	if got, want := result.UpdateSource.Kind, domain.UpdateSourceKindGitHub; got != want {
+		t.Fatalf("Info().UpdateSource.Kind = %q, want %q", got, want)
+	}
+	if got := result.UpdateSource.Raw; got != raw {
+		t.Fatalf("Info().UpdateSource.Raw = %q, want %q", got, raw)
 	}
 }
 

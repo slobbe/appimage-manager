@@ -19,9 +19,9 @@ const (
 
 func NewCommand(rt *clienv.Runtime, service app.Service) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "info <app-id>",
-		Short: "Get information about an integrated AppImage.",
-		Long:  "Get information about an integrated AppImage by app ID.",
+		Use:   "info <app-id|path>",
+		Short: "Get information about an integrated AppImage or local AppImage file.",
+		Long:  "Get information about an integrated AppImage by app ID or inspect a local AppImage file. Local inspection extracts AppImage metadata by executing the AppImage's extraction/update-info modes; inspect only AppImages you trust.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			req := app.InfoRequest{
@@ -41,6 +41,8 @@ func NewCommand(rt *clienv.Runtime, service app.Service) *cobra.Command {
 					Name:         result.Name,
 					Version:      result.Version,
 					ExecPath:     result.ExecPath,
+					Installed:    result.Installed,
+					TargetKind:   result.TargetKind,
 					Source:       sourceToJSON(result),
 					UpdateSource: updateSourceToJSON(result),
 				},
@@ -60,6 +62,8 @@ type infoJSON struct {
 	Name         string           `json:"name"`
 	Version      string           `json:"version"`
 	ExecPath     string           `json:"exec_path"`
+	Installed    bool             `json:"installed"`
+	TargetKind   string           `json:"target_kind"`
 	Source       sourceJSON       `json:"source"`
 	UpdateSource updateSourceJSON `json:"update_source"`
 }
@@ -140,9 +144,18 @@ func sourceToJSON(info app.InfoResult) sourceJSON {
 
 func writeInfo(w io.Writer, result app.InfoResult) {
 	fmt.Fprintf(w, "%s%s%s\n", bold, title(result), reset)
+	writeInstallationStatus(w, result)
 	fmt.Fprintf(w, "%-17s %s\n", "Exec path:", result.ExecPath)
 	writeSource(w, result)
 	writeUpdateSource(w, result)
+}
+
+func writeInstallationStatus(w io.Writer, result app.InfoResult) {
+	status := "not installed"
+	if result.Installed {
+		status = "installed"
+	}
+	fmt.Fprintf(w, "%-17s %s\n", "Status:", status)
 }
 
 func title(result app.InfoResult) string {

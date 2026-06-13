@@ -212,44 +212,12 @@ func (s *service) integrateLocal(ctx context.Context, req AddRequest, source dom
 		}
 	}()
 
-	workspace, err := s.workspaces.Create(ctx)
-	if err != nil {
-		return AddResult{}, err
-	}
-	defer workspace.Cleanup()
-
-	extractionPath, err := s.extractionPath(ctx, req.Path, workspace.Path)
+	metadata, err := s.inspectLocalAppImage(ctx, req, source, fallbackVersion, appID, integrationSource)
 	if err != nil {
 		return AddResult{}, err
 	}
 
-	extraction, err := s.appImages.Extract(ctx, extractionPath, filepath.Join(workspace.Path, "extract"))
-	if err != nil {
-		return AddResult{}, err
-	}
-
-	desktopFile, err := s.desktopEntries.Discover(ctx, extraction.RootDir)
-	if err != nil {
-		return AddResult{}, err
-	}
-
-	desktopEntry, err := domain.ParseDesktopEntry(desktopFile.Content)
-	if err != nil {
-		return AddResult{}, err
-	}
-	desktopEntry = withFallbackVersion(desktopEntry, fallbackVersion)
-
-	iconFile, err := s.icons.Discover(ctx, extraction.RootDir, desktopEntry.Icon)
-	if err != nil {
-		return AddResult{}, err
-	}
-
-	updateSource := integrationSource(req, extraction.UpdateInfo)
-	provisionalApp := domain.NewAppFromDesktopEntry(desktopEntry, domain.AppInput{
-		ID:           appID,
-		Source:       source,
-		UpdateSource: updateSource,
-	})
+	provisionalApp := metadata.app
 	installedAppImagePath, err := s.appImageInstaller.Install(ctx, req.Path, provisionalApp.ID)
 	if err != nil {
 		return AddResult{}, err
@@ -258,7 +226,7 @@ func (s *service) integrateLocal(ctx context.Context, req AddRequest, source dom
 		return s.appImageRemover.Remove(ctx, installedAppImagePath)
 	})
 
-	installedIconPath, err := s.iconInstaller.Install(ctx, iconFile.Path, provisionalApp.ID)
+	installedIconPath, err := s.iconInstaller.Install(ctx, metadata.iconFile.Path, provisionalApp.ID)
 	if err != nil {
 		return AddResult{}, err
 	}
@@ -266,7 +234,7 @@ func (s *service) integrateLocal(ctx context.Context, req AddRequest, source dom
 		return s.iconRemover.Remove(ctx, installedIconPath)
 	})
 
-	updatedDesktopEntry := desktopEntry.
+	updatedDesktopEntry := metadata.desktopEntry.
 		WithExec(installedAppImagePath).
 		WithIcon(provisionalApp.ID)
 	installedDesktopEntryPath, err := s.desktopEntryInstaller.Install(ctx, provisionalApp.ID, updatedDesktopEntry.Bytes())
@@ -277,13 +245,13 @@ func (s *service) integrateLocal(ctx context.Context, req AddRequest, source dom
 		return s.desktopEntryRemover.Remove(ctx, installedDesktopEntryPath)
 	})
 
-	finalApp := domain.NewAppFromDesktopEntry(desktopEntry, domain.AppInput{
+	finalApp := domain.NewAppFromDesktopEntry(metadata.desktopEntry, domain.AppInput{
 		ID:               provisionalApp.ID,
 		AppImagePath:     installedAppImagePath,
 		DesktopEntryPath: installedDesktopEntryPath,
 		IconPath:         installedIconPath,
 		Source:           source,
-		UpdateSource:     updateSource,
+		UpdateSource:     metadata.updateSource,
 	})
 	if saveApp {
 		if err := s.apps.Save(ctx, finalApp); err != nil {
@@ -293,6 +261,62 @@ func (s *service) integrateLocal(ctx context.Context, req AddRequest, source dom
 	committed = true
 
 	return AddResult{App: finalApp}, nil
+}
+
+type localAppImageMetadata struct {
+	app          domain.App
+	desktopEntry domain.DesktopEntry
+	iconFile     IconFile
+	updateSource domain.UpdateSource
+}
+
+func (s *service) inspectLocalAppImage(ctx context.Context, req AddRequest, source domain.Source, fallbackVersion string, appID string, sourceFunc func(AddRequest, string) domain.UpdateSource) (localAppImageMetadata, error) {
+	workspace, err := s.workspaces.Create(ctx)
+	if err != nil {
+		return localAppImageMetadata{}, err
+	}
+	defer workspace.Cleanup()
+
+	extractionPath, err := s.extractionPath(ctx, req.Path, workspace.Path)
+	if err != nil {
+		return localAppImageMetadata{}, err
+	}
+
+	extraction, err := s.appImages.Extract(ctx, extractionPath, filepath.Join(workspace.Path, "extract"))
+	if err != nil {
+		return localAppImageMetadata{}, err
+	}
+
+	desktopFile, err := s.desktopEntries.Discover(ctx, extraction.RootDir)
+	if err != nil {
+		return localAppImageMetadata{}, err
+	}
+
+	desktopEntry, err := domain.ParseDesktopEntry(desktopFile.Content)
+	if err != nil {
+		return localAppImageMetadata{}, err
+	}
+	desktopEntry = withFallbackVersion(desktopEntry, fallbackVersion)
+
+	iconFile, err := s.icons.Discover(ctx, extraction.RootDir, desktopEntry.Icon)
+	if err != nil {
+		return localAppImageMetadata{}, err
+	}
+
+	updateSource := sourceFunc(req, extraction.UpdateInfo)
+	app := domain.NewAppFromDesktopEntry(desktopEntry, domain.AppInput{
+		ID:           appID,
+		AppImagePath: req.Path,
+		Source:       source,
+		UpdateSource: updateSource,
+	})
+
+	return localAppImageMetadata{
+		app:          app,
+		desktopEntry: desktopEntry,
+		iconFile:     iconFile,
+		updateSource: updateSource,
+	}, nil
 }
 
 func (s *service) Remove(ctx context.Context, req RemoveRequest) error {
@@ -729,20 +753,46 @@ func (s *service) Info(ctx context.Context, req InfoRequest) (InfoResult, error)
 	if target == "" {
 		return InfoResult{}, errors.New("app target is required")
 	}
+	if looksLikeLocalAppImagePath(target) {
+		return s.infoLocal(ctx, target)
+	}
 
 	app, err := s.apps.Find(ctx, target)
 	if err != nil {
 		return InfoResult{}, err
 	}
 
+	return infoResultFromApp(app, true, "installed"), nil
+}
+
+func (s *service) infoLocal(ctx context.Context, path string) (InfoResult, error) {
+	metadata, err := s.inspectLocalAppImage(ctx, AddRequest{Path: path}, domain.NewLocalSource(path, time.Time{}), filepath.Base(path), "", integrationSource)
+	if err != nil {
+		return InfoResult{}, err
+	}
+
+	return infoResultFromApp(metadata.app, false, "local_path"), nil
+}
+
+func infoResultFromApp(app domain.App, installed bool, targetKind string) InfoResult {
 	return InfoResult{
 		ID:           app.ID,
 		Name:         app.Name,
 		Version:      app.Version.String(),
 		ExecPath:     app.AppImagePath,
+		Installed:    installed,
+		TargetKind:   targetKind,
 		Source:       app.Source,
 		UpdateSource: app.UpdateSource,
-	}, nil
+	}
+}
+
+func looksLikeLocalAppImagePath(target string) bool {
+	return filepath.IsAbs(target) ||
+		strings.HasPrefix(target, "."+string(filepath.Separator)) ||
+		strings.HasPrefix(target, ".."+string(filepath.Separator)) ||
+		strings.ContainsRune(target, filepath.Separator) ||
+		strings.HasSuffix(strings.ToLower(target), ".appimage")
 }
 
 func (s *service) SelfUpdate(ctx context.Context, req SelfUpdateRequest) (SelfUpdateResult, error) {

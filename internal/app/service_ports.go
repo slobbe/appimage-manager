@@ -94,6 +94,8 @@ type InfoResult struct {
 	Name         string
 	Version      string
 	ExecPath     string
+	Installed    bool
+	TargetKind   string
 	Source       domain.Source
 	UpdateSource domain.UpdateSource
 }
