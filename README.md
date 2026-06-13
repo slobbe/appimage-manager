@@ -35,6 +35,7 @@ If `aim` is not found, make sure `~/.local/bin` is on your `PATH`.
 ```sh
 aim add ./Example.AppImage
 aim add --github owner/repo
+aim add --github owner/repo --asset '*x86_64.AppImage'
 aim add --github owner/repo --prerelease
 ```
 
@@ -53,10 +54,13 @@ aim update example-app
 
 ```sh
 aim update --set example-app --github owner/repo
+aim update --set example-app --github owner/repo --asset '*x86_64.AppImage'
 aim update --set example-app --github owner/repo --prerelease
 aim update --set example-app --embedded
 aim update --unset example-app
 ```
+
+Use `--asset` with Go `filepath.Match`-style patterns when a GitHub release has multiple AppImage assets, such as different architectures or flavors.
 
 ### Remove an AppImage
 
