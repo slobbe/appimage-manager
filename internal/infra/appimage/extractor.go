@@ -1,170 +1,122 @@
 package appimage
 
 import (
-	"bytes"
 	"context"
-	"debug/elf"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 
-	fsys "github.com/slobbe/appimage-manager/internal/infra/filesystem"
+	"github.com/slobbe/appimage-manager/internal/app"
 )
 
-type Extraction struct {
-	Dir     string
-	RootDir string
+const extractedRootDirName = "squashfs-root"
+
+// Extractor extracts AppImages by executing them with --appimage-extract.
+type Extractor struct{}
+
+// NewExtractor creates an AppImage extractor.
+func NewExtractor() Extractor {
+	return Extractor{}
 }
 
-type CleanupFunc func()
+var _ app.AppImageExtractor = Extractor{}
 
-func Inspect(ctx context.Context, src string) (*Extraction, CleanupFunc, error) {
-	tempDir, err := os.MkdirTemp("", "aim-inspect-*")
+// Extract extracts appImagePath into destDir and returns the extracted root.
+//
+// AppImage extraction creates a squashfs-root directory in the process working
+// directory, so the command is run with destDir as its working directory. The
+// AppImage at appImagePath is made owner-executable before extraction because
+// AppImages must be executable to run their extraction mode; callers should pass
+// a staged or otherwise managed path if the original file must not be mutated.
+func (Extractor) Extract(ctx context.Context, appImagePath string, destDir string) (app.AppImageExtraction, error) {
+	if err := ctx.Err(); err != nil {
+		return app.AppImageExtraction{}, err
+	}
+	if appImagePath == "" {
+		return app.AppImageExtraction{}, errors.New("appimage path is required")
+	}
+	if destDir == "" {
+		return app.AppImageExtraction{}, errors.New("extraction destination directory is required")
+	}
+
+	absoluteAppImagePath, err := filepath.Abs(appImagePath)
 	if err != nil {
-		return nil, nil, err
-	}
-	cleanup := func() {
-		_ = fsys.RemoveAll(tempDir)
+		return app.AppImageExtraction{}, fmt.Errorf("resolve appimage path %q: %w", appImagePath, err)
 	}
 
-	copyPath := filepath.Join(tempDir, filepath.Base(src))
-	if _, err := fsys.Copy(src, copyPath); err != nil {
-		cleanup()
-		return nil, nil, err
-	}
-	if err := fsys.MakeExecutable(copyPath); err != nil {
-		cleanup()
-		return nil, nil, fmt.Errorf("failed to make executable: %w", err)
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		return app.AppImageExtraction{}, fmt.Errorf("create extraction directory %q: %w", destDir, err)
 	}
 
-	extraction, err := extractCombined(ctx, copyPath, tempDir)
+	if err := ensureOwnerExecutable(absoluteAppImagePath); err != nil {
+		return app.AppImageExtraction{}, err
+	}
+
+	updateInfo, err := appImageUpdateInfo(ctx, absoluteAppImagePath)
 	if err != nil {
-		cleanup()
-		return nil, nil, err
+		return app.AppImageExtraction{}, err
 	}
 
-	return extraction, cleanup, nil
-}
+	cmd := exec.CommandContext(ctx, absoluteAppImagePath, "--appimage-extract")
+	cmd.Dir = destDir
 
-func Extract(ctx context.Context, src string, tempBaseDir string) (*Extraction, CleanupFunc, error) {
-	srcFileName := strings.TrimSuffix(filepath.Base(src), filepath.Ext(src))
-	tempDir := tempBaseDir + "-" + srcFileName
-	if err := fsys.EnsureDir(tempDir); err != nil {
-		return nil, nil, fmt.Errorf("failed to create temporary directory %s: %w", tempDir, err)
-	}
-	cleanup := func() {
-		_ = fsys.RemoveAll(tempDir)
-	}
-
-	if err := fsys.MakeExecutable(src); err != nil {
-		cleanup()
-		return nil, nil, fmt.Errorf("failed to make executable: %w", err)
-	}
-
-	extraction, err := extractStreaming(ctx, src, tempDir)
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		cleanup()
-		return nil, nil, err
-	}
-
-	return extraction, cleanup, nil
-}
-
-func extractCombined(ctx context.Context, src string, dir string) (*Extraction, error) {
-	extractCmd := exec.CommandContext(ctx, src, "--appimage-extract")
-	extractCmd.Dir = dir
-
-	out, err := extractCmd.CombinedOutput()
-	if err != nil {
-		return nil, fmt.Errorf("extraction failed: %w\nOutput: %s", err, string(out))
-	}
-
-	return verifiedExtraction(dir)
-}
-
-func extractStreaming(ctx context.Context, src string, dir string) (*Extraction, error) {
-	extractCmd := exec.CommandContext(ctx, src, "--appimage-extract")
-	extractCmd.Dir = dir
-	extractCmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-
-	var out bytes.Buffer
-	extractCmd.Stdout = &out
-	extractCmd.Stderr = &out
-
-	if err := extractCmd.Start(); err != nil {
-		if errors.Is(ctx.Err(), context.Canceled) {
-			return nil, context.Canceled
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return app.AppImageExtraction{}, ctxErr
 		}
-		return nil, fmt.Errorf("extraction failed: %w\nOutput: %s", err, out.String())
+		return app.AppImageExtraction{}, fmt.Errorf("extract appimage %q: %w: %s", absoluteAppImagePath, err, string(output))
 	}
 
-	pid := extractCmd.Process.Pid
-	done := make(chan struct{})
-	if ctx != nil {
-		go func() {
-			select {
-			case <-ctx.Done():
-				_ = syscall.Kill(-pid, syscall.SIGKILL)
-			case <-done:
-			}
-		}()
-	}
-
-	err := extractCmd.Wait()
-	close(done)
+	rootDir := filepath.Join(destDir, extractedRootDirName)
+	info, err := os.Stat(rootDir)
 	if err != nil {
-		if errors.Is(ctx.Err(), context.Canceled) {
-			return nil, context.Canceled
+		return app.AppImageExtraction{}, fmt.Errorf("find extracted appimage root %q: %w", rootDir, err)
+	}
+	if !info.IsDir() {
+		return app.AppImageExtraction{}, fmt.Errorf("extracted appimage root %q is not a directory", rootDir)
+	}
+
+	return app.AppImageExtraction{RootDir: rootDir, UpdateInfo: updateInfo}, nil
+}
+
+func appImageUpdateInfo(ctx context.Context, appImagePath string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+
+	cmd := exec.CommandContext(ctx, appImagePath, "--appimage-updateinformation")
+	output, err := cmd.Output()
+	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return "", ctxErr
 		}
-		return nil, fmt.Errorf("extraction failed: %w\nOutput: %s", err, out.String())
+		return "", nil
 	}
 
-	return verifiedExtraction(dir)
+	return strings.TrimSpace(string(output)), nil
 }
 
-func ExtractUpdateInfo(src string) (string, error) {
-	if !strings.EqualFold(filepath.Ext(strings.TrimSpace(src)), ".AppImage") {
-		return "", fmt.Errorf("source must be .AppImage file")
-	}
-
-	src, err := fsys.MakeAbsolute(src)
+func ensureOwnerExecutable(path string) error {
+	info, err := os.Stat(path)
 	if err != nil {
-		return "", err
+		return fmt.Errorf("stat appimage %q: %w", path, err)
+	}
+	if info.IsDir() {
+		return fmt.Errorf("appimage path %q is a directory", path)
 	}
 
-	f, err := elf.Open(src)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-
-	section := f.Section(".upd_info")
-	if section == nil {
-		return "", fmt.Errorf("no update information found in ELF headers")
+	mode := info.Mode()
+	if mode&0o100 != 0 {
+		return nil
 	}
 
-	data, err := section.Data()
-	if err != nil {
-		return "", err
+	if err := os.Chmod(path, mode|0o100); err != nil {
+		return fmt.Errorf("make appimage executable %q: %w", path, err)
 	}
 
-	strData := string(data)
-	if i := strings.Index(strData, "\x00"); i != -1 {
-		strData = strData[:i]
-	}
-
-	return strings.TrimSpace(strData), nil
-}
-
-func verifiedExtraction(dir string) (*Extraction, error) {
-	root := filepath.Join(dir, "squashfs-root")
-	if err := fsys.RequireDir(root); err != nil {
-		return nil, fmt.Errorf("extraction verification failed: squashfs-root not found")
-	}
-
-	return &Extraction{Dir: dir, RootDir: root}, nil
+	return nil
 }

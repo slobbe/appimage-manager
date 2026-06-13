@@ -5,13 +5,13 @@ import (
 	"unicode"
 )
 
+// Slugify normalizes arbitrary app names into stable, URL/path-safe IDs.
 func Slugify(s string) string {
 	if s == "" {
 		return ""
 	}
 
 	s = strings.ToLower(s)
-
 	s = strings.Map(func(r rune) rune {
 		if r == ' ' || r == '_' {
 			return '-'
@@ -27,15 +27,15 @@ func Slugify(s string) string {
 
 	prevDash := false
 	for _, r := range s {
-		if unicode.IsLetter(r) || unicode.IsNumber(r) {
+		switch {
+		case unicode.IsLetter(r) || unicode.IsNumber(r):
 			b.WriteRune(r)
 			prevDash = false
-		} else if r == '-' && !prevDash {
+		case r == '-' && !prevDash:
 			b.WriteRune('-')
 			prevDash = true
 		}
 	}
 
-	result := b.String()
-	return strings.Trim(result, "-")
+	return strings.Trim(b.String(), "-")
 }

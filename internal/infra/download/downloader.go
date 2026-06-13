@@ -2,158 +2,138 @@ package download
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
+
+	"github.com/slobbe/appimage-manager/internal/app"
 )
 
-type Metadata struct {
-	URL          string
-	ETag         string
-	LastModified string
-	TotalBytes   int64
-}
-
-type Progress struct {
-	Downloaded int64
-	Total      int64
-	Metadata   Metadata
-}
-
-type Request struct {
-	URL         string
-	Destination string
-	Metadata    *Metadata
-}
-
+// Downloader downloads remote assets to local files.
 type Downloader struct {
-	Client *http.Client
+	HTTPClient *http.Client
 }
 
-type StatusError struct {
-	Status string
-	Code   int
+// NewDownloader creates an HTTP asset downloader.
+func NewDownloader() Downloader {
+	return Downloader{}
 }
 
-func (e *StatusError) Error() string {
-	return fmt.Sprintf("download failed with status %s", e.Status)
-}
+var _ app.AssetDownloader = Downloader{}
 
-func (d Downloader) Download(ctx context.Context, req Request, onProgress func(Progress)) (*Metadata, error) {
-	client := d.Client
-	if client == nil {
-		client = http.DefaultClient
+func (d Downloader) Download(ctx context.Context, source app.DownloadSource, destinationPath string, progress app.DownloadProgress) (app.DownloadedFile, error) {
+	if err := ctx.Err(); err != nil {
+		return app.DownloadedFile{}, err
+	}
+	if strings.TrimSpace(source.URL) == "" {
+		return app.DownloadedFile{}, errors.New("download url is required")
+	}
+	if strings.TrimSpace(destinationPath) == "" {
+		return app.DownloadedFile{}, errors.New("download destination path is required")
 	}
 
-	meta := req.Metadata
-	if meta != nil && strings.TrimSpace(meta.URL) != "" && strings.TrimSpace(meta.URL) != strings.TrimSpace(req.URL) {
-		meta = nil
-	}
-
-	existingSize, err := existingFileSize(req.Destination)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, source.URL, nil)
 	if err != nil {
-		return nil, err
+		return app.DownloadedFile{}, fmt.Errorf("create download request %q: %w", source.URL, err)
 	}
-	if req.Metadata != meta {
-		existingSize = 0
-	}
+	req.Header.Set("User-Agent", "aim")
 
-	resp, err := doRequest(ctx, client, req.URL, existingSize)
+	resp, err := d.httpClient().Do(req)
 	if err != nil {
-		return nil, err
-	}
-	if existingSize > 0 && resp.StatusCode != http.StatusPartialContent {
-		resp.Body.Close()
-		existingSize = 0
-		meta = nil
-		resp, err = doRequest(ctx, client, req.URL, 0)
-		if err != nil {
-			return nil, err
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return app.DownloadedFile{}, ctxErr
 		}
+		return app.DownloadedFile{}, fmt.Errorf("download %q: %w", source.URL, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return nil, &StatusError{Status: resp.Status, Code: resp.StatusCode}
+		return app.DownloadedFile{}, fmt.Errorf("download %q: server returned %s", source.URL, resp.Status)
+	}
+	if source.SizeBytes > 0 && resp.ContentLength >= 0 && resp.ContentLength != source.SizeBytes {
+		return app.DownloadedFile{}, fmt.Errorf("download %q: size mismatch: expected %d bytes, server reported %d bytes", source.URL, source.SizeBytes, resp.ContentLength)
 	}
 
-	openFlags := os.O_CREATE | os.O_WRONLY
-	if existingSize > 0 && resp.StatusCode == http.StatusPartialContent {
-		openFlags |= os.O_APPEND
-	} else {
-		openFlags |= os.O_TRUNC
-		existingSize = 0
+	if err := os.MkdirAll(filepath.Dir(destinationPath), 0o755); err != nil {
+		return app.DownloadedFile{}, fmt.Errorf("create download directory %q: %w", filepath.Dir(destinationPath), err)
 	}
 
-	file, err := os.OpenFile(req.Destination, openFlags, 0o644)
+	temporaryPath := destinationPath + ".tmp"
+	destination, err := os.OpenFile(temporaryPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	total := resp.ContentLength
-	if existingSize > 0 && resp.ContentLength > 0 {
-		total = existingSize + resp.ContentLength
+		return app.DownloadedFile{}, fmt.Errorf("create temporary download file %q: %w", temporaryPath, err)
 	}
 
-	if meta == nil {
-		meta = &Metadata{}
+	reader := io.Reader(resp.Body)
+	if source.SizeBytes > 0 {
+		reader = io.LimitReader(resp.Body, source.SizeBytes+1)
 	}
-	meta.URL = req.URL
-	meta.ETag = strings.TrimSpace(resp.Header.Get("ETag"))
-	meta.LastModified = strings.TrimSpace(resp.Header.Get("Last-Modified"))
-	meta.TotalBytes = total
 
-	downloaded := existingSize
+	written, copyErr := copyWithProgress(ctx, destination, reader, progress)
+	closeErr := destination.Close()
+	if copyErr != nil {
+		_ = os.Remove(temporaryPath)
+		return app.DownloadedFile{}, fmt.Errorf("write download %q: %w", temporaryPath, copyErr)
+	}
+	if closeErr != nil {
+		_ = os.Remove(temporaryPath)
+		return app.DownloadedFile{}, fmt.Errorf("close download %q: %w", temporaryPath, closeErr)
+	}
+	if source.SizeBytes > 0 && written != source.SizeBytes {
+		_ = os.Remove(temporaryPath)
+		return app.DownloadedFile{}, fmt.Errorf("download %q: size mismatch: expected %d bytes, wrote %d bytes", source.URL, source.SizeBytes, written)
+	}
+	if err := ctx.Err(); err != nil {
+		_ = os.Remove(temporaryPath)
+		return app.DownloadedFile{}, err
+	}
+	if err := os.Rename(temporaryPath, destinationPath); err != nil {
+		_ = os.Remove(temporaryPath)
+		return app.DownloadedFile{}, fmt.Errorf("replace download %q: %w", destinationPath, err)
+	}
+
+	return app.DownloadedFile{Path: destinationPath, SizeBytes: written}, nil
+}
+
+func copyWithProgress(ctx context.Context, dst io.Writer, src io.Reader, progress app.DownloadProgress) (int64, error) {
 	buffer := make([]byte, 32*1024)
+	var written int64
 	for {
-		n, readErr := resp.Body.Read(buffer)
-		if n > 0 {
-			if _, err := file.Write(buffer[:n]); err != nil {
-				return meta, err
-			}
-			downloaded += int64(n)
-			meta.TotalBytes = total
-			if onProgress != nil {
-				onProgress(Progress{Downloaded: downloaded, Total: total, Metadata: *meta})
-			}
+		if err := ctx.Err(); err != nil {
+			return written, err
 		}
 
+		n, readErr := src.Read(buffer)
+		if n > 0 {
+			writeN, writeErr := dst.Write(buffer[:n])
+			written += int64(writeN)
+			if progress != nil && writeN > 0 {
+				progress.Advance(int64(writeN))
+			}
+			if writeErr != nil {
+				return written, writeErr
+			}
+			if writeN != n {
+				return written, io.ErrShortWrite
+			}
+		}
 		if readErr != nil {
 			if readErr == io.EOF {
-				break
+				return written, nil
 			}
-			return meta, readErr
+			return written, readErr
 		}
 	}
-
-	if onProgress != nil {
-		onProgress(Progress{Downloaded: downloaded, Total: total, Metadata: *meta})
-	}
-
-	return meta, nil
 }
 
-func existingFileSize(path string) (int64, error) {
-	info, err := os.Stat(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return 0, nil
-		}
-		return 0, err
+func (d Downloader) httpClient() *http.Client {
+	if d.HTTPClient != nil {
+		return d.HTTPClient
 	}
-	return info.Size(), nil
-}
 
-func doRequest(ctx context.Context, client *http.Client, url string, rangeStart int64) (*http.Response, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
-	}
-	if rangeStart > 0 {
-		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", rangeStart))
-	}
-	return client.Do(req)
+	return http.DefaultClient
 }

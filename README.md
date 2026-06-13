@@ -1,6 +1,6 @@
 # AppImage Manager (`aim`)
 
-A CLI to install, integrate, and update AppImages on Linux.
+A CLI to install, integrate, inspect, and update AppImages on Linux.
 
 [![](https://shieldcn.dev/group/github/release/slobbe/appimage-manager+github/license/slobbe/appimage-manager.svg?variant=secondary&size=xs)](https://github.com/slobbe/appimage-manager/releases/latest)
 
@@ -9,84 +9,99 @@ A CLI to install, integrate, and update AppImages on Linux.
 
 ## Install
 
+Install the latest release:
+
 ```sh
 curl -fsSL https://raw.githubusercontent.com/slobbe/appimage-manager/main/scripts/install.sh | sh
 aim --version
 ```
 
-To install a specific version:
+Install a specific version:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/slobbe/appimage-manager/main/scripts/install.sh | AIM_VERSION=v0.15.4 sh
+curl -fsSL https://raw.githubusercontent.com/slobbe/appimage-manager/main/scripts/install.sh | AIM_VERSION=v0.17.0 sh
 ```
+
+`AIM_VERSION` accepts either `0.17.0`, `v0.17.0`, or a prerelease tag such as `v0.17.0-rc.1`.
+
+The installer places `aim` in `~/.local/bin` by default and generates man pages and shell completions locally from the installed binary.
 
 If `aim` is not found, make sure `~/.local/bin` is on your `PATH`.
 
-## How to Use
+## Common commands
 
 ### Add an AppImage
 
 ```sh
 aim add ./Example.AppImage
-aim add --url https://example.com/Example.AppImage
 aim add --github owner/repo
+aim add --github owner/repo --asset '*x86_64.AppImage'
+aim add --github owner/repo --prerelease
 ```
 
 ### Check and apply updates
 
 ```sh
+aim update --check
+aim --json update --check
 aim update
 aim update example-app
 ```
+
+`aim update --check` reports available updates without modifying installed AppImages. Today, `aim update` only checks and applies GitHub release update sources; embedded `zsync`, `local_file`, and unsupported update metadata is preserved for inspection but not applied yet.
 
 ### Set or clear an update source
 
 ```sh
 aim update --set example-app --github owner/repo
-aim update --set example-app --zsync https://example.com/Example.AppImage.zsync
+aim update --set example-app --github owner/repo --asset '*x86_64.AppImage'
+aim update --set example-app --github owner/repo --prerelease
 aim update --set example-app --embedded
 aim update --unset example-app
 ```
+
+Use `--asset` with Go `filepath.Match`-style patterns when a GitHub release has multiple AppImage assets, such as different architectures or flavors. `--embedded` preserves update metadata found inside the AppImage, but only embedded GitHub release sources are applied by `aim update` today.
 
 ### Remove an AppImage
 
 ```sh
 aim remove example-app
-aim remove --link example-app
 ```
 
-## Useful Commands
+### Inspect, list, and locate data
 
 ```sh
-aim list                 # list managed AppImages
-aim info example-app     # inspect a managed app
+aim info example-app
 aim info ./Example.AppImage
-aim info --github owner/repo
-aim self-update          # update aim itself
-aim self-update --pre    # include prerelease versions
+aim list
+aim paths
 ```
 
-## Key Flags
+`aim info <path>` inspects a local AppImage before integration. Inspection executes the AppImage's extraction/update-info modes to read metadata; inspect only AppImages you trust.
 
-- `-n`, `--dry-run`: preview changes without applying them
-- `-y`, `--yes`: skip confirmation prompts
-- `--no-input`: disable interactive prompting
+### Update aim itself
+
+```sh
+aim selfupdate
+aim selfupdate --prerelease
+```
+
+## Useful commands and aliases
+
+```sh
+aim list      # list managed AppImages
+aim remove    # remove a managed AppImage
+aim update    # check for and apply app updates
+aim info      # inspect an AppImage or integrated app
+aim paths     # show aim's config/storage/cache paths
+```
+
+## Global flags
+
 - `--json`: emit machine-readable JSON where supported
-- `-q`, `--quiet`: reduce non-essential status output
-- `-d`, `--debug`: enable diagnostic logs
+- `--version`: print the current aim version
 
-## Storage
-
-`aim` uses XDG base directories:
-
-- AppImage files: `${XDG_DATA_HOME:-~/.local/share}/aim`
-- Desktop links: `${XDG_DATA_HOME:-~/.local/share}/applications`
-- Desktop icons: `${XDG_DATA_HOME:-~/.local/share}/icons/hicolor`
-- Config files: `${XDG_CONFIG_HOME:-~/.config}/aim`
-- Database: `${XDG_STATE_HOME:-~/.local/state}/aim/apps.json`
-- Temporary files: `${XDG_CACHE_HOME:-~/.cache}/aim/tmp`
-
-## More Help
+## More help
 
 - `aim --help` for the CLI overview
 - `aim help <command>` for command-specific manual pages

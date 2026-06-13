@@ -2,10 +2,6 @@ version: 2
 
 dist: dist/goreleaser
 
-before:
-  hooks:
-    - sh scripts/release-prepare.sh "{{ .Tag }}"
-
 builds:
   - id: aim
     main: ./cmd/aim
@@ -18,7 +14,7 @@ builds:
     env:
       - CGO_ENABLED=0
     ldflags:
-      - -s -w -X main.version={{ .Version }}
+      - -s -w -X main.version={{ .Version }} -X main.commit={{ .Commit }} -X main.date={{ .Date }}
 
 archives:
   - id: aim-archive
@@ -28,15 +24,6 @@ archives:
       - tar.gz
     name_template: aim-{{ .Version }}-linux-{{ .Arch }}
     wrap_in_directory: false
-    files:
-      - src: dist/{{ .Tag }}/share/man/**/*
-        dst: share/man/man1
-      - src: dist/{{ .Tag }}/share/bash-completion/**/*
-        dst: share/bash-completion/completions
-      - src: dist/{{ .Tag }}/share/zsh/**/*
-        dst: share/zsh/site-functions
-      - src: dist/{{ .Tag }}/share/fish/**/*
-        dst: share/fish/vendor_completions.d
 
 checksum:
   name_template: checksums.txt
