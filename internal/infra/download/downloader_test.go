@@ -69,6 +69,81 @@ func TestDownloaderReturnsHTTPError(t *testing.T) {
 	}
 }
 
+func TestDownloaderRejectsOversizedResponseBody(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "")
+		fmt.Fprint(w, "too large")
+	}))
+	defer server.Close()
+
+	destination := filepath.Join(t.TempDir(), "Example.AppImage")
+	_, err := (Downloader{HTTPClient: server.Client()}).Download(context.Background(), app.DownloadSource{URL: server.URL, SizeBytes: 5}, destination, nil)
+	if err == nil || !strings.Contains(err.Error(), "size") {
+		t.Fatalf("Download() error = %v, want size error", err)
+	}
+	assertNoDownloadFiles(t, destination)
+}
+
+func TestDownloaderRejectsTruncatedResponseBody(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "short")
+	}))
+	defer server.Close()
+
+	destination := filepath.Join(t.TempDir(), "Example.AppImage")
+	_, err := (Downloader{HTTPClient: server.Client()}).Download(context.Background(), app.DownloadSource{URL: server.URL, SizeBytes: 20}, destination, nil)
+	if err == nil || !strings.Contains(err.Error(), "size") {
+		t.Fatalf("Download() error = %v, want size error", err)
+	}
+	assertNoDownloadFiles(t, destination)
+}
+
+func TestDownloaderRejectsMismatchedContentLength(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "10")
+		fmt.Fprint(w, "1234567890")
+	}))
+	defer server.Close()
+
+	destination := filepath.Join(t.TempDir(), "Example.AppImage")
+	_, err := (Downloader{HTTPClient: server.Client()}).Download(context.Background(), app.DownloadSource{URL: server.URL, SizeBytes: 5}, destination, nil)
+	if err == nil || !strings.Contains(err.Error(), "size") {
+		t.Fatalf("Download() error = %v, want size error", err)
+	}
+	assertNoDownloadFiles(t, destination)
+}
+
+func TestDownloaderAllowsUnknownExpectedSize(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "unknown size")
+	}))
+	defer server.Close()
+
+	destination := filepath.Join(t.TempDir(), "Example.AppImage")
+	result, err := (Downloader{HTTPClient: server.Client()}).Download(context.Background(), app.DownloadSource{URL: server.URL, SizeBytes: 0}, destination, nil)
+	if err != nil {
+		t.Fatalf("Download() error = %v", err)
+	}
+	if got, want := result.SizeBytes, int64(len("unknown size")); got != want {
+		t.Fatalf("DownloadedFile.SizeBytes = %d, want %d", got, want)
+	}
+	content, err := os.ReadFile(destination)
+	if err != nil {
+		t.Fatalf("read destination: %v", err)
+	}
+	if got, want := string(content), "unknown size"; got != want {
+		t.Fatalf("destination content = %q, want %q", got, want)
+	}
+}
+
 func TestDownloaderValidatesInputs(t *testing.T) {
 	t.Parallel()
 
@@ -109,6 +184,17 @@ func TestDownloaderRemovesTemporaryFileOnCanceledContext(t *testing.T) {
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Download() error = %v, want context.Canceled", err)
 	}
+	if _, err := os.Stat(destination + ".tmp"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("temporary file stat error = %v, want not exist", err)
+	}
+	if _, err := os.Stat(destination); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("destination stat error = %v, want not exist", err)
+	}
+}
+
+func assertNoDownloadFiles(t *testing.T, destination string) {
+	t.Helper()
+
 	if _, err := os.Stat(destination + ".tmp"); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("temporary file stat error = %v, want not exist", err)
 	}

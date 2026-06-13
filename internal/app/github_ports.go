@@ -41,8 +41,9 @@ type AssetDownloader interface {
 
 // DownloadSource describes a remote file to download.
 type DownloadSource struct {
-	URL       string
-	FileName  string
+	URL      string
+	FileName string
+	// SizeBytes is the expected byte count when > 0 and should be enforced by download adapters; 0 means unknown.
 	SizeBytes int64
 }
 

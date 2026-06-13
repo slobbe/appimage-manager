@@ -54,6 +54,9 @@ func (d Downloader) Download(ctx context.Context, source app.DownloadSource, des
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return app.DownloadedFile{}, fmt.Errorf("download %q: server returned %s", source.URL, resp.Status)
 	}
+	if source.SizeBytes > 0 && resp.ContentLength >= 0 && resp.ContentLength != source.SizeBytes {
+		return app.DownloadedFile{}, fmt.Errorf("download %q: size mismatch: expected %d bytes, server reported %d bytes", source.URL, source.SizeBytes, resp.ContentLength)
+	}
 
 	if err := os.MkdirAll(filepath.Dir(destinationPath), 0o755); err != nil {
 		return app.DownloadedFile{}, fmt.Errorf("create download directory %q: %w", filepath.Dir(destinationPath), err)
@@ -65,7 +68,12 @@ func (d Downloader) Download(ctx context.Context, source app.DownloadSource, des
 		return app.DownloadedFile{}, fmt.Errorf("create temporary download file %q: %w", temporaryPath, err)
 	}
 
-	written, copyErr := copyWithProgress(ctx, destination, resp.Body, progress)
+	reader := io.Reader(resp.Body)
+	if source.SizeBytes > 0 {
+		reader = io.LimitReader(resp.Body, source.SizeBytes+1)
+	}
+
+	written, copyErr := copyWithProgress(ctx, destination, reader, progress)
 	closeErr := destination.Close()
 	if copyErr != nil {
 		_ = os.Remove(temporaryPath)
@@ -74,6 +82,10 @@ func (d Downloader) Download(ctx context.Context, source app.DownloadSource, des
 	if closeErr != nil {
 		_ = os.Remove(temporaryPath)
 		return app.DownloadedFile{}, fmt.Errorf("close download %q: %w", temporaryPath, closeErr)
+	}
+	if source.SizeBytes > 0 && written != source.SizeBytes {
+		_ = os.Remove(temporaryPath)
+		return app.DownloadedFile{}, fmt.Errorf("download %q: size mismatch: expected %d bytes, wrote %d bytes", source.URL, source.SizeBytes, written)
 	}
 	if err := ctx.Err(); err != nil {
 		_ = os.Remove(temporaryPath)
