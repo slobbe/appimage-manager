@@ -90,8 +90,8 @@ func TestServiceAddIntegratesLocalAppImage(t *testing.T) {
 	if !strings.Contains(desktopContent, "[Desktop Action NewWindow]") {
 		t.Fatalf("desktop content = %q, want action group preserved", desktopContent)
 	}
-	if !strings.Contains(desktopContent, "Exec=old-action") {
-		t.Fatalf("desktop content = %q, want action Exec preserved", desktopContent)
+	if !strings.Contains(desktopContent, "Exec=/library/example-app.AppImage --new-window") {
+		t.Fatalf("desktop content = %q, want rewritten action Exec", desktopContent)
 	}
 }
 
@@ -1658,7 +1658,7 @@ func integrationTestDeps() integrationFakes {
 			"Icon=example-icon",
 			"",
 			"[Desktop Action NewWindow]",
-			"Exec=old-action",
+			"Exec=old-action --new-window",
 			"",
 		}, "\n")),
 	}

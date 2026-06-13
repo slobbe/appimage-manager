@@ -184,7 +184,42 @@ func TestDesktopEntryWithExecAndIconPreservesRawLinesGroupsAndOrdering(t *testin
 		"",
 		"[Desktop Action NewWindow]",
 		"Name=New Window",
-		"Exec=/tmp/old.AppImage --new-window",
+		"Exec=/apps/example.AppImage --new-window",
+		"",
+	}, "\n")
+	if got != want {
+		t.Fatalf("updated.Bytes() =\n%q\nwant\n%q", got, want)
+	}
+}
+
+func TestDesktopEntryWithExecReplacesActionCommandToken(t *testing.T) {
+	t.Parallel()
+
+	entry, err := ParseDesktopEntry([]byte(strings.Join([]string{
+		"[Desktop Entry]",
+		"Name=Example",
+		"Exec=old-main",
+		"",
+		"[Desktop Action NewWindow]",
+		"Name=New Window",
+		"Exec=old-action --new-window",
+		"",
+	}, "\n")))
+	if err != nil {
+		t.Fatalf("ParseDesktopEntry() error = %v", err)
+	}
+
+	updated := entry.WithExec("/apps/example.AppImage")
+
+	got := string(updated.Bytes())
+	want := strings.Join([]string{
+		"[Desktop Entry]",
+		"Name=Example",
+		"Exec=/apps/example.AppImage",
+		"",
+		"[Desktop Action NewWindow]",
+		"Name=New Window",
+		"Exec=/apps/example.AppImage --new-window",
 		"",
 	}, "\n")
 	if got != want {

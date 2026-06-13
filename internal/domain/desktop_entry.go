@@ -3,6 +3,7 @@ package domain
 import (
 	"fmt"
 	"strings"
+	"unicode"
 )
 
 type DesktopEntry struct {
@@ -58,24 +59,29 @@ func ParseDesktopEntry(content []byte) (DesktopEntry, error) {
 		}
 
 		entryLine.group = currentGroup
-		if !inDesktopEntry {
-			lines[i] = entryLine
-			continue
-		}
-
 		key, value, ok := strings.Cut(line, "=")
 		if !ok {
-			return DesktopEntry{}, fmt.Errorf("parse desktop entry line %q: missing '='", line)
+			if inDesktopEntry {
+				return DesktopEntry{}, fmt.Errorf("parse desktop entry line %q: missing '='", line)
+			}
+			lines[i] = entryLine
+			continue
 		}
 
 		key = strings.TrimSpace(key)
 		value = strings.TrimSpace(value)
 		if key == "" {
-			return DesktopEntry{}, fmt.Errorf("parse desktop entry line %q: empty key", line)
+			if inDesktopEntry {
+				return DesktopEntry{}, fmt.Errorf("parse desktop entry line %q: empty key", line)
+			}
+			lines[i] = entryLine
+			continue
 		}
 
-		fields[key] = value
 		entryLine.key = key
+		if inDesktopEntry {
+			fields[key] = value
+		}
 		lines[i] = entryLine
 	}
 	if !seenDesktopEntry {
@@ -136,6 +142,9 @@ func (d DesktopEntry) withField(key string, value string) DesktopEntry {
 	updated.lines = copyDesktopEntryLines(d.lines)
 	updated.setProjectedField(key, value)
 	updated.upsertRawDesktopEntryField(key, value)
+	if key == "Exec" {
+		updated.rewriteDesktopActionExecFields(value)
+	}
 	return updated
 }
 
@@ -154,6 +163,33 @@ func (d *DesktopEntry) setProjectedField(key string, value string) {
 			d.Version = Version{}
 		}
 	}
+}
+
+func (d *DesktopEntry) rewriteDesktopActionExecFields(exec string) {
+	for i, line := range d.lines {
+		if !isDesktopActionExecLine(line) {
+			continue
+		}
+
+		_, oldValue, ok := strings.Cut(strings.TrimSpace(line.raw), "=")
+		if !ok {
+			continue
+		}
+		d.lines[i].raw = "Exec=" + exec + desktopActionExecArgumentSuffix(strings.TrimSpace(oldValue))
+	}
+}
+
+func desktopActionExecArgumentSuffix(exec string) string {
+	index := strings.IndexFunc(exec, unicode.IsSpace)
+	if index == -1 {
+		return ""
+	}
+
+	return exec[index:]
+}
+
+func isDesktopActionExecLine(line desktopEntryLine) bool {
+	return strings.HasPrefix(line.group, "Desktop Action ") && line.key == "Exec"
 }
 
 func (d *DesktopEntry) upsertRawDesktopEntryField(key string, value string) {
