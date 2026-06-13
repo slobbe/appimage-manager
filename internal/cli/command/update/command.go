@@ -27,6 +27,7 @@ func NewCommand(rt *clienv.Runtime, service app.Service) *cobra.Command {
 	var assetPattern string
 	var embedded bool
 	var prerelease bool
+	var checkOnly bool
 
 	cmd := &cobra.Command{
 		Use:     "update [appimage]",
@@ -35,6 +36,9 @@ func NewCommand(rt *clienv.Runtime, service app.Service) *cobra.Command {
 		Long:    "Check integrated AppImages for updates and optionally update them.",
 		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if checkOnly && (setID != "" || unsetID != "" || githubRepo != "" || assetPattern != "" || embedded || prerelease) {
+				return fmt.Errorf("--check cannot be combined with update source flags")
+			}
 			if setID != "" || unsetID != "" || githubRepo != "" || assetPattern != "" || embedded || prerelease {
 				return runUpdateSourceCommand(cmd, rt, service, updateSourceFlags{
 					setID:        setID,
@@ -49,7 +53,8 @@ func NewCommand(rt *clienv.Runtime, service app.Service) *cobra.Command {
 			reporter := activity.NewReporter(cmd.ErrOrStderr(), !rt.Config.JSON)
 
 			req := app.UpdateRequest{
-				Activity: reporter,
+				CheckOnly: checkOnly,
+				Activity:  reporter,
 				Confirmation: updatePrompter{
 					in:          cmd.InOrStdin(),
 					out:         cmd.OutOrStdout(),
@@ -71,19 +76,26 @@ func NewCommand(rt *clienv.Runtime, service app.Service) *cobra.Command {
 				cmd.OutOrStdout(),
 				rt.Config.JSON,
 				struct {
-					Status  string `json:"status"`
-					Action  string `json:"action"`
-					Target  string `json:"target,omitempty"`
-					Applied bool   `json:"applied"`
+					Status  string                `json:"status"`
+					Action  string                `json:"action"`
+					Target  string                `json:"target,omitempty"`
+					Applied bool                  `json:"applied"`
+					Updates []app.UpdateCandidate `json:"updates"`
 				}{
 					Status:  "ok",
 					Action:  "update",
 					Target:  req.Target,
 					Applied: result.Applied,
+					Updates: result.Updates,
 				},
 				func(w io.Writer) error {
 					if len(result.Updates) == 0 {
 						fmt.Fprintln(w, "All apps up-to-date")
+						return nil
+					}
+					if req.CheckOnly {
+						fmt.Fprintln(w, "Updates available:")
+						writeUpdateCandidates(w, result.Updates)
 						return nil
 					}
 					if !result.Applied {
@@ -107,6 +119,7 @@ func NewCommand(rt *clienv.Runtime, service app.Service) *cobra.Command {
 	cmd.Flags().StringVar(&assetPattern, "asset", "", "match the GitHub AppImage asset name using filepath.Match syntax")
 	cmd.Flags().BoolVar(&embedded, "embedded", false, "set update source from embedded AppImage update information")
 	cmd.Flags().BoolVar(&prerelease, "prerelease", false, "include prereleases for GitHub update source")
+	cmd.Flags().BoolVar(&checkOnly, "check", false, "check for updates without applying them")
 
 	return cmd
 }
@@ -224,24 +237,7 @@ func (p updatePrompter) ConfirmUpdates(ctx context.Context, updates []app.Update
 		return false, err
 	}
 
-	idWidth := 0
-	versionWidth := 0
-	for _, update := range updates {
-		idWidth = max(idWidth, len(update.ID)+2)
-		versionWidth = max(versionWidth, len(update.CurrentVersion))
-	}
-
-	for _, update := range updates {
-		fmt.Fprintf(
-			p.out,
-			"%-*s %-*s -> %s\n",
-			idWidth,
-			"["+update.ID+"]",
-			versionWidth,
-			update.CurrentVersion,
-			update.NewVersion,
-		)
-	}
+	writeUpdateCandidates(p.out, updates)
 	fmt.Fprintln(p.out)
 	fmt.Fprint(p.out, "Update all apps? (y/n) ")
 
@@ -254,4 +250,25 @@ func (p updatePrompter) ConfirmUpdates(ctx context.Context, updates []app.Update
 
 	answer = strings.TrimSpace(strings.ToLower(answer))
 	return answer == "y" || answer == "yes", nil
+}
+
+func writeUpdateCandidates(w io.Writer, updates []app.UpdateCandidate) {
+	idWidth := 0
+	versionWidth := 0
+	for _, update := range updates {
+		idWidth = max(idWidth, len(update.ID)+2)
+		versionWidth = max(versionWidth, len(update.CurrentVersion))
+	}
+
+	for _, update := range updates {
+		fmt.Fprintf(
+			w,
+			"%-*s %-*s -> %s\n",
+			idWidth,
+			"["+update.ID+"]",
+			versionWidth,
+			update.CurrentVersion,
+			update.NewVersion,
+		)
+	}
 }

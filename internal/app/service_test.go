@@ -517,6 +517,84 @@ func TestServiceUpdateAppliesGitHubUpdates(t *testing.T) {
 	}
 }
 
+func TestServiceUpdateCheckOnlyReturnsCandidatesWithoutApplying(t *testing.T) {
+	t.Parallel()
+
+	deps := integrationTestDeps()
+	installed := testInstalledApp(t)
+	installed.UpdateSource = domain.NewGitHubUpdateSource("owner/repo", false)
+	deps.apps.listApps = []domain.App{installed}
+	downloads := &fakeAssetDownloader{}
+	deps.ServiceDeps.GitHubReleases = &fakeGitHubReleaseFinder{release: testGitHubReleaseWithTag("v2.0.0", "Example.AppImage")}
+	deps.ServiceDeps.Downloads = downloads
+	confirmation := &fakeUpdateConfirmation{confirmed: true}
+	service, err := NewService(deps.ServiceDeps)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+
+	result, err := service.Update(context.Background(), UpdateRequest{CheckOnly: true, Confirmation: confirmation})
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+
+	if result.Applied {
+		t.Fatal("Update().Applied = true, want false")
+	}
+	assertUpdateCandidates(t, result.Updates, []UpdateCandidate{{ID: installed.ID, CurrentVersion: "1.2.3", NewVersion: "2.0.0"}})
+	if confirmation.called {
+		t.Fatal("confirmation called for check-only update")
+	}
+	if downloads.destinationPath != "" {
+		t.Fatalf("Download() destination = %q, want empty", downloads.destinationPath)
+	}
+	if deps.appImageInstaller.called {
+		t.Fatal("appimage installer called for check-only update")
+	}
+	if deps.saved.App.ID != "" {
+		t.Fatalf("saved App.ID = %q, want empty", deps.saved.App.ID)
+	}
+}
+
+func TestServiceUpdateCheckOnlyWithNoCandidatesDoesNotApply(t *testing.T) {
+	t.Parallel()
+
+	deps := integrationTestDeps()
+	installed := testInstalledApp(t)
+	installed.UpdateSource = domain.NewGitHubUpdateSource("owner/repo", false)
+	deps.apps.listApps = []domain.App{installed}
+	downloads := &fakeAssetDownloader{}
+	deps.ServiceDeps.GitHubReleases = &fakeGitHubReleaseFinder{release: testGitHubReleaseWithTag("v1.2.3", "Example.AppImage")}
+	deps.ServiceDeps.Downloads = downloads
+	confirmation := &fakeUpdateConfirmation{confirmed: true}
+	service, err := NewService(deps.ServiceDeps)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+
+	result, err := service.Update(context.Background(), UpdateRequest{CheckOnly: true, Confirmation: confirmation})
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+
+	if result.Applied {
+		t.Fatal("Update().Applied = true, want false")
+	}
+	assertUpdateCandidates(t, result.Updates, nil)
+	if confirmation.called {
+		t.Fatal("confirmation called for check-only update with no candidates")
+	}
+	if downloads.destinationPath != "" {
+		t.Fatalf("Download() destination = %q, want empty", downloads.destinationPath)
+	}
+	if deps.appImageInstaller.called {
+		t.Fatal("appimage installer called for check-only update with no candidates")
+	}
+	if deps.saved.App.ID != "" {
+		t.Fatalf("saved App.ID = %q, want empty", deps.saved.App.ID)
+	}
+}
+
 func TestServiceUpdateAppliesGitHubUpdateForTargetApp(t *testing.T) {
 	t.Parallel()
 

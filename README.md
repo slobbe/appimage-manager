@@ -41,9 +41,13 @@ aim add --github owner/repo --prerelease
 ### Check and apply updates
 
 ```sh
+aim update --check
+aim --json update --check
 aim update
 aim update example-app
 ```
+
+`aim update --check` reports available updates without modifying installed AppImages.
 
 ### Set or clear an update source
 

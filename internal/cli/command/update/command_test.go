@@ -85,6 +85,83 @@ func TestCommandPassesTargetAndPrintsTargetSuccess(t *testing.T) {
 	}
 }
 
+func TestCommandCheckOnlyPrintsPendingUpdatesWithoutPrompting(t *testing.T) {
+	candidate := app.UpdateCandidate{ID: "example-app", CurrentVersion: "1.2.3", NewVersion: "2.0.0"}
+	service := &fakeService{updateCandidates: []app.UpdateCandidate{candidate}}
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	cmd := NewCommand(clienv.New(stdout, stderr), service)
+	cmd.SetOut(stdout)
+	cmd.SetErr(stderr)
+	cmd.SetIn(strings.NewReader(""))
+	cmd.SetArgs([]string{"--check"})
+
+	if err := cmd.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("ExecuteContext() error = %v", err)
+	}
+
+	if !service.checkOnly {
+		t.Fatal("UpdateRequest.CheckOnly = false, want true")
+	}
+	if service.confirmationCalled {
+		t.Fatal("service called update confirmation for check-only update")
+	}
+	output := stdout.String()
+	for _, want := range []string{
+		"Updates available:\n",
+		"[example-app]",
+		"1.2.3 -> 2.0.0",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("stdout = %q, want it to contain %q", output, want)
+		}
+	}
+	if strings.Contains(output, "Successfully updated") || strings.Contains(output, "Update canceled") || strings.Contains(output, "Update all apps?") {
+		t.Fatalf("stdout = %q, want check-only output without apply/cancel/prompt wording", output)
+	}
+}
+
+func TestCommandJSONCheckOnlyIncludesUpdatesWithoutPrompting(t *testing.T) {
+	candidate := app.UpdateCandidate{ID: "example-app", CurrentVersion: "1.2.3", NewVersion: "2.0.0"}
+	service := &fakeService{updateCandidates: []app.UpdateCandidate{candidate}}
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	rt := clienv.New(stdout, stderr)
+	rt.Config.JSON = true
+	cmd := NewCommand(rt, service)
+	cmd.SetOut(stdout)
+	cmd.SetErr(stderr)
+	cmd.SetIn(strings.NewReader(""))
+	cmd.SetArgs([]string{"--check", "example-app"})
+
+	if err := cmd.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("ExecuteContext() error = %v", err)
+	}
+
+	var payload struct {
+		Status  string                `json:"status"`
+		Action  string                `json:"action"`
+		Target  string                `json:"target"`
+		Applied bool                  `json:"applied"`
+		Updates []app.UpdateCandidate `json:"updates"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v; stdout = %q", err, stdout.String())
+	}
+	if payload.Status != "ok" || payload.Action != "update" || payload.Target != "example-app" || payload.Applied {
+		t.Fatalf("payload = %#v, want ok update target not applied", payload)
+	}
+	if len(payload.Updates) != 1 || payload.Updates[0] != candidate {
+		t.Fatalf("payload updates = %#v, want %#v", payload.Updates, []app.UpdateCandidate{candidate})
+	}
+	if !service.checkOnly {
+		t.Fatal("UpdateRequest.CheckOnly = false, want true")
+	}
+	if service.confirmationCalled {
+		t.Fatal("service called update confirmation for JSON check-only update")
+	}
+}
+
 func TestCommandJSONIncludesTarget(t *testing.T) {
 	service := &fakeService{updateResult: app.UpdateResult{Applied: true}}
 	stdout := &bytes.Buffer{}
@@ -280,6 +357,7 @@ type fakeService struct {
 	updateCandidates   []app.UpdateCandidate
 	updateErr          error
 	target             string
+	checkOnly          bool
 	setReq             app.SetUpdateSourceRequest
 	unsetReq           app.UnsetUpdateSourceRequest
 	confirmationCalled bool
@@ -315,11 +393,15 @@ func (s *fakeService) UnsetUpdateSource(ctx context.Context, req app.UnsetUpdate
 
 func (s *fakeService) Update(ctx context.Context, req app.UpdateRequest) (app.UpdateResult, error) {
 	s.target = req.Target
+	s.checkOnly = req.CheckOnly
 	if s.updateErr != nil {
 		return app.UpdateResult{}, s.updateErr
 	}
 	if len(s.updateCandidates) == 0 {
 		return s.updateResult, nil
+	}
+	if req.CheckOnly {
+		return app.UpdateResult{Applied: false, Updates: s.updateCandidates}, nil
 	}
 
 	confirmed := true

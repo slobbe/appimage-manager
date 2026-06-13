@@ -383,6 +383,9 @@ func (s *service) Update(ctx context.Context, req UpdateRequest) (UpdateResult, 
 	if err != nil {
 		return UpdateResult{}, err
 	}
+	if req.CheckOnly {
+		return UpdateResult{Applied: false, Updates: candidates}, nil
+	}
 	if len(plans) == 0 {
 		return UpdateResult{Applied: true, Updates: nil}, nil
 	}

@@ -37,6 +37,7 @@ type RemoveRequest struct {
 
 type UpdateRequest struct {
 	Target       string
+	CheckOnly    bool
 	Activity     ActivityReporter
 	Confirmation UpdateConfirmation
 }
