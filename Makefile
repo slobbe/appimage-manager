@@ -57,6 +57,10 @@ shellcheck:
 	@command -v shellcheck >/dev/null 2>&1 || { echo "shellcheck not installed"; exit 1; }
 	shellcheck scripts/*.sh
 
+.PHONY: test-installer-script
+test-installer-script:
+	sh scripts/test-install.sh
+
 .PHONY: install-tools
 install-tools:
 	go install golang.org/x/vuln/cmd/govulncheck@latest
@@ -71,7 +75,7 @@ verify: check test-architecture
 verify-heavy: verify test-race audit
 
 .PHONY: audit
-audit: vulncheck shellcheck
+audit: vulncheck shellcheck test-installer-script
 
 .PHONY: clean
 clean:
