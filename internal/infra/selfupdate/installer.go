@@ -14,10 +14,14 @@ import (
 
 const defaultInstallScriptURL = "https://raw.githubusercontent.com/slobbe/appimage-manager/main/scripts/install.sh"
 
+type commandRunner func(ctx context.Context, name string, stdin io.Reader, env []string) ([]byte, error)
+
 // Installer runs the hosted install script to replace the current aim binary.
 type Installer struct {
 	HTTPClient *http.Client
 	ScriptURL  string
+
+	runCommand commandRunner
 }
 
 func NewInstaller() Installer {
@@ -41,10 +45,11 @@ func (i Installer) Install(ctx context.Context, version string) error {
 	}
 	defer script.Close()
 
-	cmd := exec.CommandContext(ctx, "sh")
-	cmd.Stdin = script
-	cmd.Env = append(cmd.Environ(), "AIM_VERSION="+strings.TrimPrefix(version, "v"))
-	output, err := cmd.CombinedOutput()
+	runCommand := i.runCommand
+	if runCommand == nil {
+		runCommand = runShellCommand
+	}
+	output, err := runCommand(ctx, "sh", script, []string{"AIM_VERSION=" + strings.TrimPrefix(version, "v")})
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return ctxErr
@@ -53,6 +58,13 @@ func (i Installer) Install(ctx context.Context, version string) error {
 	}
 
 	return nil
+}
+
+func runShellCommand(ctx context.Context, name string, stdin io.Reader, env []string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, name)
+	cmd.Stdin = stdin
+	cmd.Env = append(cmd.Environ(), env...)
+	return cmd.CombinedOutput()
 }
 
 func (i Installer) fetchInstallScript(ctx context.Context) (io.ReadCloser, error) {
