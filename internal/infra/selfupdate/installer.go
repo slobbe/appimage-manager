@@ -12,7 +12,7 @@ import (
 	"aim/internal/app"
 )
 
-const defaultInstallScriptURL = "https://raw.githubusercontent.com/slobbe/appimage-manager/main/scripts/install.sh"
+const installScriptURLFormat = "https://raw.githubusercontent.com/slobbe/appimage-manager/%s/scripts/install.sh"
 
 type commandRunner func(ctx context.Context, name string, stdin io.Reader, env []string) ([]byte, error)
 
@@ -25,7 +25,7 @@ type Installer struct {
 }
 
 func NewInstaller() Installer {
-	return Installer{ScriptURL: defaultInstallScriptURL}
+	return Installer{}
 }
 
 var _ app.SelfUpdater = Installer{}
@@ -39,7 +39,7 @@ func (i Installer) Install(ctx context.Context, version string) error {
 		return errors.New("self-update version is required")
 	}
 
-	script, err := i.fetchInstallScript(ctx)
+	script, err := i.fetchInstallScript(ctx, version)
 	if err != nil {
 		return err
 	}
@@ -67,10 +67,10 @@ func runShellCommand(ctx context.Context, name string, stdin io.Reader, env []st
 	return cmd.CombinedOutput()
 }
 
-func (i Installer) fetchInstallScript(ctx context.Context) (io.ReadCloser, error) {
+func (i Installer) fetchInstallScript(ctx context.Context, version string) (io.ReadCloser, error) {
 	url := strings.TrimSpace(i.ScriptURL)
 	if url == "" {
-		url = defaultInstallScriptURL
+		url = installScriptURLForVersion(version)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -92,6 +92,14 @@ func (i Installer) fetchInstallScript(ctx context.Context) (io.ReadCloser, error
 	}
 
 	return resp.Body, nil
+}
+
+func installScriptURLForVersion(version string) string {
+	tag := strings.TrimSpace(version)
+	if !strings.HasPrefix(tag, "v") {
+		tag = "v" + tag
+	}
+	return fmt.Sprintf(installScriptURLFormat, tag)
 }
 
 func (i Installer) httpClient() *http.Client {

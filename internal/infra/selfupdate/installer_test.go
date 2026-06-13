@@ -60,6 +60,46 @@ func TestInstallerInstallReturnsCanceledContextBeforeWork(t *testing.T) {
 	}
 }
 
+func TestInstallScriptURLForVersionUsesTaggedScript(t *testing.T) {
+	got := installScriptURLForVersion("v0.18.0")
+	want := "https://raw.githubusercontent.com/slobbe/appimage-manager/v0.18.0/scripts/install.sh"
+	if got != want {
+		t.Fatalf("expected %q, got %q", want, got)
+	}
+}
+
+func TestInstallScriptURLForVersionNormalizesVersionWithoutV(t *testing.T) {
+	got := installScriptURLForVersion("0.18.0")
+	want := "https://raw.githubusercontent.com/slobbe/appimage-manager/v0.18.0/scripts/install.sh"
+	if got != want {
+		t.Fatalf("expected %q, got %q", want, got)
+	}
+}
+
+func TestInstallerInstallUsesScriptURLOverride(t *testing.T) {
+	requestedPath := ""
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestedPath = r.URL.Path
+		_, _ = io.WriteString(w, "echo installing\n")
+	}))
+	defer server.Close()
+
+	installer := Installer{
+		HTTPClient: server.Client(),
+		ScriptURL:  server.URL + "/custom/install.sh",
+		runCommand: func(context.Context, string, io.Reader, []string) ([]byte, error) {
+			return nil, nil
+		},
+	}
+
+	if err := installer.Install(context.Background(), "v0.18.0"); err != nil {
+		t.Fatalf("Install returned error: %v", err)
+	}
+	if requestedPath != "/custom/install.sh" {
+		t.Fatalf("expected override path /custom/install.sh, got %q", requestedPath)
+	}
+}
+
 func TestInstallerInstallReturnsNon2xxDownloadError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "nope", http.StatusTeapot)
