@@ -78,6 +78,41 @@ func TestCommandPassesTargetAndPrintsTextInfo(t *testing.T) {
 	}
 }
 
+func TestCommandPrintsPreservedNonGitHubUpdateSourceStatus(t *testing.T) {
+	result := app.InfoResult{
+		Name:       "Example App",
+		Version:    "1.2.3",
+		ExecPath:   "/apps/example-app.AppImage",
+		TargetKind: "installed",
+	}
+	result.UpdateSource.Embedded = true
+	result.UpdateSource.Kind = "zsync"
+	result.UpdateSource.URL = "https://example.test/App.AppImage.zsync"
+
+	service := &fakeService{infoResult: result}
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	cmd := NewCommand(clienv.New(stdout, stderr), service)
+	cmd.SetOut(stdout)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"example-app"})
+
+	if err := cmd.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("ExecuteContext() error = %v", err)
+	}
+
+	output := stdout.String()
+	for _, want := range []string{
+		"Update source:    zsync",
+		"Zsync URL:        https://example.test/App.AppImage.zsync",
+		"Update support:   preserved; updates not applied by aim yet",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("stdout = %q, want it to contain %q", output, want)
+		}
+	}
+}
+
 func TestCommandPrintsJSONInfo(t *testing.T) {
 	service := &fakeService{
 		infoResult: app.InfoResult{

@@ -232,7 +232,15 @@ func writeUpdateSource(w io.Writer, info app.InfoResult) {
 		fmt.Fprintf(w, "%-17s %t\n", "Prereleases:", source.Prerelease)
 	case "local_file":
 		fmt.Fprintf(w, "%-17s %s\n", "Update path:", source.Path)
+		writePreservedUpdateSourceStatus(w)
 	case "zsync":
 		fmt.Fprintf(w, "%-17s %s\n", "Zsync URL:", source.URL)
+		writePreservedUpdateSourceStatus(w)
+	case "unsupported":
+		writePreservedUpdateSourceStatus(w)
 	}
+}
+
+func writePreservedUpdateSourceStatus(w io.Writer) {
+	fmt.Fprintf(w, "%-17s %s\n", "Update support:", "preserved; updates not applied by aim yet")
 }

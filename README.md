@@ -48,7 +48,7 @@ aim update
 aim update example-app
 ```
 
-`aim update --check` reports available updates without modifying installed AppImages.
+`aim update --check` reports available updates without modifying installed AppImages. Today, `aim update` only checks and applies GitHub release update sources; embedded `zsync`, `local_file`, and unsupported update metadata is preserved for inspection but not applied yet.
 
 ### Set or clear an update source
 
@@ -60,7 +60,7 @@ aim update --set example-app --embedded
 aim update --unset example-app
 ```
 
-Use `--asset` with Go `filepath.Match`-style patterns when a GitHub release has multiple AppImage assets, such as different architectures or flavors.
+Use `--asset` with Go `filepath.Match`-style patterns when a GitHub release has multiple AppImage assets, such as different architectures or flavors. `--embedded` preserves update metadata found inside the AppImage, but only embedded GitHub release sources are applied by `aim update` today.
 
 ### Remove an AppImage
 

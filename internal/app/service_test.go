@@ -804,26 +804,39 @@ func TestServiceUpdateUsesEmbeddedGitHubExactReleaseTag(t *testing.T) {
 	}
 }
 
-func TestServiceUpdateSkipsEmbeddedZsyncSourceForNow(t *testing.T) {
+func TestServiceUpdateSkipsNonGitHubUpdateSourcesForNow(t *testing.T) {
 	t.Parallel()
 
-	deps := integrationTestDeps()
-	installed := testInstalledApp(t)
-	installed.UpdateSource = domain.NewEmbeddedUpdateSource("zsync|https://example.test/App.AppImage.zsync")
-	deps.apps.listApps = []domain.App{installed}
-	service, err := NewService(deps.ServiceDeps)
-	if err != nil {
-		t.Fatalf("NewService() error = %v", err)
-	}
+	for _, tc := range []struct {
+		name   string
+		source domain.UpdateSource
+	}{
+		{name: "local file", source: domain.NewLocalFileUpdateSource("/downloads/Example.AppImage")},
+		{name: "zsync", source: domain.NewEmbeddedUpdateSource("zsync|https://example.test/App.AppImage.zsync")},
+		{name: "unsupported", source: domain.NewEmbeddedUpdateSource("gh-releases-zsync|owner|repo")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	result, err := service.Update(context.Background(), UpdateRequest{})
-	if err != nil {
-		t.Fatalf("Update() error = %v", err)
+			deps := integrationTestDeps()
+			installed := testInstalledApp(t)
+			installed.UpdateSource = tc.source
+			deps.apps.listApps = []domain.App{installed}
+			service, err := NewService(deps.ServiceDeps)
+			if err != nil {
+				t.Fatalf("NewService() error = %v", err)
+			}
+
+			result, err := service.Update(context.Background(), UpdateRequest{})
+			if err != nil {
+				t.Fatalf("Update() error = %v", err)
+			}
+			if !result.Applied {
+				t.Fatal("Update().Applied = false, want true")
+			}
+			assertUpdateCandidates(t, result.Updates, nil)
+		})
 	}
-	if !result.Applied {
-		t.Fatal("Update().Applied = false, want true")
-	}
-	assertUpdateCandidates(t, result.Updates, nil)
 }
 
 func TestServiceUpdateRollsBackStagedArtifactsWhenIntegrationFails(t *testing.T) {
