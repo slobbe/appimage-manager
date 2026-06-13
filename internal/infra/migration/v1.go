@@ -66,20 +66,45 @@ func MigrateV1(ctx context.Context, opts V1Options) (bool, error) {
 		v2.Apps = append(v2.Apps, plan.record)
 	}
 
+	if err := preflightMigration(opts, plans); err != nil {
+		return false, err
+	}
+
+	rollback := migrationRollback{}
 	for _, plan := range plans {
 		if err := ctx.Err(); err != nil {
-			return false, err
+			return false, rollback.rollback(err)
 		}
-		if err := moveIfNeeded(plan.oldAppImagePath, plan.newAppImagePath); err != nil {
-			return false, err
+		moved, err := moveIfNeeded(plan.oldAppImagePath, plan.newAppImagePath)
+		if err != nil {
+			return false, rollback.rollback(err)
 		}
-		if err := updateDesktopEntry(plan.desktopEntryPath, plan.newAppImagePath, plan.id); err != nil {
-			return false, err
+		if moved {
+			oldPath := plan.oldAppImagePath
+			newPath := plan.newAppImagePath
+			rollback.add(func() error {
+				if err := os.MkdirAll(filepath.Dir(oldPath), 0o755); err != nil {
+					return fmt.Errorf("create rollback appimage directory %q: %w", filepath.Dir(oldPath), err)
+				}
+				if err := os.Rename(newPath, oldPath); err != nil {
+					return fmt.Errorf("restore appimage %q to %q: %w", newPath, oldPath, err)
+				}
+				return nil
+			})
+		}
+		backup, err := updateDesktopEntry(plan.desktopEntryPath, plan.newAppImagePath, plan.id)
+		if err != nil {
+			return false, rollback.rollback(err)
+		}
+		if backup.changed {
+			rollback.add(func() error {
+				return restoreDesktopEntry(backup)
+			})
 		}
 	}
 
 	if err := writeDatabase(opts.DestPath, v2); err != nil {
-		return false, err
+		return false, rollback.rollback(err)
 	}
 
 	return true, nil
@@ -341,7 +366,70 @@ func readLegacyDatabase(path string) (legacyDatabase, error) {
 	return db, nil
 }
 
-func writeDatabase(path string, db databaseFile) error {
+var writeDatabase = writeDatabaseFile
+
+type migrationRollback struct {
+	steps []func() error
+}
+
+func (r *migrationRollback) add(step func() error) {
+	r.steps = append(r.steps, step)
+}
+
+func (r *migrationRollback) rollback(originalErr error) error {
+	if len(r.steps) == 0 {
+		return originalErr
+	}
+
+	var rollbackErrs []error
+	for i := len(r.steps) - 1; i >= 0; i-- {
+		if err := r.steps[i](); err != nil {
+			rollbackErrs = append(rollbackErrs, err)
+		}
+	}
+	if len(rollbackErrs) > 0 {
+		return fmt.Errorf("%w; rollback failed: %w", originalErr, errors.Join(rollbackErrs...))
+	}
+	return originalErr
+}
+
+func preflightMigration(opts V1Options, plans []migrationPlan) error {
+	if err := os.MkdirAll(filepath.Dir(opts.DestPath), 0o755); err != nil {
+		return fmt.Errorf("create database directory %q: %w", filepath.Dir(opts.DestPath), err)
+	}
+	if info, err := os.Stat(opts.DestPath); err == nil {
+		if info.IsDir() {
+			return fmt.Errorf("database destination %q is a directory", opts.DestPath)
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("stat database %q: %w", opts.DestPath, err)
+	}
+
+	for _, plan := range plans {
+		src := strings.TrimSpace(plan.oldAppImagePath)
+		dst := strings.TrimSpace(plan.newAppImagePath)
+		if src == "" || dst == "" || src == dst {
+			continue
+		}
+		if _, err := os.Stat(src); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			return fmt.Errorf("stat appimage %q: %w", src, err)
+		}
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return fmt.Errorf("create appimage directory %q: %w", filepath.Dir(dst), err)
+		}
+		if _, err := os.Stat(dst); err == nil {
+			return fmt.Errorf("destination appimage %q already exists", dst)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("stat destination appimage %q: %w", dst, err)
+		}
+	}
+	return nil
+}
+
+func writeDatabaseFile(path string, db databaseFile) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("create database directory %q: %w", filepath.Dir(path), err)
 	}
@@ -363,45 +451,52 @@ func writeDatabase(path string, db databaseFile) error {
 	return nil
 }
 
-func moveIfNeeded(src string, dst string) error {
+func moveIfNeeded(src string, dst string) (bool, error) {
 	src = strings.TrimSpace(src)
 	dst = strings.TrimSpace(dst)
 	if src == "" || dst == "" || src == dst {
-		return nil
+		return false, nil
 	}
 
 	if _, err := os.Stat(src); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil
+			return false, nil
 		}
-		return fmt.Errorf("stat appimage %q: %w", src, err)
+		return false, fmt.Errorf("stat appimage %q: %w", src, err)
 	}
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return fmt.Errorf("create appimage directory %q: %w", filepath.Dir(dst), err)
+		return false, fmt.Errorf("create appimage directory %q: %w", filepath.Dir(dst), err)
 	}
 	if _, err := os.Stat(dst); err == nil {
-		return fmt.Errorf("destination appimage %q already exists", dst)
+		return false, fmt.Errorf("destination appimage %q already exists", dst)
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("stat destination appimage %q: %w", dst, err)
+		return false, fmt.Errorf("stat destination appimage %q: %w", dst, err)
 	}
 	if err := os.Rename(src, dst); err != nil {
-		return fmt.Errorf("move appimage %q to %q: %w", src, dst, err)
+		return false, fmt.Errorf("move appimage %q to %q: %w", src, dst, err)
 	}
-	return nil
+	return true, nil
 }
 
-func updateDesktopEntry(path string, appImagePath string, appID string) error {
+type desktopEntryBackup struct {
+	path    string
+	bytes   []byte
+	mode    os.FileMode
+	changed bool
+}
+
+func updateDesktopEntry(path string, appImagePath string, appID string) (desktopEntryBackup, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
-		return nil
+		return desktopEntryBackup{}, nil
 	}
 
 	bytes, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil
+			return desktopEntryBackup{}, nil
 		}
-		return fmt.Errorf("read desktop entry %q: %w", path, err)
+		return desktopEntryBackup{}, fmt.Errorf("read desktop entry %q: %w", path, err)
 	}
 
 	lines := strings.Split(string(bytes), "\n")
@@ -418,21 +513,43 @@ func updateDesktopEntry(path string, appImagePath string, appID string) error {
 		}
 	}
 	if !changed {
-		return nil
+		return desktopEntryBackup{}, nil
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		return desktopEntryBackup{}, fmt.Errorf("stat desktop entry %q: %w", path, err)
+	}
+	backup := desktopEntryBackup{
+		path:    path,
+		bytes:   append([]byte(nil), bytes...),
+		mode:    info.Mode().Perm(),
+		changed: true,
 	}
 
 	content := strings.Join(lines, "\n")
-	info, err := os.Stat(path)
-	if err != nil {
-		return fmt.Errorf("stat desktop entry %q: %w", path, err)
-	}
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, []byte(content), info.Mode().Perm()); err != nil {
-		return fmt.Errorf("write temporary desktop entry %q: %w", tmp, err)
+		return desktopEntryBackup{}, fmt.Errorf("write temporary desktop entry %q: %w", tmp, err)
 	}
 	if err := os.Rename(tmp, path); err != nil {
 		_ = os.Remove(tmp)
-		return fmt.Errorf("replace desktop entry %q: %w", path, err)
+		return desktopEntryBackup{}, fmt.Errorf("replace desktop entry %q: %w", path, err)
+	}
+	return backup, nil
+}
+
+func restoreDesktopEntry(backup desktopEntryBackup) error {
+	if !backup.changed {
+		return nil
+	}
+	tmp := backup.path + ".rollback.tmp"
+	if err := os.WriteFile(tmp, backup.bytes, backup.mode.Perm()); err != nil {
+		return fmt.Errorf("write rollback desktop entry %q: %w", tmp, err)
+	}
+	if err := os.Rename(tmp, backup.path); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("restore desktop entry %q: %w", backup.path, err)
 	}
 	return nil
 }

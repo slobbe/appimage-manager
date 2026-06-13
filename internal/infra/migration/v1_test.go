@@ -3,6 +3,7 @@ package migration
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -118,6 +119,201 @@ func TestMigrateV1MovesAppImagesUpdatesDesktopEntriesAndWritesV2Database(t *test
 	}
 	if app.UpdateSource == nil || app.UpdateSource.Kind != "github" || app.UpdateSource.Repo != "owner/example" || app.UpdateSource.AssetPattern != "*.AppImage" {
 		t.Fatalf("UpdateSource = %#v, want migrated GitHub update source", app.UpdateSource)
+	}
+}
+
+func TestMigrateV1RollsBackArtifactsWhenDatabaseWriteFails(t *testing.T) {
+	root := t.TempDir()
+	stateDir := filepath.Join(root, "state", "aim")
+	dataDir := filepath.Join(root, "share", "aim")
+	appImageDir := filepath.Join(dataDir, "appimages")
+	desktopDir := filepath.Join(root, "share", "applications")
+	oldAppDir := filepath.Join(dataDir, "example")
+	oldAppImagePath := filepath.Join(oldAppDir, "example.AppImage")
+	desktopEntryPath := filepath.Join(desktopDir, "example.desktop")
+	iconPath := filepath.Join(root, "share", "icons", "hicolor", "256x256", "apps", "example.png")
+	originalDesktopEntry := "[Desktop Entry]\nName=Example\nExec=" + oldAppImagePath + "\nIcon=" + iconPath + "\n"
+
+	mkdirAll(t, stateDir)
+	mkdirAll(t, oldAppDir)
+	mkdirAll(t, desktopDir)
+	mkdirAll(t, filepath.Dir(iconPath))
+	writeFile(t, oldAppImagePath, "appimage")
+	writeFile(t, iconPath, "icon")
+	writeFile(t, desktopEntryPath, originalDesktopEntry)
+	if err := os.Chmod(desktopEntryPath, 0o755); err != nil {
+		t.Fatalf("chmod desktop entry: %v", err)
+	}
+
+	sourcePath := filepath.Join(stateDir, "apps.json")
+	destPath := filepath.Join(dataDir, "apps.json")
+	writeFile(t, sourcePath, `{
+  "schemaVersion": 1,
+  "apps": {
+    "example": {
+      "name": "Example",
+      "id": "example",
+      "version": "1.2.3",
+      "exec_path": "`+oldAppImagePath+`",
+      "icon_path": "`+iconPath+`",
+      "desktop_entry_link": "`+desktopEntryPath+`"
+    }
+  }
+}`)
+
+	writeErr := errors.New("forced database write failure")
+	oldWriteDatabase := writeDatabase
+	writeDatabase = func(string, databaseFile) error { return writeErr }
+	t.Cleanup(func() { writeDatabase = oldWriteDatabase })
+
+	migrated, err := MigrateV1(context.Background(), V1Options{
+		SourcePath:  sourcePath,
+		DestPath:    destPath,
+		AppImageDir: appImageDir,
+		DesktopDir:  desktopDir,
+	})
+	if err == nil {
+		t.Fatal("MigrateV1() error = nil, want error")
+	}
+	if migrated {
+		t.Fatal("MigrateV1() migrated = true, want false")
+	}
+	if !errors.Is(err, writeErr) {
+		t.Fatalf("MigrateV1() error = %v, want forced database write failure", err)
+	}
+	if got := readFile(t, oldAppImagePath); got != "appimage" {
+		t.Fatalf("old AppImage content = %q, want appimage", got)
+	}
+	newAppImagePath := filepath.Join(appImageDir, "example.AppImage")
+	if _, err := os.Stat(newAppImagePath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("new AppImage stat error = %v, want not exist", err)
+	}
+	if got := readFile(t, desktopEntryPath); got != originalDesktopEntry {
+		t.Fatalf("desktop entry = %q, want original content %q", got, originalDesktopEntry)
+	}
+	info, err := os.Stat(desktopEntryPath)
+	if err != nil {
+		t.Fatalf("stat desktop entry: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o755 {
+		t.Fatalf("desktop entry mode = %v, want 0755", got)
+	}
+	if got := readFile(t, sourcePath); !strings.Contains(got, `"schemaVersion": 1`) {
+		t.Fatalf("legacy source database = %q, want schemaVersion 1", got)
+	}
+}
+
+func TestMigrateV1RollsBackAppImageMoveWhenDesktopEntryUpdateFails(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	stateDir := filepath.Join(root, "state", "aim")
+	dataDir := filepath.Join(root, "share", "aim")
+	appImageDir := filepath.Join(dataDir, "appimages")
+	desktopDir := filepath.Join(root, "share", "applications")
+	oldAppDir := filepath.Join(dataDir, "example")
+	oldAppImagePath := filepath.Join(oldAppDir, "example.AppImage")
+	desktopEntryPath := filepath.Join(desktopDir, "example.desktop")
+
+	mkdirAll(t, stateDir)
+	mkdirAll(t, oldAppDir)
+	mkdirAll(t, desktopEntryPath)
+	writeFile(t, oldAppImagePath, "appimage")
+
+	sourcePath := filepath.Join(stateDir, "apps.json")
+	destPath := filepath.Join(dataDir, "apps.json")
+	writeFile(t, sourcePath, `{
+  "schemaVersion": 1,
+  "apps": {
+    "example": {
+      "name": "Example",
+      "id": "example",
+      "exec_path": "`+oldAppImagePath+`",
+      "desktop_entry_link": "`+desktopEntryPath+`"
+    }
+  }
+}`)
+
+	migrated, err := MigrateV1(context.Background(), V1Options{
+		SourcePath:  sourcePath,
+		DestPath:    destPath,
+		AppImageDir: appImageDir,
+		DesktopDir:  desktopDir,
+	})
+	if err == nil {
+		t.Fatal("MigrateV1() error = nil, want error")
+	}
+	if migrated {
+		t.Fatal("MigrateV1() migrated = true, want false")
+	}
+	if got := readFile(t, oldAppImagePath); got != "appimage" {
+		t.Fatalf("old AppImage content = %q, want appimage", got)
+	}
+	newAppImagePath := filepath.Join(appImageDir, "example.AppImage")
+	if _, err := os.Stat(newAppImagePath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("new AppImage stat error = %v, want not exist", err)
+	}
+}
+
+func TestMigrateV1PreflightRejectsDestinationDirectoryBeforeMutatingArtifacts(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	stateDir := filepath.Join(root, "state", "aim")
+	dataDir := filepath.Join(root, "share", "aim")
+	appImageDir := filepath.Join(dataDir, "appimages")
+	desktopDir := filepath.Join(root, "share", "applications")
+	oldAppDir := filepath.Join(dataDir, "example")
+	oldAppImagePath := filepath.Join(oldAppDir, "example.AppImage")
+	desktopEntryPath := filepath.Join(desktopDir, "example.desktop")
+	originalDesktopEntry := "[Desktop Entry]\nName=Example\nExec=" + oldAppImagePath + "\nIcon=example.png\n"
+
+	mkdirAll(t, stateDir)
+	mkdirAll(t, oldAppDir)
+	mkdirAll(t, desktopDir)
+	writeFile(t, oldAppImagePath, "appimage")
+	writeFile(t, desktopEntryPath, originalDesktopEntry)
+
+	sourcePath := filepath.Join(stateDir, "apps.json")
+	destPath := filepath.Join(dataDir, "apps.json")
+	mkdirAll(t, destPath)
+	writeFile(t, sourcePath, `{
+  "schemaVersion": 1,
+  "apps": {
+    "example": {
+      "name": "Example",
+      "id": "example",
+      "exec_path": "`+oldAppImagePath+`",
+      "desktop_entry_link": "`+desktopEntryPath+`"
+    }
+  }
+}`)
+
+	migrated, err := MigrateV1(context.Background(), V1Options{
+		SourcePath:  sourcePath,
+		DestPath:    destPath,
+		AppImageDir: appImageDir,
+		DesktopDir:  desktopDir,
+		Force:       true,
+	})
+	if err == nil {
+		t.Fatal("MigrateV1() error = nil, want error")
+	}
+	if migrated {
+		t.Fatal("MigrateV1() migrated = true, want false")
+	}
+	if !strings.Contains(err.Error(), "is a directory") {
+		t.Fatalf("MigrateV1() error = %v, want destination directory error", err)
+	}
+	if got := readFile(t, oldAppImagePath); got != "appimage" {
+		t.Fatalf("old AppImage content = %q, want appimage", got)
+	}
+	newAppImagePath := filepath.Join(appImageDir, "example.AppImage")
+	if _, err := os.Stat(newAppImagePath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("new AppImage stat error = %v, want not exist", err)
+	}
+	if got := readFile(t, desktopEntryPath); got != originalDesktopEntry {
+		t.Fatalf("desktop entry = %q, want original content %q", got, originalDesktopEntry)
 	}
 }
 
