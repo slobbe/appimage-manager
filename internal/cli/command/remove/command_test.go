@@ -1,4 +1,4 @@
-package info
+package remove
 
 import (
 	"bytes"
@@ -32,22 +32,15 @@ func TestCommandRequiresExactlyOneArg(t *testing.T) {
 			if err := cmd.ExecuteContext(context.Background()); err == nil {
 				t.Fatal("ExecuteContext() error = nil, want arg validation error")
 			}
-			if service.infoCalled {
-				t.Fatal("service.Info was called for invalid args")
+			if service.removeCalled {
+				t.Fatal("service.Remove was called for invalid args")
 			}
 		})
 	}
 }
 
-func TestCommandPassesTargetAndPrintsTextInfo(t *testing.T) {
-	service := &fakeService{
-		infoResult: app.InfoResult{
-			ID:       "example-app",
-			Name:     "Example App",
-			Version:  "1.2.3",
-			ExecPath: "/apps/example-app.AppImage",
-		},
-	}
+func TestCommandPassesNameAndPrintsTextSuccess(t *testing.T) {
+	service := &fakeService{}
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 	cmd := NewCommand(clienv.New(stdout, stderr), service)
@@ -59,31 +52,19 @@ func TestCommandPassesTargetAndPrintsTextInfo(t *testing.T) {
 		t.Fatalf("ExecuteContext() error = %v", err)
 	}
 
-	if got, want := service.infoReq.Target, "example-app"; got != want {
-		t.Fatalf("InfoRequest.Target = %q, want %q", got, want)
+	if got, want := service.removeReq.Name, "example-app"; got != want {
+		t.Fatalf("RemoveRequest.Name = %q, want %q", got, want)
 	}
-	output := stdout.String()
-	for _, want := range []string{
-		"[example-app] Example App (v1.2.3)",
-		"Exec path:        /apps/example-app.AppImage",
-		"Source:           unknown",
-		"Update source:    unknown",
-	} {
-		if !strings.Contains(output, want) {
-			t.Fatalf("stdout = %q, want it to contain %q", output, want)
-		}
+	if service.removeReq.Activity == nil {
+		t.Fatal("RemoveRequest.Activity = nil, want reporter")
+	}
+	if !strings.Contains(stdout.String(), "Successfully removed example-app!") {
+		t.Fatalf("stdout = %q, want success message", stdout.String())
 	}
 }
 
-func TestCommandPrintsJSONInfo(t *testing.T) {
-	service := &fakeService{
-		infoResult: app.InfoResult{
-			ID:       "example-app",
-			Name:     "Example App",
-			Version:  "1.2.3",
-			ExecPath: "/apps/example-app.AppImage",
-		},
-	}
+func TestCommandPrintsJSONAndSuppressesActivityNoise(t *testing.T) {
+	service := &fakeService{}
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 	rt := clienv.New(stdout, stderr)
@@ -98,48 +79,24 @@ func TestCommandPrintsJSONInfo(t *testing.T) {
 	}
 
 	var payload struct {
-		ID       string `json:"id"`
-		Name     string `json:"name"`
-		Version  string `json:"version"`
-		ExecPath string `json:"exec_path"`
-		Source   struct {
-			Kind string `json:"kind"`
-		} `json:"source"`
-		UpdateSource struct {
-			Kind string `json:"kind"`
-		} `json:"update_source"`
+		Status string `json:"status"`
+		Action string `json:"action"`
+		Name   string `json:"name"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
 		t.Fatalf("json.Unmarshal() error = %v; stdout = %q", err, stdout.String())
 	}
-	if payload.ID != "example-app" || payload.Name != "Example App" || payload.Version != "1.2.3" || payload.ExecPath != "/apps/example-app.AppImage" {
-		t.Fatalf("payload = %#v, want example app info", payload)
+	if payload.Status != "ok" || payload.Action != "remove" || payload.Name != "example-app" {
+		t.Fatalf("payload = %#v, want ok remove example-app", payload)
 	}
-	if !jsonContainsTopLevelField(t, stdout.Bytes(), "source") {
-		t.Fatalf("stdout = %q, want top-level source field", stdout.String())
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want no activity output in JSON mode", stderr.String())
 	}
-	if !jsonContainsTopLevelField(t, stdout.Bytes(), "update_source") {
-		t.Fatalf("stdout = %q, want top-level update_source field", stdout.String())
-	}
-	if got, want := service.infoReq.Target, "example-app"; got != want {
-		t.Fatalf("InfoRequest.Target = %q, want %q", got, want)
-	}
-}
-
-func jsonContainsTopLevelField(t *testing.T, data []byte, field string) bool {
-	t.Helper()
-
-	var payload map[string]json.RawMessage
-	if err := json.Unmarshal(data, &payload); err != nil {
-		t.Fatalf("json.Unmarshal() error = %v; stdout = %q", err, string(data))
-	}
-	_, ok := payload[field]
-	return ok
 }
 
 func TestCommandReturnsServiceError(t *testing.T) {
-	wantErr := errors.New("info failed")
-	service := &fakeService{infoErr: wantErr}
+	wantErr := errors.New("remove failed")
+	service := &fakeService{removeErr: wantErr}
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 	cmd := NewCommand(clienv.New(stdout, stderr), service)
@@ -153,22 +110,10 @@ func TestCommandReturnsServiceError(t *testing.T) {
 	}
 }
 
-func TestCommandHelpDescribesIntegratedAppImages(t *testing.T) {
-	cmd := NewCommand(clienv.New(&bytes.Buffer{}, &bytes.Buffer{}), &fakeService{})
-
-	if got, want := cmd.Use, "info <app-id>"; got != want {
-		t.Fatalf("Use = %q, want %q", got, want)
-	}
-	if strings.Contains(cmd.Long, "local AppImage file") || strings.Contains(cmd.Use, "path") {
-		t.Fatalf("help promises local path support: Use=%q Long=%q", cmd.Use, cmd.Long)
-	}
-}
-
 type fakeService struct {
-	infoCalled bool
-	infoReq    app.InfoRequest
-	infoResult app.InfoResult
-	infoErr    error
+	removeCalled bool
+	removeReq    app.RemoveRequest
+	removeErr    error
 }
 
 var _ app.Service = (*fakeService)(nil)
@@ -178,6 +123,11 @@ func (s *fakeService) Add(ctx context.Context, req app.AddRequest) (app.AddResul
 }
 
 func (s *fakeService) Remove(ctx context.Context, req app.RemoveRequest) error {
+	s.removeCalled = true
+	s.removeReq = req
+	if s.removeErr != nil {
+		return s.removeErr
+	}
 	return nil
 }
 
@@ -198,12 +148,7 @@ func (s *fakeService) List(ctx context.Context, req app.ListRequest) (app.ListRe
 }
 
 func (s *fakeService) Info(ctx context.Context, req app.InfoRequest) (app.InfoResult, error) {
-	s.infoCalled = true
-	s.infoReq = req
-	if s.infoErr != nil {
-		return app.InfoResult{}, s.infoErr
-	}
-	return s.infoResult, nil
+	return app.InfoResult{}, nil
 }
 
 func (s *fakeService) SelfUpdate(ctx context.Context, req app.SelfUpdateRequest) (app.SelfUpdateResult, error) {
