@@ -64,7 +64,6 @@ aim remove example-app
 
 ```sh
 aim info example-app
-aim info ./Example.AppImage
 aim list
 aim paths
 ```

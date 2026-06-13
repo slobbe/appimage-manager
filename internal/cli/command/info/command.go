@@ -19,9 +19,9 @@ const (
 
 func NewCommand(rt *clienv.Runtime, service app.Service) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "info <appimage-or-path>",
-		Short: "Get information about an AppImage.",
-		Long:  "Get information about an integrated AppImage or a local AppImage file.",
+		Use:   "info <app-id>",
+		Short: "Get information about an integrated AppImage.",
+		Long:  "Get information about an integrated AppImage by app ID.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			req := app.InfoRequest{
