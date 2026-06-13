@@ -8,10 +8,12 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"aim/internal/app"
 	"aim/internal/domain"
+	"golang.org/x/sys/unix"
 )
 
 // Repository persists integrated apps in a JSON file.
@@ -27,6 +29,8 @@ func NewRepository(path string) Repository {
 var _ app.AppRepository = Repository{}
 
 const currentSchemaVersion = 2
+
+var repositoryLocks sync.Map
 
 type databaseFile struct {
 	SchemaVersion int         `json:"schema_version"`
@@ -139,6 +143,12 @@ func (r Repository) Save(ctx context.Context, domainApp domain.App) error {
 		return fmt.Errorf("save app: app id is required")
 	}
 
+	unlock, err := r.lock(ctx)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
 	db, err := r.load(ctx)
 	if err != nil {
 		return err
@@ -230,6 +240,12 @@ func (r Repository) Delete(ctx context.Context, id string) error {
 		return fmt.Errorf("delete app: app id is required")
 	}
 
+	unlock, err := r.lock(ctx)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
 	db, err := r.load(ctx)
 	if err != nil {
 		return err
@@ -251,6 +267,55 @@ func (r Repository) validate() error {
 	}
 
 	return nil
+}
+
+func (r Repository) lock(ctx context.Context) (func(), error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	directory := filepath.Dir(r.Path)
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		return nil, fmt.Errorf("create app database directory %q: %w", directory, err)
+	}
+
+	lockPath := r.Path + ".lock"
+	localLock := repositoryLock(lockPath)
+	localLock.Lock()
+
+	file, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		localLock.Unlock()
+		return nil, fmt.Errorf("open app database lock %q: %w", lockPath, err)
+	}
+	if err := ctx.Err(); err != nil {
+		_ = file.Close()
+		localLock.Unlock()
+		return nil, err
+	}
+	if err := unix.Flock(int(file.Fd()), unix.LOCK_EX); err != nil {
+		_ = file.Close()
+		localLock.Unlock()
+		return nil, fmt.Errorf("lock app database %q: %w", lockPath, err)
+	}
+	if err := ctx.Err(); err != nil {
+		_ = unix.Flock(int(file.Fd()), unix.LOCK_UN)
+		_ = file.Close()
+		localLock.Unlock()
+		return nil, err
+	}
+
+	return func() {
+		_ = unix.Flock(int(file.Fd()), unix.LOCK_UN)
+		_ = file.Close()
+		localLock.Unlock()
+	}, nil
+}
+
+func repositoryLock(lockPath string) *sync.Mutex {
+	key := filepath.Clean(lockPath)
+	lock, _ := repositoryLocks.LoadOrStore(key, &sync.Mutex{})
+	return lock.(*sync.Mutex)
 }
 
 func (r Repository) load(ctx context.Context) (databaseFile, error) {
@@ -292,18 +357,36 @@ func (r Repository) save(ctx context.Context, db databaseFile) error {
 	}
 	bytes = append(bytes, '\n')
 
-	temporaryPath := r.Path + ".tmp"
-	if err := os.WriteFile(temporaryPath, bytes, 0o644); err != nil {
+	temporaryFile, err := os.CreateTemp(filepath.Dir(r.Path), filepath.Base(r.Path)+".*.tmp")
+	if err != nil {
+		return fmt.Errorf("create app database temporary file in %q: %w", filepath.Dir(r.Path), err)
+	}
+	temporaryPath := temporaryFile.Name()
+	removeTemporary := true
+	defer func() {
+		if removeTemporary {
+			_ = os.Remove(temporaryPath)
+		}
+	}()
+
+	if _, err := temporaryFile.Write(bytes); err != nil {
+		_ = temporaryFile.Close()
 		return fmt.Errorf("write app database %q: %w", temporaryPath, err)
 	}
+	if err := temporaryFile.Chmod(0o644); err != nil {
+		_ = temporaryFile.Close()
+		return fmt.Errorf("set app database permissions %q: %w", temporaryPath, err)
+	}
+	if err := temporaryFile.Close(); err != nil {
+		return fmt.Errorf("close app database %q: %w", temporaryPath, err)
+	}
 	if err := ctx.Err(); err != nil {
-		_ = os.Remove(temporaryPath)
 		return err
 	}
 	if err := os.Rename(temporaryPath, r.Path); err != nil {
-		_ = os.Remove(temporaryPath)
 		return fmt.Errorf("replace app database %q: %w", r.Path, err)
 	}
+	removeTemporary = false
 
 	return nil
 }

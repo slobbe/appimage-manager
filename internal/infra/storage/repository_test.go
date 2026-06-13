@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -134,6 +135,54 @@ func TestRepositorySaveReplacesExistingApp(t *testing.T) {
 		t.Fatalf("List() length = %d, want 1", len(apps))
 	}
 	assertApp(t, apps[0], updated)
+}
+
+func TestRepositoryConcurrentSavesPreserveAllApps(t *testing.T) {
+	t.Parallel()
+
+	for iteration := 0; iteration < 100; iteration++ {
+		repo := NewRepository(filepath.Join(t.TempDir(), "apps.json"))
+		apps := []domain.App{
+			testApp(t, "alpha", "Alpha", "1.0.0"),
+			testApp(t, "bravo", "Bravo", "1.0.0"),
+		}
+
+		var wg sync.WaitGroup
+		start := make(chan struct{})
+		errors := make(chan error, len(apps))
+		for _, stored := range apps {
+			stored := stored
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				errors <- repo.Save(context.Background(), stored)
+			}()
+		}
+
+		close(start)
+		wg.Wait()
+		close(errors)
+		for err := range errors {
+			if err != nil {
+				t.Fatalf("iteration %d: Save() error = %v", iteration, err)
+			}
+		}
+
+		stored, err := repo.List(context.Background())
+		if err != nil {
+			t.Fatalf("iteration %d: List() error = %v", iteration, err)
+		}
+		got := map[string]bool{}
+		for _, app := range stored {
+			got[app.ID] = true
+		}
+		for _, app := range apps {
+			if !got[app.ID] {
+				t.Fatalf("iteration %d: stored app IDs = %v, want %s present", iteration, got, app.ID)
+			}
+		}
+	}
 }
 
 func TestRepositoryListReturnsAppsSortedByID(t *testing.T) {
