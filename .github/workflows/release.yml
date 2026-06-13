@@ -140,13 +140,91 @@ jobs:
           version: "v2.16.0"
           args: check
 
+      - name: Generate release notes
+        if: steps.release-tag.outputs.should_release == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ steps.release-tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          previous_tag="$(TAG="$TAG" python3 <<'PY'
+          import os
+          import re
+          import subprocess
+          import sys
+
+          semver = re.compile(r"^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-((?:0|[1-9][0-9]*|[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[A-Za-z-][0-9A-Za-z-]*))*))?$")
+          current = os.environ["TAG"]
+          current_match = semver.match(current)
+          if not current_match:
+              sys.exit(f"invalid semver tag: {current}")
+
+          def prerelease_key(value):
+              if value is None:
+                  return (1,)
+              parts = []
+              for part in value.split("."):
+                  if part.isdigit():
+                      parts.append((0, int(part)))
+                  else:
+                      parts.append((1, part))
+              return (0, tuple(parts))
+
+          def key(tag):
+              match = semver.match(tag)
+              if not match:
+                  return None
+              return (
+                  int(match.group(1)),
+                  int(match.group(2)),
+                  int(match.group(3)),
+                  prerelease_key(match.group(4)),
+              )
+
+          current_key = key(current)
+          stable_release = current_match.group(4) is None
+          tags = subprocess.check_output(["git", "tag", "--list", "v*"], text=True).splitlines()
+          candidates = []
+          for tag in tags:
+              tag_key = key(tag)
+              if tag_key is None or tag_key >= current_key:
+                  continue
+              if stable_release and semver.match(tag).group(4) is not None:
+                  continue
+              candidates.append((tag_key, tag))
+
+          if candidates:
+              print(max(candidates)[1])
+          PY
+          )"
+
+          if [[ "$TAG" == *-* ]]; then
+            if [[ -n "$previous_tag" ]]; then
+              printf 'Full changelog: [%s..%s](https://github.com/%s/compare/%s...%s)\n' "$previous_tag" "$TAG" "$REPO" "$previous_tag" "$TAG" > release-notes.md
+            else
+              printf 'Full changelog: https://github.com/%s/commits/%s\n' "$REPO" "$TAG" > release-notes.md
+            fi
+          else
+            args=(
+              -f tag_name="$TAG"
+            )
+            if [[ -n "$previous_tag" ]]; then
+              args+=( -f previous_tag_name="$previous_tag" )
+            fi
+            gh api "repos/$REPO/releases/generate-notes" "${args[@]}" --jq .body > release-notes.md
+          fi
+
+          cat release-notes.md
+
       - name: Run GoReleaser
         if: steps.release-tag.outputs.should_release == 'true'
         uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
           version: "v2.16.0"
-          args: release --clean
+          args: release --clean --release-notes release-notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GORELEASER_CURRENT_TAG: ${{ steps.release-tag.outputs.tag }}
