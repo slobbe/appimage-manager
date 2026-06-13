@@ -26,8 +26,11 @@ func NewRepository(path string) Repository {
 
 var _ app.AppRepository = Repository{}
 
+const currentSchemaVersion = 2
+
 type databaseFile struct {
-	Apps []appRecord `json:"apps"`
+	SchemaVersion int         `json:"schema_version"`
+	Apps          []appRecord `json:"apps"`
 }
 
 type appRecord struct {
@@ -278,6 +281,7 @@ func (r Repository) save(ctx context.Context, db databaseFile) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	db.SchemaVersion = currentSchemaVersion
 	if err := os.MkdirAll(filepath.Dir(r.Path), 0o755); err != nil {
 		return fmt.Errorf("create app database directory %q: %w", filepath.Dir(r.Path), err)
 	}

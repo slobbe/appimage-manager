@@ -12,6 +12,7 @@ type Dirs struct {
 	ConfigHome string
 	DataHome   string
 	CacheHome  string
+	StateHome  string
 }
 
 func Resolve() (Dirs, error) {
@@ -24,6 +25,7 @@ func Resolve() (Dirs, error) {
 		ConfigHome: envOrDefault("XDG_CONFIG_HOME", filepath.Join(home, ".config")),
 		DataHome:   envOrDefault("XDG_DATA_HOME", filepath.Join(home, ".local", "share")),
 		CacheHome:  envOrDefault("XDG_CACHE_HOME", filepath.Join(home, ".cache")),
+		StateHome:  envOrDefault("XDG_STATE_HOME", filepath.Join(home, ".local", "state")),
 	}, nil
 }
 
@@ -62,4 +64,8 @@ func IconDir(dirs Dirs) string {
 
 func CacheDir(dirs Dirs) string {
 	return filepath.Join(dirs.CacheHome, AppName)
+}
+
+func StateDir(dirs Dirs) string {
+	return filepath.Join(dirs.StateHome, AppName)
 }

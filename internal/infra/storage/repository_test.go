@@ -31,6 +31,28 @@ func TestRepositorySaveAndFind(t *testing.T) {
 	assertApp(t, found, stored)
 }
 
+func TestRepositorySaveWritesCurrentSchemaVersion(t *testing.T) {
+	t.Parallel()
+
+	repo := NewRepository(filepath.Join(t.TempDir(), "apps.json"))
+	if err := repo.Save(context.Background(), testApp(t, "example", "Example", "1.2.3")); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	bytes, err := os.ReadFile(repo.Path)
+	if err != nil {
+		t.Fatalf("read database: %v", err)
+	}
+
+	var db databaseFile
+	if err := json.Unmarshal(bytes, &db); err != nil {
+		t.Fatalf("unmarshal database: %v", err)
+	}
+	if db.SchemaVersion != 2 {
+		t.Fatalf("SchemaVersion = %d, want 2", db.SchemaVersion)
+	}
+}
+
 func TestRepositorySaveAndFindEmbeddedUpdateSource(t *testing.T) {
 	t.Parallel()
 
