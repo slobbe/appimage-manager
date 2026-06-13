@@ -89,7 +89,7 @@ jobs:
 
       - name: Install audit tools
         run: |
-          go install golang.org/x/vuln/cmd/govulncheck@latest
+          make install-tools
           sudo apt-get update
           sudo apt-get install -y shellcheck
 
@@ -115,5 +115,5 @@ jobs:
         uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
-          version: "~> v2"
+          version: "v2.16.0"
           args: check

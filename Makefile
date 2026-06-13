@@ -4,6 +4,7 @@ COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS := -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)
 GOVULNCHECK ?= $(shell go env GOPATH)/bin/govulncheck
+GOVULNCHECK_VERSION ?= v1.3.0
 
 .PHONY: build
 build:
@@ -63,7 +64,7 @@ test-installer-script:
 
 .PHONY: install-tools
 install-tools:
-	go install golang.org/x/vuln/cmd/govulncheck@latest
+	go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
 
 .PHONY: check
 check: fmt-check build test vet
