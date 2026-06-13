@@ -57,6 +57,7 @@ func main() {
 		Config:                cfg,
 		Workspaces:            workspace.NewProvider(""),
 		AppImages:             appimage.NewExtractor(),
+		AppImageStager:        appimage.NewStager(),
 		DesktopEntries:        desktop.NewDiscoverer(),
 		Icons:                 icon.NewDiscoverer(),
 		AppImageInstaller:     appimage.NewInstaller(cfg.AppImageDir),

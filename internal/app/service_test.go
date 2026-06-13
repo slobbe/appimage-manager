@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -58,8 +59,20 @@ func TestServiceAddIntegratesLocalAppImage(t *testing.T) {
 	if !deps.workspaces.cleaned {
 		t.Fatal("workspace was not cleaned")
 	}
-	if got, want := deps.appImages.appImagePath, "/downloads/example.AppImage"; got != want {
+	if got, original := deps.appImages.appImagePath, "/downloads/example.AppImage"; got == original {
+		t.Fatalf("extract appImagePath = %q, want staged path", got)
+	}
+	if !strings.Contains(deps.appImages.appImagePath, deps.workspaces.path) {
+		t.Fatalf("extract appImagePath = %q, want path inside workspace %q", deps.appImages.appImagePath, deps.workspaces.path)
+	}
+	if got, want := deps.appImages.appImagePath, "/workspace/example.AppImage"; got != want {
 		t.Fatalf("extract appImagePath = %q, want %q", got, want)
+	}
+	if got, want := deps.appImageStager.sourcePath, "/downloads/example.AppImage"; got != want {
+		t.Fatalf("stager source = %q, want %q", got, want)
+	}
+	if got, want := deps.appImageStager.workspacePath, deps.workspaces.path; got != want {
+		t.Fatalf("stager workspace = %q, want %q", got, want)
 	}
 	if !strings.HasSuffix(deps.appImages.destDir, "/workspace/extract") {
 		t.Fatalf("extract destDir = %q, want workspace extract dir", deps.appImages.destDir)
@@ -1632,6 +1645,7 @@ type integrationFakes struct {
 	ServiceDeps
 	workspaces            *fakeWorkspaceProvider
 	appImages             *fakeAppImageExtractor
+	appImageStager        *fakeAppImageStager
 	desktopEntries        *fakeDesktopEntryDiscoverer
 	icons                 *fakeIconDiscoverer
 	appImageInstaller     *fakeAppImageInstaller
@@ -1647,6 +1661,7 @@ type integrationFakes struct {
 func integrationTestDeps() integrationFakes {
 	workspaces := &fakeWorkspaceProvider{path: "/workspace"}
 	appImages := &fakeAppImageExtractor{rootDir: "/extracted"}
+	appImageStager := &fakeAppImageStager{}
 	desktopEntries := &fakeDesktopEntryDiscoverer{
 		path: "/extracted/example.desktop",
 		content: []byte(strings.Join([]string{
@@ -1675,6 +1690,7 @@ func integrationTestDeps() integrationFakes {
 		ServiceDeps: ServiceDeps{
 			Workspaces:            workspaces,
 			AppImages:             appImages,
+			AppImageStager:        appImageStager,
 			DesktopEntries:        desktopEntries,
 			Icons:                 icons,
 			AppImageInstaller:     appImageInstaller,
@@ -1687,6 +1703,7 @@ func integrationTestDeps() integrationFakes {
 		},
 		workspaces:            workspaces,
 		appImages:             appImages,
+		appImageStager:        appImageStager,
 		desktopEntries:        desktopEntries,
 		icons:                 icons,
 		appImageInstaller:     appImageInstaller,
@@ -1728,6 +1745,21 @@ func (f *fakeAppImageExtractor) Extract(ctx context.Context, appImagePath string
 		return AppImageExtraction{}, f.err
 	}
 	return AppImageExtraction{RootDir: f.rootDir, UpdateInfo: f.updateInfo}, nil
+}
+
+type fakeAppImageStager struct {
+	sourcePath    string
+	workspacePath string
+	err           error
+}
+
+func (f *fakeAppImageStager) Stage(ctx context.Context, sourcePath string, workspacePath string) (string, error) {
+	f.sourcePath = sourcePath
+	f.workspacePath = workspacePath
+	if f.err != nil {
+		return "", f.err
+	}
+	return filepath.Join(workspacePath, filepath.Base(sourcePath)), nil
 }
 
 type fakeDesktopEntryDiscoverer struct {

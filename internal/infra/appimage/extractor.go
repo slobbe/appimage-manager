@@ -28,8 +28,9 @@ var _ app.AppImageExtractor = Extractor{}
 //
 // AppImage extraction creates a squashfs-root directory in the process working
 // directory, so the command is run with destDir as its working directory. The
-// source AppImage is made owner-executable before extraction because AppImages
-// must be executable to run their extraction mode.
+// AppImage at appImagePath is made owner-executable before extraction because
+// AppImages must be executable to run their extraction mode; callers should pass
+// a staged or otherwise managed path if the original file must not be mutated.
 func (Extractor) Extract(ctx context.Context, appImagePath string, destDir string) (app.AppImageExtraction, error) {
 	if err := ctx.Err(); err != nil {
 		return app.AppImageExtraction{}, err

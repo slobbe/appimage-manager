@@ -19,6 +19,7 @@ type service struct {
 	currentVersion        string
 	workspaces            WorkspaceProvider
 	appImages             AppImageExtractor
+	appImageStager        AppImageStager
 	desktopEntries        DesktopEntryDiscoverer
 	icons                 IconDiscoverer
 	appImageInstaller     AppImageInstaller
@@ -37,6 +38,7 @@ type ServiceDeps struct {
 	Config                Config
 	Workspaces            WorkspaceProvider
 	AppImages             AppImageExtractor
+	AppImageStager        AppImageStager
 	DesktopEntries        DesktopEntryDiscoverer
 	Icons                 IconDiscoverer
 	AppImageInstaller     AppImageInstaller
@@ -58,6 +60,7 @@ func NewService(deps ServiceDeps) (Service, error) {
 		currentVersion:        deps.CurrentVersion,
 		workspaces:            deps.Workspaces,
 		appImages:             deps.AppImages,
+		appImageStager:        deps.AppImageStager,
 		desktopEntries:        deps.DesktopEntries,
 		icons:                 deps.Icons,
 		appImageInstaller:     deps.AppImageInstaller,
@@ -215,7 +218,12 @@ func (s *service) integrateLocal(ctx context.Context, req AddRequest, source dom
 	}
 	defer workspace.Cleanup()
 
-	extraction, err := s.appImages.Extract(ctx, req.Path, filepath.Join(workspace.Path, "extract"))
+	extractionPath, err := s.extractionPath(ctx, req.Path, workspace.Path)
+	if err != nil {
+		return AddResult{}, err
+	}
+
+	extraction, err := s.appImages.Extract(ctx, extractionPath, filepath.Join(workspace.Path, "extract"))
 	if err != nil {
 		return AddResult{}, err
 	}
@@ -538,6 +546,21 @@ func (s *service) applyGitHubUpdate(ctx context.Context, activity ActivityReport
 	}
 
 	return nil
+}
+
+func (s *service) extractionPath(ctx context.Context, sourcePath string, workspacePath string) (string, error) {
+	if pathWithin(sourcePath, workspacePath) {
+		return sourcePath, nil
+	}
+	return s.appImageStager.Stage(ctx, sourcePath, workspacePath)
+}
+
+func pathWithin(path string, dir string) bool {
+	rel, err := filepath.Rel(dir, path)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != "" && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
 }
 
 func addAppRollback(rollback *rollbackStack, s *service, installedApp domain.App) {
@@ -866,6 +889,9 @@ func (s *service) validate() error {
 	}
 	if s.appImages == nil {
 		return fmt.Errorf("appimage extractor is required")
+	}
+	if s.appImageStager == nil {
+		return fmt.Errorf("appimage stager is required")
 	}
 	if s.desktopEntries == nil {
 		return fmt.Errorf("desktop entry discoverer is required")
