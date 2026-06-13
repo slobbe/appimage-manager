@@ -15,64 +15,67 @@ import (
 // service implements application workflows using app-defined ports. It owns
 // orchestration only; all filesystem work is delegated to infra adapters.
 type service struct {
-	config                Config
-	currentVersion        string
-	workspaces            WorkspaceProvider
-	appImages             AppImageExtractor
-	appImageStager        AppImageStager
-	desktopEntries        DesktopEntryDiscoverer
-	icons                 IconDiscoverer
-	appImageInstaller     AppImageInstaller
-	appImageRemover       AppImageRemover
-	iconInstaller         IconInstaller
-	iconRemover           IconRemover
-	desktopEntryInstaller DesktopEntryInstaller
-	desktopEntryRemover   DesktopEntryRemover
-	githubReleases        GitHubReleaseFinder
-	downloads             AssetDownloader
-	selfUpdater           SelfUpdater
-	apps                  AppRepository
+	config                      Config
+	currentVersion              string
+	workspaces                  WorkspaceProvider
+	appImages                   AppImageExtractor
+	appImageStager              AppImageStager
+	desktopEntries              DesktopEntryDiscoverer
+	icons                       IconDiscoverer
+	appImageInstaller           AppImageInstaller
+	appImageRemover             AppImageRemover
+	iconInstaller               IconInstaller
+	iconRemover                 IconRemover
+	desktopEntryInstaller       DesktopEntryInstaller
+	desktopEntryRemover         DesktopEntryRemover
+	desktopIntegrationRefresher DesktopIntegrationRefresher
+	githubReleases              GitHubReleaseFinder
+	downloads                   AssetDownloader
+	selfUpdater                 SelfUpdater
+	apps                        AppRepository
 }
 
 type ServiceDeps struct {
-	Config                Config
-	Workspaces            WorkspaceProvider
-	AppImages             AppImageExtractor
-	AppImageStager        AppImageStager
-	DesktopEntries        DesktopEntryDiscoverer
-	Icons                 IconDiscoverer
-	AppImageInstaller     AppImageInstaller
-	AppImageRemover       AppImageRemover
-	IconInstaller         IconInstaller
-	IconRemover           IconRemover
-	DesktopEntryInstaller DesktopEntryInstaller
-	DesktopEntryRemover   DesktopEntryRemover
-	GitHubReleases        GitHubReleaseFinder
-	Downloads             AssetDownloader
-	SelfUpdater           SelfUpdater
-	CurrentVersion        string
-	Apps                  AppRepository
+	Config                      Config
+	Workspaces                  WorkspaceProvider
+	AppImages                   AppImageExtractor
+	AppImageStager              AppImageStager
+	DesktopEntries              DesktopEntryDiscoverer
+	Icons                       IconDiscoverer
+	AppImageInstaller           AppImageInstaller
+	AppImageRemover             AppImageRemover
+	IconInstaller               IconInstaller
+	IconRemover                 IconRemover
+	DesktopEntryInstaller       DesktopEntryInstaller
+	DesktopEntryRemover         DesktopEntryRemover
+	DesktopIntegrationRefresher DesktopIntegrationRefresher
+	GitHubReleases              GitHubReleaseFinder
+	Downloads                   AssetDownloader
+	SelfUpdater                 SelfUpdater
+	CurrentVersion              string
+	Apps                        AppRepository
 }
 
 func NewService(deps ServiceDeps) (Service, error) {
 	service := &service{
-		config:                deps.Config,
-		currentVersion:        deps.CurrentVersion,
-		workspaces:            deps.Workspaces,
-		appImages:             deps.AppImages,
-		appImageStager:        deps.AppImageStager,
-		desktopEntries:        deps.DesktopEntries,
-		icons:                 deps.Icons,
-		appImageInstaller:     deps.AppImageInstaller,
-		appImageRemover:       deps.AppImageRemover,
-		iconInstaller:         deps.IconInstaller,
-		iconRemover:           deps.IconRemover,
-		desktopEntryInstaller: deps.DesktopEntryInstaller,
-		desktopEntryRemover:   deps.DesktopEntryRemover,
-		githubReleases:        deps.GitHubReleases,
-		downloads:             deps.Downloads,
-		selfUpdater:           deps.SelfUpdater,
-		apps:                  deps.Apps,
+		config:                      deps.Config,
+		currentVersion:              deps.CurrentVersion,
+		workspaces:                  deps.Workspaces,
+		appImages:                   deps.AppImages,
+		appImageStager:              deps.AppImageStager,
+		desktopEntries:              deps.DesktopEntries,
+		icons:                       deps.Icons,
+		appImageInstaller:           deps.AppImageInstaller,
+		appImageRemover:             deps.AppImageRemover,
+		iconInstaller:               deps.IconInstaller,
+		iconRemover:                 deps.IconRemover,
+		desktopEntryInstaller:       deps.DesktopEntryInstaller,
+		desktopEntryRemover:         deps.DesktopEntryRemover,
+		desktopIntegrationRefresher: deps.DesktopIntegrationRefresher,
+		githubReleases:              deps.GitHubReleases,
+		downloads:                   deps.Downloads,
+		selfUpdater:                 deps.SelfUpdater,
+		apps:                        deps.Apps,
 	}
 	if err := service.validate(); err != nil {
 		return nil, err
@@ -250,6 +253,10 @@ func (s *service) integrateLocal(ctx context.Context, req AddRequest, source dom
 	rollback.add(func(ctx context.Context) error {
 		return s.desktopEntryRemover.Remove(ctx, installedDesktopEntryPath)
 	})
+
+	if s.desktopIntegrationRefresher != nil {
+		_ = s.desktopIntegrationRefresher.Refresh(ctx)
+	}
 
 	finalApp := domain.NewAppFromDesktopEntry(metadata.desktopEntry, domain.AppInput{
 		ID:               provisionalApp.ID,

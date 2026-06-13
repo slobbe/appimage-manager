@@ -68,3 +68,9 @@ type DesktopEntryInstaller interface {
 type DesktopEntryRemover interface {
 	Remove(ctx context.Context, path string) error
 }
+
+// DesktopIntegrationRefresher refreshes desktop environment caches after
+// installing or removing desktop integration artifacts.
+type DesktopIntegrationRefresher interface {
+	Refresh(ctx context.Context) error
+}

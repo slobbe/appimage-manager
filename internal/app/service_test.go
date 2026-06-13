@@ -89,6 +89,9 @@ func TestServiceAddIntegratesLocalAppImage(t *testing.T) {
 	if deps.iconInstaller.workspaceCleanedWhenCalled {
 		t.Fatal("workspace was cleaned before icon installer copied the discovered icon")
 	}
+	if !deps.desktopIntegrationRefresher.called {
+		t.Fatal("desktop integration refresher was not called")
+	}
 	if got, want := deps.saved.App.ID, result.App.ID; got != want {
 		t.Fatalf("saved App.ID = %q, want %q", got, want)
 	}
@@ -232,6 +235,28 @@ func TestServiceAddUsesLocalFilenameAsVersionFallback(t *testing.T) {
 	}
 	if got, want := deps.saved.App.Version.String(), "2.4.6"; got != want {
 		t.Fatalf("saved App.Version = %q, want %q", got, want)
+	}
+}
+
+func TestServiceAddIgnoresDesktopIntegrationRefreshFailure(t *testing.T) {
+	t.Parallel()
+
+	deps := integrationTestDeps()
+	deps.desktopIntegrationRefresher.err = errors.New("refresh failed")
+	service, err := NewService(deps.ServiceDeps)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+
+	result, err := service.Add(context.Background(), AddRequest{Path: "/downloads/example.AppImage"})
+	if err != nil {
+		t.Fatalf("Add() error = %v, want refresh failure to be non-fatal", err)
+	}
+	if got, want := result.App.ID, "example-app"; got != want {
+		t.Fatalf("App.ID = %q, want %q", got, want)
+	}
+	if !deps.desktopIntegrationRefresher.called {
+		t.Fatal("desktop integration refresher was not called")
 	}
 }
 
@@ -1825,19 +1850,20 @@ func TestNewServiceValidatesDependencies(t *testing.T) {
 
 type integrationFakes struct {
 	ServiceDeps
-	workspaces            *fakeWorkspaceProvider
-	appImages             *fakeAppImageExtractor
-	appImageStager        *fakeAppImageStager
-	desktopEntries        *fakeDesktopEntryDiscoverer
-	icons                 *fakeIconDiscoverer
-	appImageInstaller     *fakeAppImageInstaller
-	appImageRemover       *fakeArtifactRemover
-	iconInstaller         *fakeIconInstaller
-	iconRemover           *fakeArtifactRemover
-	desktopEntryInstaller *fakeDesktopEntryInstaller
-	desktopEntryRemover   *fakeArtifactRemover
-	apps                  *fakeAppRepository
-	saved                 *fakeAppRepository
+	workspaces                  *fakeWorkspaceProvider
+	appImages                   *fakeAppImageExtractor
+	appImageStager              *fakeAppImageStager
+	desktopEntries              *fakeDesktopEntryDiscoverer
+	icons                       *fakeIconDiscoverer
+	appImageInstaller           *fakeAppImageInstaller
+	appImageRemover             *fakeArtifactRemover
+	iconInstaller               *fakeIconInstaller
+	iconRemover                 *fakeArtifactRemover
+	desktopEntryInstaller       *fakeDesktopEntryInstaller
+	desktopEntryRemover         *fakeArtifactRemover
+	desktopIntegrationRefresher *fakeDesktopIntegrationRefresher
+	apps                        *fakeAppRepository
+	saved                       *fakeAppRepository
 }
 
 func integrationTestDeps() integrationFakes {
@@ -1866,36 +1892,39 @@ func integrationTestDeps() integrationFakes {
 	iconRemover := &fakeArtifactRemover{}
 	desktopEntryInstaller := &fakeDesktopEntryInstaller{path: "/desktop/example-app.desktop"}
 	desktopEntryRemover := &fakeArtifactRemover{}
+	desktopIntegrationRefresher := &fakeDesktopIntegrationRefresher{}
 	apps := &fakeAppRepository{}
 
 	return integrationFakes{
 		ServiceDeps: ServiceDeps{
-			Workspaces:            workspaces,
-			AppImages:             appImages,
-			AppImageStager:        appImageStager,
-			DesktopEntries:        desktopEntries,
-			Icons:                 icons,
-			AppImageInstaller:     appImageInstaller,
-			AppImageRemover:       appImageRemover,
-			IconInstaller:         iconInstaller,
-			IconRemover:           iconRemover,
-			DesktopEntryInstaller: desktopEntryInstaller,
-			DesktopEntryRemover:   desktopEntryRemover,
-			Apps:                  apps,
+			Workspaces:                  workspaces,
+			AppImages:                   appImages,
+			AppImageStager:              appImageStager,
+			DesktopEntries:              desktopEntries,
+			Icons:                       icons,
+			AppImageInstaller:           appImageInstaller,
+			AppImageRemover:             appImageRemover,
+			IconInstaller:               iconInstaller,
+			IconRemover:                 iconRemover,
+			DesktopEntryInstaller:       desktopEntryInstaller,
+			DesktopEntryRemover:         desktopEntryRemover,
+			DesktopIntegrationRefresher: desktopIntegrationRefresher,
+			Apps:                        apps,
 		},
-		workspaces:            workspaces,
-		appImages:             appImages,
-		appImageStager:        appImageStager,
-		desktopEntries:        desktopEntries,
-		icons:                 icons,
-		appImageInstaller:     appImageInstaller,
-		appImageRemover:       appImageRemover,
-		iconInstaller:         iconInstaller,
-		iconRemover:           iconRemover,
-		desktopEntryInstaller: desktopEntryInstaller,
-		desktopEntryRemover:   desktopEntryRemover,
-		apps:                  apps,
-		saved:                 apps,
+		workspaces:                  workspaces,
+		appImages:                   appImages,
+		appImageStager:              appImageStager,
+		desktopEntries:              desktopEntries,
+		icons:                       icons,
+		appImageInstaller:           appImageInstaller,
+		appImageRemover:             appImageRemover,
+		iconInstaller:               iconInstaller,
+		iconRemover:                 iconRemover,
+		desktopEntryInstaller:       desktopEntryInstaller,
+		desktopEntryRemover:         desktopEntryRemover,
+		desktopIntegrationRefresher: desktopIntegrationRefresher,
+		apps:                        apps,
+		saved:                       apps,
 	}
 }
 
@@ -2030,6 +2059,16 @@ func (f *fakeDesktopEntryInstaller) Install(ctx context.Context, appID string, c
 		return "", f.err
 	}
 	return f.path, nil
+}
+
+type fakeDesktopIntegrationRefresher struct {
+	called bool
+	err    error
+}
+
+func (f *fakeDesktopIntegrationRefresher) Refresh(ctx context.Context) error {
+	f.called = true
+	return f.err
 }
 
 type fakeArtifactRemover struct {
