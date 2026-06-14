@@ -64,6 +64,8 @@ func NewRootCommand(rt *clienv.Runtime, service app.Service, version string) *co
 		"output command results as JSON",
 	)
 
+	cmd.CompletionOptions.HiddenDefaultCmd = true
+
 	cmd.AddCommand(add.NewCommand(rt, service))
 	cmd.AddCommand(remove.NewCommand(rt, service))
 	cmd.AddCommand(update.NewCommand(rt, service))
