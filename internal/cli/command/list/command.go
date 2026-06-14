@@ -20,7 +20,7 @@ func NewCommand(rt *clienv.Runtime, service app.Lister) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "list",
 		Aliases: []string{"ls"},
-		Short:   "List all AppImages.",
+		Short:   "List all AppImages",
 		Long:    "List all AppImages.",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {

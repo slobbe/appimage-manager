@@ -48,8 +48,8 @@ func Execute(
 func NewRootCommand(rt *clienv.Runtime, service app.Service, version string) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:           "aim",
-		Short:         "An AppImage Manager.",
-		Long:          "aim is a CLI tool for managing AppImage files. Integrate, update, and manage your AppImages.",
+		Short:         "AppImage Manager.",
+		Long:          "aim is a CLI tool for managing AppImages. Integrate, update, and manage AppImages.",
 		Version:       version,
 		SilenceUsage:  true,
 		SilenceErrors: true,

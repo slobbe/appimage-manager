@@ -25,7 +25,7 @@ func NewCommand(rt *clienv.Runtime, service app.SelfUpdateRunner) *cobra.Command
 
 	cmd := &cobra.Command{
 		Use:   "selfupdate",
-		Short: "Update the aim CLI.",
+		Short: "Update aim itself",
 		Long:  "Update the aim CLI.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {

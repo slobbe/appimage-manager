@@ -28,7 +28,7 @@ func NewCommand(rt *clienv.Runtime, service app.Adder) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "add <appimage-path>",
 		Aliases: []string{"a"},
-		Short:   "Add an AppImage.",
+		Short:   "Add an AppImage",
 		Long:    "Add a local AppImage or download and add an AppImage from a GitHub release.",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if githubRepo != "" && len(args) > 0 {

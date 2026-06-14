@@ -23,9 +23,9 @@ func NewCommand(rt *clienv.Runtime, service app.IDManager) *cobra.Command {
 	var auto bool
 
 	cmd := &cobra.Command{
-		Use:   "id <old-id> (--set <new-id> | --auto)",
-		Short: "Manage an integrated app ID.",
-		Long:  "Manage the stable ID of an integrated app. Use --set to choose an ID, or --auto to derive it from the installed AppImage metadata.",
+		Use:   "id <current-id> (--set <new-id> | --auto)",
+		Short: "Change an integrated app ID",
+		Long:  "Change the stable ID of an integrated app. Use --set to choose an ID, or --auto to derive it from the installed AppImage metadata.",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {
 				return fmt.Errorf("requires exactly one app id")

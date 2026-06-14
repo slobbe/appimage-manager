@@ -13,8 +13,8 @@ import (
 func NewCommand(root *cobra.Command) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:    "gen",
-		Short:  "Generate developer assets.",
-		Long:   "Generate developer assets such as man pages.",
+		Short:  "Generate developer assets",
+		Long:   "Generate man pages and shell completions.",
 		Hidden: true,
 	}
 
@@ -29,7 +29,7 @@ func newManCommand(root *cobra.Command) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "man",
-		Short: "Generate man pages.",
+		Short: "Generate man pages",
 		Long:  "Generate man pages from the Cobra command tree.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -70,7 +70,7 @@ func newCompletionCommand(root *cobra.Command) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "completion <shell>",
-		Short: "Generate shell completion scripts.",
+		Short: "Generate shell completion scripts",
 		Long:  "Generate shell completion scripts from the Cobra command tree.",
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) != 1 {

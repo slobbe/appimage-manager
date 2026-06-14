@@ -16,7 +16,7 @@ func NewCommand(rt *clienv.Runtime, service app.Remover) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "remove <appimage>",
 		Aliases: []string{"rm"},
-		Short:   "Remove an AppImage.",
+		Short:   "Remove an AppImage",
 		Long:    "Remove an AppImage.",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

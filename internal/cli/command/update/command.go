@@ -32,7 +32,7 @@ func NewCommand(rt *clienv.Runtime, service app.Updater) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "update [appimage]",
 		Aliases: []string{"u"},
-		Short:   "Update integrated AppImages.",
+		Short:   "Update integrated AppImages",
 		Long:    "Check integrated AppImages for updates and optionally update them.",
 		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

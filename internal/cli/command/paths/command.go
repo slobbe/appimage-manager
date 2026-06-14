@@ -14,7 +14,7 @@ import (
 func NewCommand(rt *clienv.Runtime, service app.PathProvider) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "paths",
-		Short: "Show aim paths.",
+		Short: "Show aim paths",
 		Long:  "Show the config, storage, cache, desktop entry, and icon paths used by aim.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
