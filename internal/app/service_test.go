@@ -100,8 +100,8 @@ func TestServiceAddIntegratesLocalAppImage(t *testing.T) {
 	}
 
 	desktopContent := string(deps.desktopEntryInstaller.content)
-	if !strings.Contains(desktopContent, "Exec=/library/example-app.AppImage") {
-		t.Fatalf("desktop content = %q, want updated Exec", desktopContent)
+	if !strings.Contains(desktopContent, "Exec=/library/example-app.AppImage %U") {
+		t.Fatalf("desktop content = %q, want updated Exec with arguments preserved", desktopContent)
 	}
 	if !strings.Contains(desktopContent, "Icon=example-app") {
 		t.Fatalf("desktop content = %q, want updated Icon", desktopContent)
@@ -109,8 +109,8 @@ func TestServiceAddIntegratesLocalAppImage(t *testing.T) {
 	if !strings.Contains(desktopContent, "[Desktop Action NewWindow]") {
 		t.Fatalf("desktop content = %q, want action group preserved", desktopContent)
 	}
-	if !strings.Contains(desktopContent, "Exec=/library/example-app.AppImage --new-window") {
-		t.Fatalf("desktop content = %q, want rewritten action Exec", desktopContent)
+	if !strings.Contains(desktopContent, "Exec=/library/example-app.AppImage --new-window %U") {
+		t.Fatalf("desktop content = %q, want rewritten action Exec with arguments preserved", desktopContent)
 	}
 }
 
@@ -2045,11 +2045,11 @@ func integrationTestDeps() integrationFakes {
 			"Name=Generic Name",
 			"X-AppImage-Name=Example App",
 			"X-AppImage-Version=1.2.3-beta.1",
-			"Exec=old-exec",
+			"Exec=old-exec %U",
 			"Icon=example-icon",
 			"",
 			"[Desktop Action NewWindow]",
-			"Exec=old-action --new-window",
+			"Exec=old-action --new-window %U",
 			"",
 		}, "\n")),
 	}

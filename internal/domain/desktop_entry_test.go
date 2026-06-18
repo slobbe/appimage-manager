@@ -161,7 +161,7 @@ func TestDesktopEntryWithExecAndIconPreservesRawLinesGroupsAndOrdering(t *testin
 
 	updated := entry.WithExec("/apps/example.AppImage").WithIcon("/icons/example.png")
 
-	if got, want := updated.Exec, "/apps/example.AppImage"; got != want {
+	if got, want := updated.Exec, "/apps/example.AppImage --old-flag"; got != want {
 		t.Fatalf("DesktopEntry.Exec = %q, want %q", got, want)
 	}
 	if got, want := updated.Icon, "/icons/example.png"; got != want {
@@ -178,7 +178,7 @@ func TestDesktopEntryWithExecAndIconPreservesRawLinesGroupsAndOrdering(t *testin
 		"Type=Application",
 		"# keep this comment",
 		"Name=Example",
-		"Exec=/apps/example.AppImage",
+		"Exec=/apps/example.AppImage --old-flag",
 		"Icon=/icons/example.png",
 		"X-Custom=value",
 		"",
@@ -192,17 +192,17 @@ func TestDesktopEntryWithExecAndIconPreservesRawLinesGroupsAndOrdering(t *testin
 	}
 }
 
-func TestDesktopEntryWithExecReplacesActionCommandToken(t *testing.T) {
+func TestDesktopEntryWithExecPreservesMainAndActionArguments(t *testing.T) {
 	t.Parallel()
 
 	entry, err := ParseDesktopEntry([]byte(strings.Join([]string{
 		"[Desktop Entry]",
 		"Name=Example",
-		"Exec=old-main",
+		"Exec=old-main %U",
 		"",
 		"[Desktop Action NewWindow]",
 		"Name=New Window",
-		"Exec=old-action --new-window",
+		"Exec=old-action --new-window %U",
 		"",
 	}, "\n")))
 	if err != nil {
@@ -215,11 +215,40 @@ func TestDesktopEntryWithExecReplacesActionCommandToken(t *testing.T) {
 	want := strings.Join([]string{
 		"[Desktop Entry]",
 		"Name=Example",
-		"Exec=/apps/example.AppImage",
+		"Exec=/apps/example.AppImage %U",
 		"",
 		"[Desktop Action NewWindow]",
 		"Name=New Window",
-		"Exec=/apps/example.AppImage --new-window",
+		"Exec=/apps/example.AppImage --new-window %U",
+		"",
+	}, "\n")
+	if got != want {
+		t.Fatalf("updated.Bytes() =\n%q\nwant\n%q", got, want)
+	}
+}
+
+func TestDesktopEntryWithExecPreservesBrowserURLParameter(t *testing.T) {
+	t.Parallel()
+
+	entry, err := ParseDesktopEntry([]byte(strings.Join([]string{
+		"[Desktop Entry]",
+		"Name=Helium",
+		"Exec=helium %U",
+		"Icon=helium",
+		"",
+	}, "\n")))
+	if err != nil {
+		t.Fatalf("ParseDesktopEntry() error = %v", err)
+	}
+
+	updated := entry.WithExec("/apps/helium.AppImage")
+
+	got := string(updated.Bytes())
+	want := strings.Join([]string{
+		"[Desktop Entry]",
+		"Name=Helium",
+		"Exec=/apps/helium.AppImage %U",
+		"Icon=helium",
 		"",
 	}, "\n")
 	if got != want {
