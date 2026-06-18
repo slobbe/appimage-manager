@@ -105,12 +105,13 @@ func ParseDesktopEntry(content []byte) (DesktopEntry, error) {
 
 // WithExec returns a copy of the entry with the Desktop Entry Exec key updated.
 func (d DesktopEntry) WithExec(exec string) DesktopEntry {
-	return d.withField("Exec", exec)
+	exec = strings.TrimSpace(exec)
+	return d.withField("Exec", exec+desktopExecArgumentSuffix(d.Exec), exec)
 }
 
 // WithIcon returns a copy of the entry with the Desktop Entry Icon key updated.
 func (d DesktopEntry) WithIcon(icon string) DesktopEntry {
-	return d.withField("Icon", icon)
+	return d.withField("Icon", icon, "")
 }
 
 // Bytes serializes the desktop entry while preserving raw comments, groups, and
@@ -134,7 +135,7 @@ func (d DesktopEntry) Bytes() []byte {
 	return []byte(result)
 }
 
-func (d DesktopEntry) withField(key string, value string) DesktopEntry {
+func (d DesktopEntry) withField(key string, value string, actionExec string) DesktopEntry {
 	value = strings.TrimSpace(value)
 	updated := d
 	updated.Fields = copyDesktopEntryFields(d.Fields)
@@ -143,7 +144,7 @@ func (d DesktopEntry) withField(key string, value string) DesktopEntry {
 	updated.setProjectedField(key, value)
 	updated.upsertRawDesktopEntryField(key, value)
 	if key == "Exec" {
-		updated.rewriteDesktopActionExecFields(value)
+		updated.rewriteDesktopActionExecFields(actionExec)
 	}
 	return updated
 }
@@ -175,11 +176,11 @@ func (d *DesktopEntry) rewriteDesktopActionExecFields(exec string) {
 		if !ok {
 			continue
 		}
-		d.lines[i].raw = "Exec=" + exec + desktopActionExecArgumentSuffix(strings.TrimSpace(oldValue))
+		d.lines[i].raw = "Exec=" + exec + desktopExecArgumentSuffix(strings.TrimSpace(oldValue))
 	}
 }
 
-func desktopActionExecArgumentSuffix(exec string) string {
+func desktopExecArgumentSuffix(exec string) string {
 	index := strings.IndexFunc(exec, unicode.IsSpace)
 	if index == -1 {
 		return ""
