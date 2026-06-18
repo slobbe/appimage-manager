@@ -245,7 +245,7 @@ func (s *service) integrateLocal(ctx context.Context, req AddRequest, source dom
 
 	updatedDesktopEntry := metadata.desktopEntry.
 		WithExec(installedAppImagePath).
-		WithIcon(provisionalApp.ID)
+		WithIcon(installedIconPath)
 	installedDesktopEntryPath, err := s.desktopEntryInstaller.Install(ctx, provisionalApp.ID, updatedDesktopEntry.Bytes())
 	if err != nil {
 		return AddResult{}, err
@@ -566,10 +566,7 @@ func (s *service) applyGitHubUpdate(ctx context.Context, activity ActivityReport
 	if err != nil {
 		return err
 	}
-
-	updatedApp := result.App
-	updatedApp.ID = plan.app.ID
-	updatedApp.UpdateSource = plan.app.UpdateSource
+	stagedApp := result.App
 
 	var rollback rollbackStack
 	committed := false
@@ -578,13 +575,21 @@ func (s *service) applyGitHubUpdate(ctx context.Context, activity ActivityReport
 			rollback.run(ctx)
 		}
 	}()
-	addAppRollback(&rollback, s, updatedApp)
+	addAppRollback(&rollback, s, stagedApp)
+
+	updatedApp, err := s.promoteStagedUpdate(ctx, stagedApp, plan.app.ID, plan.app.UpdateSource)
+	if err != nil {
+		return err
+	}
 
 	if err := s.apps.Save(ctx, updatedApp); err != nil {
 		return err
 	}
 	committed = true
 
+	if err := s.removeInstalledAppArtifacts(ctx, stagedApp); err != nil {
+		return fmt.Errorf("updated %s but failed to remove staged artifacts: %w", plan.app.ID, err)
+	}
 	if err := s.removeReplacedArtifacts(ctx, plan.app, updatedApp); err != nil {
 		return fmt.Errorf("updated %s but failed to remove replaced artifacts: %w", plan.app.ID, err)
 	}
@@ -605,6 +610,43 @@ func pathWithin(path string, dir string) bool {
 		return false
 	}
 	return rel == "." || (rel != "" && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
+}
+
+func (s *service) promoteStagedUpdate(ctx context.Context, stagedApp domain.App, targetID string, updateSource domain.UpdateSource) (domain.App, error) {
+	metadata, err := s.inspectInstalledAppImageForID(ctx, stagedApp.AppImagePath)
+	if err != nil {
+		return domain.App{}, err
+	}
+
+	installedAppImagePath, err := s.appImageInstaller.Install(ctx, stagedApp.AppImagePath, targetID)
+	if err != nil {
+		return domain.App{}, err
+	}
+	installedIconPath, err := s.iconInstaller.Install(ctx, stagedApp.IconPath, targetID)
+	if err != nil {
+		return domain.App{}, err
+	}
+
+	updatedDesktopEntry := metadata.desktopEntry.
+		WithExec(installedAppImagePath).
+		WithIcon(installedIconPath)
+	installedDesktopEntryPath, err := s.desktopEntryInstaller.Install(ctx, targetID, updatedDesktopEntry.Bytes())
+	if err != nil {
+		return domain.App{}, err
+	}
+
+	updatedApp := domain.NewAppFromDesktopEntry(metadata.desktopEntry, domain.AppInput{
+		ID:               targetID,
+		AppImagePath:     installedAppImagePath,
+		DesktopEntryPath: installedDesktopEntryPath,
+		IconPath:         installedIconPath,
+		Source:           stagedApp.Source,
+		UpdateSource:     updateSource,
+	})
+	if updatedApp.Version.IsZero() {
+		updatedApp.Version = stagedApp.Version
+	}
+	return updatedApp, nil
 }
 
 func addAppRollback(rollback *rollbackStack, s *service, installedApp domain.App) {
@@ -719,7 +761,7 @@ func (s *service) setID(ctx context.Context, req SetIDRequest, currentID string)
 
 	updatedDesktopEntry := metadata.desktopEntry.
 		WithExec(installedAppImagePath).
-		WithIcon(targetID)
+		WithIcon(installedIconPath)
 	installedDesktopEntryPath, err := s.desktopEntryInstaller.Install(ctx, targetID, updatedDesktopEntry.Bytes())
 	if err != nil {
 		return SetIDResult{}, err
@@ -783,6 +825,19 @@ func (s *service) inspectInstalledAppImageForID(ctx context.Context, appImagePat
 	}
 	app := domain.NewAppFromDesktopEntry(desktopEntry, domain.AppInput{AppImagePath: appImagePath})
 	return installedAppImageIDMetadata{app: app, desktopEntry: desktopEntry}, nil
+}
+
+func (s *service) removeInstalledAppArtifacts(ctx context.Context, installedApp domain.App) error {
+	if err := removeInstalledArtifact(ctx, installedApp.DesktopEntryPath, s.desktopEntryRemover.Remove); err != nil {
+		return err
+	}
+	if err := removeInstalledArtifact(ctx, installedApp.IconPath, s.iconRemover.Remove); err != nil {
+		return err
+	}
+	if err := removeInstalledArtifact(ctx, installedApp.AppImagePath, s.appImageRemover.Remove); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *service) removeReplacedArtifacts(ctx context.Context, previous domain.App, next domain.App) error {
