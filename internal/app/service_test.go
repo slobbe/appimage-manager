@@ -103,8 +103,8 @@ func TestServiceAddIntegratesLocalAppImage(t *testing.T) {
 	if !strings.Contains(desktopContent, "Exec=/library/example-app.AppImage %U") {
 		t.Fatalf("desktop content = %q, want updated Exec with arguments preserved", desktopContent)
 	}
-	if !strings.Contains(desktopContent, "Icon=example-app") {
-		t.Fatalf("desktop content = %q, want updated Icon", desktopContent)
+	if !strings.Contains(desktopContent, "Icon=/icons/hicolor/256x256/apps/example-app.png") {
+		t.Fatalf("desktop content = %q, want absolute updated Icon", desktopContent)
 	}
 	if !strings.Contains(desktopContent, "[Desktop Action NewWindow]") {
 		t.Fatalf("desktop content = %q, want action group preserved", desktopContent)
@@ -498,6 +498,7 @@ func TestServiceUpdateAppliesGitHubUpdates(t *testing.T) {
 		"Icon=example-icon",
 		"",
 	}, "\n"))
+	configureUpdateArtifactPaths(&deps, "example-app", "example-app-2-0-0")
 	releases := &fakeGitHubReleaseFinder{release: testGitHubReleaseWithTag("v2.0.0", "Example.AppImage")}
 	downloads := &fakeAssetDownloader{}
 	deps.ServiceDeps.GitHubReleases = releases
@@ -543,6 +544,36 @@ func TestServiceUpdateAppliesGitHubUpdates(t *testing.T) {
 	if !deps.saved.App.UpdateSource.Prerelease {
 		t.Fatal("saved App.UpdateSource.Prerelease = false, want true")
 	}
+	if got, want := deps.saved.App.AppImagePath, "/library/example-app.AppImage"; got != want {
+		t.Fatalf("saved App.AppImagePath = %q, want %q", got, want)
+	}
+	if got, want := deps.saved.App.IconPath, "/icons/hicolor/256x256/apps/example-app.png"; got != want {
+		t.Fatalf("saved App.IconPath = %q, want %q", got, want)
+	}
+	if got, want := deps.saved.App.DesktopEntryPath, "/desktop/example-app.desktop"; got != want {
+		t.Fatalf("saved App.DesktopEntryPath = %q, want %q", got, want)
+	}
+	assertInstallCalls(t, deps.appImageInstaller.calls, []fakeInstallCall{
+		{sourcePath: "/workspace/Example.AppImage", appID: "example-app-2-0-0"},
+		{sourcePath: "/library/example-app-2-0-0.AppImage", appID: "example-app"},
+	})
+	assertInstallCalls(t, deps.iconInstaller.calls, []fakeInstallCall{
+		{sourcePath: "/extracted/example.png", appID: "example-app-2-0-0"},
+		{sourcePath: "/icons/hicolor/256x256/apps/example-app-2-0-0.png", appID: "example-app"},
+	})
+	finalDesktopContent := string(deps.desktopEntryInstaller.content)
+	if strings.Contains(finalDesktopContent, "example-app-2-0-0") {
+		t.Fatalf("desktop content = %q, want no staged ID", finalDesktopContent)
+	}
+	if !strings.Contains(finalDesktopContent, "Exec=/library/example-app.AppImage") {
+		t.Fatalf("desktop content = %q, want stable Exec", finalDesktopContent)
+	}
+	if !strings.Contains(finalDesktopContent, "Icon=/icons/hicolor/256x256/apps/example-app.png") {
+		t.Fatalf("desktop content = %q, want absolute stable Icon", finalDesktopContent)
+	}
+	assertRemovedPaths(t, deps.desktopEntryRemover.paths, []string{"/desktop/example-app-2-0-0.desktop"})
+	assertRemovedPaths(t, deps.iconRemover.paths, []string{"/icons/hicolor/256x256/apps/example-app-2-0-0.png"})
+	assertRemovedPaths(t, deps.appImageRemover.paths, []string{"/library/example-app-2-0-0.AppImage"})
 }
 
 func TestServiceUpdateCheckOnlyReturnsCandidatesWithoutApplying(t *testing.T) {
@@ -673,8 +704,8 @@ func TestServiceSetIDChangesInstalledAppID(t *testing.T) {
 	if !strings.Contains(content, "Exec=/library/custom-id.AppImage") {
 		t.Fatalf("desktop content = %q, want updated Exec", content)
 	}
-	if !strings.Contains(content, "Icon=custom-id") {
-		t.Fatalf("desktop content = %q, want updated Icon", content)
+	if !strings.Contains(content, "Icon=/icons/hicolor/256x256/apps/custom-id.png") {
+		t.Fatalf("desktop content = %q, want absolute updated Icon", content)
 	}
 	if got, want := deps.apps.deletedID, installed.ID; got != want {
 		t.Fatalf("deleted app ID = %q, want %q", got, want)
@@ -805,6 +836,7 @@ func TestServiceUpdateAppliesGitHubUpdateForTargetApp(t *testing.T) {
 		"Icon=example-icon",
 		"",
 	}, "\n"))
+	configureUpdateArtifactPaths(&deps, "example-app", "example-app-2-0-0")
 	deps.ServiceDeps.GitHubReleases = &fakeGitHubReleaseFinder{release: testGitHubReleaseWithTag("v2.0.0", "Example.AppImage")}
 	deps.ServiceDeps.Downloads = &fakeAssetDownloader{}
 	confirmation := &fakeUpdateConfirmation{confirmed: true}
@@ -896,6 +928,7 @@ func TestServiceUpdateUsesEmbeddedGitHubReleaseTagAndAssetPattern(t *testing.T) 
 		"Icon=example-icon",
 		"",
 	}, "\n"))
+	configureUpdateArtifactPaths(&deps, "example-app", "example-app-2-0-0")
 	releases := &fakeGitHubReleaseFinder{release: testGitHubReleaseWithTag("v2.0.0", "Other-x86_64.AppImage", "Example-2.0.0-x86_64.AppImage", "Example-2.0.0-x86_64.AppImage.zsync")}
 	deps.ServiceDeps.GitHubReleases = releases
 	deps.ServiceDeps.Downloads = &fakeAssetDownloader{}
@@ -916,9 +949,10 @@ func TestServiceUpdateUsesEmbeddedGitHubReleaseTagAndAssetPattern(t *testing.T) 
 	if got, want := releases.repo, "owner/repo"; got != want {
 		t.Fatalf("release finder repo = %q, want %q", got, want)
 	}
-	if got, want := deps.appImageInstaller.sourcePath, "/workspace/Example-2.0.0-x86_64.AppImage"; got != want {
-		t.Fatalf("appimage installer source = %q, want %q", got, want)
-	}
+	assertInstallCalls(t, deps.appImageInstaller.calls, []fakeInstallCall{
+		{sourcePath: "/workspace/Example-2.0.0-x86_64.AppImage", appID: "example-app-2-0-0"},
+		{sourcePath: "/library/example-app-2-0-0.AppImage", appID: "example-app"},
+	})
 	wantCandidates := []UpdateCandidate{{ID: installed.ID, CurrentVersion: "1.2.3", NewVersion: "2.0.0"}}
 	assertUpdateCandidates(t, result.Updates, wantCandidates)
 	if got := deps.saved.App.UpdateSource.Raw; got != raw {
@@ -944,6 +978,7 @@ func TestServiceUpdateUsesGitHubAssetPattern(t *testing.T) {
 		"Icon=example-icon",
 		"",
 	}, "\n"))
+	configureUpdateArtifactPaths(&deps, "example-app", "example-app-2-0-0")
 	releases := &fakeGitHubReleaseFinder{release: testGitHubReleaseWithTag("v2.0.0", "Example-arm64.AppImage", "Example-x86_64.AppImage")}
 	deps.ServiceDeps.GitHubReleases = releases
 	deps.ServiceDeps.Downloads = &fakeAssetDownloader{}
@@ -957,9 +992,10 @@ func TestServiceUpdateUsesGitHubAssetPattern(t *testing.T) {
 		t.Fatalf("Update() error = %v", err)
 	}
 
-	if got, want := deps.appImageInstaller.sourcePath, "/workspace/Example-arm64.AppImage"; got != want {
-		t.Fatalf("appimage installer source = %q, want %q", got, want)
-	}
+	assertInstallCalls(t, deps.appImageInstaller.calls, []fakeInstallCall{
+		{sourcePath: "/workspace/Example-arm64.AppImage", appID: "example-app-2-0-0"},
+		{sourcePath: "/library/example-app-2-0-0.AppImage", appID: "example-app"},
+	})
 	if got, want := deps.saved.App.UpdateSource.AssetPattern, "Example-arm64.AppImage"; got != want {
 		t.Fatalf("saved App.UpdateSource.AssetPattern = %q, want %q", got, want)
 	}
@@ -979,6 +1015,7 @@ func TestServiceUpdateUsesEmbeddedGitHubExactReleaseTag(t *testing.T) {
 		"Icon=example-icon",
 		"",
 	}, "\n"))
+	configureUpdateArtifactPaths(&deps, "example-app", "example-app-2-0-0")
 	releases := &fakeGitHubReleaseFinder{release: testGitHubReleaseWithTag("v2.0.0", "Example-2.0.0.AppImage")}
 	deps.ServiceDeps.GitHubReleases = releases
 	deps.ServiceDeps.Downloads = &fakeAssetDownloader{}
@@ -1044,7 +1081,7 @@ func TestServiceUpdateRollsBackStagedArtifactsWhenIntegrationFails(t *testing.T)
 	deps.apps.listApps = []domain.App{installed}
 	deps.ServiceDeps.GitHubReleases = &fakeGitHubReleaseFinder{release: testGitHubReleaseWithTag("v2.0.0", "Example.AppImage")}
 	deps.ServiceDeps.Downloads = &fakeAssetDownloader{}
-	deps.appImageInstaller.path = "/library/example-app-2-0-0.AppImage"
+	configureUpdateArtifactPaths(&deps, "example-app", "example-app-2-0-0")
 	deps.iconInstaller.err = errors.New("icon install failed")
 	service, err := NewService(deps.ServiceDeps)
 	if err != nil {
@@ -1076,9 +1113,7 @@ func TestServiceUpdateRollsBackStagedArtifactsWhenSaveFails(t *testing.T) {
 	deps.apps.listApps = []domain.App{installed}
 	deps.ServiceDeps.GitHubReleases = &fakeGitHubReleaseFinder{release: testGitHubReleaseWithTag("v2.0.0", "Example.AppImage")}
 	deps.ServiceDeps.Downloads = &fakeAssetDownloader{}
-	deps.appImageInstaller.path = "/library/example-app-2-0-0.AppImage"
-	deps.iconInstaller.path = "/icons/hicolor/256x256/apps/example-app-2-0-0.png"
-	deps.desktopEntryInstaller.path = "/desktop/example-app-2-0-0.desktop"
+	configureUpdateArtifactPaths(&deps, "example-app", "example-app-2-0-0")
 	failure := errors.New("save failed")
 	deps.apps.err = failure
 	service, err := NewService(deps.ServiceDeps)
@@ -1096,7 +1131,7 @@ func TestServiceUpdateRollsBackStagedArtifactsWhenSaveFails(t *testing.T) {
 	assertRemovedPaths(t, deps.appImageRemover.paths, []string{"/library/example-app-2-0-0.AppImage"})
 }
 
-func TestServiceUpdateKeepsSavedUpdateWhenOldArtifactCleanupFails(t *testing.T) {
+func TestServiceUpdateKeepsSavedUpdateWhenStagedArtifactCleanupFails(t *testing.T) {
 	t.Parallel()
 
 	deps := integrationTestDeps()
@@ -1105,10 +1140,8 @@ func TestServiceUpdateKeepsSavedUpdateWhenOldArtifactCleanupFails(t *testing.T) 
 	deps.apps.listApps = []domain.App{installed}
 	deps.ServiceDeps.GitHubReleases = &fakeGitHubReleaseFinder{release: testGitHubReleaseWithTag("v2.0.0", "Example.AppImage")}
 	deps.ServiceDeps.Downloads = &fakeAssetDownloader{}
-	deps.appImageInstaller.path = "/library/example-app-2-0-0.AppImage"
-	deps.iconInstaller.path = "/icons/hicolor/256x256/apps/example-app-2-0-0.png"
-	deps.desktopEntryInstaller.path = "/desktop/example-app-2-0-0.desktop"
-	failure := errors.New("remove old icon failed")
+	configureUpdateArtifactPaths(&deps, "example-app", "example-app-2-0-0")
+	failure := errors.New("remove staged icon failed")
 	deps.iconRemover.err = failure
 	service, err := NewService(deps.ServiceDeps)
 	if err != nil {
@@ -1116,18 +1149,18 @@ func TestServiceUpdateKeepsSavedUpdateWhenOldArtifactCleanupFails(t *testing.T) 
 	}
 
 	_, err = service.Update(context.Background(), UpdateRequest{Confirmation: &fakeUpdateConfirmation{confirmed: true}})
-	if !errors.Is(err, failure) || !strings.Contains(err.Error(), "failed to remove replaced artifacts") {
-		t.Fatalf("Update() error = %v, want cleanup failure", err)
+	if !errors.Is(err, failure) || !strings.Contains(err.Error(), "failed to remove staged artifacts") {
+		t.Fatalf("Update() error = %v, want staged cleanup failure", err)
 	}
 
 	if got, want := deps.saved.App.ID, installed.ID; got != want {
 		t.Fatalf("saved App.ID = %q, want %q", got, want)
 	}
-	if got, want := deps.saved.App.AppImagePath, "/library/example-app-2-0-0.AppImage"; got != want {
+	if got, want := deps.saved.App.AppImagePath, "/library/example-app.AppImage"; got != want {
 		t.Fatalf("saved App.AppImagePath = %q, want %q", got, want)
 	}
-	assertRemovedPaths(t, deps.desktopEntryRemover.paths, []string{installed.DesktopEntryPath})
-	assertRemovedPaths(t, deps.iconRemover.paths, []string{installed.IconPath})
+	assertRemovedPaths(t, deps.desktopEntryRemover.paths, []string{"/desktop/example-app-2-0-0.desktop"})
+	assertRemovedPaths(t, deps.iconRemover.paths, []string{"/icons/hicolor/256x256/apps/example-app-2-0-0.png"})
 	assertRemovedPaths(t, deps.appImageRemover.paths, nil)
 }
 
@@ -2174,11 +2207,23 @@ func (f *fakeIconDiscoverer) Discover(ctx context.Context, rootDir string, iconN
 	return IconFile{Path: f.path}, nil
 }
 
+type fakeInstallCall struct {
+	sourcePath string
+	appID      string
+}
+
+type fakeDesktopInstallCall struct {
+	appID   string
+	content []byte
+}
+
 type fakeAppImageInstaller struct {
 	called     bool
 	sourcePath string
 	appID      string
 	path       string
+	paths      map[string]string
+	calls      []fakeInstallCall
 	err        error
 }
 
@@ -2186,8 +2231,12 @@ func (f *fakeAppImageInstaller) Install(ctx context.Context, sourcePath string, 
 	f.called = true
 	f.sourcePath = sourcePath
 	f.appID = appID
+	f.calls = append(f.calls, fakeInstallCall{sourcePath: sourcePath, appID: appID})
 	if f.err != nil {
 		return "", f.err
+	}
+	if path := f.paths[appID]; path != "" {
+		return path, nil
 	}
 	return f.path, nil
 }
@@ -2196,6 +2245,8 @@ type fakeIconInstaller struct {
 	sourcePath                 string
 	appID                      string
 	path                       string
+	paths                      map[string]string
+	calls                      []fakeInstallCall
 	err                        error
 	workspace                  *fakeWorkspaceProvider
 	workspaceCleanedWhenCalled bool
@@ -2204,11 +2255,15 @@ type fakeIconInstaller struct {
 func (f *fakeIconInstaller) Install(ctx context.Context, sourcePath string, appID string) (string, error) {
 	f.sourcePath = sourcePath
 	f.appID = appID
+	f.calls = append(f.calls, fakeInstallCall{sourcePath: sourcePath, appID: appID})
 	if f.workspace != nil {
 		f.workspaceCleanedWhenCalled = f.workspace.cleaned
 	}
 	if f.err != nil {
 		return "", f.err
+	}
+	if path := f.paths[appID]; path != "" {
+		return path, nil
 	}
 	return f.path, nil
 }
@@ -2217,14 +2272,20 @@ type fakeDesktopEntryInstaller struct {
 	appID   string
 	content []byte
 	path    string
+	paths   map[string]string
+	calls   []fakeDesktopInstallCall
 	err     error
 }
 
 func (f *fakeDesktopEntryInstaller) Install(ctx context.Context, appID string, content []byte) (string, error) {
 	f.appID = appID
 	f.content = content
+	f.calls = append(f.calls, fakeDesktopInstallCall{appID: appID, content: content})
 	if f.err != nil {
 		return "", f.err
+	}
+	if path := f.paths[appID]; path != "" {
+		return path, nil
 	}
 	return f.path, nil
 }
@@ -2435,6 +2496,33 @@ func (f *fakeAppRepository) Delete(ctx context.Context, id string) error {
 
 func testSourceTime() time.Time {
 	return time.Date(2026, 6, 3, 14, 6, 7, 0, time.UTC)
+}
+
+func configureUpdateArtifactPaths(deps *integrationFakes, appID string, stageID string) {
+	deps.appImageInstaller.paths = map[string]string{
+		appID:   "/library/" + appID + ".AppImage",
+		stageID: "/library/" + stageID + ".AppImage",
+	}
+	deps.iconInstaller.paths = map[string]string{
+		appID:   "/icons/hicolor/256x256/apps/" + appID + ".png",
+		stageID: "/icons/hicolor/256x256/apps/" + stageID + ".png",
+	}
+	deps.desktopEntryInstaller.paths = map[string]string{
+		appID:   "/desktop/" + appID + ".desktop",
+		stageID: "/desktop/" + stageID + ".desktop",
+	}
+}
+
+func assertInstallCalls(t *testing.T, got []fakeInstallCall, want []fakeInstallCall) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("install calls = %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("install calls = %#v, want %#v", got, want)
+		}
+	}
 }
 
 func testInstalledApp(t *testing.T) domain.App {
