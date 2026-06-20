@@ -2,7 +2,7 @@
 
 A CLI to install, integrate, inspect, and update AppImages on Linux.
 
-[![](https://shieldcn.dev/group/github/release/slobbe/appimage-manager+github/license/slobbe/appimage-manager.svg?variant=secondary&size=xs)](https://github.com/slobbe/appimage-manager/releases/latest)
+![](https://shieldcn.dev/group/github/release/slobbe/appimage-manager+github/license/slobbe/appimage-manager.svg?variant=branded&size=sm)
 
 > [!NOTE]
 > This project is still a **work in progress** and breaking changes may happen at any time while in `v0.x.x`.
