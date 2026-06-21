@@ -92,13 +92,13 @@ type SetIDResult struct {
 type ListRequest struct{}
 
 type ListResult struct {
-	Items []ListItem
+	Items []ListItem `json:"items"`
 }
 
 type ListItem struct {
-	ID      string
-	Name    string
-	Version string
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Version string `json:"version"`
 }
 
 type InfoRequest struct {
@@ -141,8 +141,8 @@ type SelfUpdateResult struct {
 type PathsRequest struct{}
 
 type PathsResult struct {
-	ConfigFile  string
-	AppImageDir string
-	DesktopDir  string
-	IconDir     string
+	ConfigFile  string `json:"config_file"`
+	AppImageDir string `json:"appimage_dir"`
+	DesktopDir  string `json:"desktop_dir"`
+	IconDir     string `json:"icon_dir"`
 }

@@ -148,12 +148,12 @@ Skipped by user request; keep live progress bars.
 
 ## Commit 11: `refactor(cli): reduce output dto duplication`
 
-- [ ] Simplify JSON DTO mapping for simple commands.
+- [x] Simplify JSON DTO mapping for simple commands.
   - For `list`, `paths`, and other simple commands, encode app result structs directly if their JSON shape is acceptable.
   - Keep anonymous structs only when CLI JSON names intentionally differ from app field names.
   - Validate command tests.
 
-- [ ] Centralize or shrink `info` source/update-source JSON mapping.
+- [x] Centralize or shrink `info` source/update-source JSON mapping.
   - Either move source/update-source DTO mapping to a shared CLI output helper, or reduce it to only fields the command actually needs.
   - Avoid duplicating persistence DTOs in CLI.
   - Validate `go test ./internal/cli/command/info`.
