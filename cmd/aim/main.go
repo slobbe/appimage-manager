@@ -14,6 +14,7 @@ import (
 	"github.com/slobbe/appimage-manager/internal/infra/config"
 	"github.com/slobbe/appimage-manager/internal/infra/desktop"
 	"github.com/slobbe/appimage-manager/internal/infra/download"
+	"github.com/slobbe/appimage-manager/internal/infra/fileutil"
 	"github.com/slobbe/appimage-manager/internal/infra/github"
 	"github.com/slobbe/appimage-manager/internal/infra/icon"
 	"github.com/slobbe/appimage-manager/internal/infra/selfupdate"
@@ -52,11 +53,9 @@ func main() {
 		DesktopEntries:              desktop.NewDiscoverer(),
 		Icons:                       icon.NewDiscoverer(),
 		AppImageInstaller:           appimage.NewInstaller(cfg.AppImageDir),
-		AppImageRemover:             appimage.NewRemover(),
 		IconInstaller:               icon.NewInstaller(cfg.IconDir),
-		IconRemover:                 icon.NewRemover(),
 		DesktopEntryInstaller:       desktop.NewInstaller(cfg.DesktopDir),
-		DesktopEntryRemover:         desktop.NewRemover(),
+		ArtifactRemover:             fileutil.NewRemover(),
 		DesktopIntegrationRefresher: desktop.NewRefresher(cfg.DesktopDir, cfg.IconDir),
 		GitHubReleases:              github.NewClient(),
 		Downloads:                   download.NewDownloader(),

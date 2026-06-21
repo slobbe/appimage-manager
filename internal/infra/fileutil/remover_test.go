@@ -1,4 +1,4 @@
-package icon
+package fileutil
 
 import (
 	"context"
@@ -8,10 +8,10 @@ import (
 	"testing"
 )
 
-func TestRemoverRemovesIcon(t *testing.T) {
+func TestRemoverRemovesArtifact(t *testing.T) {
 	t.Parallel()
-	path := filepath.Join(t.TempDir(), "app.png")
-	if err := os.WriteFile(path, []byte("icon"), 0o644); err != nil {
+	path := filepath.Join(t.TempDir(), "artifact")
+	if err := os.WriteFile(path, []byte("artifact"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := NewRemover().Remove(context.Background(), path); err != nil {
@@ -22,14 +22,14 @@ func TestRemoverRemovesIcon(t *testing.T) {
 	}
 }
 
-func TestRemoverIgnoresMissingIcon(t *testing.T) {
+func TestRemoverIgnoresMissingArtifact(t *testing.T) {
 	t.Parallel()
-	if err := NewRemover().Remove(context.Background(), filepath.Join(t.TempDir(), "missing.png")); err != nil {
+	if err := NewRemover().Remove(context.Background(), filepath.Join(t.TempDir(), "missing")); err != nil {
 		t.Fatalf("Remove() error = %v", err)
 	}
 }
 
-func TestRemoverValidatesIconPath(t *testing.T) {
+func TestRemoverValidatesArtifactPath(t *testing.T) {
 	t.Parallel()
 	if err := NewRemover().Remove(context.Background(), ""); err == nil {
 		t.Fatal("Remove() error = nil, want error")
@@ -40,7 +40,7 @@ func TestRemoverRespectsCanceledContext(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if err := NewRemover().Remove(ctx, "app.png"); !errors.Is(err, context.Canceled) {
+	if err := NewRemover().Remove(ctx, "artifact"); !errors.Is(err, context.Canceled) {
 		t.Fatalf("Remove() error = %v, want context.Canceled", err)
 	}
 }

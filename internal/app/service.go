@@ -23,11 +23,9 @@ type service struct {
 	desktopEntries              DesktopEntryDiscoverer
 	icons                       IconDiscoverer
 	appImageInstaller           AppImageInstaller
-	appImageRemover             AppImageRemover
 	iconInstaller               IconInstaller
-	iconRemover                 IconRemover
 	desktopEntryInstaller       DesktopEntryInstaller
-	desktopEntryRemover         DesktopEntryRemover
+	artifactRemover             ArtifactRemover
 	desktopIntegrationRefresher DesktopIntegrationRefresher
 	githubReleases              GitHubReleaseFinder
 	downloads                   AssetDownloader
@@ -43,11 +41,9 @@ type ServiceDeps struct {
 	DesktopEntries              DesktopEntryDiscoverer
 	Icons                       IconDiscoverer
 	AppImageInstaller           AppImageInstaller
-	AppImageRemover             AppImageRemover
 	IconInstaller               IconInstaller
-	IconRemover                 IconRemover
 	DesktopEntryInstaller       DesktopEntryInstaller
-	DesktopEntryRemover         DesktopEntryRemover
+	ArtifactRemover             ArtifactRemover
 	DesktopIntegrationRefresher DesktopIntegrationRefresher
 	GitHubReleases              GitHubReleaseFinder
 	Downloads                   AssetDownloader
@@ -66,11 +62,9 @@ func NewService(deps ServiceDeps) (Service, error) {
 		desktopEntries:              deps.DesktopEntries,
 		icons:                       deps.Icons,
 		appImageInstaller:           deps.AppImageInstaller,
-		appImageRemover:             deps.AppImageRemover,
 		iconInstaller:               deps.IconInstaller,
-		iconRemover:                 deps.IconRemover,
 		desktopEntryInstaller:       deps.DesktopEntryInstaller,
-		desktopEntryRemover:         deps.DesktopEntryRemover,
+		artifactRemover:             deps.ArtifactRemover,
 		desktopIntegrationRefresher: deps.DesktopIntegrationRefresher,
 		githubReleases:              deps.GitHubReleases,
 		downloads:                   deps.Downloads,
@@ -232,7 +226,7 @@ func (s *service) integrateLocal(ctx context.Context, req AddRequest, source dom
 		return AddResult{}, err
 	}
 	rollback.add(func(ctx context.Context) error {
-		return s.appImageRemover.Remove(ctx, installedAppImagePath)
+		return s.artifactRemover.Remove(ctx, installedAppImagePath)
 	})
 
 	installedIconPath, err := s.iconInstaller.Install(ctx, metadata.iconFile.Path, provisionalApp.ID)
@@ -240,7 +234,7 @@ func (s *service) integrateLocal(ctx context.Context, req AddRequest, source dom
 		return AddResult{}, err
 	}
 	rollback.add(func(ctx context.Context) error {
-		return s.iconRemover.Remove(ctx, installedIconPath)
+		return s.artifactRemover.Remove(ctx, installedIconPath)
 	})
 
 	updatedDesktopEntry := metadata.desktopEntry.
@@ -251,7 +245,7 @@ func (s *service) integrateLocal(ctx context.Context, req AddRequest, source dom
 		return AddResult{}, err
 	}
 	rollback.add(func(ctx context.Context) error {
-		return s.desktopEntryRemover.Remove(ctx, installedDesktopEntryPath)
+		return s.artifactRemover.Remove(ctx, installedDesktopEntryPath)
 	})
 
 	if s.desktopIntegrationRefresher != nil {
@@ -365,13 +359,13 @@ func (s *service) Remove(ctx context.Context, req RemoveRequest) error {
 }
 
 func (s *service) removeInstalledApp(ctx context.Context, installedApp domain.App) error {
-	if err := removeInstalledArtifact(ctx, installedApp.DesktopEntryPath, s.desktopEntryRemover.Remove); err != nil {
+	if err := removeInstalledArtifact(ctx, installedApp.DesktopEntryPath, s.artifactRemover.Remove); err != nil {
 		return err
 	}
-	if err := removeInstalledArtifact(ctx, installedApp.IconPath, s.iconRemover.Remove); err != nil {
+	if err := removeInstalledArtifact(ctx, installedApp.IconPath, s.artifactRemover.Remove); err != nil {
 		return err
 	}
-	if err := removeInstalledArtifact(ctx, installedApp.AppImagePath, s.appImageRemover.Remove); err != nil {
+	if err := removeInstalledArtifact(ctx, installedApp.AppImagePath, s.artifactRemover.Remove); err != nil {
 		return err
 	}
 
@@ -651,13 +645,13 @@ func (s *service) promoteStagedUpdate(ctx context.Context, stagedApp domain.App,
 
 func addAppRollback(rollback *rollbackStack, s *service, installedApp domain.App) {
 	rollback.add(func(ctx context.Context) error {
-		return removeInstalledArtifact(ctx, installedApp.AppImagePath, s.appImageRemover.Remove)
+		return removeInstalledArtifact(ctx, installedApp.AppImagePath, s.artifactRemover.Remove)
 	})
 	rollback.add(func(ctx context.Context) error {
-		return removeInstalledArtifact(ctx, installedApp.IconPath, s.iconRemover.Remove)
+		return removeInstalledArtifact(ctx, installedApp.IconPath, s.artifactRemover.Remove)
 	})
 	rollback.add(func(ctx context.Context) error {
-		return removeInstalledArtifact(ctx, installedApp.DesktopEntryPath, s.desktopEntryRemover.Remove)
+		return removeInstalledArtifact(ctx, installedApp.DesktopEntryPath, s.artifactRemover.Remove)
 	})
 }
 
@@ -748,7 +742,7 @@ func (s *service) setID(ctx context.Context, req SetIDRequest, currentID string)
 		return SetIDResult{}, err
 	}
 	rollback.add(func(ctx context.Context) error {
-		return removeInstalledArtifact(ctx, installedAppImagePath, s.appImageRemover.Remove)
+		return removeInstalledArtifact(ctx, installedAppImagePath, s.artifactRemover.Remove)
 	})
 
 	installedIconPath, err := s.iconInstaller.Install(ctx, installedApp.IconPath, targetID)
@@ -756,7 +750,7 @@ func (s *service) setID(ctx context.Context, req SetIDRequest, currentID string)
 		return SetIDResult{}, err
 	}
 	rollback.add(func(ctx context.Context) error {
-		return removeInstalledArtifact(ctx, installedIconPath, s.iconRemover.Remove)
+		return removeInstalledArtifact(ctx, installedIconPath, s.artifactRemover.Remove)
 	})
 
 	updatedDesktopEntry := metadata.desktopEntry.
@@ -767,7 +761,7 @@ func (s *service) setID(ctx context.Context, req SetIDRequest, currentID string)
 		return SetIDResult{}, err
 	}
 	rollback.add(func(ctx context.Context) error {
-		return removeInstalledArtifact(ctx, installedDesktopEntryPath, s.desktopEntryRemover.Remove)
+		return removeInstalledArtifact(ctx, installedDesktopEntryPath, s.artifactRemover.Remove)
 	})
 
 	updatedApp := domain.NewAppFromDesktopEntry(metadata.desktopEntry, domain.AppInput{
@@ -828,13 +822,13 @@ func (s *service) inspectInstalledAppImageForID(ctx context.Context, appImagePat
 }
 
 func (s *service) removeInstalledAppArtifacts(ctx context.Context, installedApp domain.App) error {
-	if err := removeInstalledArtifact(ctx, installedApp.DesktopEntryPath, s.desktopEntryRemover.Remove); err != nil {
+	if err := removeInstalledArtifact(ctx, installedApp.DesktopEntryPath, s.artifactRemover.Remove); err != nil {
 		return err
 	}
-	if err := removeInstalledArtifact(ctx, installedApp.IconPath, s.iconRemover.Remove); err != nil {
+	if err := removeInstalledArtifact(ctx, installedApp.IconPath, s.artifactRemover.Remove); err != nil {
 		return err
 	}
-	if err := removeInstalledArtifact(ctx, installedApp.AppImagePath, s.appImageRemover.Remove); err != nil {
+	if err := removeInstalledArtifact(ctx, installedApp.AppImagePath, s.artifactRemover.Remove); err != nil {
 		return err
 	}
 	return nil
@@ -842,17 +836,17 @@ func (s *service) removeInstalledAppArtifacts(ctx context.Context, installedApp 
 
 func (s *service) removeReplacedArtifacts(ctx context.Context, previous domain.App, next domain.App) error {
 	if previous.DesktopEntryPath != "" && previous.DesktopEntryPath != next.DesktopEntryPath {
-		if err := s.desktopEntryRemover.Remove(ctx, previous.DesktopEntryPath); err != nil {
+		if err := s.artifactRemover.Remove(ctx, previous.DesktopEntryPath); err != nil {
 			return err
 		}
 	}
 	if previous.IconPath != "" && previous.IconPath != next.IconPath {
-		if err := s.iconRemover.Remove(ctx, previous.IconPath); err != nil {
+		if err := s.artifactRemover.Remove(ctx, previous.IconPath); err != nil {
 			return err
 		}
 	}
 	if previous.AppImagePath != "" && previous.AppImagePath != next.AppImagePath {
-		if err := s.appImageRemover.Remove(ctx, previous.AppImagePath); err != nil {
+		if err := s.artifactRemover.Remove(ctx, previous.AppImagePath); err != nil {
 			return err
 		}
 	}
@@ -1183,20 +1177,14 @@ func (s *service) validate() error {
 	if s.appImageInstaller == nil {
 		return fmt.Errorf("appimage installer is required")
 	}
-	if s.appImageRemover == nil {
-		return fmt.Errorf("appimage remover is required")
-	}
 	if s.iconInstaller == nil {
 		return fmt.Errorf("icon installer is required")
-	}
-	if s.iconRemover == nil {
-		return fmt.Errorf("icon remover is required")
 	}
 	if s.desktopEntryInstaller == nil {
 		return fmt.Errorf("desktop entry installer is required")
 	}
-	if s.desktopEntryRemover == nil {
-		return fmt.Errorf("desktop entry remover is required")
+	if s.artifactRemover == nil {
+		return fmt.Errorf("artifact remover is required")
 	}
 	if s.apps == nil {
 		return fmt.Errorf("app repository is required")

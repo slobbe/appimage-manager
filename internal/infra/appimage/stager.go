@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/slobbe/appimage-manager/internal/app"
+	"github.com/slobbe/appimage-manager/internal/infra/fileutil"
 )
 
 // Stager copies AppImages into a temporary workspace before extraction.
@@ -37,7 +38,7 @@ func (Stager) Stage(ctx context.Context, sourcePath string, workspacePath string
 	}
 
 	destination := filepath.Join(workspacePath, filepath.Base(sourcePath))
-	if err := copyFile(ctx, sourcePath, destination); err != nil {
+	if err := fileutil.CopyFile(ctx, sourcePath, destination); err != nil {
 		return "", fmt.Errorf("stage appimage %q to %q: %w", sourcePath, destination, err)
 	}
 

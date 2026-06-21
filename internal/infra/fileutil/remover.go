@@ -1,4 +1,4 @@
-package appimage
+package fileutil
 
 import (
 	"context"
@@ -10,26 +10,24 @@ import (
 	"github.com/slobbe/appimage-manager/internal/app"
 )
 
-// Remover removes installed AppImage files.
 type Remover struct{}
 
-// NewRemover creates an AppImage remover.
 func NewRemover() Remover {
 	return Remover{}
 }
 
-var _ app.AppImageRemover = Remover{}
+var _ app.ArtifactRemover = Remover{}
 
 func (Remover) Remove(ctx context.Context, path string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	if strings.TrimSpace(path) == "" {
-		return errors.New("appimage path is required")
+		return errors.New("artifact path is required")
 	}
 
 	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("remove appimage %q: %w", path, err)
+		return fmt.Errorf("remove artifact %q: %w", path, err)
 	}
 
 	return nil
