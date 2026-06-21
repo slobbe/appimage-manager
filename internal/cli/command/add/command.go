@@ -20,7 +20,7 @@ const (
 	reset = "\033[0m"
 )
 
-func NewCommand(rt *clienv.Runtime, service app.Adder) *cobra.Command {
+func NewCommand(rt *clienv.Runtime, service app.Service) *cobra.Command {
 	var githubRepo string
 	var assetPattern string
 	var prerelease bool

@@ -10,6 +10,7 @@ import (
 
 	"github.com/slobbe/appimage-manager/internal/app"
 	"github.com/slobbe/appimage-manager/internal/cli/clienv"
+	"github.com/slobbe/appimage-manager/internal/cli/command/commandtest"
 )
 
 func TestCommandRequiresExactlyOneArg(t *testing.T) {
@@ -111,12 +112,13 @@ func TestCommandReturnsServiceError(t *testing.T) {
 }
 
 type fakeService struct {
+	commandtest.Service
 	removeCalled bool
 	removeReq    app.RemoveRequest
 	removeErr    error
 }
 
-var _ app.Remover = (*fakeService)(nil)
+var _ app.Service = (*fakeService)(nil)
 
 func (s *fakeService) Remove(ctx context.Context, req app.RemoveRequest) error {
 	s.removeCalled = true

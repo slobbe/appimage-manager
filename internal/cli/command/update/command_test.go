@@ -9,6 +9,7 @@ import (
 
 	"github.com/slobbe/appimage-manager/internal/app"
 	"github.com/slobbe/appimage-manager/internal/cli/clienv"
+	"github.com/slobbe/appimage-manager/internal/cli/command/commandtest"
 )
 
 func TestCommandPrintsAllAppsUpToDate(t *testing.T) {
@@ -353,6 +354,7 @@ func TestCommandJSONAutoConfirmsUpdates(t *testing.T) {
 }
 
 type fakeService struct {
+	commandtest.Service
 	updateResult       app.UpdateResult
 	updateCandidates   []app.UpdateCandidate
 	updateErr          error
@@ -364,7 +366,7 @@ type fakeService struct {
 	confirmed          bool
 }
 
-var _ app.Updater = (*fakeService)(nil)
+var _ app.Service = (*fakeService)(nil)
 
 func (s *fakeService) SetUpdateSource(ctx context.Context, req app.SetUpdateSourceRequest) (app.SetUpdateSourceResult, error) {
 	s.setReq = req

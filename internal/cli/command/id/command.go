@@ -18,7 +18,7 @@ const (
 	reset = "\033[0m"
 )
 
-func NewCommand(rt *clienv.Runtime, service app.IDManager) *cobra.Command {
+func NewCommand(rt *clienv.Runtime, service app.Service) *cobra.Command {
 	var newID string
 	var auto bool
 

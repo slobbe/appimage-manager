@@ -16,7 +16,7 @@ const (
 	reset = "\033[0m"
 )
 
-func NewCommand(rt *clienv.Runtime, service app.Lister) *cobra.Command {
+func NewCommand(rt *clienv.Runtime, service app.Service) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "list",
 		Aliases: []string{"ls"},

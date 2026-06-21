@@ -8,6 +8,7 @@ import (
 
 	"github.com/slobbe/appimage-manager/internal/app"
 	"github.com/slobbe/appimage-manager/internal/cli/clienv"
+	"github.com/slobbe/appimage-manager/internal/cli/command/commandtest"
 )
 
 func TestCommandPassesPrereleaseFlag(t *testing.T) {
@@ -59,12 +60,13 @@ func TestCommandPrintsAlreadyUpToDate(t *testing.T) {
 }
 
 type fakeService struct {
+	commandtest.Service
 	selfUpdateReq    app.SelfUpdateRequest
 	selfUpdateResult app.SelfUpdateResult
 	selfUpdateErr    error
 }
 
-var _ app.SelfUpdateRunner = (*fakeService)(nil)
+var _ app.Service = (*fakeService)(nil)
 
 func (s *fakeService) SelfUpdate(ctx context.Context, req app.SelfUpdateRequest) (app.SelfUpdateResult, error) {
 	s.selfUpdateReq = req

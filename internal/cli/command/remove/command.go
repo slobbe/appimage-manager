@@ -12,7 +12,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func NewCommand(rt *clienv.Runtime, service app.Remover) *cobra.Command {
+func NewCommand(rt *clienv.Runtime, service app.Service) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "remove <appimage>",
 		Aliases: []string{"rm"},

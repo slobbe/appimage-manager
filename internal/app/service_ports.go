@@ -7,47 +7,15 @@ import (
 )
 
 type Service interface {
-	Adder
-	Remover
-	Updater
-	IDManager
-	Lister
-	Informer
-	SelfUpdateRunner
-	PathProvider
-}
-
-type Adder interface {
 	Add(ctx context.Context, req AddRequest) (AddResult, error)
-}
-
-type Remover interface {
 	Remove(ctx context.Context, req RemoveRequest) error
-}
-
-type Updater interface {
 	Update(ctx context.Context, req UpdateRequest) (UpdateResult, error)
 	SetUpdateSource(ctx context.Context, req SetUpdateSourceRequest) (SetUpdateSourceResult, error)
 	UnsetUpdateSource(ctx context.Context, req UnsetUpdateSourceRequest) error
-}
-
-type IDManager interface {
 	SetID(ctx context.Context, req SetIDRequest) (SetIDResult, error)
-}
-
-type Lister interface {
 	List(ctx context.Context, req ListRequest) (ListResult, error)
-}
-
-type Informer interface {
 	Info(ctx context.Context, req InfoRequest) (InfoResult, error)
-}
-
-type SelfUpdateRunner interface {
 	SelfUpdate(ctx context.Context, req SelfUpdateRequest) (SelfUpdateResult, error)
-}
-
-type PathProvider interface {
 	Paths(ctx context.Context, req PathsRequest) (PathsResult, error)
 }
 

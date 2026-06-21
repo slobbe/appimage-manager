@@ -10,6 +10,7 @@ import (
 
 	"github.com/slobbe/appimage-manager/internal/app"
 	"github.com/slobbe/appimage-manager/internal/cli/clienv"
+	"github.com/slobbe/appimage-manager/internal/cli/command/commandtest"
 )
 
 func TestCommandCallsServiceAndPrintsTextPaths(t *testing.T) {
@@ -97,12 +98,13 @@ func samplePathsResult() app.PathsResult {
 }
 
 type fakeService struct {
+	commandtest.Service
 	pathsCalled bool
 	pathsResult app.PathsResult
 	pathsErr    error
 }
 
-var _ app.PathProvider = (*fakeService)(nil)
+var _ app.Service = (*fakeService)(nil)
 
 func (s *fakeService) Paths(ctx context.Context, req app.PathsRequest) (app.PathsResult, error) {
 	s.pathsCalled = true
