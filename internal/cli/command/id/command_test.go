@@ -10,6 +10,7 @@ import (
 
 	"github.com/slobbe/appimage-manager/internal/app"
 	"github.com/slobbe/appimage-manager/internal/cli/clienv"
+	"github.com/slobbe/appimage-manager/internal/cli/command/commandtest"
 )
 
 func TestCommandValidatesFlags(t *testing.T) {
@@ -139,13 +140,14 @@ func TestCommandReturnsServiceError(t *testing.T) {
 }
 
 type fakeService struct {
+	commandtest.Service
 	called bool
 	req    app.SetIDRequest
 	result app.SetIDResult
 	err    error
 }
 
-var _ app.IDManager = (*fakeService)(nil)
+var _ app.Service = (*fakeService)(nil)
 
 func (s *fakeService) SetID(ctx context.Context, req app.SetIDRequest) (app.SetIDResult, error) {
 	s.called = true

@@ -119,7 +119,7 @@ Skipped by user request; keep live progress bars.
 
 ## Commit 8: `refactor(app): simplify service interfaces`
 
-- [ ] Remove per-command service capability interfaces.
+- [x] Remove per-command service capability interfaces.
   - In `internal/app/service_ports.go`, remove command-only interfaces like `Adder`, `Remover`, `Updater`, `IDManager`, `Lister`, `Informer`, `SelfUpdateRunner`, and `PathProvider` unless a specific boundary still needs them.
   - Keep one `Service` interface or return/use the concrete service where simpler.
   - Update CLI command constructors to accept the simplified service type.
