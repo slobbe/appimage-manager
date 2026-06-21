@@ -1,16 +1,15 @@
 package update
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"io"
-	"strings"
 
 	"github.com/slobbe/appimage-manager/internal/app"
 	"github.com/slobbe/appimage-manager/internal/cli/activity"
 	"github.com/slobbe/appimage-manager/internal/cli/clienv"
 	"github.com/slobbe/appimage-manager/internal/cli/output"
+	"github.com/slobbe/appimage-manager/internal/cli/prompt"
 
 	"github.com/spf13/cobra"
 )
@@ -229,27 +228,11 @@ type updatePrompter struct {
 }
 
 func (p updatePrompter) ConfirmUpdates(ctx context.Context, updates []app.UpdateCandidate) (bool, error) {
-	if p.autoConfirm {
-		return true, nil
+	if !p.autoConfirm {
+		writeUpdateCandidates(p.out, updates)
+		fmt.Fprintln(p.out)
 	}
-
-	if err := ctx.Err(); err != nil {
-		return false, err
-	}
-
-	writeUpdateCandidates(p.out, updates)
-	fmt.Fprintln(p.out)
-	fmt.Fprint(p.out, "Update all apps? (y/n) ")
-
-	reader := bufio.NewReader(p.in)
-	answer, err := reader.ReadString('\n')
-	fmt.Fprintln(p.out)
-	if err != nil && len(answer) == 0 {
-		return false, err
-	}
-
-	answer = strings.TrimSpace(strings.ToLower(answer))
-	return answer == "y" || answer == "yes", nil
+	return prompt.ConfirmYesNo(ctx, p.in, p.out, "Update all apps? (y/n) ", p.autoConfirm)
 }
 
 func writeUpdateCandidates(w io.Writer, updates []app.UpdateCandidate) {

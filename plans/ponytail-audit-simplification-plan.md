@@ -138,7 +138,7 @@ Skipped by user request; keep live progress bars.
 
 ## Commit 10: `refactor(cli): centralize yes-no prompts`
 
-- [ ] Add a shared CLI confirmation helper.
+- [x] Add a shared CLI confirmation helper.
   - Add a small helper, e.g. `internal/cli/prompt.ConfirmYesNo(ctx, in, out, question, autoConfirm)`.
   - Replace duplicated prompt logic in:
     - `internal/cli/command/update/command.go`
