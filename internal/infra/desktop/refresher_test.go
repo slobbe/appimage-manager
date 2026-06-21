@@ -3,108 +3,80 @@ package desktop
 import (
 	"context"
 	"errors"
-	"os/exec"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 )
 
 func TestRefresherRunsAvailableRefreshCommands(t *testing.T) {
-	t.Parallel()
+	binDir := t.TempDir()
+	logPath := filepath.Join(t.TempDir(), "refresh.log")
+	for _, name := range []string{"update-desktop-database", "gtk-update-icon-cache", "xdg-desktop-menu", "xdg-icon-resource"} {
+		writeRefreshCommand(t, binDir, name, logPath, "exit 0")
+	}
+	t.Setenv("PATH", binDir)
 
-	var calls []refreshCall
 	refresher := Refresher{
 		DesktopDir: "/home/user/.local/share/applications",
 		IconDir:    "/home/user/.local/share/icons",
-		LookPath: func(name string) (string, error) {
-			return "/usr/bin/" + name, nil
-		},
-		Run: func(ctx context.Context, name string, args ...string) error {
-			calls = append(calls, refreshCall{name: name, args: append([]string(nil), args...)})
-			return nil
-		},
 	}
 
 	if err := refresher.Refresh(context.Background()); err != nil {
 		t.Fatalf("Refresh() error = %v", err)
 	}
 
-	want := []refreshCall{
-		{name: "/usr/bin/update-desktop-database", args: []string{"/home/user/.local/share/applications"}},
-		{name: "/usr/bin/gtk-update-icon-cache", args: []string{"-f", "-t", "/home/user/.local/share/icons/hicolor"}},
-		{name: "/usr/bin/xdg-desktop-menu", args: []string{"forceupdate"}},
-		{name: "/usr/bin/xdg-icon-resource", args: []string{"forceupdate"}},
+	want := []string{
+		"update-desktop-database /home/user/.local/share/applications",
+		"gtk-update-icon-cache -f -t /home/user/.local/share/icons/hicolor",
+		"xdg-desktop-menu forceupdate",
+		"xdg-icon-resource forceupdate",
 	}
-	if !reflect.DeepEqual(calls, want) {
-		t.Fatalf("calls = %#v, want %#v", calls, want)
+	if got := readRefreshLog(t, logPath); !reflect.DeepEqual(got, want) {
+		t.Fatalf("calls = %#v, want %#v", got, want)
 	}
 }
 
 func TestRefresherSkipsMissingRefreshCommands(t *testing.T) {
-	t.Parallel()
+	t.Setenv("PATH", t.TempDir())
 
-	refresher := Refresher{
-		DesktopDir: "/applications",
-		IconDir:    "/icons",
-		LookPath: func(name string) (string, error) {
-			return "", exec.ErrNotFound
-		},
-		Run: func(ctx context.Context, name string, args ...string) error {
-			t.Fatalf("Run() called for missing command %q", name)
-			return nil
-		},
-	}
-
+	refresher := Refresher{DesktopDir: "/applications", IconDir: "/icons"}
 	if err := refresher.Refresh(context.Background()); err != nil {
 		t.Fatalf("Refresh() error = %v", err)
 	}
 }
 
 func TestRefresherSkipsPathSpecificCommandsWhenPathsMissing(t *testing.T) {
-	t.Parallel()
-
-	var commands []string
-	refresher := Refresher{
-		LookPath: func(name string) (string, error) {
-			return name, nil
-		},
-		Run: func(ctx context.Context, name string, args ...string) error {
-			commands = append(commands, name)
-			return nil
-		},
+	binDir := t.TempDir()
+	logPath := filepath.Join(t.TempDir(), "refresh.log")
+	for _, name := range []string{"update-desktop-database", "gtk-update-icon-cache", "xdg-desktop-menu", "xdg-icon-resource"} {
+		writeRefreshCommand(t, binDir, name, logPath, "exit 0")
 	}
+	t.Setenv("PATH", binDir)
 
-	if err := refresher.Refresh(context.Background()); err != nil {
+	if err := (Refresher{}).Refresh(context.Background()); err != nil {
 		t.Fatalf("Refresh() error = %v", err)
 	}
 
-	want := []string{"xdg-desktop-menu", "xdg-icon-resource"}
-	if !reflect.DeepEqual(commands, want) {
-		t.Fatalf("commands = %#v, want %#v", commands, want)
+	want := []string{"xdg-desktop-menu forceupdate", "xdg-icon-resource forceupdate"}
+	if got := readRefreshLog(t, logPath); !reflect.DeepEqual(got, want) {
+		t.Fatalf("commands = %#v, want %#v", got, want)
 	}
 }
 
 func TestRefresherReturnsCommandFailures(t *testing.T) {
-	t.Parallel()
+	binDir := t.TempDir()
+	logPath := filepath.Join(t.TempDir(), "refresh.log")
+	writeRefreshCommand(t, binDir, "update-desktop-database", logPath, "exit 0")
+	writeRefreshCommand(t, binDir, "gtk-update-icon-cache", logPath, "exit 7")
+	writeRefreshCommand(t, binDir, "xdg-desktop-menu", logPath, "exit 0")
+	writeRefreshCommand(t, binDir, "xdg-icon-resource", logPath, "exit 0")
+	t.Setenv("PATH", binDir)
 
-	failure := errors.New("boom")
-	refresher := Refresher{
-		DesktopDir: "/applications",
-		IconDir:    "/icons",
-		LookPath: func(name string) (string, error) {
-			return name, nil
-		},
-		Run: func(ctx context.Context, name string, args ...string) error {
-			if name == "gtk-update-icon-cache" {
-				return failure
-			}
-			return nil
-		},
-	}
-
-	err := refresher.Refresh(context.Background())
-	if !errors.Is(err, failure) {
-		t.Fatalf("Refresh() error = %v, want %v", err, failure)
+	err := (Refresher{DesktopDir: "/applications", IconDir: "/icons"}).Refresh(context.Background())
+	if err == nil {
+		t.Fatal("Refresh() error = nil, want command failure")
 	}
 	if !strings.Contains(err.Error(), "gtk-update-icon-cache") {
 		t.Fatalf("Refresh() error = %q, want command name", err.Error())
@@ -112,8 +84,6 @@ func TestRefresherReturnsCommandFailures(t *testing.T) {
 }
 
 func TestRefresherRespectsCanceledContext(t *testing.T) {
-	t.Parallel()
-
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
@@ -123,7 +93,24 @@ func TestRefresherRespectsCanceledContext(t *testing.T) {
 	}
 }
 
-type refreshCall struct {
-	name string
-	args []string
+func writeRefreshCommand(t *testing.T, binDir string, name string, logPath string, trailer string) {
+	t.Helper()
+	script := "#!/bin/sh\nprintf '" + name + " %s\\n' \"$*\" >> " + shellQuote(logPath) + "\n" + trailer + "\n"
+	path := filepath.Join(binDir, name)
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatalf("write refresh command %s: %v", name, err)
+	}
+}
+
+func readRefreshLog(t *testing.T, path string) []string {
+	t.Helper()
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read refresh log: %v", err)
+	}
+	return strings.Split(strings.TrimSpace(string(content)), "\n")
+}
+
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }

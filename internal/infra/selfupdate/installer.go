@@ -14,15 +14,8 @@ import (
 
 const installScriptURLFormat = "https://raw.githubusercontent.com/slobbe/appimage-manager/%s/scripts/install.sh"
 
-type commandRunner func(ctx context.Context, name string, stdin io.Reader, env []string) ([]byte, error)
-
 // Installer runs the hosted install script to replace the current aim binary.
-type Installer struct {
-	HTTPClient *http.Client
-	ScriptURL  string
-
-	runCommand commandRunner
-}
+type Installer struct{}
 
 func NewInstaller() Installer {
 	return Installer{}
@@ -45,11 +38,7 @@ func (i Installer) Install(ctx context.Context, version string) error {
 	}
 	defer script.Close()
 
-	runCommand := i.runCommand
-	if runCommand == nil {
-		runCommand = runShellCommand
-	}
-	output, err := runCommand(ctx, "sh", script, []string{"AIM_VERSION=" + strings.TrimPrefix(version, "v")})
+	output, err := runShellCommand(ctx, "sh", script, []string{"AIM_VERSION=" + strings.TrimPrefix(version, "v")})
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return ctxErr
@@ -68,10 +57,7 @@ func runShellCommand(ctx context.Context, name string, stdin io.Reader, env []st
 }
 
 func (i Installer) fetchInstallScript(ctx context.Context, version string) (io.ReadCloser, error) {
-	url := strings.TrimSpace(i.ScriptURL)
-	if url == "" {
-		url = installScriptURLForVersion(version)
-	}
+	url := installScriptURLForVersion(version)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -79,7 +65,7 @@ func (i Installer) fetchInstallScript(ctx context.Context, version string) (io.R
 	}
 	req.Header.Set("User-Agent", "aim")
 
-	resp, err := i.httpClient().Do(req)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, ctxErr
@@ -100,11 +86,4 @@ func installScriptURLForVersion(version string) string {
 		tag = "v" + tag
 	}
 	return fmt.Sprintf(installScriptURLFormat, tag)
-}
-
-func (i Installer) httpClient() *http.Client {
-	if i.HTTPClient != nil {
-		return i.HTTPClient
-	}
-	return http.DefaultClient
 }
