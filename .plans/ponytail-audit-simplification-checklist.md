@@ -24,7 +24,7 @@ Suggested validation baseline after each item:
 
 ## Commit 2: shrink artifact removal abstraction
 
-- [ ] Simplify `ArtifactRemover`, which currently wraps `os.Remove` behind a one-method object.
+- [x] Simplify `ArtifactRemover`, which currently wraps `os.Remove` behind a one-method object.
   - Prefer a function-shaped port or a small `fileutil.RemoveArtifact(ctx, path)` function wired from `cmd/aim`.
   - Keep app-layer dependency direction intact: `internal/app` must not import `internal/infra`.
   - Preserve current behavior: validate non-empty path, respect canceled context, ignore missing files.

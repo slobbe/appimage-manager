@@ -14,7 +14,7 @@ func TestRemoverRemovesArtifact(t *testing.T) {
 	if err := os.WriteFile(path, []byte("artifact"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := (Remover{}).Remove(context.Background(), path); err != nil {
+	if err := RemoveArtifact(context.Background(), path); err != nil {
 		t.Fatalf("Remove() error = %v", err)
 	}
 	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
@@ -24,14 +24,14 @@ func TestRemoverRemovesArtifact(t *testing.T) {
 
 func TestRemoverIgnoresMissingArtifact(t *testing.T) {
 	t.Parallel()
-	if err := (Remover{}).Remove(context.Background(), filepath.Join(t.TempDir(), "missing")); err != nil {
+	if err := RemoveArtifact(context.Background(), filepath.Join(t.TempDir(), "missing")); err != nil {
 		t.Fatalf("Remove() error = %v", err)
 	}
 }
 
 func TestRemoverValidatesArtifactPath(t *testing.T) {
 	t.Parallel()
-	if err := (Remover{}).Remove(context.Background(), ""); err == nil {
+	if err := RemoveArtifact(context.Background(), ""); err == nil {
 		t.Fatal("Remove() error = nil, want error")
 	}
 }
@@ -40,7 +40,7 @@ func TestRemoverRespectsCanceledContext(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if err := (Remover{}).Remove(ctx, "artifact"); !errors.Is(err, context.Canceled) {
+	if err := RemoveArtifact(ctx, "artifact"); !errors.Is(err, context.Canceled) {
 		t.Fatalf("Remove() error = %v, want context.Canceled", err)
 	}
 }

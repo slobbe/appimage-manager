@@ -40,9 +40,7 @@ type AppImageInstaller interface {
 }
 
 // ArtifactRemover removes installed files created by aim.
-type ArtifactRemover interface {
-	Remove(ctx context.Context, path string) error
-}
+type ArtifactRemover func(ctx context.Context, path string) error
 
 // IconInstaller installs an icon into the icon directory.
 type IconInstaller interface {

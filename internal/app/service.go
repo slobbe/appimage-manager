@@ -246,7 +246,7 @@ func (s *service) integrateLocal(ctx context.Context, req AddRequest, source dom
 		return AddResult{}, err
 	}
 	rollback.add(func(ctx context.Context) error {
-		return s.artifactRemover.Remove(ctx, installedAppImagePath)
+		return s.artifactRemover(ctx, installedAppImagePath)
 	})
 
 	installedIconPath, err := s.iconInstaller.Install(ctx, metadata.iconFile.Path, provisionalApp.ID)
@@ -254,7 +254,7 @@ func (s *service) integrateLocal(ctx context.Context, req AddRequest, source dom
 		return AddResult{}, err
 	}
 	rollback.add(func(ctx context.Context) error {
-		return s.artifactRemover.Remove(ctx, installedIconPath)
+		return s.artifactRemover(ctx, installedIconPath)
 	})
 
 	updatedDesktopEntry := metadata.desktopEntry.
@@ -265,7 +265,7 @@ func (s *service) integrateLocal(ctx context.Context, req AddRequest, source dom
 		return AddResult{}, err
 	}
 	rollback.add(func(ctx context.Context) error {
-		return s.artifactRemover.Remove(ctx, installedDesktopEntryPath)
+		return s.artifactRemover(ctx, installedDesktopEntryPath)
 	})
 
 	if s.desktopIntegrationRefresher != nil {
@@ -379,13 +379,13 @@ func (s *service) Remove(ctx context.Context, req RemoveRequest) error {
 }
 
 func (s *service) removeInstalledApp(ctx context.Context, installedApp domain.App) error {
-	if err := removeInstalledArtifact(ctx, installedApp.DesktopEntryPath, s.artifactRemover.Remove); err != nil {
+	if err := removeInstalledArtifact(ctx, installedApp.DesktopEntryPath, s.artifactRemover); err != nil {
 		return err
 	}
-	if err := removeInstalledArtifact(ctx, installedApp.IconPath, s.artifactRemover.Remove); err != nil {
+	if err := removeInstalledArtifact(ctx, installedApp.IconPath, s.artifactRemover); err != nil {
 		return err
 	}
-	if err := removeInstalledArtifact(ctx, installedApp.AppImagePath, s.artifactRemover.Remove); err != nil {
+	if err := removeInstalledArtifact(ctx, installedApp.AppImagePath, s.artifactRemover); err != nil {
 		return err
 	}
 
@@ -712,13 +712,13 @@ func (s *service) promoteStagedUpdate(ctx context.Context, stagedApp domain.App,
 
 func addAppRollback(rollback *rollbackStack, s *service, installedApp domain.App) {
 	rollback.add(func(ctx context.Context) error {
-		return removeInstalledArtifact(ctx, installedApp.AppImagePath, s.artifactRemover.Remove)
+		return removeInstalledArtifact(ctx, installedApp.AppImagePath, s.artifactRemover)
 	})
 	rollback.add(func(ctx context.Context) error {
-		return removeInstalledArtifact(ctx, installedApp.IconPath, s.artifactRemover.Remove)
+		return removeInstalledArtifact(ctx, installedApp.IconPath, s.artifactRemover)
 	})
 	rollback.add(func(ctx context.Context) error {
-		return removeInstalledArtifact(ctx, installedApp.DesktopEntryPath, s.artifactRemover.Remove)
+		return removeInstalledArtifact(ctx, installedApp.DesktopEntryPath, s.artifactRemover)
 	})
 }
 
@@ -809,7 +809,7 @@ func (s *service) setID(ctx context.Context, req SetIDRequest, currentID string)
 		return SetIDResult{}, err
 	}
 	rollback.add(func(ctx context.Context) error {
-		return removeInstalledArtifact(ctx, installedAppImagePath, s.artifactRemover.Remove)
+		return removeInstalledArtifact(ctx, installedAppImagePath, s.artifactRemover)
 	})
 
 	installedIconPath, err := s.iconInstaller.Install(ctx, installedApp.IconPath, targetID)
@@ -817,7 +817,7 @@ func (s *service) setID(ctx context.Context, req SetIDRequest, currentID string)
 		return SetIDResult{}, err
 	}
 	rollback.add(func(ctx context.Context) error {
-		return removeInstalledArtifact(ctx, installedIconPath, s.artifactRemover.Remove)
+		return removeInstalledArtifact(ctx, installedIconPath, s.artifactRemover)
 	})
 
 	updatedDesktopEntry := metadata.desktopEntry.
@@ -828,7 +828,7 @@ func (s *service) setID(ctx context.Context, req SetIDRequest, currentID string)
 		return SetIDResult{}, err
 	}
 	rollback.add(func(ctx context.Context) error {
-		return removeInstalledArtifact(ctx, installedDesktopEntryPath, s.artifactRemover.Remove)
+		return removeInstalledArtifact(ctx, installedDesktopEntryPath, s.artifactRemover)
 	})
 
 	updatedApp := domain.NewAppFromDesktopEntry(metadata.desktopEntry, domain.AppInput{
@@ -889,13 +889,13 @@ func (s *service) inspectInstalledAppImageForID(ctx context.Context, appImagePat
 }
 
 func (s *service) removeInstalledAppArtifacts(ctx context.Context, installedApp domain.App) error {
-	if err := removeInstalledArtifact(ctx, installedApp.DesktopEntryPath, s.artifactRemover.Remove); err != nil {
+	if err := removeInstalledArtifact(ctx, installedApp.DesktopEntryPath, s.artifactRemover); err != nil {
 		return err
 	}
-	if err := removeInstalledArtifact(ctx, installedApp.IconPath, s.artifactRemover.Remove); err != nil {
+	if err := removeInstalledArtifact(ctx, installedApp.IconPath, s.artifactRemover); err != nil {
 		return err
 	}
-	if err := removeInstalledArtifact(ctx, installedApp.AppImagePath, s.artifactRemover.Remove); err != nil {
+	if err := removeInstalledArtifact(ctx, installedApp.AppImagePath, s.artifactRemover); err != nil {
 		return err
 	}
 	return nil
@@ -903,17 +903,17 @@ func (s *service) removeInstalledAppArtifacts(ctx context.Context, installedApp 
 
 func (s *service) removeReplacedArtifacts(ctx context.Context, previous domain.App, next domain.App) error {
 	if previous.DesktopEntryPath != "" && previous.DesktopEntryPath != next.DesktopEntryPath {
-		if err := s.artifactRemover.Remove(ctx, previous.DesktopEntryPath); err != nil {
+		if err := s.artifactRemover(ctx, previous.DesktopEntryPath); err != nil {
 			return err
 		}
 	}
 	if previous.IconPath != "" && previous.IconPath != next.IconPath {
-		if err := s.artifactRemover.Remove(ctx, previous.IconPath); err != nil {
+		if err := s.artifactRemover(ctx, previous.IconPath); err != nil {
 			return err
 		}
 	}
 	if previous.AppImagePath != "" && previous.AppImagePath != next.AppImagePath {
-		if err := s.artifactRemover.Remove(ctx, previous.AppImagePath); err != nil {
+		if err := s.artifactRemover(ctx, previous.AppImagePath); err != nil {
 			return err
 		}
 	}
