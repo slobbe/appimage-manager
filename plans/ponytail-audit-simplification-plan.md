@@ -38,7 +38,7 @@ This plan is grouped by logical commits. Implement one checklist item at a time.
 
 ## Commit 3: `refactor(storage): simplify file locking`
 
-- [ ] Remove `unix.Flock` and lock-file machinery.
+- [x] Remove `unix.Flock` and lock-file machinery.
   - In `internal/infra/storage/repository.go`, remove the `golang.org/x/sys/unix` dependency.
   - Delete `repositoryLocks`, `repositoryLock`, and lock-file open/unlock code.
   - Either rely on atomic temp-write + rename, or keep a single simple package-level `sync.Mutex` if in-process serialization is still wanted.
