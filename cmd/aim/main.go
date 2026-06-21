@@ -11,7 +11,6 @@ import (
 	"github.com/slobbe/appimage-manager/internal/app"
 	"github.com/slobbe/appimage-manager/internal/cli"
 	"github.com/slobbe/appimage-manager/internal/infra/appimage"
-	"github.com/slobbe/appimage-manager/internal/infra/config"
 	"github.com/slobbe/appimage-manager/internal/infra/desktop"
 	"github.com/slobbe/appimage-manager/internal/infra/download"
 	"github.com/slobbe/appimage-manager/internal/infra/github"
@@ -37,9 +36,10 @@ func main() {
 		exitWithError(err)
 	}
 
-	cfg, err := config.Load(xdg.ConfigFile(dirs), dirs)
-	if err != nil {
-		exitWithError(err)
+	cfg := app.Config{
+		AppImageDir: xdg.DefaultAppImageDir(dirs),
+		DesktopDir:  xdg.DesktopDir(dirs),
+		IconDir:     xdg.IconDir(dirs),
 	}
 
 	storagePath := filepath.Join(xdg.DataDir(dirs), "apps.json")
