@@ -24,6 +24,8 @@ This plan is grouped by logical commits. Implement one checklist item at a time.
 
 ## Commit 2: `build(config): remove toml config loading`
 
+Note: minimal `appimage_dir` config-file support was restored in a follow-up commit per user request.
+
 - [x] Remove TOML config loading and dependency.
   - Delete `internal/infra/config/loader.go` and `internal/infra/config/loader_test.go`, or replace them with tiny XDG-default helpers if still needed.
   - Remove `github.com/pelletier/go-toml/v2` from `go.mod` via `go mod tidy`.
@@ -45,6 +47,8 @@ This plan is grouped by logical commits. Implement one checklist item at a time.
   - Validate storage tests with `go test ./internal/infra/storage`.
 
 ## Commit 4: `refactor(activity): replace live progress renderer with simple output`
+
+Skipped by user request; keep live progress bars.
 
 - [ ] Replace spinner/progress-bar renderer with a simple activity reporter.
   - In `internal/cli/activity/reporter.go`, remove goroutine ticking, terminal clearing, terminal width detection, progress layout, bar rendering, and ANSI cursor movement.

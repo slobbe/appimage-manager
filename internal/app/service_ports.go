@@ -173,6 +173,7 @@ type SelfUpdateResult struct {
 type PathsRequest struct{}
 
 type PathsResult struct {
+	ConfigFile  string
 	AppImageDir string
 	DesktopDir  string
 	IconDir     string
