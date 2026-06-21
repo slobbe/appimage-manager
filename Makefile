@@ -1,8 +1,6 @@
 BIN := ./bin/aim
 VERSION ?= 0.0.0-dev
-COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
-DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
-LDFLAGS := -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)
+LDFLAGS := -X main.version=$(VERSION)
 GOVULNCHECK ?= $(shell go env GOPATH)/bin/govulncheck
 GOVULNCHECK_VERSION ?= v1.3.0
 
