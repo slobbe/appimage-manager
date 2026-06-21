@@ -19,7 +19,6 @@ import (
 	"github.com/slobbe/appimage-manager/internal/infra/icon"
 	"github.com/slobbe/appimage-manager/internal/infra/selfupdate"
 	"github.com/slobbe/appimage-manager/internal/infra/storage"
-	"github.com/slobbe/appimage-manager/internal/infra/workspace"
 	"github.com/slobbe/appimage-manager/internal/infra/xdg"
 )
 
@@ -47,9 +46,7 @@ func main() {
 
 	service, err := app.NewService(app.ServiceDeps{
 		Config:                      cfg,
-		Workspaces:                  workspace.NewProvider(""),
 		AppImages:                   appimage.NewExtractor(),
-		AppImageStager:              appimage.NewStager(),
 		DesktopEntries:              desktop.NewDiscoverer(),
 		Icons:                       icon.NewDiscoverer(),
 		AppImageInstaller:           appimage.NewInstaller(cfg.AppImageDir),

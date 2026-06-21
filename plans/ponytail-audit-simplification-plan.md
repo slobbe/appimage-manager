@@ -82,14 +82,14 @@ Skipped by user request; keep live progress bars.
 
 ## Commit 6: `refactor(workspace): inline temporary workspace handling`
 
-- [ ] Remove `WorkspaceProvider` abstraction.
+- [x] Remove `WorkspaceProvider` abstraction.
   - Delete `internal/app/workspace.go` if no longer needed.
   - Delete `internal/infra/workspace/provider.go` and tests.
   - In app workflows, use `os.MkdirTemp("", "aim-*")` and `defer os.RemoveAll(path)` directly, or a small unexported app helper.
   - Update tests to stop faking workspace providers.
   - Validate with `go test ./internal/app ./...` if practical.
 
-- [ ] Remove `AppImageStager` abstraction if it only copies into a temp dir.
+- [x] Remove `AppImageStager` abstraction if it only copies into a temp dir.
   - Delete `AppImageStager` from `internal/app/integration_ports.go`.
   - Delete `internal/infra/appimage/stager.go` and tests if no longer needed.
   - Use the shared file-copy helper or integrate directly from the original path if staging is unnecessary.

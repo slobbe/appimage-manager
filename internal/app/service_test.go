@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -19,8 +20,9 @@ func TestServiceAddIntegratesLocalAppImage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
 	}
+	sourcePath := testAppImagePath(t, "example.AppImage")
 
-	result, err := service.Add(context.Background(), AddRequest{Path: "/downloads/example.AppImage"})
+	result, err := service.Add(context.Background(), AddRequest{Path: sourcePath})
 	if err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
@@ -46,7 +48,7 @@ func TestServiceAddIntegratesLocalAppImage(t *testing.T) {
 	if got, want := result.App.Source.Kind, domain.SourceKindLocal; got != want {
 		t.Fatalf("App.Source.Kind = %q, want %q", got, want)
 	}
-	if got, want := result.App.Source.LocalFile.Path, "/downloads/example.AppImage"; got != want {
+	if got, want := result.App.Source.LocalFile.Path, sourcePath; got != want {
 		t.Fatalf("App.Source.LocalFile.Path = %q, want %q", got, want)
 	}
 	if result.App.Source.LocalFile.IntegratedAt.IsZero() {
@@ -56,39 +58,27 @@ func TestServiceAddIntegratesLocalAppImage(t *testing.T) {
 		t.Fatalf("App.UpdateSource.Kind = %q, want %q", got, want)
 	}
 
-	if !deps.workspaces.cleaned {
-		t.Fatal("workspace was not cleaned")
-	}
-	if got, original := deps.appImages.appImagePath, "/downloads/example.AppImage"; got == original {
+	workspacePath := workspaceFromExtractDir(t, deps.appImages.destDir)
+	assertWorkspaceCleaned(t, workspacePath)
+	if got := deps.appImages.appImagePath; got == sourcePath {
 		t.Fatalf("extract appImagePath = %q, want staged path", got)
 	}
-	if !strings.Contains(deps.appImages.appImagePath, deps.workspaces.path) {
-		t.Fatalf("extract appImagePath = %q, want path inside workspace %q", deps.appImages.appImagePath, deps.workspaces.path)
-	}
-	if got, want := deps.appImages.appImagePath, "/workspace/example.AppImage"; got != want {
+	if got, want := deps.appImages.appImagePath, filepath.Join(workspacePath, "example.AppImage"); got != want {
 		t.Fatalf("extract appImagePath = %q, want %q", got, want)
 	}
-	if got, want := deps.appImageStager.sourcePath, "/downloads/example.AppImage"; got != want {
-		t.Fatalf("stager source = %q, want %q", got, want)
-	}
-	if got, want := deps.appImageStager.workspacePath, deps.workspaces.path; got != want {
-		t.Fatalf("stager workspace = %q, want %q", got, want)
-	}
-	if !strings.HasSuffix(deps.appImages.destDir, "/workspace/extract") {
+	if !strings.HasSuffix(deps.appImages.destDir, string(filepath.Separator)+"extract") {
 		t.Fatalf("extract destDir = %q, want workspace extract dir", deps.appImages.destDir)
 	}
 	if got, want := deps.icons.iconName, "example-icon"; got != want {
 		t.Fatalf("icon discover iconName = %q, want %q", got, want)
 	}
-	if got, want := deps.appImageInstaller.sourcePath, "/downloads/example.AppImage"; got != want {
+	if got, want := deps.appImageInstaller.sourcePath, sourcePath; got != want {
 		t.Fatalf("appimage installer source = %q, want %q", got, want)
 	}
 	if got, want := deps.iconInstaller.sourcePath, "/extracted/example.png"; got != want {
 		t.Fatalf("icon installer source = %q, want %q", got, want)
 	}
-	if deps.iconInstaller.workspaceCleanedWhenCalled {
-		t.Fatal("workspace was cleaned before icon installer copied the discovered icon")
-	}
+
 	if !deps.desktopIntegrationRefresher.called {
 		t.Fatal("desktop integration refresher was not called")
 	}
@@ -123,7 +113,7 @@ func TestServiceAddStoresEmbeddedGitHubUpdateSource(t *testing.T) {
 		t.Fatalf("NewService() error = %v", err)
 	}
 
-	result, err := service.Add(context.Background(), AddRequest{Path: "/downloads/example.AppImage"})
+	result, err := service.Add(context.Background(), AddRequest{Path: testAppImagePath(t, "example.AppImage")})
 	if err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
@@ -165,7 +155,7 @@ func TestServiceAddStoresMalformedEmbeddedUpdateSourceAsUnsupported(t *testing.T
 		t.Fatalf("NewService() error = %v", err)
 	}
 
-	result, err := service.Add(context.Background(), AddRequest{Path: "/downloads/example.AppImage"})
+	result, err := service.Add(context.Background(), AddRequest{Path: testAppImagePath(t, "example.AppImage")})
 	if err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
@@ -223,7 +213,7 @@ func TestServiceAddUsesLocalFilenameAsVersionFallback(t *testing.T) {
 		t.Fatalf("NewService() error = %v", err)
 	}
 
-	result, err := service.Add(context.Background(), AddRequest{Path: "/downloads/Example_App-2.4.6-x86_64.AppImage"})
+	result, err := service.Add(context.Background(), AddRequest{Path: testAppImagePath(t, "Example_App-2.4.6-x86_64.AppImage")})
 	if err != nil {
 		t.Fatalf("Add() error = %v", err)
 	}
@@ -246,7 +236,7 @@ func TestServiceAddIgnoresDesktopIntegrationRefreshFailure(t *testing.T) {
 		t.Fatalf("NewService() error = %v", err)
 	}
 
-	result, err := service.Add(context.Background(), AddRequest{Path: "/downloads/example.AppImage"})
+	result, err := service.Add(context.Background(), AddRequest{Path: testAppImagePath(t, "example.AppImage")})
 	if err != nil {
 		t.Fatalf("Add() error = %v, want refresh failure to be non-fatal", err)
 	}
@@ -269,13 +259,11 @@ func TestServiceAddCleansWorkspaceOnFailure(t *testing.T) {
 		t.Fatalf("NewService() error = %v", err)
 	}
 
-	_, err = service.Add(context.Background(), AddRequest{Path: "/downloads/example.AppImage"})
+	_, err = service.Add(context.Background(), AddRequest{Path: testAppImagePath(t, "example.AppImage")})
 	if !errors.Is(err, failure) {
 		t.Fatalf("Add() error = %v, want %v", err, failure)
 	}
-	if !deps.workspaces.cleaned {
-		t.Fatal("workspace was not cleaned")
-	}
+	assertWorkspaceCleaned(t, workspaceFromExtractDir(t, deps.appImages.destDir))
 	if deps.appImageInstaller.called {
 		t.Fatal("appimage installer called after discovery failure")
 	}
@@ -291,7 +279,7 @@ func TestServiceAddStopsOnDesktopParseFailure(t *testing.T) {
 		t.Fatalf("NewService() error = %v", err)
 	}
 
-	_, err = service.Add(context.Background(), AddRequest{Path: "/downloads/example.AppImage"})
+	_, err = service.Add(context.Background(), AddRequest{Path: testAppImagePath(t, "example.AppImage")})
 	if err == nil {
 		t.Fatal("Add() error = nil, want parse error")
 	}
@@ -311,7 +299,7 @@ func TestServiceAddStopsOnIconDiscoveryFailure(t *testing.T) {
 		t.Fatalf("NewService() error = %v", err)
 	}
 
-	_, err = service.Add(context.Background(), AddRequest{Path: "/downloads/example.AppImage"})
+	_, err = service.Add(context.Background(), AddRequest{Path: testAppImagePath(t, "example.AppImage")})
 	if !errors.Is(err, failure) {
 		t.Fatalf("Add() error = %v, want %v", err, failure)
 	}
@@ -331,7 +319,7 @@ func TestServiceAddRollsBackInstalledArtifactsOnRepositoryFailure(t *testing.T) 
 		t.Fatalf("NewService() error = %v", err)
 	}
 
-	_, err = service.Add(context.Background(), AddRequest{Path: "/downloads/example.AppImage"})
+	_, err = service.Add(context.Background(), AddRequest{Path: testAppImagePath(t, "example.AppImage")})
 	if !errors.Is(err, failure) {
 		t.Fatalf("Add() error = %v, want %v", err, failure)
 	}
@@ -353,11 +341,13 @@ func TestServiceAddRollsBackAppImageWhenIconInstallFails(t *testing.T) {
 		t.Fatalf("NewService() error = %v", err)
 	}
 
-	_, err = service.Add(context.Background(), AddRequest{Path: "/downloads/example.AppImage"})
+	sourcePath := testAppImagePath(t, "example.AppImage")
+
+	_, err = service.Add(context.Background(), AddRequest{Path: sourcePath})
 	if !errors.Is(err, failure) {
 		t.Fatalf("Add() error = %v, want %v", err, failure)
 	}
-	if got, want := deps.appImageInstaller.sourcePath, "/downloads/example.AppImage"; got != want {
+	if got, want := deps.appImageInstaller.sourcePath, sourcePath; got != want {
 		t.Fatalf("appimage installer source = %q, want %q", got, want)
 	}
 	assertRemovedPaths(t, deps.artifactRemover.paths, []string{"/library/example-app.AppImage"})
@@ -519,7 +509,8 @@ func TestServiceUpdateAppliesGitHubUpdates(t *testing.T) {
 	if !releases.includePrerelease {
 		t.Fatal("LatestRelease() includePrerelease = false, want true")
 	}
-	if got, want := downloads.destinationPath, "/workspace/Example.AppImage"; got != want {
+	wantDownloadPath := filepath.Join(filepath.Dir(downloads.destinationPath), "Example.AppImage")
+	if got, want := downloads.destinationPath, wantDownloadPath; got != want {
 		t.Fatalf("Download() destination = %q, want %q", got, want)
 	}
 	if got, want := deps.saved.App.ID, installed.ID; got != want {
@@ -546,9 +537,9 @@ func TestServiceUpdateAppliesGitHubUpdates(t *testing.T) {
 	if got, want := deps.saved.App.DesktopEntryPath, "/desktop/example-app.desktop"; got != want {
 		t.Fatalf("saved App.DesktopEntryPath = %q, want %q", got, want)
 	}
-	assertInstallCalls(t, deps.appImageInstaller.calls, []fakeInstallCall{
-		{sourcePath: "/workspace/Example.AppImage", appID: "example-app-2-0-0"},
-		{sourcePath: "/library/example-app-2-0-0.AppImage", appID: "example-app"},
+	assertInstallCallsByBase(t, deps.appImageInstaller.calls, []fakeInstallCall{
+		{sourcePath: "Example.AppImage", appID: "example-app-2-0-0"},
+		{sourcePath: "example-app-2-0-0.AppImage", appID: "example-app"},
 	})
 	assertInstallCalls(t, deps.iconInstaller.calls, []fakeInstallCall{
 		{sourcePath: "/extracted/example.png", appID: "example-app-2-0-0"},
@@ -944,9 +935,9 @@ func TestServiceUpdateUsesEmbeddedGitHubReleaseTagAndAssetPattern(t *testing.T) 
 	if got, want := releases.repo, "owner/repo"; got != want {
 		t.Fatalf("release finder repo = %q, want %q", got, want)
 	}
-	assertInstallCalls(t, deps.appImageInstaller.calls, []fakeInstallCall{
-		{sourcePath: "/workspace/Example-2.0.0-x86_64.AppImage", appID: "example-app-2-0-0"},
-		{sourcePath: "/library/example-app-2-0-0.AppImage", appID: "example-app"},
+	assertInstallCallsByBase(t, deps.appImageInstaller.calls, []fakeInstallCall{
+		{sourcePath: "Example-2.0.0-x86_64.AppImage", appID: "example-app-2-0-0"},
+		{sourcePath: "example-app-2-0-0.AppImage", appID: "example-app"},
 	})
 	wantCandidates := []UpdateCandidate{{ID: installed.ID, CurrentVersion: "1.2.3", NewVersion: "2.0.0"}}
 	assertUpdateCandidates(t, result.Updates, wantCandidates)
@@ -987,9 +978,9 @@ func TestServiceUpdateUsesGitHubAssetPattern(t *testing.T) {
 		t.Fatalf("Update() error = %v", err)
 	}
 
-	assertInstallCalls(t, deps.appImageInstaller.calls, []fakeInstallCall{
-		{sourcePath: "/workspace/Example-arm64.AppImage", appID: "example-app-2-0-0"},
-		{sourcePath: "/library/example-app-2-0-0.AppImage", appID: "example-app"},
+	assertInstallCallsByBase(t, deps.appImageInstaller.calls, []fakeInstallCall{
+		{sourcePath: "Example-arm64.AppImage", appID: "example-app-2-0-0"},
+		{sourcePath: "example-app-2-0-0.AppImage", appID: "example-app"},
 	})
 	if got, want := deps.saved.App.UpdateSource.AssetPattern, "Example-arm64.AppImage"; got != want {
 		t.Fatalf("saved App.UpdateSource.AssetPattern = %q, want %q", got, want)
@@ -1424,12 +1415,10 @@ func TestServiceSetUpdateSourceSetsEmbeddedSource(t *testing.T) {
 	if got, want := deps.appImages.appImagePath, installed.AppImagePath; got != want {
 		t.Fatalf("Extract() appImagePath = %q, want %q", got, want)
 	}
-	if !strings.HasSuffix(deps.appImages.destDir, "/workspace/extract") {
+	if !strings.HasSuffix(deps.appImages.destDir, string(filepath.Separator)+"extract") {
 		t.Fatalf("Extract() destDir = %q, want workspace extract dir", deps.appImages.destDir)
 	}
-	if !deps.workspaces.cleaned {
-		t.Fatal("workspace was not cleaned")
-	}
+	assertWorkspaceCleaned(t, workspaceFromExtractDir(t, deps.appImages.destDir))
 	if got, want := result.UpdateSource.Kind, domain.UpdateSourceKindGitHub; got != want {
 		t.Fatalf("UpdateSource.Kind = %q, want %q", got, want)
 	}
@@ -1597,7 +1586,9 @@ func TestServiceInfoInspectsLocalAppImageWithoutInstalling(t *testing.T) {
 		t.Fatalf("NewService() error = %v", err)
 	}
 
-	result, err := service.Info(context.Background(), InfoRequest{Target: " ./Example_App-2.4.6-x86_64.AppImage "})
+	sourcePath := testAppImagePath(t, "Example_App-2.4.6-x86_64.AppImage")
+
+	result, err := service.Info(context.Background(), InfoRequest{Target: sourcePath})
 	if err != nil {
 		t.Fatalf("Info() error = %v", err)
 	}
@@ -1605,10 +1596,11 @@ func TestServiceInfoInspectsLocalAppImageWithoutInstalling(t *testing.T) {
 	if deps.apps.findID != "" {
 		t.Fatalf("Find() id = %q, want empty for local inspection", deps.apps.findID)
 	}
-	if got, original := deps.appImages.appImagePath, "./Example_App-2.4.6-x86_64.AppImage"; got == original {
+	workspacePath := workspaceFromExtractDir(t, deps.appImages.destDir)
+	if got := deps.appImages.appImagePath; got == sourcePath {
 		t.Fatalf("Extract() appImagePath = %q, want staged path", got)
 	}
-	if got, want := deps.appImages.appImagePath, "/workspace/Example_App-2.4.6-x86_64.AppImage"; got != want {
+	if got, want := deps.appImages.appImagePath, filepath.Join(workspacePath, "Example_App-2.4.6-x86_64.AppImage"); got != want {
 		t.Fatalf("Extract() appImagePath = %q, want %q", got, want)
 	}
 	if got, want := deps.desktopEntries.rootDir, "/extracted"; got != want {
@@ -1629,9 +1621,7 @@ func TestServiceInfoInspectsLocalAppImageWithoutInstalling(t *testing.T) {
 	if deps.saved.App.ID != "" {
 		t.Fatalf("repository Save app ID = %q, want empty", deps.saved.App.ID)
 	}
-	if !deps.workspaces.cleaned {
-		t.Fatal("workspace was not cleaned")
-	}
+	assertWorkspaceCleaned(t, workspacePath)
 
 	if result.Installed {
 		t.Fatal("Info().Installed = true, want false")
@@ -1648,13 +1638,13 @@ func TestServiceInfoInspectsLocalAppImageWithoutInstalling(t *testing.T) {
 	if got, want := result.Version, "1.2.3-beta.1"; got != want {
 		t.Fatalf("Info().Version = %q, want %q", got, want)
 	}
-	if got, want := result.ExecPath, "./Example_App-2.4.6-x86_64.AppImage"; got != want {
+	if got, want := result.ExecPath, sourcePath; got != want {
 		t.Fatalf("Info().ExecPath = %q, want %q", got, want)
 	}
 	if got, want := result.Source.Kind, domain.SourceKindLocal; got != want {
 		t.Fatalf("Info().Source.Kind = %q, want %q", got, want)
 	}
-	if got, want := result.Source.LocalFile.Path, "./Example_App-2.4.6-x86_64.AppImage"; got != want {
+	if got, want := result.Source.LocalFile.Path, sourcePath; got != want {
 		t.Fatalf("Info().Source.LocalFile.Path = %q, want %q", got, want)
 	}
 	if !result.Source.LocalFile.IntegratedAt.IsZero() {
@@ -1768,17 +1758,18 @@ func TestServiceAddFromGitHubIntegratesDownloadedAppImage(t *testing.T) {
 	if got, want := downloads.source.FileName, "Example.AppImage"; got != want {
 		t.Fatalf("Download() source FileName = %q, want %q", got, want)
 	}
-	if got, want := downloads.destinationPath, "/workspace/Example.AppImage"; got != want {
+	wantDownloadPath := filepath.Join(filepath.Dir(downloads.destinationPath), "Example.AppImage")
+	if got, want := downloads.destinationPath, wantDownloadPath; got != want {
 		t.Fatalf("Download() destination = %q, want %q", got, want)
 	}
 	if downloads.progress == nil {
 		t.Fatal("Download() progress = nil, want progress task")
 	}
-	if got, want := deps.appImages.appImagePath, "/workspace/Example.AppImage"; got != want {
-		t.Fatalf("Extract() appImagePath = %q, want %q", got, want)
+	if got, want := filepath.Base(deps.appImages.appImagePath), "Example.AppImage"; got != want {
+		t.Fatalf("Extract() appImagePath base = %q, want %q", got, want)
 	}
-	if got, want := deps.appImageInstaller.sourcePath, "/workspace/Example.AppImage"; got != want {
-		t.Fatalf("appimage installer source = %q, want %q", got, want)
+	if got, want := filepath.Base(deps.appImageInstaller.sourcePath), "Example.AppImage"; got != want {
+		t.Fatalf("appimage installer source base = %q, want %q", got, want)
 	}
 	if got, want := result.App.Source.Kind, domain.SourceKindGitHub; got != want {
 		t.Fatalf("App.Source.Kind = %q, want %q", got, want)
@@ -1813,9 +1804,7 @@ func TestServiceAddFromGitHubIntegratesDownloadedAppImage(t *testing.T) {
 	if got, want := deps.saved.App.UpdateSource.Repo, "owner/repo"; got != want {
 		t.Fatalf("saved App.UpdateSource.Repo = %q, want %q", got, want)
 	}
-	if !deps.workspaces.cleaned {
-		t.Fatal("workspace was not cleaned")
-	}
+	assertWorkspaceCleaned(t, filepath.Dir(downloads.destinationPath))
 }
 
 func TestServiceAddFromGitHubUsesAssetPattern(t *testing.T) {
@@ -1848,8 +1837,8 @@ func TestServiceAddFromGitHubUsesAssetPattern(t *testing.T) {
 	if got, want := deps.saved.App.UpdateSource.AssetPattern, "Example-arm64.AppImage"; got != want {
 		t.Fatalf("saved App.UpdateSource.AssetPattern = %q, want %q", got, want)
 	}
-	if got, want := deps.appImageInstaller.sourcePath, "/workspace/Example-arm64.AppImage"; got != want {
-		t.Fatalf("appimage installer source = %q, want %q", got, want)
+	if got, want := filepath.Base(deps.appImageInstaller.sourcePath), "Example-arm64.AppImage"; got != want {
+		t.Fatalf("appimage installer source base = %q, want %q", got, want)
 	}
 	if got, want := releases.repo, "owner/repo"; got != want {
 		t.Fatalf("LatestRelease() repo = %q, want %q", got, want)
@@ -2011,9 +2000,7 @@ func TestServiceAddFromGitHubReturnsDownloadFailure(t *testing.T) {
 	if deps.appImages.appImagePath != "" {
 		t.Fatalf("Extract() appImagePath = %q, want empty", deps.appImages.appImagePath)
 	}
-	if !deps.workspaces.cleaned {
-		t.Fatal("workspace was not cleaned")
-	}
+	assertWorkspaceCleaned(t, filepath.Dir(downloads.destinationPath))
 }
 
 func TestServiceAddFromGitHubValidatesRepo(t *testing.T) {
@@ -2044,9 +2031,7 @@ func TestNewServiceValidatesDependencies(t *testing.T) {
 
 type integrationFakes struct {
 	ServiceDeps
-	workspaces                  *fakeWorkspaceProvider
 	appImages                   *fakeAppImageExtractor
-	appImageStager              *fakeAppImageStager
 	desktopEntries              *fakeDesktopEntryDiscoverer
 	icons                       *fakeIconDiscoverer
 	appImageInstaller           *fakeAppImageInstaller
@@ -2059,9 +2044,7 @@ type integrationFakes struct {
 }
 
 func integrationTestDeps() integrationFakes {
-	workspaces := &fakeWorkspaceProvider{path: "/workspace"}
 	appImages := &fakeAppImageExtractor{rootDir: "/extracted"}
-	appImageStager := &fakeAppImageStager{}
 	desktopEntries := &fakeDesktopEntryDiscoverer{
 		path: "/extracted/example.desktop",
 		content: []byte(strings.Join([]string{
@@ -2079,7 +2062,7 @@ func integrationTestDeps() integrationFakes {
 	}
 	icons := &fakeIconDiscoverer{path: "/extracted/example.png"}
 	appImageInstaller := &fakeAppImageInstaller{path: "/library/example-app.AppImage"}
-	iconInstaller := &fakeIconInstaller{path: "/icons/hicolor/256x256/apps/example-app.png", workspace: workspaces}
+	iconInstaller := &fakeIconInstaller{path: "/icons/hicolor/256x256/apps/example-app.png"}
 	desktopEntryInstaller := &fakeDesktopEntryInstaller{path: "/desktop/example-app.desktop"}
 	artifactRemover := &fakeArtifactRemover{}
 	desktopIntegrationRefresher := &fakeDesktopIntegrationRefresher{}
@@ -2087,9 +2070,7 @@ func integrationTestDeps() integrationFakes {
 
 	return integrationFakes{
 		ServiceDeps: ServiceDeps{
-			Workspaces:                  workspaces,
 			AppImages:                   appImages,
-			AppImageStager:              appImageStager,
 			DesktopEntries:              desktopEntries,
 			Icons:                       icons,
 			AppImageInstaller:           appImageInstaller,
@@ -2099,9 +2080,7 @@ func integrationTestDeps() integrationFakes {
 			DesktopIntegrationRefresher: desktopIntegrationRefresher,
 			Apps:                        apps,
 		},
-		workspaces:                  workspaces,
 		appImages:                   appImages,
-		appImageStager:              appImageStager,
 		desktopEntries:              desktopEntries,
 		icons:                       icons,
 		appImageInstaller:           appImageInstaller,
@@ -2112,19 +2091,6 @@ func integrationTestDeps() integrationFakes {
 		apps:                        apps,
 		saved:                       apps,
 	}
-}
-
-type fakeWorkspaceProvider struct {
-	path    string
-	cleaned bool
-	err     error
-}
-
-func (f *fakeWorkspaceProvider) Create(ctx context.Context) (Workspace, error) {
-	if f.err != nil {
-		return Workspace{}, f.err
-	}
-	return Workspace{Path: f.path, Cleanup: func() error { f.cleaned = true; return nil }}, nil
 }
 
 type fakeAppImageExtractor struct {
@@ -2142,21 +2108,6 @@ func (f *fakeAppImageExtractor) Extract(ctx context.Context, appImagePath string
 		return AppImageExtraction{}, f.err
 	}
 	return AppImageExtraction{RootDir: f.rootDir, UpdateInfo: f.updateInfo}, nil
-}
-
-type fakeAppImageStager struct {
-	sourcePath    string
-	workspacePath string
-	err           error
-}
-
-func (f *fakeAppImageStager) Stage(ctx context.Context, sourcePath string, workspacePath string) (string, error) {
-	f.sourcePath = sourcePath
-	f.workspacePath = workspacePath
-	if f.err != nil {
-		return "", f.err
-	}
-	return filepath.Join(workspacePath, filepath.Base(sourcePath)), nil
 }
 
 type fakeDesktopEntryDiscoverer struct {
@@ -2227,23 +2178,18 @@ func (f *fakeAppImageInstaller) Install(ctx context.Context, sourcePath string, 
 }
 
 type fakeIconInstaller struct {
-	sourcePath                 string
-	appID                      string
-	path                       string
-	paths                      map[string]string
-	calls                      []fakeInstallCall
-	err                        error
-	workspace                  *fakeWorkspaceProvider
-	workspaceCleanedWhenCalled bool
+	sourcePath string
+	appID      string
+	path       string
+	paths      map[string]string
+	calls      []fakeInstallCall
+	err        error
 }
 
 func (f *fakeIconInstaller) Install(ctx context.Context, sourcePath string, appID string) (string, error) {
 	f.sourcePath = sourcePath
 	f.appID = appID
 	f.calls = append(f.calls, fakeInstallCall{sourcePath: sourcePath, appID: appID})
-	if f.workspace != nil {
-		f.workspaceCleanedWhenCalled = f.workspace.cleaned
-	}
 	if f.err != nil {
 		return "", f.err
 	}
@@ -2297,6 +2243,33 @@ func (f *fakeArtifactRemover) Remove(ctx context.Context, path string) error {
 		return f.err
 	}
 	return nil
+}
+
+func assertWorkspaceCleaned(t *testing.T, path string) {
+	t.Helper()
+	if path == "" {
+		t.Fatal("workspace path is empty")
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("workspace stat error = %v, want not exist", err)
+	}
+}
+
+func testAppImagePath(t *testing.T, name string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), name)
+	if err := os.WriteFile(path, []byte("appimage"), 0o755); err != nil {
+		t.Fatalf("write test AppImage: %v", err)
+	}
+	return path
+}
+
+func workspaceFromExtractDir(t *testing.T, destDir string) string {
+	t.Helper()
+	if filepath.Base(destDir) != "extract" {
+		t.Fatalf("extract dir = %q, want path ending in extract", destDir)
+	}
+	return filepath.Dir(destDir)
 }
 
 func assertUpdateCandidates(t *testing.T, got []UpdateCandidate, want []UpdateCandidate) {
@@ -2432,6 +2405,9 @@ func (f *fakeAssetDownloader) Download(ctx context.Context, source DownloadSourc
 	if f.downloaded.Path == "" {
 		f.downloaded.Path = destinationPath
 	}
+	if err := os.WriteFile(f.downloaded.Path, []byte("appimage"), 0o755); err != nil {
+		return DownloadedFile{}, err
+	}
 
 	return f.downloaded, nil
 }
@@ -2510,6 +2486,18 @@ func assertInstallCalls(t *testing.T, got []fakeInstallCall, want []fakeInstallC
 	for i := range want {
 		if got[i] != want[i] {
 			t.Fatalf("install calls = %#v, want %#v", got, want)
+		}
+	}
+}
+
+func assertInstallCallsByBase(t *testing.T, got []fakeInstallCall, want []fakeInstallCall) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("install calls = %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if filepath.Base(got[i].sourcePath) != want[i].sourcePath || got[i].appID != want[i].appID {
+			t.Fatalf("install calls = %#v, want base/appID %#v", got, want)
 		}
 	}
 }

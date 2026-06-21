@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -17,9 +19,7 @@ import (
 type service struct {
 	config                      Config
 	currentVersion              string
-	workspaces                  WorkspaceProvider
 	appImages                   AppImageExtractor
-	appImageStager              AppImageStager
 	desktopEntries              DesktopEntryDiscoverer
 	icons                       IconDiscoverer
 	appImageInstaller           AppImageInstaller
@@ -35,9 +35,7 @@ type service struct {
 
 type ServiceDeps struct {
 	Config                      Config
-	Workspaces                  WorkspaceProvider
 	AppImages                   AppImageExtractor
-	AppImageStager              AppImageStager
 	DesktopEntries              DesktopEntryDiscoverer
 	Icons                       IconDiscoverer
 	AppImageInstaller           AppImageInstaller
@@ -56,9 +54,7 @@ func NewService(deps ServiceDeps) (Service, error) {
 	service := &service{
 		config:                      deps.Config,
 		currentVersion:              deps.CurrentVersion,
-		workspaces:                  deps.Workspaces,
 		appImages:                   deps.AppImages,
-		appImageStager:              deps.AppImageStager,
 		desktopEntries:              deps.DesktopEntries,
 		icons:                       deps.Icons,
 		appImageInstaller:           deps.AppImageInstaller,
@@ -79,6 +75,23 @@ func NewService(deps ServiceDeps) (Service, error) {
 }
 
 var _ Service = (*service)(nil)
+
+func createWorkspace(ctx context.Context) (string, func(), error) {
+	if err := ctx.Err(); err != nil {
+		return "", func() {}, err
+	}
+
+	path, err := os.MkdirTemp("", "aim-*")
+	if err != nil {
+		return "", func() {}, fmt.Errorf("create workspace: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		_ = os.RemoveAll(path)
+		return "", func() {}, err
+	}
+
+	return path, func() { _ = os.RemoveAll(path) }, nil
+}
 
 func (s *service) Add(ctx context.Context, req AddRequest) (AddResult, error) {
 	if err := ctx.Err(); err != nil {
@@ -160,13 +173,13 @@ func (s *service) addFromGitHub(ctx context.Context, req AddRequest, activity Ac
 		return AddResult{}, err
 	}
 
-	workspace, err := s.workspaces.Create(ctx)
+	workspacePath, cleanup, err := createWorkspace(ctx)
 	if err != nil {
 		return AddResult{}, err
 	}
-	defer workspace.Cleanup()
+	defer cleanup()
 
-	downloadPath := filepath.Join(workspace.Path, filepath.Base(asset.Name))
+	downloadPath := filepath.Join(workspacePath, filepath.Base(asset.Name))
 	download := activity.Start(ctx, Activity{
 		Kind:      ActivityKindDownloading,
 		Repo:      repo,
@@ -209,13 +222,13 @@ func (s *service) integrateLocal(ctx context.Context, req AddRequest, source dom
 		}
 	}()
 
-	workspace, err := s.workspaces.Create(ctx)
+	workspacePath, cleanup, err := createWorkspace(ctx)
 	if err != nil {
 		return AddResult{}, err
 	}
-	defer workspace.Cleanup()
+	defer cleanup()
 
-	metadata, err := s.inspectLocalAppImageInWorkspace(ctx, req, source, fallbackVersion, appID, integrationSource, workspace.Path)
+	metadata, err := s.inspectLocalAppImageInWorkspace(ctx, req, source, fallbackVersion, appID, integrationSource, workspacePath)
 	if err != nil {
 		return AddResult{}, err
 	}
@@ -278,13 +291,13 @@ type localAppImageMetadata struct {
 }
 
 func (s *service) inspectLocalAppImage(ctx context.Context, req AddRequest, source domain.Source, fallbackVersion string, appID string, sourceFunc func(AddRequest, string) domain.UpdateSource) (localAppImageMetadata, error) {
-	workspace, err := s.workspaces.Create(ctx)
+	workspacePath, cleanup, err := createWorkspace(ctx)
 	if err != nil {
 		return localAppImageMetadata{}, err
 	}
-	defer workspace.Cleanup()
+	defer cleanup()
 
-	return s.inspectLocalAppImageInWorkspace(ctx, req, source, fallbackVersion, appID, sourceFunc, workspace.Path)
+	return s.inspectLocalAppImageInWorkspace(ctx, req, source, fallbackVersion, appID, sourceFunc, workspacePath)
 }
 
 func (s *service) inspectLocalAppImageInWorkspace(ctx context.Context, req AddRequest, source domain.Source, fallbackVersion string, appID string, sourceFunc func(AddRequest, string) domain.UpdateSource, workspacePath string) (localAppImageMetadata, error) {
@@ -519,13 +532,13 @@ func (s *service) applyGitHubUpdate(ctx context.Context, activity ActivityReport
 		return errors.New("asset downloader is required")
 	}
 
-	workspace, err := s.workspaces.Create(ctx)
+	workspacePath, cleanup, err := createWorkspace(ctx)
 	if err != nil {
 		return err
 	}
-	defer workspace.Cleanup()
+	defer cleanup()
 
-	downloadPath := filepath.Join(workspace.Path, filepath.Base(plan.asset.Name))
+	downloadPath := filepath.Join(workspacePath, filepath.Base(plan.asset.Name))
 	download := activity.Start(ctx, Activity{
 		Kind:      ActivityKindDownloading,
 		AppID:     plan.app.ID,
@@ -595,7 +608,49 @@ func (s *service) extractionPath(ctx context.Context, sourcePath string, workspa
 	if pathWithin(sourcePath, workspacePath) {
 		return sourcePath, nil
 	}
-	return s.appImageStager.Stage(ctx, sourcePath, workspacePath)
+	return stageAppImage(ctx, sourcePath, workspacePath)
+}
+
+func stageAppImage(ctx context.Context, sourcePath string, workspacePath string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(sourcePath) == "" {
+		return "", errors.New("appimage source path is required")
+	}
+	if strings.TrimSpace(workspacePath) == "" {
+		return "", errors.New("appimage staging workspace is required")
+	}
+
+	source, err := os.Open(sourcePath)
+	if err != nil {
+		return "", fmt.Errorf("open appimage %q: %w", sourcePath, err)
+	}
+	defer source.Close()
+
+	info, err := source.Stat()
+	if err != nil {
+		return "", fmt.Errorf("stat appimage %q: %w", sourcePath, err)
+	}
+
+	destination := filepath.Join(workspacePath, filepath.Base(sourcePath))
+	target, err := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, info.Mode().Perm())
+	if err != nil {
+		return "", fmt.Errorf("create staged appimage %q: %w", destination, err)
+	}
+	_, copyErr := io.Copy(target, source)
+	closeErr := target.Close()
+	if copyErr != nil {
+		return "", fmt.Errorf("copy appimage %q to %q: %w", sourcePath, destination, copyErr)
+	}
+	if closeErr != nil {
+		return "", fmt.Errorf("close staged appimage %q: %w", destination, closeErr)
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+
+	return destination, nil
 }
 
 func pathWithin(path string, dir string) bool {
@@ -799,13 +854,13 @@ type installedAppImageIDMetadata struct {
 }
 
 func (s *service) inspectInstalledAppImageForID(ctx context.Context, appImagePath string) (installedAppImageIDMetadata, error) {
-	workspace, err := s.workspaces.Create(ctx)
+	workspacePath, cleanup, err := createWorkspace(ctx)
 	if err != nil {
 		return installedAppImageIDMetadata{}, err
 	}
-	defer workspace.Cleanup()
+	defer cleanup()
 
-	extraction, err := s.appImages.Extract(ctx, appImagePath, filepath.Join(workspace.Path, "extract"))
+	extraction, err := s.appImages.Extract(ctx, appImagePath, filepath.Join(workspacePath, "extract"))
 	if err != nil {
 		return installedAppImageIDMetadata{}, err
 	}
@@ -913,13 +968,13 @@ func (s *service) embeddedUpdateSource(ctx context.Context, installedApp domain.
 		return domain.UpdateSource{}, errors.New("installed appimage path is required")
 	}
 
-	workspace, err := s.workspaces.Create(ctx)
+	workspacePath, cleanup, err := createWorkspace(ctx)
 	if err != nil {
 		return domain.UpdateSource{}, err
 	}
-	defer workspace.Cleanup()
+	defer cleanup()
 
-	extraction, err := s.appImages.Extract(ctx, installedApp.AppImagePath, filepath.Join(workspace.Path, "extract"))
+	extraction, err := s.appImages.Extract(ctx, installedApp.AppImagePath, filepath.Join(workspacePath, "extract"))
 	if err != nil {
 		return domain.UpdateSource{}, err
 	}
@@ -1159,14 +1214,8 @@ func validGitHubRepo(repo string) bool {
 }
 
 func (s *service) validate() error {
-	if s.workspaces == nil {
-		return fmt.Errorf("workspace provider is required")
-	}
 	if s.appImages == nil {
 		return fmt.Errorf("appimage extractor is required")
-	}
-	if s.appImageStager == nil {
-		return fmt.Errorf("appimage stager is required")
 	}
 	if s.desktopEntries == nil {
 		return fmt.Errorf("desktop entry discoverer is required")

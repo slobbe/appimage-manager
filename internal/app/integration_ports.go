@@ -13,11 +13,6 @@ type AppImageExtraction struct {
 	UpdateInfo string
 }
 
-// AppImageStager copies a user-provided AppImage into a workspace before extraction.
-type AppImageStager interface {
-	Stage(ctx context.Context, sourcePath string, workspacePath string) (string, error)
-}
-
 // DesktopEntryDiscoverer finds desktop entry files in extracted AppImages.
 type DesktopEntryDiscoverer interface {
 	Discover(ctx context.Context, rootDir string) (DesktopEntryFile, error)
