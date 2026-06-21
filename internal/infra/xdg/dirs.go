@@ -9,10 +9,7 @@ import (
 const AppName = "aim"
 
 type Dirs struct {
-	ConfigHome string
-	DataHome   string
-	CacheHome  string
-	StateHome  string
+	DataHome string
 }
 
 func Resolve() (Dirs, error) {
@@ -22,10 +19,7 @@ func Resolve() (Dirs, error) {
 	}
 
 	return Dirs{
-		ConfigHome: envOrDefault("XDG_CONFIG_HOME", filepath.Join(home, ".config")),
-		DataHome:   envOrDefault("XDG_DATA_HOME", filepath.Join(home, ".local", "share")),
-		CacheHome:  envOrDefault("XDG_CACHE_HOME", filepath.Join(home, ".cache")),
-		StateHome:  envOrDefault("XDG_STATE_HOME", filepath.Join(home, ".local", "state")),
+		DataHome: envOrDefault("XDG_DATA_HOME", filepath.Join(home, ".local", "share")),
 	}, nil
 }
 
@@ -36,14 +30,6 @@ func envOrDefault(name string, fallback string) string {
 	}
 
 	return value
-}
-
-func ConfigDir(dirs Dirs) string {
-	return filepath.Join(dirs.ConfigHome, AppName)
-}
-
-func ConfigFile(dirs Dirs) string {
-	return filepath.Join(ConfigDir(dirs), "config.toml")
 }
 
 func DataDir(dirs Dirs) string {
@@ -60,12 +46,4 @@ func DesktopDir(dirs Dirs) string {
 
 func IconDir(dirs Dirs) string {
 	return filepath.Join(dirs.DataHome, "icons")
-}
-
-func CacheDir(dirs Dirs) string {
-	return filepath.Join(dirs.CacheHome, AppName)
-}
-
-func StateDir(dirs Dirs) string {
-	return filepath.Join(dirs.StateHome, AppName)
 }

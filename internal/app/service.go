@@ -1130,9 +1130,7 @@ func (s *service) Paths(ctx context.Context, req PathsRequest) (PathsResult, err
 	}
 
 	return PathsResult{
-		ConfigFile:  s.config.ConfigFile,
 		AppImageDir: s.config.AppImageDir,
-		CacheDir:    s.config.CacheDir,
 		DesktopDir:  s.config.DesktopDir,
 		IconDir:     s.config.IconDir,
 	}, nil

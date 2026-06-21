@@ -24,14 +24,14 @@ This plan is grouped by logical commits. Implement one checklist item at a time.
 
 ## Commit 2: `build(config): remove toml config loading`
 
-- [ ] Remove TOML config loading and dependency.
+- [x] Remove TOML config loading and dependency.
   - Delete `internal/infra/config/loader.go` and `internal/infra/config/loader_test.go`, or replace them with tiny XDG-default helpers if still needed.
   - Remove `github.com/pelletier/go-toml/v2` from `go.mod` via `go mod tidy`.
   - Update `cmd/aim/main.go` to use XDG defaults directly.
   - Keep the `paths` command working if it is still useful.
   - Validate with `go test ./...` and `go mod tidy`.
 
-- [ ] Simplify `app.Config` to only fields still used.
+- [x] Simplify `app.Config` to only fields still used.
   - Review `internal/app/config.go` and remove fields made redundant by config deletion.
   - Update `PathsResult` and `paths` command only if fields truly disappear.
   - Validate with `go test ./internal/app ./internal/cli/... ./...` if practical.
