@@ -52,7 +52,7 @@ func main() {
 		AppImageInstaller:           appimage.NewInstaller(cfg.AppImageDir),
 		IconInstaller:               icon.NewInstaller(cfg.IconDir),
 		DesktopEntryInstaller:       desktop.NewInstaller(cfg.DesktopDir),
-		ArtifactRemover:             fileutil.Remover{},
+		ArtifactRemover:             fileutil.RemoveArtifact,
 		DesktopIntegrationRefresher: desktop.NewRefresher(cfg.DesktopDir, cfg.IconDir),
 		GitHubReleases:              github.NewClient(),
 		Downloads:                   download.Downloader{},

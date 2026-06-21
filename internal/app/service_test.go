@@ -2076,7 +2076,7 @@ func integrationTestDeps() integrationFakes {
 			AppImageInstaller:           appImageInstaller,
 			IconInstaller:               iconInstaller,
 			DesktopEntryInstaller:       desktopEntryInstaller,
-			ArtifactRemover:             artifactRemover,
+			ArtifactRemover:             artifactRemover.Remove,
 			DesktopIntegrationRefresher: desktopIntegrationRefresher,
 			Apps:                        apps,
 		},

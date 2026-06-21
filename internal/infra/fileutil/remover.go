@@ -6,15 +6,9 @@ import (
 	"fmt"
 	"os"
 	"strings"
-
-	"github.com/slobbe/appimage-manager/internal/app"
 )
 
-type Remover struct{}
-
-var _ app.ArtifactRemover = Remover{}
-
-func (Remover) Remove(ctx context.Context, path string) error {
+func RemoveArtifact(ctx context.Context, path string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
