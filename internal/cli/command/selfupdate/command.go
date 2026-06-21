@@ -1,16 +1,15 @@
 package selfupdate
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"io"
-	"strings"
 
 	"github.com/slobbe/appimage-manager/internal/app"
 	"github.com/slobbe/appimage-manager/internal/cli/activity"
 	"github.com/slobbe/appimage-manager/internal/cli/clienv"
 	"github.com/slobbe/appimage-manager/internal/cli/output"
+	"github.com/slobbe/appimage-manager/internal/cli/prompt"
 
 	"github.com/spf13/cobra"
 )
@@ -92,23 +91,6 @@ type selfUpdatePrompter struct {
 }
 
 func (p selfUpdatePrompter) ConfirmSelfUpdate(ctx context.Context, update app.SelfUpdateCandidate) (bool, error) {
-	if p.autoConfirm {
-		return true, nil
-	}
-
-	if err := ctx.Err(); err != nil {
-		return false, err
-	}
-
-	fmt.Fprintf(p.out, "Update aim from %s to %s? (y/n) ", update.CurrentVersion, update.NewVersion)
-
-	reader := bufio.NewReader(p.in)
-	answer, err := reader.ReadString('\n')
-	fmt.Fprintln(p.out)
-	if err != nil && len(answer) == 0 {
-		return false, err
-	}
-
-	answer = strings.TrimSpace(strings.ToLower(answer))
-	return answer == "y" || answer == "yes", nil
+	question := fmt.Sprintf("Update aim from %s to %s? (y/n) ", update.CurrentVersion, update.NewVersion)
+	return prompt.ConfirmYesNo(ctx, p.in, p.out, question, p.autoConfirm)
 }
