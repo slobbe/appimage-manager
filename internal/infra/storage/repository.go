@@ -54,23 +54,6 @@ type sourceRecord struct {
 	GitHubRelease *githubReleaseSourceRecord `json:"github_release,omitempty"`
 }
 
-func (r *sourceRecord) UnmarshalJSON(data []byte) error {
-	var legacyKind string
-	if err := json.Unmarshal(data, &legacyKind); err == nil {
-		r.Kind = legacyKind
-		return nil
-	}
-
-	type sourceRecordAlias sourceRecord
-	var decoded sourceRecordAlias
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-
-	*r = sourceRecord(decoded)
-	return nil
-}
-
 type updateSourceRecord struct {
 	Embedded          bool   `json:"embedded"`
 	Kind              string `json:"kind"`
@@ -83,38 +66,6 @@ type updateSourceRecord struct {
 	AssetPattern      string `json:"asset_pattern,omitempty"`
 	ZsyncAssetPattern string `json:"zsync_asset_pattern,omitempty"`
 	URL               string `json:"url,omitempty"`
-}
-
-func (r *updateSourceRecord) UnmarshalJSON(data []byte) error {
-	var legacyValue string
-	if err := json.Unmarshal(data, &legacyValue); err == nil {
-		*r = updateSourceRecordFromLegacyString(legacyValue)
-		return nil
-	}
-
-	type updateSourceRecordAlias updateSourceRecord
-	var decoded updateSourceRecordAlias
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	*r = updateSourceRecord(decoded)
-	return nil
-}
-
-func updateSourceRecordFromLegacyString(value string) updateSourceRecord {
-	value = strings.TrimSpace(value)
-	if validLegacyGitHubRepo(value) {
-		return updateSourceRecord{Embedded: false, Kind: string(domain.UpdateSourceKindGitHub), Repo: value}
-	}
-	if value != "" {
-		return updateSourceRecord{Embedded: false, Kind: string(domain.UpdateSourceKindLocalFile), Path: value}
-	}
-	return updateSourceRecord{}
-}
-
-func validLegacyGitHubRepo(value string) bool {
-	owner, repo, ok := strings.Cut(value, "/")
-	return ok && owner != "" && repo != "" && !strings.Contains(repo, "/") && !strings.HasPrefix(value, "/")
 }
 
 type localFileSourceRecord struct {
