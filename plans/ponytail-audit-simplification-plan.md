@@ -160,12 +160,12 @@ Skipped by user request; keep live progress bars.
 
 ## Final validation
 
-- [ ] Run `go mod tidy`.
-- [ ] Run `go test ./...`.
-- [ ] Review `go.mod` and confirm possible dependency removals:
+- [x] Run `go mod tidy`.
+- [x] Run `go test ./...`.
+- [x] Review `go.mod` and confirm possible dependency removals:
   - `github.com/pelletier/go-toml/v2`
   - `golang.org/x/sys`
-- [ ] Run a quick manual smoke test if practical:
+- [x] Run a quick manual smoke test if practical:
   - `go run ./cmd/aim --help`
   - `go run ./cmd/aim paths`
-- [ ] Confirm every completed item in this file is checked off.
+- [x] Confirm every completed item in this file is checked off.
