@@ -1,6 +1,7 @@
 package add
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -20,7 +21,11 @@ const (
 	reset = "\033[0m"
 )
 
-func NewCommand(rt *clienv.Runtime, service app.Service) *cobra.Command {
+type service interface {
+	Add(ctx context.Context, req app.AddRequest) (app.AddResult, error)
+}
+
+func NewCommand(rt *clienv.Runtime, service service) *cobra.Command {
 	var githubRepo string
 	var assetPattern string
 	var prerelease bool

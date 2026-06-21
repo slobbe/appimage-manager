@@ -10,7 +10,6 @@ import (
 
 	"github.com/slobbe/appimage-manager/internal/app"
 	"github.com/slobbe/appimage-manager/internal/cli/clienv"
-	"github.com/slobbe/appimage-manager/internal/cli/command/commandtest"
 )
 
 func TestCommandRequiresExactlyOneArg(t *testing.T) {
@@ -210,14 +209,13 @@ func TestCommandHelpDescribesIntegratedAndLocalAppImages(t *testing.T) {
 }
 
 type fakeService struct {
-	commandtest.Service
 	infoCalled bool
 	infoReq    app.InfoRequest
 	infoResult app.InfoResult
 	infoErr    error
 }
 
-var _ app.Service = (*fakeService)(nil)
+var _ service = (*fakeService)(nil)
 
 func (s *fakeService) Info(ctx context.Context, req app.InfoRequest) (app.InfoResult, error) {
 	s.infoCalled = true

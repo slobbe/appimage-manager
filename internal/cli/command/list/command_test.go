@@ -10,7 +10,6 @@ import (
 
 	"github.com/slobbe/appimage-manager/internal/app"
 	"github.com/slobbe/appimage-manager/internal/cli/clienv"
-	"github.com/slobbe/appimage-manager/internal/cli/command/commandtest"
 )
 
 func TestCommandCallsServiceAndPrintsTextList(t *testing.T) {
@@ -97,13 +96,12 @@ func TestCommandReturnsServiceError(t *testing.T) {
 }
 
 type fakeService struct {
-	commandtest.Service
 	listCalled bool
 	listResult app.ListResult
 	listErr    error
 }
 
-var _ app.Service = (*fakeService)(nil)
+var _ service = (*fakeService)(nil)
 
 func (s *fakeService) List(ctx context.Context, req app.ListRequest) (app.ListResult, error) {
 	s.listCalled = true

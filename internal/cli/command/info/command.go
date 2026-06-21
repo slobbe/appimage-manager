@@ -1,6 +1,7 @@
 package info
 
 import (
+	"context"
 	"fmt"
 	"io"
 
@@ -16,7 +17,11 @@ const (
 	reset = "\033[0m"
 )
 
-func NewCommand(rt *clienv.Runtime, service app.Service) *cobra.Command {
+type service interface {
+	Info(ctx context.Context, req app.InfoRequest) (app.InfoResult, error)
+}
+
+func NewCommand(rt *clienv.Runtime, service service) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "info <app-id|path>",
 		Short: "Get information about an AppImage",

@@ -1,6 +1,7 @@
 package paths
 
 import (
+	"context"
 	"fmt"
 	"io"
 
@@ -11,7 +12,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func NewCommand(rt *clienv.Runtime, service app.Service) *cobra.Command {
+type service interface {
+	Paths(ctx context.Context, req app.PathsRequest) (app.PathsResult, error)
+}
+
+func NewCommand(rt *clienv.Runtime, service service) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "paths",
 		Short: "Show aim paths",

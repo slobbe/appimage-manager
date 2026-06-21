@@ -19,7 +19,11 @@ const (
 	reset = "\033[0m"
 )
 
-func NewCommand(rt *clienv.Runtime, service app.Service) *cobra.Command {
+type service interface {
+	SelfUpdate(ctx context.Context, req app.SelfUpdateRequest) (app.SelfUpdateResult, error)
+}
+
+func NewCommand(rt *clienv.Runtime, service service) *cobra.Command {
 	var prerelease bool
 
 	cmd := &cobra.Command{

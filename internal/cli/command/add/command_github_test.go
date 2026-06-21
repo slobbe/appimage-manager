@@ -7,7 +7,6 @@ import (
 
 	"github.com/slobbe/appimage-manager/internal/app"
 	"github.com/slobbe/appimage-manager/internal/cli/clienv"
-	"github.com/slobbe/appimage-manager/internal/cli/command/commandtest"
 )
 
 func TestCommandPassesGitHubAssetPattern(t *testing.T) {
@@ -49,11 +48,10 @@ func TestCommandRejectsAssetWithoutGitHub(t *testing.T) {
 }
 
 type fakeService struct {
-	commandtest.Service
 	addReq app.AddRequest
 }
 
-var _ app.Service = (*fakeService)(nil)
+var _ service = (*fakeService)(nil)
 
 func (s *fakeService) Add(ctx context.Context, req app.AddRequest) (app.AddResult, error) {
 	s.addReq = req

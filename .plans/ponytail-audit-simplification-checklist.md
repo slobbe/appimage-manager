@@ -55,7 +55,7 @@ Suggested validation baseline after each item:
 
 ## Commit 5: reduce command test scaffolding
 
-- [ ] Replace broad `commandtest.Service` no-op implementation with smaller test fakes.
+- [x] Replace broad `commandtest.Service` no-op implementation with smaller test fakes.
   - Current file: `internal/cli/command/commandtest/service.go`.
   - Each command test usually needs only one service method; prefer local minimal fakes or another smaller pattern.
   - Remove `commandtest.Service` once no tests embed it.

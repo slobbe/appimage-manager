@@ -1,6 +1,7 @@
 package list
 
 import (
+	"context"
 	"fmt"
 	"io"
 
@@ -16,7 +17,11 @@ const (
 	reset = "\033[0m"
 )
 
-func NewCommand(rt *clienv.Runtime, service app.Service) *cobra.Command {
+type service interface {
+	List(ctx context.Context, req app.ListRequest) (app.ListResult, error)
+}
+
+func NewCommand(rt *clienv.Runtime, service service) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "list",
 		Aliases: []string{"ls"},
