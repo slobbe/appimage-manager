@@ -98,7 +98,7 @@ Skipped by user request; keep live progress bars.
 
 ## Commit 7: `refactor(app): flatten add-local workflow helpers`
 
-- [ ] Replace the add-local helper call ladder.
+- [x] Replace the add-local helper call ladder.
   - In `internal/app/service.go`, collapse:
     - `addLocalWithSource`
     - `addLocalWithSourceAndID`

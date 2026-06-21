@@ -116,21 +116,24 @@ func (s *service) Add(ctx context.Context, req AddRequest) (AddResult, error) {
 	return s.addLocal(ctx, req, activity)
 }
 
+type addLocalOptions struct {
+	source          domain.Source
+	fallbackVersion string
+	appID           string
+	saveApp         bool
+}
+
 func (s *service) addLocal(ctx context.Context, req AddRequest, activity ActivityReporter) (AddResult, error) {
-	return s.addLocalWithSource(ctx, req, activity, domain.NewLocalSource(req.Path, time.Now()), filepath.Base(req.Path))
+	return s.addLocalWithOptions(ctx, req, activity, addLocalOptions{
+		source:          domain.NewLocalSource(req.Path, time.Now()),
+		fallbackVersion: filepath.Base(req.Path),
+		saveApp:         true,
+	})
 }
 
-func (s *service) addLocalWithSource(ctx context.Context, req AddRequest, activity ActivityReporter, source domain.Source, fallbackVersion string) (AddResult, error) {
-	return s.addLocalWithSourceAndID(ctx, req, activity, source, fallbackVersion, "")
-}
-
-func (s *service) addLocalWithSourceAndID(ctx context.Context, req AddRequest, activity ActivityReporter, source domain.Source, fallbackVersion string, appID string) (AddResult, error) {
-	return s.addLocalWithSourceAndIDAndSave(ctx, req, activity, source, fallbackVersion, appID, true)
-}
-
-func (s *service) addLocalWithSourceAndIDAndSave(ctx context.Context, req AddRequest, activity ActivityReporter, source domain.Source, fallbackVersion string, appID string, saveApp bool) (AddResult, error) {
-	task := activity.Start(ctx, Activity{Kind: ActivityKindIntegrating, Path: req.Path, AppID: appID})
-	result, err := s.integrateLocal(ctx, req, source, fallbackVersion, appID, saveApp)
+func (s *service) addLocalWithOptions(ctx context.Context, req AddRequest, activity ActivityReporter, options addLocalOptions) (AddResult, error) {
+	task := activity.Start(ctx, Activity{Kind: ActivityKindIntegrating, Path: req.Path, AppID: options.appID})
+	result, err := s.integrateLocal(ctx, req, options.source, options.fallbackVersion, options.appID, options.saveApp)
 	if err != nil {
 		task.Fail(err)
 		return AddResult{}, err
@@ -204,13 +207,17 @@ func (s *service) addFromGitHub(ctx context.Context, req AddRequest, activity Ac
 	}
 
 	source := domain.NewGitHubReleaseSource(repo, release.TagName, asset.Name, asset.DownloadURL, asset.SizeBytes, time.Now())
-	return s.addLocalWithSource(ctx, AddRequest{
+	return s.addLocalWithOptions(ctx, AddRequest{
 		Path:         integratePath,
 		GitHubRepo:   repo,
 		AssetPattern: req.AssetPattern,
 		Prerelease:   req.Prerelease,
 		Activity:     activity,
-	}, activity, source, release.TagName)
+	}, activity, addLocalOptions{
+		source:          source,
+		fallbackVersion: release.TagName,
+		saveApp:         true,
+	})
 }
 
 func (s *service) integrateLocal(ctx context.Context, req AddRequest, source domain.Source, fallbackVersion string, appID string, saveApp bool) (AddResult, error) {
@@ -564,12 +571,17 @@ func (s *service) applyGitHubUpdate(ctx context.Context, activity ActivityReport
 	}
 	source := domain.NewGitHubReleaseSource(plan.app.UpdateSource.Repo, plan.release.TagName, plan.asset.Name, plan.asset.DownloadURL, plan.asset.SizeBytes, time.Now())
 	stageID := updateArtifactID(plan.app.ID, plan.version)
-	result, err := s.addLocalWithSourceAndIDAndSave(ctx, AddRequest{
+	result, err := s.addLocalWithOptions(ctx, AddRequest{
 		Path:       integratePath,
 		GitHubRepo: plan.app.UpdateSource.Repo,
 		Prerelease: plan.app.UpdateSource.Prerelease,
 		Activity:   activity,
-	}, activity, source, plan.release.TagName, stageID, false)
+	}, activity, addLocalOptions{
+		source:          source,
+		fallbackVersion: plan.release.TagName,
+		appID:           stageID,
+		saveApp:         false,
+	})
 	if err != nil {
 		return err
 	}
