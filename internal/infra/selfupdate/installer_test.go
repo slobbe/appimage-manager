@@ -5,29 +5,20 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 )
 
 func TestInstallerInstallRequiresVersionAndDoesNotDownloadScript(t *testing.T) {
 	requests := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	withDefaultTransport(t, roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		requests++
 		t.Fatalf("unexpected request for empty version")
+		return nil, nil
 	}))
-	defer server.Close()
 
-	installer := Installer{
-		HTTPClient: server.Client(),
-		ScriptURL:  server.URL,
-		runCommand: func(context.Context, string, io.Reader, []string) ([]byte, error) {
-			t.Fatalf("unexpected command execution for empty version")
-			return nil, nil
-		},
-	}
-
-	err := installer.Install(context.Background(), " \t\n")
+	err := NewInstaller().Install(context.Background(), " \t\n")
 	if err == nil {
 		t.Fatalf("expected error for empty version")
 	}
@@ -41,17 +32,16 @@ func TestInstallerInstallRequiresVersionAndDoesNotDownloadScript(t *testing.T) {
 
 func TestInstallerInstallReturnsCanceledContextBeforeWork(t *testing.T) {
 	requests := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	withDefaultTransport(t, roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		requests++
 		t.Fatalf("unexpected request for canceled context")
+		return nil, nil
 	}))
-	defer server.Close()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	installer := Installer{HTTPClient: server.Client(), ScriptURL: server.URL}
-	err := installer.Install(ctx, "v0.18.0")
+	err := NewInstaller().Install(ctx, "v0.18.0")
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context.Canceled, got %v", err)
 	}
@@ -76,110 +66,52 @@ func TestInstallScriptURLForVersionNormalizesVersionWithoutV(t *testing.T) {
 	}
 }
 
-func TestInstallerInstallUsesScriptURLOverride(t *testing.T) {
-	requestedPath := ""
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestedPath = r.URL.Path
-		_, _ = io.WriteString(w, "echo installing\n")
-	}))
-	defer server.Close()
+func TestInstallerInstallDownloadsTaggedScript(t *testing.T) {
+	requestedURL := ""
+	withInstallScript(t, "echo installing\n", http.StatusOK, &requestedURL)
 
-	installer := Installer{
-		HTTPClient: server.Client(),
-		ScriptURL:  server.URL + "/custom/install.sh",
-		runCommand: func(context.Context, string, io.Reader, []string) ([]byte, error) {
-			return nil, nil
-		},
-	}
-
-	if err := installer.Install(context.Background(), "v0.18.0"); err != nil {
+	if err := NewInstaller().Install(context.Background(), "v0.18.0"); err != nil {
 		t.Fatalf("Install returned error: %v", err)
 	}
-	if requestedPath != "/custom/install.sh" {
-		t.Fatalf("expected override path /custom/install.sh, got %q", requestedPath)
+	want := "https://raw.githubusercontent.com/slobbe/appimage-manager/v0.18.0/scripts/install.sh"
+	if requestedURL != want {
+		t.Fatalf("request URL = %q, want %q", requestedURL, want)
 	}
 }
 
 func TestInstallerInstallReturnsNon2xxDownloadError(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, "nope", http.StatusTeapot)
-	}))
-	defer server.Close()
+	withInstallScript(t, "nope", http.StatusTeapot, nil)
 
-	installer := Installer{
-		HTTPClient: server.Client(),
-		ScriptURL:  server.URL,
-		runCommand: func(context.Context, string, io.Reader, []string) ([]byte, error) {
-			t.Fatalf("unexpected command execution for failed download")
-			return nil, nil
-		},
-	}
-
-	err := installer.Install(context.Background(), "v0.18.0")
+	err := NewInstaller().Install(context.Background(), "v0.18.0")
 	if err == nil {
 		t.Fatalf("expected non-2xx download error")
 	}
-	if !strings.Contains(err.Error(), "418") {
-		t.Fatalf("expected status code in error, got %q", err.Error())
+	if !strings.Contains(err.Error(), "teapot") {
+		t.Fatalf("expected status in error, got %q", err.Error())
 	}
 }
 
 func TestInstallerInstallRunsShellWithScriptAndTrimmedVersion(t *testing.T) {
-	const scriptBody = "#!/bin/sh\necho installing\n"
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = io.WriteString(w, scriptBody)
-	}))
-	defer server.Close()
+	logPath := t.TempDir() + "/installer.log"
+	script := "printf 'version=%s\\n' \"$AIM_VERSION\" > " + shellQuote(logPath) + "\n"
+	withInstallScript(t, script, http.StatusOK, nil)
 
-	commandCalled := false
-	installer := Installer{
-		HTTPClient: server.Client(),
-		ScriptURL:  server.URL,
-		runCommand: func(ctx context.Context, name string, stdin io.Reader, env []string) ([]byte, error) {
-			commandCalled = true
-			if err := ctx.Err(); err != nil {
-				t.Fatalf("unexpected context error: %v", err)
-			}
-			if name != "sh" {
-				t.Fatalf("expected command name sh, got %q", name)
-			}
-			body, err := io.ReadAll(stdin)
-			if err != nil {
-				t.Fatalf("read command stdin: %v", err)
-			}
-			if string(body) != scriptBody {
-				t.Fatalf("expected stdin %q, got %q", scriptBody, string(body))
-			}
-			if !hasEnv(env, "AIM_VERSION=0.18.0") {
-				t.Fatalf("expected AIM_VERSION=0.18.0 in env, got %#v", env)
-			}
-			return nil, nil
-		},
-	}
-
-	if err := installer.Install(context.Background(), "v0.18.0"); err != nil {
+	if err := NewInstaller().Install(context.Background(), "v0.18.0"); err != nil {
 		t.Fatalf("Install returned error: %v", err)
 	}
-	if !commandCalled {
-		t.Fatalf("expected command runner to be called")
+	content, err := io.ReadAll(mustOpen(t, logPath))
+	if err != nil {
+		t.Fatalf("read log: %v", err)
+	}
+	if got, want := string(content), "version=0.18.0\n"; got != want {
+		t.Fatalf("installer log = %q, want %q", got, want)
 	}
 }
 
 func TestInstallerInstallIncludesCommandOutputOnFailure(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = io.WriteString(w, "echo installing\n")
-	}))
-	defer server.Close()
+	withInstallScript(t, "echo installer failed\nexit 7\n", http.StatusOK, nil)
 
-	installer := Installer{
-		HTTPClient: server.Client(),
-		ScriptURL:  server.URL,
-		runCommand: func(context.Context, string, io.Reader, []string) ([]byte, error) {
-			return []byte("installer failed\n"), errors.New("exit status 1")
-		},
-	}
-
-	err := installer.Install(context.Background(), "v0.18.0")
+	err := NewInstaller().Install(context.Background(), "v0.18.0")
 	if err == nil {
 		t.Fatalf("expected command failure")
 	}
@@ -192,32 +124,58 @@ func TestInstallerInstallIncludesCommandOutputOnFailure(t *testing.T) {
 }
 
 func TestInstallerInstallReturnsCanceledContextDuringCommand(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = io.WriteString(w, "echo installing\n")
-	}))
-	defer server.Close()
-
+	withInstallScript(t, "sleep 1\n", http.StatusOK, nil)
 	ctx, cancel := context.WithCancel(context.Background())
-	installer := Installer{
-		HTTPClient: server.Client(),
-		ScriptURL:  server.URL,
-		runCommand: func(context.Context, string, io.Reader, []string) ([]byte, error) {
-			cancel()
-			return []byte("canceled\n"), errors.New("command canceled")
-		},
-	}
+	cancel()
 
-	err := installer.Install(ctx, "v0.18.0")
+	err := NewInstaller().Install(ctx, "v0.18.0")
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context.Canceled, got %v", err)
 	}
 }
 
-func hasEnv(env []string, want string) bool {
-	for _, got := range env {
-		if got == want {
-			return true
+func withInstallScript(t *testing.T, body string, status int, requestedURL *string) {
+	t.Helper()
+	withDefaultTransport(t, roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if requestedURL != nil {
+			*requestedURL = r.URL.String()
 		}
+		if got, want := r.Header.Get("User-Agent"), "aim"; got != want {
+			t.Fatalf("User-Agent = %q, want %q", got, want)
+		}
+		return &http.Response{
+			StatusCode: status,
+			Status:     http.StatusText(status),
+			Body:       io.NopCloser(strings.NewReader(body)),
+			Header:     make(http.Header),
+			Request:    r,
+		}, nil
+	}))
+}
+
+func withDefaultTransport(t *testing.T, transport http.RoundTripper) {
+	t.Helper()
+	previous := http.DefaultTransport
+	http.DefaultTransport = transport
+	t.Cleanup(func() { http.DefaultTransport = previous })
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r)
+}
+
+func mustOpen(t *testing.T, path string) io.Reader {
+	t.Helper()
+	file, err := os.Open(path)
+	if err != nil {
+		t.Fatalf("open %s: %v", path, err)
 	}
-	return false
+	t.Cleanup(func() { file.Close() })
+	return file
+}
+
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }

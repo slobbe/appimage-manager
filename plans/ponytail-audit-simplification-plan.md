@@ -128,7 +128,7 @@ Skipped by user request; keep live progress bars.
 
 ## Commit 9: `refactor(infra): remove production test-injection knobs`
 
-- [ ] Simplify adapter structs that expose test-only knobs.
+- [x] Simplify adapter structs that expose test-only knobs.
   - `internal/infra/download/downloader.go`: prefer `http.DefaultClient` directly unless a real runtime override exists.
   - `internal/infra/desktop/refresher.go`: remove public `LookPath` and `Run` fields; use `exec.LookPath` and `exec.CommandContext` internally.
   - `internal/infra/selfupdate/installer.go`: remove public `ScriptURL`, `HTTPClient`, and private `runCommand` if they only exist for unit tests.

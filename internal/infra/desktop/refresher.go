@@ -16,8 +16,6 @@ import (
 type Refresher struct {
 	DesktopDir string
 	IconDir    string
-	LookPath   func(string) (string, error)
-	Run        func(context.Context, string, ...string) error
 }
 
 // NewRefresher creates a desktop integration refresher.
@@ -62,26 +60,12 @@ type refreshCommand struct {
 }
 
 func (r Refresher) runIfAvailable(ctx context.Context, name string, args ...string) error {
-	path, err := r.lookPath(name)
+	path, err := exec.LookPath(name)
 	if err != nil {
 		return nil
 	}
-	if err := r.run(ctx, path, args...); err != nil {
+	if err := exec.CommandContext(ctx, path, args...).Run(); err != nil {
 		return fmt.Errorf("refresh desktop integration with %s: %w", name, err)
 	}
 	return nil
-}
-
-func (r Refresher) lookPath(name string) (string, error) {
-	if r.LookPath != nil {
-		return r.LookPath(name)
-	}
-	return exec.LookPath(name)
-}
-
-func (r Refresher) run(ctx context.Context, name string, args ...string) error {
-	if r.Run != nil {
-		return r.Run(ctx, name, args...)
-	}
-	return exec.CommandContext(ctx, name, args...).Run()
 }

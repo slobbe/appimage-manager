@@ -14,9 +14,7 @@ import (
 )
 
 // Downloader downloads remote assets to local files.
-type Downloader struct {
-	HTTPClient *http.Client
-}
+type Downloader struct{}
 
 // NewDownloader creates an HTTP asset downloader.
 func NewDownloader() Downloader {
@@ -42,7 +40,7 @@ func (d Downloader) Download(ctx context.Context, source app.DownloadSource, des
 	}
 	req.Header.Set("User-Agent", "aim")
 
-	resp, err := d.httpClient().Do(req)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return app.DownloadedFile{}, ctxErr
@@ -128,12 +126,4 @@ func copyWithProgress(ctx context.Context, dst io.Writer, src io.Reader, progres
 			return written, readErr
 		}
 	}
-}
-
-func (d Downloader) httpClient() *http.Client {
-	if d.HTTPClient != nil {
-		return d.HTTPClient
-	}
-
-	return http.DefaultClient
 }
