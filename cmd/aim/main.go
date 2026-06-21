@@ -16,7 +16,6 @@ import (
 	"github.com/slobbe/appimage-manager/internal/infra/download"
 	"github.com/slobbe/appimage-manager/internal/infra/github"
 	"github.com/slobbe/appimage-manager/internal/infra/icon"
-	"github.com/slobbe/appimage-manager/internal/infra/migration"
 	"github.com/slobbe/appimage-manager/internal/infra/selfupdate"
 	"github.com/slobbe/appimage-manager/internal/infra/storage"
 	"github.com/slobbe/appimage-manager/internal/infra/workspace"
@@ -44,14 +43,6 @@ func main() {
 	}
 
 	storagePath := filepath.Join(xdg.DataDir(dirs), "apps.json")
-	if _, err := migration.MigrateV1(ctx, migration.V1Options{
-		SourcePath:  filepath.Join(xdg.StateDir(dirs), "apps.json"),
-		DestPath:    storagePath,
-		AppImageDir: cfg.AppImageDir,
-		DesktopDir:  cfg.DesktopDir,
-	}); err != nil {
-		exitWithError(err)
-	}
 
 	service, err := app.NewService(app.ServiceDeps{
 		Config:                      cfg,

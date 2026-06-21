@@ -274,40 +274,6 @@ func TestRepositoryRejectsMalformedDatabase(t *testing.T) {
 	}
 }
 
-func TestRepositoryReadsLegacyFlatSource(t *testing.T) {
-	t.Parallel()
-
-	path := filepath.Join(t.TempDir(), "apps.json")
-	if err := os.WriteFile(path, []byte(`{
-		"apps": [
-			{
-				"id": "example",
-				"name": "Example",
-				"version": "1.2.3",
-				"app_image_path": "/apps/example.AppImage",
-				"source": "github",
-				"update_source": "owner/repo"
-			}
-		]
-	}`), 0o644); err != nil {
-		t.Fatalf("write database: %v", err)
-	}
-
-	stored, err := NewRepository(path).Find(context.Background(), "example")
-	if err != nil {
-		t.Fatalf("Find() error = %v", err)
-	}
-	if got, want := stored.Source.Kind, domain.SourceKindGitHub; got != want {
-		t.Fatalf("Source.Kind = %q, want %q", got, want)
-	}
-	if got, want := stored.UpdateSource.Kind, domain.UpdateSourceKindGitHub; got != want {
-		t.Fatalf("UpdateSource.Kind = %q, want %q", got, want)
-	}
-	if got, want := stored.UpdateSource.Repo, "owner/repo"; got != want {
-		t.Fatalf("UpdateSource.Repo = %q, want %q", got, want)
-	}
-}
-
 func TestRepositoryRejectsInvalidStoredVersion(t *testing.T) {
 	t.Parallel()
 
