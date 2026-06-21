@@ -18,7 +18,7 @@ func TestInstallerInstallRequiresVersionAndDoesNotDownloadScript(t *testing.T) {
 		return nil, nil
 	}))
 
-	err := NewInstaller().Install(context.Background(), " \t\n")
+	err := (Installer{}).Install(context.Background(), " \t\n")
 	if err == nil {
 		t.Fatalf("expected error for empty version")
 	}
@@ -41,7 +41,7 @@ func TestInstallerInstallReturnsCanceledContextBeforeWork(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	err := NewInstaller().Install(ctx, "v0.18.0")
+	err := (Installer{}).Install(ctx, "v0.18.0")
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context.Canceled, got %v", err)
 	}
@@ -70,7 +70,7 @@ func TestInstallerInstallDownloadsTaggedScript(t *testing.T) {
 	requestedURL := ""
 	withInstallScript(t, "echo installing\n", http.StatusOK, &requestedURL)
 
-	if err := NewInstaller().Install(context.Background(), "v0.18.0"); err != nil {
+	if err := (Installer{}).Install(context.Background(), "v0.18.0"); err != nil {
 		t.Fatalf("Install returned error: %v", err)
 	}
 	want := "https://raw.githubusercontent.com/slobbe/appimage-manager/v0.18.0/scripts/install.sh"
@@ -82,7 +82,7 @@ func TestInstallerInstallDownloadsTaggedScript(t *testing.T) {
 func TestInstallerInstallReturnsNon2xxDownloadError(t *testing.T) {
 	withInstallScript(t, "nope", http.StatusTeapot, nil)
 
-	err := NewInstaller().Install(context.Background(), "v0.18.0")
+	err := (Installer{}).Install(context.Background(), "v0.18.0")
 	if err == nil {
 		t.Fatalf("expected non-2xx download error")
 	}
@@ -96,7 +96,7 @@ func TestInstallerInstallRunsShellWithScriptAndTrimmedVersion(t *testing.T) {
 	script := "printf 'version=%s\\n' \"$AIM_VERSION\" > " + shellQuote(logPath) + "\n"
 	withInstallScript(t, script, http.StatusOK, nil)
 
-	if err := NewInstaller().Install(context.Background(), "v0.18.0"); err != nil {
+	if err := (Installer{}).Install(context.Background(), "v0.18.0"); err != nil {
 		t.Fatalf("Install returned error: %v", err)
 	}
 	content, err := io.ReadAll(mustOpen(t, logPath))
@@ -111,7 +111,7 @@ func TestInstallerInstallRunsShellWithScriptAndTrimmedVersion(t *testing.T) {
 func TestInstallerInstallIncludesCommandOutputOnFailure(t *testing.T) {
 	withInstallScript(t, "echo installer failed\nexit 7\n", http.StatusOK, nil)
 
-	err := NewInstaller().Install(context.Background(), "v0.18.0")
+	err := (Installer{}).Install(context.Background(), "v0.18.0")
 	if err == nil {
 		t.Fatalf("expected command failure")
 	}
@@ -128,7 +128,7 @@ func TestInstallerInstallReturnsCanceledContextDuringCommand(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	err := NewInstaller().Install(ctx, "v0.18.0")
+	err := (Installer{}).Install(ctx, "v0.18.0")
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context.Canceled, got %v", err)
 	}

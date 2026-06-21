@@ -12,10 +12,6 @@ import (
 
 type Remover struct{}
 
-func NewRemover() Remover {
-	return Remover{}
-}
-
 var _ app.ArtifactRemover = Remover{}
 
 func (Remover) Remove(ctx context.Context, path string) error {

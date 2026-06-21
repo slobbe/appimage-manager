@@ -15,11 +15,6 @@ import (
 // Discoverer finds desktop entries inside extracted AppImage filesystems.
 type Discoverer struct{}
 
-// NewDiscoverer creates a desktop entry discoverer.
-func NewDiscoverer() Discoverer {
-	return Discoverer{}
-}
-
 var _ app.DesktopEntryDiscoverer = Discoverer{}
 
 // Discover finds the most likely desktop entry under rootDir and reads it.

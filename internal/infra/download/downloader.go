@@ -16,11 +16,6 @@ import (
 // Downloader downloads remote assets to local files.
 type Downloader struct{}
 
-// NewDownloader creates an HTTP asset downloader.
-func NewDownloader() Downloader {
-	return Downloader{}
-}
-
 var _ app.AssetDownloader = Downloader{}
 
 func (d Downloader) Download(ctx context.Context, source app.DownloadSource, destinationPath string, progress app.DownloadProgress) (app.DownloadedFile, error) {

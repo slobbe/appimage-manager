@@ -16,7 +16,7 @@ func TestDiscovererUsesAbsoluteIconPathInsideRoot(t *testing.T) {
 	iconPath := filepath.Join(root, "usr", "share", "icons", "app.png")
 	writeIcon(t, iconPath)
 
-	file, err := NewDiscoverer().Discover(context.Background(), root, iconPath)
+	file, err := Discoverer{}.Discover(context.Background(), root, iconPath)
 	if err != nil {
 		t.Fatalf("Discover() error = %v", err)
 	}
@@ -32,7 +32,7 @@ func TestDiscovererResolvesDesktopAbsoluteIconPathInsideRoot(t *testing.T) {
 	iconPath := filepath.Join(root, "usr", "share", "icons", "hicolor", "256x256", "apps", "example.png")
 	writeIcon(t, iconPath)
 
-	file, err := NewDiscoverer().Discover(context.Background(), root, "/usr/share/icons/hicolor/256x256/apps/example.png")
+	file, err := Discoverer{}.Discover(context.Background(), root, "/usr/share/icons/hicolor/256x256/apps/example.png")
 	if err != nil {
 		t.Fatalf("Discover() error = %v", err)
 	}
@@ -48,7 +48,7 @@ func TestDiscovererRejectsAbsoluteIconPathOutsideRoot(t *testing.T) {
 	outside := filepath.Join(t.TempDir(), "app.png")
 	writeIcon(t, outside)
 
-	_, err := NewDiscoverer().Discover(context.Background(), root, outside)
+	_, err := Discoverer{}.Discover(context.Background(), root, outside)
 	if err == nil {
 		t.Fatal("Discover() error = nil, want error")
 	}
@@ -63,7 +63,7 @@ func TestDiscovererRejectsDesktopAbsoluteIconPathTraversal(t *testing.T) {
 	root := t.TempDir()
 	writeIcon(t, filepath.Join(root, "outside.png"))
 
-	_, err := NewDiscoverer().Discover(context.Background(), root, "/../../outside.png")
+	_, err := Discoverer{}.Discover(context.Background(), root, "/../../outside.png")
 	if err == nil {
 		t.Fatal("Discover() error = nil, want error")
 	}
@@ -78,7 +78,7 @@ func TestDiscovererRejectsDesktopAbsoluteIconPathUnsupportedExtension(t *testing
 	root := t.TempDir()
 	writeIcon(t, filepath.Join(root, "usr", "share", "icons", "example.txt"))
 
-	_, err := NewDiscoverer().Discover(context.Background(), root, "/usr/share/icons/example.txt")
+	_, err := Discoverer{}.Discover(context.Background(), root, "/usr/share/icons/example.txt")
 	if err == nil {
 		t.Fatal("Discover() error = nil, want error")
 	}
@@ -94,7 +94,7 @@ func TestDiscovererFindsIconByNameWithoutExtension(t *testing.T) {
 	iconPath := filepath.Join(root, "usr", "share", "icons", "hicolor", "128x128", "apps", "example.png")
 	writeIcon(t, iconPath)
 
-	file, err := NewDiscoverer().Discover(context.Background(), root, "example")
+	file, err := Discoverer{}.Discover(context.Background(), root, "example")
 	if err != nil {
 		t.Fatalf("Discover() error = %v", err)
 	}
@@ -110,7 +110,7 @@ func TestDiscovererFindsIconByNameWithExtension(t *testing.T) {
 	iconPath := filepath.Join(root, "usr", "share", "pixmaps", "example.svg")
 	writeIcon(t, iconPath)
 
-	file, err := NewDiscoverer().Discover(context.Background(), root, "example.svg")
+	file, err := Discoverer{}.Discover(context.Background(), root, "example.svg")
 	if err != nil {
 		t.Fatalf("Discover() error = %v", err)
 	}
@@ -126,7 +126,7 @@ func TestDiscovererFindsIconByRelativePath(t *testing.T) {
 	iconPath := filepath.Join(root, "custom", "icons", "example.png")
 	writeIcon(t, iconPath)
 
-	file, err := NewDiscoverer().Discover(context.Background(), root, "custom/icons/example.png")
+	file, err := Discoverer{}.Discover(context.Background(), root, "custom/icons/example.png")
 	if err != nil {
 		t.Fatalf("Discover() error = %v", err)
 	}
@@ -144,7 +144,7 @@ func TestDiscovererPrefersLargerThemeIcon(t *testing.T) {
 	writeIcon(t, small)
 	writeIcon(t, large)
 
-	file, err := NewDiscoverer().Discover(context.Background(), root, "example")
+	file, err := Discoverer{}.Discover(context.Background(), root, "example")
 	if err != nil {
 		t.Fatalf("Discover() error = %v", err)
 	}
@@ -160,7 +160,7 @@ func TestDiscovererUsesDirIconAsFallback(t *testing.T) {
 	dirIcon := filepath.Join(root, ".DirIcon")
 	writeIcon(t, dirIcon)
 
-	file, err := NewDiscoverer().Discover(context.Background(), root, "")
+	file, err := Discoverer{}.Discover(context.Background(), root, "")
 	if err != nil {
 		t.Fatalf("Discover() error = %v", err)
 	}
@@ -178,7 +178,7 @@ func TestDiscovererPrefersNamedIconOverDirIcon(t *testing.T) {
 	writeIcon(t, dirIcon)
 	writeIcon(t, named)
 
-	file, err := NewDiscoverer().Discover(context.Background(), root, "example")
+	file, err := Discoverer{}.Discover(context.Background(), root, "example")
 	if err != nil {
 		t.Fatalf("Discover() error = %v", err)
 	}
@@ -193,7 +193,7 @@ func TestDiscovererRequiresSupportedIcon(t *testing.T) {
 	root := t.TempDir()
 	writeIcon(t, filepath.Join(root, "example.txt"))
 
-	_, err := NewDiscoverer().Discover(context.Background(), root, "")
+	_, err := Discoverer{}.Discover(context.Background(), root, "")
 	if err == nil {
 		t.Fatal("Discover() error = nil, want error")
 	}
@@ -205,7 +205,7 @@ func TestDiscovererRequiresSupportedIcon(t *testing.T) {
 func TestDiscovererValidatesRoot(t *testing.T) {
 	t.Parallel()
 
-	_, err := NewDiscoverer().Discover(context.Background(), "", "example")
+	_, err := Discoverer{}.Discover(context.Background(), "", "example")
 	if err == nil {
 		t.Fatal("Discover() error = nil, want error")
 	}
@@ -217,7 +217,7 @@ func TestDiscovererRespectsCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := NewDiscoverer().Discover(ctx, t.TempDir(), "example")
+	_, err := Discoverer{}.Discover(ctx, t.TempDir(), "example")
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Discover() error = %v, want context.Canceled", err)
 	}
