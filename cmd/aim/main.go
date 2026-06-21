@@ -22,11 +22,7 @@ import (
 	"github.com/slobbe/appimage-manager/internal/infra/xdg"
 )
 
-var (
-	version = "dev"
-	commit  = "unknown"
-	date    = "unknown"
-)
+var version = "dev"
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

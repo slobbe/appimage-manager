@@ -47,7 +47,7 @@ Suggested validation baseline after each item:
 
 ## Commit 4: delete unused build metadata
 
-- [ ] Delete empty/unused build metadata leftovers.
+- [x] Delete empty/unused build metadata leftovers.
   - Remove empty `cmd/aim/buildinfo.go`.
   - Remove unused `commit` and `date` variables from `cmd/aim/main.go` unless they are surfaced in output first.
   - Validate with `go test ./...`.
