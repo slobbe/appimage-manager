@@ -1,6 +1,7 @@
 package remove
 
 import (
+	"context"
 	"fmt"
 	"io"
 
@@ -12,7 +13,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func NewCommand(rt *clienv.Runtime, service app.Service) *cobra.Command {
+type service interface {
+	Remove(ctx context.Context, req app.RemoveRequest) error
+}
+
+func NewCommand(rt *clienv.Runtime, service service) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "remove <appimage>",
 		Aliases: []string{"rm"},

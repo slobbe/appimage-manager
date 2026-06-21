@@ -1,6 +1,7 @@
 package id
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"strings"
@@ -18,7 +19,11 @@ const (
 	reset = "\033[0m"
 )
 
-func NewCommand(rt *clienv.Runtime, service app.Service) *cobra.Command {
+type service interface {
+	SetID(ctx context.Context, req app.SetIDRequest) (app.SetIDResult, error)
+}
+
+func NewCommand(rt *clienv.Runtime, service service) *cobra.Command {
 	var newID string
 	var auto bool
 
