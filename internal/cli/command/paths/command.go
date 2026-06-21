@@ -26,17 +26,7 @@ func NewCommand(rt *clienv.Runtime, service app.Service) *cobra.Command {
 			return output.Write(
 				cmd.OutOrStdout(),
 				rt.Config.JSON,
-				struct {
-					ConfigFile  string `json:"config_file"`
-					AppImageDir string `json:"appimage_dir"`
-					DesktopDir  string `json:"desktop_dir"`
-					IconDir     string `json:"icon_dir"`
-				}{
-					ConfigFile:  result.ConfigFile,
-					AppImageDir: result.AppImageDir,
-					DesktopDir:  result.DesktopDir,
-					IconDir:     result.IconDir,
-				},
+				result,
 				func(w io.Writer) error {
 					fmt.Fprintf(w, "Config file:  %s\n", result.ConfigFile)
 					fmt.Fprintf(w, "AppImage dir: %s\n", result.AppImageDir)

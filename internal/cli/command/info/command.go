@@ -36,16 +36,7 @@ func NewCommand(rt *clienv.Runtime, service app.Service) *cobra.Command {
 			return output.Write(
 				cmd.OutOrStdout(),
 				rt.Config.JSON,
-				infoJSON{
-					ID:           result.ID,
-					Name:         result.Name,
-					Version:      result.Version,
-					ExecPath:     result.ExecPath,
-					Installed:    result.Installed,
-					TargetKind:   result.TargetKind,
-					Source:       sourceToJSON(result),
-					UpdateSource: updateSourceToJSON(result),
-				},
+				output.InfoResultJSON(result),
 				func(w io.Writer) error {
 					writeInfo(w, result)
 					return nil
@@ -55,91 +46,6 @@ func NewCommand(rt *clienv.Runtime, service app.Service) *cobra.Command {
 	}
 
 	return cmd
-}
-
-type infoJSON struct {
-	ID           string           `json:"id,omitempty"`
-	Name         string           `json:"name"`
-	Version      string           `json:"version"`
-	ExecPath     string           `json:"exec_path"`
-	Installed    bool             `json:"installed"`
-	TargetKind   string           `json:"target_kind"`
-	Source       sourceJSON       `json:"source"`
-	UpdateSource updateSourceJSON `json:"update_source"`
-}
-
-type updateSourceJSON struct {
-	Embedded          bool   `json:"embedded"`
-	Kind              string `json:"kind"`
-	Raw               string `json:"raw,omitempty"`
-	Transport         string `json:"transport,omitempty"`
-	Repo              string `json:"repo,omitempty"`
-	Path              string `json:"path,omitempty"`
-	Prerelease        bool   `json:"prerelease,omitempty"`
-	ReleaseTag        string `json:"release_tag,omitempty"`
-	AssetPattern      string `json:"asset_pattern,omitempty"`
-	ZsyncAssetPattern string `json:"zsync_asset_pattern,omitempty"`
-	URL               string `json:"url,omitempty"`
-}
-
-type sourceJSON struct {
-	Kind          string                   `json:"kind"`
-	LocalFile     *localFileSourceJSON     `json:"local_file,omitempty"`
-	GitHubRelease *githubReleaseSourceJSON `json:"github_release,omitempty"`
-}
-
-type localFileSourceJSON struct {
-	Path         string `json:"path"`
-	IntegratedAt string `json:"integrated_at,omitempty"`
-}
-
-type githubReleaseSourceJSON struct {
-	Repo         string `json:"repo"`
-	Tag          string `json:"tag,omitempty"`
-	Asset        string `json:"asset,omitempty"`
-	DownloadURL  string `json:"download_url,omitempty"`
-	SizeBytes    int64  `json:"size_bytes,omitempty"`
-	DownloadedAt string `json:"downloaded_at,omitempty"`
-}
-
-func updateSourceToJSON(info app.InfoResult) updateSourceJSON {
-	source := info.UpdateSource
-	return updateSourceJSON{
-		Embedded:          source.Embedded,
-		Kind:              string(source.Kind),
-		Raw:               source.Raw,
-		Transport:         source.Transport,
-		Repo:              source.Repo,
-		Path:              source.Path,
-		Prerelease:        source.Prerelease,
-		ReleaseTag:        source.ReleaseTag,
-		AssetPattern:      source.AssetPattern,
-		ZsyncAssetPattern: source.ZsyncAssetPattern,
-		URL:               source.URL,
-	}
-}
-
-func sourceToJSON(info app.InfoResult) sourceJSON {
-	source := info.Source
-	result := sourceJSON{Kind: string(source.Kind)}
-	switch string(source.Kind) {
-	case "local":
-		result.LocalFile = &localFileSourceJSON{
-			Path:         source.LocalFile.Path,
-			IntegratedAt: formatSourceTime(source.LocalFile.IntegratedAt),
-		}
-	case "github":
-		result.GitHubRelease = &githubReleaseSourceJSON{
-			Repo:         source.GitHubRelease.Repo,
-			Tag:          source.GitHubRelease.Tag,
-			Asset:        source.GitHubRelease.Asset,
-			DownloadURL:  source.GitHubRelease.DownloadURL,
-			SizeBytes:    source.GitHubRelease.SizeBytes,
-			DownloadedAt: formatSourceTime(source.GitHubRelease.DownloadedAt),
-		}
-	}
-
-	return result
 }
 
 func writeInfo(w io.Writer, result app.InfoResult) {

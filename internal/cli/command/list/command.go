@@ -32,11 +32,7 @@ func NewCommand(rt *clienv.Runtime, service app.Service) *cobra.Command {
 			return output.Write(
 				cmd.OutOrStdout(),
 				rt.Config.JSON,
-				struct {
-					Items []listItemJSON `json:"items"`
-				}{
-					Items: toJSON(result.Items),
-				},
+				result,
 				func(w io.Writer) error {
 					return writeTable(w, result.Items)
 				},
@@ -45,25 +41,6 @@ func NewCommand(rt *clienv.Runtime, service app.Service) *cobra.Command {
 	}
 
 	return cmd
-}
-
-type listItemJSON struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Version string `json:"version"`
-}
-
-func toJSON(items []app.ListItem) []listItemJSON {
-	result := make([]listItemJSON, 0, len(items))
-	for _, item := range items {
-		result = append(result, listItemJSON{
-			ID:      item.ID,
-			Name:    item.Name,
-			Version: item.Version,
-		})
-	}
-
-	return result
 }
 
 func writeTable(w io.Writer, items []app.ListItem) error {
