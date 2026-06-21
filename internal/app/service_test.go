@@ -95,9 +95,7 @@ func TestServiceAddIntegratesLocalAppImage(t *testing.T) {
 	if got, want := deps.saved.App.ID, result.App.ID; got != want {
 		t.Fatalf("saved App.ID = %q, want %q", got, want)
 	}
-	if len(deps.appImageRemover.paths) != 0 || len(deps.iconRemover.paths) != 0 || len(deps.desktopEntryRemover.paths) != 0 {
-		t.Fatalf("rollback removers called on success: appimage=%v icon=%v desktop=%v", deps.appImageRemover.paths, deps.iconRemover.paths, deps.desktopEntryRemover.paths)
-	}
+	assertRemovedPaths(t, deps.artifactRemover.paths, nil)
 
 	desktopContent := string(deps.desktopEntryInstaller.content)
 	if !strings.Contains(desktopContent, "Exec=/library/example-app.AppImage %U") {
@@ -337,9 +335,11 @@ func TestServiceAddRollsBackInstalledArtifactsOnRepositoryFailure(t *testing.T) 
 	if !errors.Is(err, failure) {
 		t.Fatalf("Add() error = %v, want %v", err, failure)
 	}
-	assertRemovedPaths(t, deps.desktopEntryRemover.paths, []string{"/desktop/example-app.desktop"})
-	assertRemovedPaths(t, deps.iconRemover.paths, []string{"/icons/hicolor/256x256/apps/example-app.png"})
-	assertRemovedPaths(t, deps.appImageRemover.paths, []string{"/library/example-app.AppImage"})
+	assertRemovedPaths(t, deps.artifactRemover.paths, []string{
+		"/desktop/example-app.desktop",
+		"/icons/hicolor/256x256/apps/example-app.png",
+		"/library/example-app.AppImage",
+	})
 }
 
 func TestServiceAddRollsBackAppImageWhenIconInstallFails(t *testing.T) {
@@ -360,9 +360,7 @@ func TestServiceAddRollsBackAppImageWhenIconInstallFails(t *testing.T) {
 	if got, want := deps.appImageInstaller.sourcePath, "/downloads/example.AppImage"; got != want {
 		t.Fatalf("appimage installer source = %q, want %q", got, want)
 	}
-	assertRemovedPaths(t, deps.appImageRemover.paths, []string{"/library/example-app.AppImage"})
-	assertRemovedPaths(t, deps.iconRemover.paths, nil)
-	assertRemovedPaths(t, deps.desktopEntryRemover.paths, nil)
+	assertRemovedPaths(t, deps.artifactRemover.paths, []string{"/library/example-app.AppImage"})
 }
 
 func TestServiceRemoveRemovesArtifactsAndDeletesApp(t *testing.T) {
@@ -380,9 +378,7 @@ func TestServiceRemoveRemovesArtifactsAndDeletesApp(t *testing.T) {
 		t.Fatalf("Remove() error = %v", err)
 	}
 
-	assertRemovedPaths(t, deps.desktopEntryRemover.paths, []string{installed.DesktopEntryPath})
-	assertRemovedPaths(t, deps.iconRemover.paths, []string{installed.IconPath})
-	assertRemovedPaths(t, deps.appImageRemover.paths, []string{installed.AppImagePath})
+	assertRemovedPaths(t, deps.artifactRemover.paths, []string{installed.DesktopEntryPath, installed.IconPath, installed.AppImagePath})
 	if got, want := deps.apps.deletedID, installed.ID; got != want {
 		t.Fatalf("deleted app ID = %q, want %q", got, want)
 	}
@@ -405,9 +401,7 @@ func TestServiceRemoveSkipsEmptyArtifactPaths(t *testing.T) {
 		t.Fatalf("Remove() error = %v", err)
 	}
 
-	assertRemovedPaths(t, deps.desktopEntryRemover.paths, nil)
-	assertRemovedPaths(t, deps.iconRemover.paths, nil)
-	assertRemovedPaths(t, deps.appImageRemover.paths, []string{installed.AppImagePath})
+	assertRemovedPaths(t, deps.artifactRemover.paths, []string{installed.AppImagePath})
 }
 
 func TestServiceRemoveReturnsFindFailure(t *testing.T) {
@@ -424,7 +418,7 @@ func TestServiceRemoveReturnsFindFailure(t *testing.T) {
 	if !errors.Is(err, ErrAppNotFound) {
 		t.Fatalf("Remove() error = %v, want ErrAppNotFound", err)
 	}
-	assertRemovedPaths(t, deps.appImageRemover.paths, nil)
+	assertRemovedPaths(t, deps.artifactRemover.paths, nil)
 }
 
 func TestServiceRemoveStopsBeforeDeletingAppWhenArtifactRemovalFails(t *testing.T) {
@@ -434,7 +428,8 @@ func TestServiceRemoveStopsBeforeDeletingAppWhenArtifactRemovalFails(t *testing.
 	installed := testInstalledApp(t)
 	deps.apps.findApp = installed
 	failure := errors.New("remove icon failed")
-	deps.iconRemover.err = failure
+	deps.artifactRemover.err = failure
+	deps.artifactRemover.failPath = installed.IconPath
 	service, err := NewService(deps.ServiceDeps)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
@@ -444,9 +439,7 @@ func TestServiceRemoveStopsBeforeDeletingAppWhenArtifactRemovalFails(t *testing.
 	if !errors.Is(err, failure) {
 		t.Fatalf("Remove() error = %v, want %v", err, failure)
 	}
-	assertRemovedPaths(t, deps.desktopEntryRemover.paths, []string{installed.DesktopEntryPath})
-	assertRemovedPaths(t, deps.iconRemover.paths, []string{installed.IconPath})
-	assertRemovedPaths(t, deps.appImageRemover.paths, nil)
+	assertRemovedPaths(t, deps.artifactRemover.paths, []string{installed.DesktopEntryPath, installed.IconPath})
 	if deps.apps.deletedID != "" {
 		t.Fatalf("deleted app ID = %q, want empty", deps.apps.deletedID)
 	}
@@ -571,9 +564,11 @@ func TestServiceUpdateAppliesGitHubUpdates(t *testing.T) {
 	if !strings.Contains(finalDesktopContent, "Icon=/icons/hicolor/256x256/apps/example-app.png") {
 		t.Fatalf("desktop content = %q, want absolute stable Icon", finalDesktopContent)
 	}
-	assertRemovedPaths(t, deps.desktopEntryRemover.paths, []string{"/desktop/example-app-2-0-0.desktop"})
-	assertRemovedPaths(t, deps.iconRemover.paths, []string{"/icons/hicolor/256x256/apps/example-app-2-0-0.png"})
-	assertRemovedPaths(t, deps.appImageRemover.paths, []string{"/library/example-app-2-0-0.AppImage"})
+	assertRemovedPaths(t, deps.artifactRemover.paths, []string{
+		"/desktop/example-app-2-0-0.desktop",
+		"/icons/hicolor/256x256/apps/example-app-2-0-0.png",
+		"/library/example-app-2-0-0.AppImage",
+	})
 }
 
 func TestServiceUpdateCheckOnlyReturnsCandidatesWithoutApplying(t *testing.T) {
@@ -710,9 +705,7 @@ func TestServiceSetIDChangesInstalledAppID(t *testing.T) {
 	if got, want := deps.apps.deletedID, installed.ID; got != want {
 		t.Fatalf("deleted app ID = %q, want %q", got, want)
 	}
-	assertRemovedPaths(t, deps.desktopEntryRemover.paths, []string{installed.DesktopEntryPath})
-	assertRemovedPaths(t, deps.iconRemover.paths, []string{installed.IconPath})
-	assertRemovedPaths(t, deps.appImageRemover.paths, []string{installed.AppImagePath})
+	assertRemovedPaths(t, deps.artifactRemover.paths, []string{installed.DesktopEntryPath, installed.IconPath, installed.AppImagePath})
 	if !deps.desktopIntegrationRefresher.called {
 		t.Fatal("desktop integration refresher was not called")
 	}
@@ -817,9 +810,11 @@ func TestServiceSetIDRollsBackNewArtifactsWhenSaveFails(t *testing.T) {
 	if !errors.Is(err, failure) {
 		t.Fatalf("SetID() error = %v, want %v", err, failure)
 	}
-	assertRemovedPaths(t, deps.desktopEntryRemover.paths, []string{"/desktop/custom-id.desktop"})
-	assertRemovedPaths(t, deps.iconRemover.paths, []string{"/icons/hicolor/256x256/apps/custom-id.png"})
-	assertRemovedPaths(t, deps.appImageRemover.paths, []string{"/library/custom-id.AppImage"})
+	assertRemovedPaths(t, deps.artifactRemover.paths, []string{
+		"/desktop/custom-id.desktop",
+		"/icons/hicolor/256x256/apps/custom-id.png",
+		"/library/custom-id.AppImage",
+	})
 }
 
 func TestServiceUpdateAppliesGitHubUpdateForTargetApp(t *testing.T) {
@@ -1096,9 +1091,7 @@ func TestServiceUpdateRollsBackStagedArtifactsWhenIntegrationFails(t *testing.T)
 	if got, want := deps.appImageInstaller.appID, "example-app-2-0-0"; got != want {
 		t.Fatalf("appimage installer appID = %q, want %q", got, want)
 	}
-	assertRemovedPaths(t, deps.appImageRemover.paths, []string{"/library/example-app-2-0-0.AppImage"})
-	assertRemovedPaths(t, deps.iconRemover.paths, nil)
-	assertRemovedPaths(t, deps.desktopEntryRemover.paths, nil)
+	assertRemovedPaths(t, deps.artifactRemover.paths, []string{"/library/example-app-2-0-0.AppImage"})
 	if deps.saved.App.ID != "" {
 		t.Fatalf("saved App.ID = %q, want empty", deps.saved.App.ID)
 	}
@@ -1126,9 +1119,11 @@ func TestServiceUpdateRollsBackStagedArtifactsWhenSaveFails(t *testing.T) {
 		t.Fatalf("Update() error = %v, want %v", err, failure)
 	}
 
-	assertRemovedPaths(t, deps.desktopEntryRemover.paths, []string{"/desktop/example-app-2-0-0.desktop"})
-	assertRemovedPaths(t, deps.iconRemover.paths, []string{"/icons/hicolor/256x256/apps/example-app-2-0-0.png"})
-	assertRemovedPaths(t, deps.appImageRemover.paths, []string{"/library/example-app-2-0-0.AppImage"})
+	assertRemovedPaths(t, deps.artifactRemover.paths, []string{
+		"/desktop/example-app-2-0-0.desktop",
+		"/icons/hicolor/256x256/apps/example-app-2-0-0.png",
+		"/library/example-app-2-0-0.AppImage",
+	})
 }
 
 func TestServiceUpdateKeepsSavedUpdateWhenStagedArtifactCleanupFails(t *testing.T) {
@@ -1142,7 +1137,8 @@ func TestServiceUpdateKeepsSavedUpdateWhenStagedArtifactCleanupFails(t *testing.
 	deps.ServiceDeps.Downloads = &fakeAssetDownloader{}
 	configureUpdateArtifactPaths(&deps, "example-app", "example-app-2-0-0")
 	failure := errors.New("remove staged icon failed")
-	deps.iconRemover.err = failure
+	deps.artifactRemover.err = failure
+	deps.artifactRemover.failPath = "/icons/hicolor/256x256/apps/example-app-2-0-0.png"
 	service, err := NewService(deps.ServiceDeps)
 	if err != nil {
 		t.Fatalf("NewService() error = %v", err)
@@ -1159,9 +1155,10 @@ func TestServiceUpdateKeepsSavedUpdateWhenStagedArtifactCleanupFails(t *testing.
 	if got, want := deps.saved.App.AppImagePath, "/library/example-app.AppImage"; got != want {
 		t.Fatalf("saved App.AppImagePath = %q, want %q", got, want)
 	}
-	assertRemovedPaths(t, deps.desktopEntryRemover.paths, []string{"/desktop/example-app-2-0-0.desktop"})
-	assertRemovedPaths(t, deps.iconRemover.paths, []string{"/icons/hicolor/256x256/apps/example-app-2-0-0.png"})
-	assertRemovedPaths(t, deps.appImageRemover.paths, nil)
+	assertRemovedPaths(t, deps.artifactRemover.paths, []string{
+		"/desktop/example-app-2-0-0.desktop",
+		"/icons/hicolor/256x256/apps/example-app-2-0-0.png",
+	})
 }
 
 func TestServiceUpdateSkipsAppsWithoutUpdates(t *testing.T) {
@@ -2053,11 +2050,9 @@ type integrationFakes struct {
 	desktopEntries              *fakeDesktopEntryDiscoverer
 	icons                       *fakeIconDiscoverer
 	appImageInstaller           *fakeAppImageInstaller
-	appImageRemover             *fakeArtifactRemover
 	iconInstaller               *fakeIconInstaller
-	iconRemover                 *fakeArtifactRemover
 	desktopEntryInstaller       *fakeDesktopEntryInstaller
-	desktopEntryRemover         *fakeArtifactRemover
+	artifactRemover             *fakeArtifactRemover
 	desktopIntegrationRefresher *fakeDesktopIntegrationRefresher
 	apps                        *fakeAppRepository
 	saved                       *fakeAppRepository
@@ -2084,11 +2079,9 @@ func integrationTestDeps() integrationFakes {
 	}
 	icons := &fakeIconDiscoverer{path: "/extracted/example.png"}
 	appImageInstaller := &fakeAppImageInstaller{path: "/library/example-app.AppImage"}
-	appImageRemover := &fakeArtifactRemover{}
 	iconInstaller := &fakeIconInstaller{path: "/icons/hicolor/256x256/apps/example-app.png", workspace: workspaces}
-	iconRemover := &fakeArtifactRemover{}
 	desktopEntryInstaller := &fakeDesktopEntryInstaller{path: "/desktop/example-app.desktop"}
-	desktopEntryRemover := &fakeArtifactRemover{}
+	artifactRemover := &fakeArtifactRemover{}
 	desktopIntegrationRefresher := &fakeDesktopIntegrationRefresher{}
 	apps := &fakeAppRepository{}
 
@@ -2100,11 +2093,9 @@ func integrationTestDeps() integrationFakes {
 			DesktopEntries:              desktopEntries,
 			Icons:                       icons,
 			AppImageInstaller:           appImageInstaller,
-			AppImageRemover:             appImageRemover,
 			IconInstaller:               iconInstaller,
-			IconRemover:                 iconRemover,
 			DesktopEntryInstaller:       desktopEntryInstaller,
-			DesktopEntryRemover:         desktopEntryRemover,
+			ArtifactRemover:             artifactRemover,
 			DesktopIntegrationRefresher: desktopIntegrationRefresher,
 			Apps:                        apps,
 		},
@@ -2114,11 +2105,9 @@ func integrationTestDeps() integrationFakes {
 		desktopEntries:              desktopEntries,
 		icons:                       icons,
 		appImageInstaller:           appImageInstaller,
-		appImageRemover:             appImageRemover,
 		iconInstaller:               iconInstaller,
-		iconRemover:                 iconRemover,
 		desktopEntryInstaller:       desktopEntryInstaller,
-		desktopEntryRemover:         desktopEntryRemover,
+		artifactRemover:             artifactRemover,
 		desktopIntegrationRefresher: desktopIntegrationRefresher,
 		apps:                        apps,
 		saved:                       apps,
@@ -2297,13 +2286,17 @@ func (f *fakeDesktopIntegrationRefresher) Refresh(ctx context.Context) error {
 }
 
 type fakeArtifactRemover struct {
-	paths []string
-	err   error
+	paths    []string
+	failPath string
+	err      error
 }
 
 func (f *fakeArtifactRemover) Remove(ctx context.Context, path string) error {
 	f.paths = append(f.paths, path)
-	return f.err
+	if f.err != nil && (f.failPath == "" || f.failPath == path) {
+		return f.err
+	}
+	return nil
 }
 
 func assertUpdateCandidates(t *testing.T, got []UpdateCandidate, want []UpdateCandidate) {

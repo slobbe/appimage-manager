@@ -63,14 +63,14 @@ Skipped by user request; keep live progress bars.
 
 ## Commit 5: `refactor(infra): share file copy and removal helpers`
 
-- [ ] Add one shared infra file-copy helper.
+- [x] Add one shared infra file-copy helper.
   - Create a small shared helper package or file under `internal/infra`, for atomic copy using temp file + `io.Copy` + `os.Rename`.
   - Replace duplicated `copyFile` in `internal/infra/appimage/installer.go`.
   - Replace duplicated `copyIconFile` in `internal/infra/icon/installer.go`.
   - Keep behavior such as permissions and owner-executable handling intact.
   - Validate with `go test ./internal/infra/appimage ./internal/infra/icon`.
 
-- [ ] Collapse identical artifact removers.
+- [x] Collapse identical artifact removers.
   - Replace `AppImageRemover`, `IconRemover`, and `DesktopEntryRemover` with one simpler removal path.
   - Prefer a single app-layer artifact-removal port if keeping clean architecture boundaries.
   - Delete the three near-identical remover adapters:

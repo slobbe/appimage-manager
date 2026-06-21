@@ -44,8 +44,8 @@ type AppImageInstaller interface {
 	Install(ctx context.Context, sourcePath string, appID string) (string, error)
 }
 
-// AppImageRemover removes an installed AppImage artifact.
-type AppImageRemover interface {
+// ArtifactRemover removes installed files created by aim.
+type ArtifactRemover interface {
 	Remove(ctx context.Context, path string) error
 }
 
@@ -54,19 +54,9 @@ type IconInstaller interface {
 	Install(ctx context.Context, sourcePath string, appID string) (string, error)
 }
 
-// IconRemover removes an installed icon artifact.
-type IconRemover interface {
-	Remove(ctx context.Context, path string) error
-}
-
 // DesktopEntryInstaller installs a desktop entry into the applications directory.
 type DesktopEntryInstaller interface {
 	Install(ctx context.Context, appID string, content []byte) (string, error)
-}
-
-// DesktopEntryRemover removes an installed desktop entry artifact.
-type DesktopEntryRemover interface {
-	Remove(ctx context.Context, path string) error
 }
 
 // DesktopIntegrationRefresher refreshes desktop environment caches after
