@@ -35,7 +35,7 @@ Suggested validation baseline after each item:
 
 ## Commit 3: deduplicate time formatting helpers
 
-- [ ] Remove duplicated `formatSourceTime` helpers.
+- [x] Remove duplicated `formatSourceTime` helpers.
   - Current duplicates exist in:
     - `internal/cli/command/info/command.go`
     - `internal/cli/output/info.go`

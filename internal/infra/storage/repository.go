@@ -371,7 +371,7 @@ func recordFromDomainSource(source domain.Source) *sourceRecord {
 			Kind: string(domain.SourceKindLocal),
 			LocalFile: &localFileSourceRecord{
 				Path:         source.LocalFile.Path,
-				IntegratedAt: formatSourceTime(source.LocalFile.IntegratedAt),
+				IntegratedAt: formatRecordTime(source.LocalFile.IntegratedAt),
 			},
 		}
 	case domain.SourceKindGitHub:
@@ -383,7 +383,7 @@ func recordFromDomainSource(source domain.Source) *sourceRecord {
 				Asset:        source.GitHubRelease.Asset,
 				DownloadURL:  source.GitHubRelease.DownloadURL,
 				SizeBytes:    source.GitHubRelease.SizeBytes,
-				DownloadedAt: formatSourceTime(source.GitHubRelease.DownloadedAt),
+				DownloadedAt: formatRecordTime(source.GitHubRelease.DownloadedAt),
 			},
 		}
 	default:
@@ -419,7 +419,7 @@ func (r *sourceRecord) toDomainSource() domain.Source {
 	}
 }
 
-func formatSourceTime(value time.Time) string {
+func formatRecordTime(value time.Time) string {
 	if value.IsZero() {
 		return ""
 	}

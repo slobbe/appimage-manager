@@ -88,7 +88,7 @@ func sourceJSON(info app.InfoResult) SourceJSON {
 	case "local":
 		result.LocalFile = &LocalFileSourceJSON{
 			Path:         source.LocalFile.Path,
-			IntegratedAt: formatSourceTime(source.LocalFile.IntegratedAt),
+			IntegratedAt: FormatSourceTime(source.LocalFile.IntegratedAt),
 		}
 	case "github":
 		result.GitHubRelease = &GitHubReleaseSourceJSON{
@@ -97,14 +97,14 @@ func sourceJSON(info app.InfoResult) SourceJSON {
 			Asset:        source.GitHubRelease.Asset,
 			DownloadURL:  source.GitHubRelease.DownloadURL,
 			SizeBytes:    source.GitHubRelease.SizeBytes,
-			DownloadedAt: formatSourceTime(source.GitHubRelease.DownloadedAt),
+			DownloadedAt: FormatSourceTime(source.GitHubRelease.DownloadedAt),
 		}
 	}
 
 	return result
 }
 
-func formatSourceTime(value time.Time) string {
+func FormatSourceTime(value time.Time) string {
 	if value.IsZero() {
 		return ""
 	}
