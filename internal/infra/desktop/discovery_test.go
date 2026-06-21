@@ -17,7 +17,7 @@ func TestDiscovererDiscoversRootDesktopEntry(t *testing.T) {
 	content := "[Desktop Entry]\nName=Example\n"
 	writeFile(t, path, content)
 
-	entry, err := NewDiscoverer().Discover(context.Background(), root)
+	entry, err := Discoverer{}.Discover(context.Background(), root)
 	if err != nil {
 		t.Fatalf("Discover() error = %v", err)
 	}
@@ -39,7 +39,7 @@ func TestDiscovererPrefersRootDesktopEntry(t *testing.T) {
 	writeFile(t, nested, "[Desktop Entry]\nName=Nested\n")
 	writeFile(t, rootEntry, "[Desktop Entry]\nName=Root\n")
 
-	entry, err := NewDiscoverer().Discover(context.Background(), root)
+	entry, err := Discoverer{}.Discover(context.Background(), root)
 	if err != nil {
 		t.Fatalf("Discover() error = %v", err)
 	}
@@ -58,7 +58,7 @@ func TestDiscovererFallsBackToApplicationsDirectory(t *testing.T) {
 	writeFile(t, misc, "[Desktop Entry]\nName=Misc\n")
 	writeFile(t, app, "[Desktop Entry]\nName=App\n")
 
-	entry, err := NewDiscoverer().Discover(context.Background(), root)
+	entry, err := Discoverer{}.Discover(context.Background(), root)
 	if err != nil {
 		t.Fatalf("Discover() error = %v", err)
 	}
@@ -71,7 +71,7 @@ func TestDiscovererFallsBackToApplicationsDirectory(t *testing.T) {
 func TestDiscovererRequiresDesktopEntry(t *testing.T) {
 	t.Parallel()
 
-	_, err := NewDiscoverer().Discover(context.Background(), t.TempDir())
+	_, err := Discoverer{}.Discover(context.Background(), t.TempDir())
 	if err == nil {
 		t.Fatal("Discover() error = nil, want error")
 	}
@@ -83,7 +83,7 @@ func TestDiscovererRequiresDesktopEntry(t *testing.T) {
 func TestDiscovererValidatesRoot(t *testing.T) {
 	t.Parallel()
 
-	_, err := NewDiscoverer().Discover(context.Background(), "")
+	_, err := Discoverer{}.Discover(context.Background(), "")
 	if err == nil {
 		t.Fatal("Discover() error = nil, want error")
 	}
@@ -95,7 +95,7 @@ func TestDiscovererRespectsCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := NewDiscoverer().Discover(ctx, t.TempDir())
+	_, err := Discoverer{}.Discover(ctx, t.TempDir())
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Discover() error = %v, want context.Canceled", err)
 	}

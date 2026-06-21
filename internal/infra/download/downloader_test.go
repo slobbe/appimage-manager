@@ -28,7 +28,7 @@ func TestDownloaderDownloadsFile(t *testing.T) {
 	root := t.TempDir()
 	destination := filepath.Join(root, "nested", "Example.AppImage")
 	progress := &fakeProgress{}
-	downloader := NewDownloader()
+	downloader := Downloader{}
 
 	result, err := downloader.Download(context.Background(), app.DownloadSource{URL: server.URL}, destination, progress)
 	if err != nil {
@@ -63,7 +63,7 @@ func TestDownloaderReturnsHTTPError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	_, err := (NewDownloader()).Download(context.Background(), app.DownloadSource{URL: server.URL}, filepath.Join(t.TempDir(), "file"), nil)
+	_, err := (Downloader{}).Download(context.Background(), app.DownloadSource{URL: server.URL}, filepath.Join(t.TempDir(), "file"), nil)
 	if err == nil || !strings.Contains(err.Error(), "502") {
 		t.Fatalf("Download() error = %v, want 502 error", err)
 	}
@@ -79,7 +79,7 @@ func TestDownloaderRejectsOversizedResponseBody(t *testing.T) {
 	defer server.Close()
 
 	destination := filepath.Join(t.TempDir(), "Example.AppImage")
-	_, err := (NewDownloader()).Download(context.Background(), app.DownloadSource{URL: server.URL, SizeBytes: 5}, destination, nil)
+	_, err := (Downloader{}).Download(context.Background(), app.DownloadSource{URL: server.URL, SizeBytes: 5}, destination, nil)
 	if err == nil || !strings.Contains(err.Error(), "size") {
 		t.Fatalf("Download() error = %v, want size error", err)
 	}
@@ -95,7 +95,7 @@ func TestDownloaderRejectsTruncatedResponseBody(t *testing.T) {
 	defer server.Close()
 
 	destination := filepath.Join(t.TempDir(), "Example.AppImage")
-	_, err := (NewDownloader()).Download(context.Background(), app.DownloadSource{URL: server.URL, SizeBytes: 20}, destination, nil)
+	_, err := (Downloader{}).Download(context.Background(), app.DownloadSource{URL: server.URL, SizeBytes: 20}, destination, nil)
 	if err == nil || !strings.Contains(err.Error(), "size") {
 		t.Fatalf("Download() error = %v, want size error", err)
 	}
@@ -112,7 +112,7 @@ func TestDownloaderRejectsMismatchedContentLength(t *testing.T) {
 	defer server.Close()
 
 	destination := filepath.Join(t.TempDir(), "Example.AppImage")
-	_, err := (NewDownloader()).Download(context.Background(), app.DownloadSource{URL: server.URL, SizeBytes: 5}, destination, nil)
+	_, err := (Downloader{}).Download(context.Background(), app.DownloadSource{URL: server.URL, SizeBytes: 5}, destination, nil)
 	if err == nil || !strings.Contains(err.Error(), "size") {
 		t.Fatalf("Download() error = %v, want size error", err)
 	}
@@ -128,7 +128,7 @@ func TestDownloaderAllowsUnknownExpectedSize(t *testing.T) {
 	defer server.Close()
 
 	destination := filepath.Join(t.TempDir(), "Example.AppImage")
-	result, err := (NewDownloader()).Download(context.Background(), app.DownloadSource{URL: server.URL, SizeBytes: 0}, destination, nil)
+	result, err := (Downloader{}).Download(context.Background(), app.DownloadSource{URL: server.URL, SizeBytes: 0}, destination, nil)
 	if err != nil {
 		t.Fatalf("Download() error = %v", err)
 	}
@@ -160,7 +160,7 @@ func TestDownloaderValidatesInputs(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := NewDownloader().Download(context.Background(), tt.source, tt.destination, nil)
+			_, err := Downloader{}.Download(context.Background(), tt.source, tt.destination, nil)
 			if err == nil {
 				t.Fatal("Download() error = nil, want error")
 			}
@@ -180,7 +180,7 @@ func TestDownloaderRemovesTemporaryFileOnCanceledContext(t *testing.T) {
 	progress := cancelingProgress{cancel: cancel}
 	destination := filepath.Join(t.TempDir(), "Example.AppImage")
 
-	_, err := (NewDownloader()).Download(ctx, app.DownloadSource{URL: server.URL}, destination, progress)
+	_, err := (Downloader{}).Download(ctx, app.DownloadSource{URL: server.URL}, destination, progress)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Download() error = %v, want context.Canceled", err)
 	}

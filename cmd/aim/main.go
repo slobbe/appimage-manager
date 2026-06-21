@@ -46,17 +46,17 @@ func main() {
 
 	service, err := app.NewService(app.ServiceDeps{
 		Config:                      cfg,
-		AppImages:                   appimage.NewExtractor(),
-		DesktopEntries:              desktop.NewDiscoverer(),
-		Icons:                       icon.NewDiscoverer(),
+		AppImages:                   appimage.Extractor{},
+		DesktopEntries:              desktop.Discoverer{},
+		Icons:                       icon.Discoverer{},
 		AppImageInstaller:           appimage.NewInstaller(cfg.AppImageDir),
 		IconInstaller:               icon.NewInstaller(cfg.IconDir),
 		DesktopEntryInstaller:       desktop.NewInstaller(cfg.DesktopDir),
-		ArtifactRemover:             fileutil.NewRemover(),
+		ArtifactRemover:             fileutil.Remover{},
 		DesktopIntegrationRefresher: desktop.NewRefresher(cfg.DesktopDir, cfg.IconDir),
 		GitHubReleases:              github.NewClient(),
-		Downloads:                   download.NewDownloader(),
-		SelfUpdater:                 selfupdate.NewInstaller(),
+		Downloads:                   download.Downloader{},
+		SelfUpdater:                 selfupdate.Installer{},
 		CurrentVersion:              version,
 		Apps:                        storage.NewRepository(storagePath),
 	})

@@ -23,7 +23,7 @@ printf 'ok' > squashfs-root/app.desktop
 `)
 	destDir := filepath.Join(tmp, "extract")
 
-	extraction, err := NewExtractor().Extract(context.Background(), appImagePath, destDir)
+	extraction, err := Extractor{}.Extract(context.Background(), appImagePath, destDir)
 	if err != nil {
 		t.Fatalf("Extract() error = %v", err)
 	}
@@ -49,7 +49,7 @@ mkdir squashfs-root
 `)
 	destDir := filepath.Join(tmp, "extract")
 
-	extraction, err := NewExtractor().Extract(context.Background(), appImagePath, destDir)
+	extraction, err := Extractor{}.Extract(context.Background(), appImagePath, destDir)
 	if err != nil {
 		t.Fatalf("Extract() error = %v", err)
 	}
@@ -70,7 +70,7 @@ mkdir squashfs-root
 		t.Fatalf("chmod fake appimage: %v", err)
 	}
 
-	_, err := NewExtractor().Extract(context.Background(), appImagePath, filepath.Join(tmp, "extract"))
+	_, err := Extractor{}.Extract(context.Background(), appImagePath, filepath.Join(tmp, "extract"))
 	if err != nil {
 		t.Fatalf("Extract() error = %v", err)
 	}
@@ -93,7 +93,7 @@ echo "boom" >&2
 exit 42
 `)
 
-	_, err := NewExtractor().Extract(context.Background(), appImagePath, filepath.Join(tmp, "extract"))
+	_, err := Extractor{}.Extract(context.Background(), appImagePath, filepath.Join(tmp, "extract"))
 	if err == nil {
 		t.Fatal("Extract() error = nil, want error")
 	}
@@ -110,7 +110,7 @@ func TestExtractorRequiresSquashfsRoot(t *testing.T) {
 exit 0
 `)
 
-	_, err := NewExtractor().Extract(context.Background(), appImagePath, filepath.Join(tmp, "extract"))
+	_, err := Extractor{}.Extract(context.Background(), appImagePath, filepath.Join(tmp, "extract"))
 	if err == nil {
 		t.Fatal("Extract() error = nil, want error")
 	}
@@ -133,7 +133,7 @@ func TestExtractorValidatesInputs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := NewExtractor().Extract(context.Background(), tt.appImagePath, tt.destDir)
+			_, err := Extractor{}.Extract(context.Background(), tt.appImagePath, tt.destDir)
 			if err == nil {
 				t.Fatal("Extract() error = nil, want error")
 			}
@@ -147,7 +147,7 @@ func TestExtractorRespectsCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := NewExtractor().Extract(ctx, "app.AppImage", "dest")
+	_, err := Extractor{}.Extract(ctx, "app.AppImage", "dest")
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Extract() error = %v, want context.Canceled", err)
 	}

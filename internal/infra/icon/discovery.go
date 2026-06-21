@@ -23,11 +23,6 @@ var supportedIconExtensions = map[string]struct{}{
 // Discoverer finds application icons inside extracted AppImage filesystems.
 type Discoverer struct{}
 
-// NewDiscoverer creates an icon discoverer.
-func NewDiscoverer() Discoverer {
-	return Discoverer{}
-}
-
 var _ app.IconDiscoverer = Discoverer{}
 
 // Discover finds the best icon under rootDir for iconName.

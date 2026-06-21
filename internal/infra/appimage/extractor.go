@@ -17,11 +17,6 @@ const extractedRootDirName = "squashfs-root"
 // Extractor extracts AppImages by executing them with --appimage-extract.
 type Extractor struct{}
 
-// NewExtractor creates an AppImage extractor.
-func NewExtractor() Extractor {
-	return Extractor{}
-}
-
 var _ app.AppImageExtractor = Extractor{}
 
 // Extract extracts appImagePath into destDir and returns the extracted root.

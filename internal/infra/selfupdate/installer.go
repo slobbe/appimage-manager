@@ -17,10 +17,6 @@ const installScriptURLFormat = "https://raw.githubusercontent.com/slobbe/appimag
 // Installer runs the hosted install script to replace the current aim binary.
 type Installer struct{}
 
-func NewInstaller() Installer {
-	return Installer{}
-}
-
 var _ app.SelfUpdater = Installer{}
 
 func (i Installer) Install(ctx context.Context, version string) error {
