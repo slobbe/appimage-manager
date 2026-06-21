@@ -29,6 +29,8 @@ var _ app.AppRepository = Repository{}
 
 const currentSchemaVersion = 2
 
+// repositoryMu only serializes repository writes inside this process.
+// ponytail: concurrent CLI processes can still race and lose updates; add file locking if that becomes a real user problem.
 var repositoryMu sync.Mutex
 
 type databaseFile struct {

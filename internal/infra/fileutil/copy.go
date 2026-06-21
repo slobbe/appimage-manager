@@ -16,7 +16,7 @@ func CopyFile(ctx context.Context, sourcePath string, destination string) error 
 	if err != nil {
 		return err
 	}
-	defer source.Close()
+	defer func() { _ = source.Close() }()
 
 	info, err := source.Stat()
 	if err != nil {
@@ -47,5 +47,10 @@ func CopyFile(ctx context.Context, sourcePath string, destination string) error 
 		return err
 	}
 
-	return os.Rename(temporaryDestination, destination)
+	if err := os.Rename(temporaryDestination, destination); err != nil {
+		_ = os.Remove(temporaryDestination)
+		return err
+	}
+
+	return nil
 }
