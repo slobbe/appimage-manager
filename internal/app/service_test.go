@@ -1710,6 +1710,7 @@ func TestServicePathsReturnsConfiguredPaths(t *testing.T) {
 
 	deps := integrationTestDeps()
 	deps.ServiceDeps.Config = Config{
+		ConfigFile:  "/config/aim/config.toml",
 		AppImageDir: "/data/aim/appimages",
 		DesktopDir:  "/data/applications",
 		IconDir:     "/data/icons",
@@ -1724,6 +1725,9 @@ func TestServicePathsReturnsConfiguredPaths(t *testing.T) {
 		t.Fatalf("Paths() error = %v", err)
 	}
 
+	if got, want := result.ConfigFile, deps.ServiceDeps.Config.ConfigFile; got != want {
+		t.Fatalf("Paths().ConfigFile = %q, want %q", got, want)
+	}
 	if got, want := result.AppImageDir, deps.ServiceDeps.Config.AppImageDir; got != want {
 		t.Fatalf("Paths().AppImageDir = %q, want %q", got, want)
 	}

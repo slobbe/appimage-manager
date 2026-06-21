@@ -3,6 +3,7 @@ module github.com/slobbe/appimage-manager
 go 1.25.11
 
 require (
+	github.com/pelletier/go-toml/v2 v2.4.0
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/sys v0.44.0
 )

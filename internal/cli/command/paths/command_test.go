@@ -30,6 +30,7 @@ func TestCommandCallsServiceAndPrintsTextPaths(t *testing.T) {
 	}
 	output := stdout.String()
 	for _, want := range []string{
+		"Config file:  /home/user/.config/aim/config.toml",
 		"AppImage dir: /home/user/Applications",
 		"Desktop dir:  /home/user/.local/share/applications",
 		"Icon dir:     /home/user/.local/share/icons/hicolor/256x256/apps",
@@ -56,6 +57,7 @@ func TestCommandPrintsJSONPaths(t *testing.T) {
 	}
 
 	var payload struct {
+		ConfigFile  string `json:"config_file"`
 		AppImageDir string `json:"appimage_dir"`
 		DesktopDir  string `json:"desktop_dir"`
 		IconDir     string `json:"icon_dir"`
@@ -64,7 +66,7 @@ func TestCommandPrintsJSONPaths(t *testing.T) {
 		t.Fatalf("json.Unmarshal() error = %v; stdout = %q", err, stdout.String())
 	}
 	want := samplePathsResult()
-	if payload.AppImageDir != want.AppImageDir || payload.DesktopDir != want.DesktopDir || payload.IconDir != want.IconDir {
+	if payload.ConfigFile != want.ConfigFile || payload.AppImageDir != want.AppImageDir || payload.DesktopDir != want.DesktopDir || payload.IconDir != want.IconDir {
 		t.Fatalf("payload = %#v, want paths result %#v", payload, want)
 	}
 }
@@ -87,6 +89,7 @@ func TestCommandReturnsServiceError(t *testing.T) {
 
 func samplePathsResult() app.PathsResult {
 	return app.PathsResult{
+		ConfigFile:  "/home/user/.config/aim/config.toml",
 		AppImageDir: "/home/user/Applications",
 		DesktopDir:  "/home/user/.local/share/applications",
 		IconDir:     "/home/user/.local/share/icons/hicolor/256x256/apps",

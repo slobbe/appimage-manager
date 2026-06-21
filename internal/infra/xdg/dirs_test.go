@@ -8,6 +8,7 @@ import (
 func TestResolveUsesHomeDefaultsWhenXDGEnvUnset(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Setenv("XDG_DATA_HOME", "")
 
 	dirs, err := Resolve()
@@ -16,7 +17,8 @@ func TestResolveUsesHomeDefaultsWhenXDGEnvUnset(t *testing.T) {
 	}
 
 	want := Dirs{
-		DataHome: filepath.Join(home, ".local", "share"),
+		ConfigHome: filepath.Join(home, ".config"),
+		DataHome:   filepath.Join(home, ".local", "share"),
 	}
 
 	if dirs != want {
@@ -26,9 +28,11 @@ func TestResolveUsesHomeDefaultsWhenXDGEnvUnset(t *testing.T) {
 
 func TestResolveHonorsXDGEnvOverrides(t *testing.T) {
 	home := t.TempDir()
+	configHome := filepath.Join(home, "xdg-config")
 	dataHome := filepath.Join(home, "xdg-data")
 
 	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", configHome)
 	t.Setenv("XDG_DATA_HOME", dataHome)
 
 	dirs, err := Resolve()
@@ -37,7 +41,8 @@ func TestResolveHonorsXDGEnvOverrides(t *testing.T) {
 	}
 
 	want := Dirs{
-		DataHome: dataHome,
+		ConfigHome: configHome,
+		DataHome:   dataHome,
 	}
 
 	if dirs != want {
@@ -47,13 +52,16 @@ func TestResolveHonorsXDGEnvOverrides(t *testing.T) {
 
 func TestDerivedPaths(t *testing.T) {
 	dirs := Dirs{
-		DataHome: filepath.Join("root", "data"),
+		ConfigHome: filepath.Join("root", "config"),
+		DataHome:   filepath.Join("root", "data"),
 	}
 
 	tests := map[string]struct {
 		got  string
 		want string
 	}{
+		"ConfigDir":          {got: ConfigDir(dirs), want: filepath.Join(dirs.ConfigHome, AppName)},
+		"ConfigFile":         {got: ConfigFile(dirs), want: filepath.Join(dirs.ConfigHome, AppName, "config.toml")},
 		"DataDir":            {got: DataDir(dirs), want: filepath.Join(dirs.DataHome, AppName)},
 		"DefaultAppImageDir": {got: DefaultAppImageDir(dirs), want: filepath.Join(dirs.DataHome, AppName, "appimages")},
 		"DesktopDir":         {got: DesktopDir(dirs), want: filepath.Join(dirs.DataHome, "applications")},
