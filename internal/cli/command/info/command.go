@@ -3,7 +3,6 @@ package info
 import (
 	"fmt"
 	"io"
-	"time"
 
 	"github.com/slobbe/appimage-manager/internal/app"
 	"github.com/slobbe/appimage-manager/internal/cli/clienv"
@@ -89,24 +88,16 @@ func writeSource(w io.Writer, info app.InfoResult) {
 	case "local":
 		fmt.Fprintf(w, "%-17s %s\n", "Original file:", source.LocalFile.Path)
 		if !source.LocalFile.IntegratedAt.IsZero() {
-			fmt.Fprintf(w, "%-17s %s\n", "Integrated at:", formatSourceTime(source.LocalFile.IntegratedAt))
+			fmt.Fprintf(w, "%-17s %s\n", "Integrated at:", output.FormatSourceTime(source.LocalFile.IntegratedAt))
 		}
 	case "github":
 		fmt.Fprintf(w, "%-17s %s\n", "Repository:", source.GitHubRelease.Repo)
 		fmt.Fprintf(w, "%-17s %s\n", "Release tag:", source.GitHubRelease.Tag)
 		fmt.Fprintf(w, "%-17s %s\n", "Asset:", source.GitHubRelease.Asset)
 		if !source.GitHubRelease.DownloadedAt.IsZero() {
-			fmt.Fprintf(w, "%-17s %s\n", "Downloaded at:", formatSourceTime(source.GitHubRelease.DownloadedAt))
+			fmt.Fprintf(w, "%-17s %s\n", "Downloaded at:", output.FormatSourceTime(source.GitHubRelease.DownloadedAt))
 		}
 	}
-}
-
-func formatSourceTime(value time.Time) string {
-	if value.IsZero() {
-		return ""
-	}
-
-	return value.UTC().Format(time.RFC3339)
 }
 
 func writeUpdateSource(w io.Writer, info app.InfoResult) {
