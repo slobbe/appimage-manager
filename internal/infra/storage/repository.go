@@ -13,7 +13,6 @@ import (
 
 	"github.com/slobbe/appimage-manager/internal/app"
 	"github.com/slobbe/appimage-manager/internal/domain"
-	"golang.org/x/sys/unix"
 )
 
 // Repository persists integrated apps in a JSON file.
@@ -30,7 +29,7 @@ var _ app.AppRepository = Repository{}
 
 const currentSchemaVersion = 2
 
-var repositoryLocks sync.Map
+var repositoryMu sync.Mutex
 
 type databaseFile struct {
 	SchemaVersion int         `json:"schema_version"`
@@ -225,48 +224,13 @@ func (r Repository) lock(ctx context.Context) (func(), error) {
 		return nil, err
 	}
 
-	directory := filepath.Dir(r.Path)
-	if err := os.MkdirAll(directory, 0o755); err != nil {
-		return nil, fmt.Errorf("create app database directory %q: %w", directory, err)
-	}
-
-	lockPath := r.Path + ".lock"
-	localLock := repositoryLock(lockPath)
-	localLock.Lock()
-
-	file, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o644)
-	if err != nil {
-		localLock.Unlock()
-		return nil, fmt.Errorf("open app database lock %q: %w", lockPath, err)
-	}
+	repositoryMu.Lock()
 	if err := ctx.Err(); err != nil {
-		_ = file.Close()
-		localLock.Unlock()
-		return nil, err
-	}
-	if err := unix.Flock(int(file.Fd()), unix.LOCK_EX); err != nil {
-		_ = file.Close()
-		localLock.Unlock()
-		return nil, fmt.Errorf("lock app database %q: %w", lockPath, err)
-	}
-	if err := ctx.Err(); err != nil {
-		_ = unix.Flock(int(file.Fd()), unix.LOCK_UN)
-		_ = file.Close()
-		localLock.Unlock()
+		repositoryMu.Unlock()
 		return nil, err
 	}
 
-	return func() {
-		_ = unix.Flock(int(file.Fd()), unix.LOCK_UN)
-		_ = file.Close()
-		localLock.Unlock()
-	}, nil
-}
-
-func repositoryLock(lockPath string) *sync.Mutex {
-	key := filepath.Clean(lockPath)
-	lock, _ := repositoryLocks.LoadOrStore(key, &sync.Mutex{})
-	return lock.(*sync.Mutex)
+	return repositoryMu.Unlock, nil
 }
 
 func (r Repository) load(ctx context.Context) (databaseFile, error) {
