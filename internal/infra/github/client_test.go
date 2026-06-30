@@ -13,7 +13,7 @@ func TestClientLatestReleaseMapsGitHubResponse(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if got, want := r.URL.Path, "/repos/owner/repo/releases/latest"; got != want {
+		if got, want := r.URL.Path, "/repos/owner/repo/releases"; got != want {
 			t.Fatalf("request path = %q, want %q", got, want)
 		}
 		if got, want := r.Header.Get("Accept"), "application/vnd.github+json"; got != want {
@@ -26,21 +26,23 @@ func TestClientLatestReleaseMapsGitHubResponse(t *testing.T) {
 			t.Fatalf("User-Agent = %q, want %q", got, want)
 		}
 
-		fmt.Fprint(w, `{
-			"tag_name": "v1.2.3",
-			"name": "Release 1.2.3",
-			"html_url": "https://github.example/owner/repo/releases/v1.2.3",
-			"prerelease": true,
-			"draft": false,
-			"assets": [
+		fmt.Fprint(w, `[
 				{
-					"name": "Example-x86_64.AppImage",
-					"browser_download_url": "https://downloads.example/Example-x86_64.AppImage",
-					"content_type": "application/octet-stream",
-					"size": 12345
+					"tag_name": "v1.2.3",
+					"name": "Release 1.2.3",
+					"html_url": "https://github.example/owner/repo/releases/v1.2.3",
+					"prerelease": false,
+					"draft": false,
+					"assets": [
+						{
+							"name": "Example-x86_64.AppImage",
+							"browser_download_url": "https://downloads.example/Example-x86_64.AppImage",
+							"content_type": "application/octet-stream",
+							"size": 12345
+						}
+					]
 				}
-			]
-		}`)
+			]`)
 	}))
 	defer server.Close()
 
@@ -61,8 +63,8 @@ func TestClientLatestReleaseMapsGitHubResponse(t *testing.T) {
 	if got, want := release.URL, "https://github.example/owner/repo/releases/v1.2.3"; got != want {
 		t.Fatalf("URL = %q, want %q", got, want)
 	}
-	if !release.Prerelease {
-		t.Fatal("Prerelease = false, want true")
+	if release.Prerelease {
+		t.Fatal("Prerelease = true, want false")
 	}
 	if release.Draft {
 		t.Fatal("Draft = true, want false")
@@ -85,42 +87,79 @@ func TestClientLatestReleaseMapsGitHubResponse(t *testing.T) {
 	}
 }
 
-func TestClientLatestReleaseIncludesPrereleases(t *testing.T) {
+func TestClientLatestReleaseSelectsNewestVersion(t *testing.T) {
 	t.Parallel()
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if got, want := r.URL.Path, "/repos/owner/repo/releases"; got != want {
-			t.Fatalf("request path = %q, want %q", got, want)
-		}
-		fmt.Fprint(w, `[
-			{
-				"tag_name": "v2.0.0-beta.1",
-				"name": "Beta",
-				"html_url": "https://github.example/owner/repo/releases/v2.0.0-beta.1",
-				"prerelease": true,
-				"draft": false,
-				"assets": []
-			},
-			{
-				"tag_name": "v1.0.0",
-				"name": "Stable",
-				"prerelease": false,
-				"draft": false,
-				"assets": []
-			}
-		]`)
-	}))
-	defer server.Close()
+	tests := []struct {
+		name              string
+		includePrerelease bool
+		response          string
+		wantTag           string
+		wantPrerelease    bool
+	}{
+		{
+			name:              "stable only ignores newer prerelease",
+			includePrerelease: false,
+			response: `[
+				{"tag_name": "v0.0.29-nightly", "name": "Nightly", "prerelease": true, "draft": false, "assets": []},
+				{"tag_name": "v0.0.28", "name": "Stable", "prerelease": false, "draft": false, "assets": []}
+			]`,
+			wantTag: "v0.0.28",
+		},
+		{
+			name:              "prerelease allowed prefers stable over same core nightly",
+			includePrerelease: true,
+			response: `[
+				{"tag_name": "v0.0.28-nightly", "name": "Nightly", "prerelease": true, "draft": false, "assets": []},
+				{"tag_name": "v0.0.28", "name": "Stable", "prerelease": false, "draft": false, "assets": []}
+			]`,
+			wantTag: "v0.0.28",
+		},
+		{
+			name:              "prerelease allowed selects genuinely newer prerelease",
+			includePrerelease: true,
+			response: `[
+				{"tag_name": "v0.0.29-nightly", "name": "Nightly", "prerelease": true, "draft": false, "assets": []},
+				{"tag_name": "v0.0.28", "name": "Stable", "prerelease": false, "draft": false, "assets": []}
+			]`,
+			wantTag:        "v0.0.29-nightly",
+			wantPrerelease: true,
+		},
+		{
+			name:              "ignores drafts",
+			includePrerelease: true,
+			response: `[
+				{"tag_name": "v9.0.0", "name": "Draft", "prerelease": false, "draft": true, "assets": []},
+				{"tag_name": "v1.0.0", "name": "Stable", "prerelease": false, "draft": false, "assets": []}
+			]`,
+			wantTag: "v1.0.0",
+		},
+	}
 
-	release, err := (Client{BaseURL: server.URL, HTTPClient: server.Client()}).LatestRelease(context.Background(), "owner/repo", true)
-	if err != nil {
-		t.Fatalf("LatestRelease() error = %v", err)
-	}
-	if got, want := release.TagName, "v2.0.0-beta.1"; got != want {
-		t.Fatalf("TagName = %q, want %q", got, want)
-	}
-	if !release.Prerelease {
-		t.Fatal("Prerelease = false, want true")
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if got, want := r.URL.Path, "/repos/owner/repo/releases"; got != want {
+					t.Fatalf("request path = %q, want %q", got, want)
+				}
+				fmt.Fprint(w, tt.response)
+			}))
+			defer server.Close()
+
+			release, err := (Client{BaseURL: server.URL, HTTPClient: server.Client()}).LatestRelease(context.Background(), "owner/repo", tt.includePrerelease)
+			if err != nil {
+				t.Fatalf("LatestRelease() error = %v", err)
+			}
+			if got := release.TagName; got != tt.wantTag {
+				t.Fatalf("TagName = %q, want %q", got, tt.wantTag)
+			}
+			if got := release.Prerelease; got != tt.wantPrerelease {
+				t.Fatalf("Prerelease = %v, want %v", got, tt.wantPrerelease)
+			}
+		})
 	}
 }
 

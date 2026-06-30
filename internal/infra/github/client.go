@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/slobbe/appimage-manager/internal/app"
+	"github.com/slobbe/appimage-manager/internal/domain"
 )
 
 const defaultBaseURL = "https://api.github.com"
@@ -33,19 +34,14 @@ func (c Client) LatestRelease(ctx context.Context, repo string, includePrereleas
 		return app.GitHubRelease{}, err
 	}
 
-	requestURL, err := c.releaseURL(owner, name, includePrerelease)
+	requestURL, err := c.releasesURL(owner, name)
 	if err != nil {
 		return app.GitHubRelease{}, err
 	}
 
-	return c.fetchRelease(ctx, normalizedRepo, requestURL, includePrerelease, func(releases []githubReleaseResponse) (githubReleaseResponse, error) {
-		for _, release := range releases {
-			if !release.Draft {
-				return release, nil
-			}
-		}
-		return githubReleaseResponse{}, fmt.Errorf("find github release for %s: no non-draft releases found", normalizedRepo)
-	})
+	return c.fetchRelease(ctx, normalizedRepo, requestURL, func(release githubReleaseResponse) bool {
+		return !release.Draft && (includePrerelease || !release.Prerelease)
+	}, "release")
 }
 
 func (c Client) LatestPrerelease(ctx context.Context, repo string) (app.GitHubRelease, error) {
@@ -59,14 +55,9 @@ func (c Client) LatestPrerelease(ctx context.Context, repo string) (app.GitHubRe
 		return app.GitHubRelease{}, err
 	}
 
-	return c.fetchRelease(ctx, normalizedRepo, requestURL, true, func(releases []githubReleaseResponse) (githubReleaseResponse, error) {
-		for _, release := range releases {
-			if !release.Draft && release.Prerelease {
-				return release, nil
-			}
-		}
-		return githubReleaseResponse{}, fmt.Errorf("find github prerelease for %s: no non-draft prereleases found", normalizedRepo)
-	})
+	return c.fetchRelease(ctx, normalizedRepo, requestURL, func(release githubReleaseResponse) bool {
+		return !release.Draft && release.Prerelease
+	}, "prerelease")
 }
 
 func (c Client) ReleaseByTag(ctx context.Context, repo string, tag string) (app.GitHubRelease, error) {
@@ -87,13 +78,9 @@ func (c Client) ReleaseByTag(ctx context.Context, repo string, tag string) (app.
 	return c.fetchSingleRelease(ctx, normalizedRepo, requestURL, "github release "+tag)
 }
 
-func (c Client) fetchRelease(ctx context.Context, repo string, requestURL string, list bool, selectRelease func([]githubReleaseResponse) (githubReleaseResponse, error)) (app.GitHubRelease, error) {
+func (c Client) fetchRelease(ctx context.Context, repo string, requestURL string, eligible func(githubReleaseResponse) bool, label string) (app.GitHubRelease, error) {
 	if err := ctx.Err(); err != nil {
 		return app.GitHubRelease{}, err
-	}
-
-	if !list {
-		return c.fetchSingleRelease(ctx, repo, requestURL, "latest github release")
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
@@ -121,9 +108,9 @@ func (c Client) fetchRelease(ctx context.Context, repo string, requestURL string
 	if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
 		return app.GitHubRelease{}, fmt.Errorf("decode github releases for %s: %w", repo, err)
 	}
-	release, err := selectRelease(releases)
-	if err != nil {
-		return app.GitHubRelease{}, err
+	release, ok := selectNewestRelease(releases, eligible)
+	if !ok {
+		return app.GitHubRelease{}, fmt.Errorf("find github %s for %s: no matching non-draft releases found", label, repo)
 	}
 
 	return release.toAppRelease(repo), nil
@@ -163,13 +150,6 @@ func (c Client) fetchSingleRelease(ctx context.Context, repo string, requestURL 
 	return release.toAppRelease(repo), nil
 }
 
-func (c Client) releaseURL(owner string, repo string, includePrerelease bool) (string, error) {
-	if includePrerelease {
-		return c.releasesURL(owner, repo)
-	}
-	return c.githubURL("/repos/" + url.PathEscape(owner) + "/" + url.PathEscape(repo) + "/releases/latest")
-}
-
 func (c Client) releasesURL(owner string, repo string) (string, error) {
 	return c.githubURL("/repos/" + url.PathEscape(owner) + "/" + url.PathEscape(repo) + "/releases")
 }
@@ -192,6 +172,37 @@ func (c Client) githubURL(path string) (string, error) {
 	parsed.Fragment = ""
 
 	return parsed.String(), nil
+}
+
+func selectNewestRelease(releases []githubReleaseResponse, eligible func(githubReleaseResponse) bool) (githubReleaseResponse, bool) {
+	var fallback githubReleaseResponse
+	hasFallback := false
+	var best githubReleaseResponse
+	bestVersion := ""
+
+	for _, release := range releases {
+		if !eligible(release) {
+			continue
+		}
+		if !hasFallback {
+			fallback = release
+			hasFallback = true
+		}
+
+		version, ok := domain.ParseVersion(release.TagName)
+		if !ok {
+			continue
+		}
+		if bestVersion == "" || domain.CompareVersions(version.String(), bestVersion) > 0 {
+			best = release
+			bestVersion = version.String()
+		}
+	}
+
+	if bestVersion != "" {
+		return best, true
+	}
+	return fallback, hasFallback
 }
 
 func parseRepo(repo string) (string, string, string, error) {
