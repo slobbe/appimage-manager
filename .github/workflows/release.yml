@@ -137,7 +137,7 @@ jobs:
         uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
-          version: "v2.16.0"
+          version: "v2.17.1"
           args: check
 
       - name: Generate release notes
@@ -225,7 +225,7 @@ jobs:
         uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
-          version: "v2.16.0"
+          version: "v2.17.1"
           args: release --clean --release-notes ${{ runner.temp }}/release-notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
