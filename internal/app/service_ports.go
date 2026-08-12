@@ -53,9 +53,15 @@ type UpdateCandidate struct {
 	NewVersion     string
 }
 
+type UpdateFailure struct {
+	AppID string `json:"app_id"`
+	Error string `json:"error"`
+}
+
 type UpdateResult struct {
-	Applied bool
-	Updates []UpdateCandidate
+	Applied  bool
+	Updates  []UpdateCandidate
+	Failures []UpdateFailure
 }
 
 type SetUpdateSourceRequest struct {

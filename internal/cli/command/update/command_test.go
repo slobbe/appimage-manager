@@ -315,6 +315,62 @@ func TestCommandJSONSetUpdateSource(t *testing.T) {
 	}
 }
 
+func TestCommandReportsPartialBulkUpdateWithoutReturningError(t *testing.T) {
+	service := &fakeService{updateResult: app.UpdateResult{
+		Applied:  true,
+		Updates:  []app.UpdateCandidate{{ID: "helium", CurrentVersion: "1.0.0", NewVersion: "2.0.0"}},
+		Failures: []app.UpdateFailure{{AppID: "localsend", Error: "release has no AppImage assets"}},
+	}}
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	cmd := NewCommand(clienv.New(stdout, stderr), service)
+	cmd.SetOut(stdout)
+	cmd.SetErr(stderr)
+	cmd.SetArgs(nil)
+
+	if err := cmd.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("ExecuteContext() error = %v", err)
+	}
+
+	if !strings.Contains(stdout.String(), "Finished updating available apps; 1 skipped.") {
+		t.Fatalf("stdout = %q, want partial success message", stdout.String())
+	}
+	if got, want := stderr.String(), "Skipped [localsend]: release has no AppImage assets\n"; got != want {
+		t.Fatalf("stderr = %q, want %q", got, want)
+	}
+}
+
+func TestCommandJSONIncludesBulkUpdateFailures(t *testing.T) {
+	failure := app.UpdateFailure{AppID: "localsend", Error: "release has no AppImage assets"}
+	service := &fakeService{updateResult: app.UpdateResult{Applied: true, Failures: []app.UpdateFailure{failure}}}
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	rt := clienv.New(stdout, stderr)
+	rt.Config.JSON = true
+	cmd := NewCommand(rt, service)
+	cmd.SetOut(stdout)
+	cmd.SetErr(stderr)
+	cmd.SetArgs(nil)
+
+	if err := cmd.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("ExecuteContext() error = %v", err)
+	}
+
+	var payload struct {
+		Status   string              `json:"status"`
+		Failures []app.UpdateFailure `json:"failures"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v; stdout = %q", err, stdout.String())
+	}
+	if payload.Status != "ok" || len(payload.Failures) != 1 || payload.Failures[0] != failure {
+		t.Fatalf("payload = %#v, want ok with failure %#v", payload, failure)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty JSON stderr", stderr.String())
+	}
+}
+
 func TestCommandJSONAutoConfirmsUpdates(t *testing.T) {
 	candidate := app.UpdateCandidate{ID: "example-app", CurrentVersion: "1.2.3", NewVersion: "2.0.0"}
 	service := &fakeService{updateCandidates: []app.UpdateCandidate{candidate}}

@@ -562,6 +562,72 @@ func TestServiceUpdateAppliesGitHubUpdates(t *testing.T) {
 	})
 }
 
+func TestServiceUpdateSkipsBrokenAppAndAppliesOtherBulkUpdates(t *testing.T) {
+	t.Parallel()
+
+	deps := integrationTestDeps()
+	broken := testInstalledApp(t)
+	broken.ID = "localsend"
+	broken.UpdateSource = domain.NewGitHubUpdateSource("owner/localsend", false)
+	installed := testInstalledApp(t)
+	installed.UpdateSource = domain.NewGitHubUpdateSource("owner/example", false)
+	deps.apps.listApps = []domain.App{broken, installed}
+	deps.desktopEntries.content = []byte(strings.Join([]string{
+		"[Desktop Entry]",
+		"Name=Example App",
+		"Exec=old-exec",
+		"Icon=example-icon",
+		"",
+	}, "\n"))
+	configureUpdateArtifactPaths(&deps, installed.ID, "example-app-2-0-0")
+	deps.ServiceDeps.GitHubReleases = &fakeGitHubReleaseFinder{
+		releases: map[string]GitHubRelease{
+			"owner/localsend": testGitHubReleaseWithTag("v2.0.0", "LocalSend.deb"),
+			"owner/example":   testGitHubReleaseWithTag("v2.0.0", "Example.AppImage"),
+		},
+	}
+	deps.ServiceDeps.Downloads = &fakeAssetDownloader{}
+	service, err := NewService(deps.ServiceDeps)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+
+	result, err := service.Update(context.Background(), UpdateRequest{Confirmation: &fakeUpdateConfirmation{confirmed: true}})
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+
+	if !result.Applied {
+		t.Fatal("Update().Applied = false, want true")
+	}
+	assertUpdateCandidates(t, result.Updates, []UpdateCandidate{{ID: installed.ID, CurrentVersion: "1.2.3", NewVersion: "2.0.0"}})
+	if len(result.Failures) != 1 || result.Failures[0].AppID != broken.ID || !strings.Contains(result.Failures[0].Error, "no AppImage assets") {
+		t.Fatalf("Update().Failures = %#v, want localsend missing AppImage failure", result.Failures)
+	}
+	if got, want := deps.saved.App.ID, installed.ID; got != want {
+		t.Fatalf("saved App.ID = %q, want %q", got, want)
+	}
+}
+
+func TestServiceUpdateTargetReturnsAppSpecificPlanningFailure(t *testing.T) {
+	t.Parallel()
+
+	deps := integrationTestDeps()
+	installed := testInstalledApp(t)
+	installed.UpdateSource = domain.NewGitHubUpdateSource("owner/example", false)
+	deps.apps.findApps = map[string]domain.App{installed.ID: installed}
+	deps.ServiceDeps.GitHubReleases = &fakeGitHubReleaseFinder{release: testGitHubReleaseWithTag("v2.0.0", "Example.deb")}
+	service, err := NewService(deps.ServiceDeps)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+
+	_, err = service.Update(context.Background(), UpdateRequest{Target: installed.ID})
+	if err == nil || !strings.Contains(err.Error(), "no AppImage assets") {
+		t.Fatalf("Update() error = %v, want missing AppImage failure", err)
+	}
+}
+
 func TestServiceUpdateCheckOnlyReturnsCandidatesWithoutApplying(t *testing.T) {
 	t.Parallel()
 
@@ -1074,9 +1140,12 @@ func TestServiceUpdateRollsBackStagedArtifactsWhenIntegrationFails(t *testing.T)
 		t.Fatalf("NewService() error = %v", err)
 	}
 
-	_, err = service.Update(context.Background(), UpdateRequest{Confirmation: &fakeUpdateConfirmation{confirmed: true}})
-	if err == nil || !strings.Contains(err.Error(), "icon install failed") {
-		t.Fatalf("Update() error = %v, want icon install failure", err)
+	result, err := service.Update(context.Background(), UpdateRequest{Confirmation: &fakeUpdateConfirmation{confirmed: true}})
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if len(result.Failures) != 1 || result.Failures[0].AppID != installed.ID || !strings.Contains(result.Failures[0].Error, "icon install failed") {
+		t.Fatalf("Update().Failures = %#v, want icon install failure", result.Failures)
 	}
 
 	if got, want := deps.appImageInstaller.appID, "example-app-2-0-0"; got != want {
@@ -1105,9 +1174,12 @@ func TestServiceUpdateRollsBackStagedArtifactsWhenSaveFails(t *testing.T) {
 		t.Fatalf("NewService() error = %v", err)
 	}
 
-	_, err = service.Update(context.Background(), UpdateRequest{Confirmation: &fakeUpdateConfirmation{confirmed: true}})
-	if !errors.Is(err, failure) {
-		t.Fatalf("Update() error = %v, want %v", err, failure)
+	result, err := service.Update(context.Background(), UpdateRequest{Confirmation: &fakeUpdateConfirmation{confirmed: true}})
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if len(result.Failures) != 1 || result.Failures[0].AppID != installed.ID || !strings.Contains(result.Failures[0].Error, failure.Error()) {
+		t.Fatalf("Update().Failures = %#v, want save failure", result.Failures)
 	}
 
 	assertRemovedPaths(t, deps.artifactRemover.paths, []string{
@@ -1135,9 +1207,12 @@ func TestServiceUpdateKeepsSavedUpdateWhenStagedArtifactCleanupFails(t *testing.
 		t.Fatalf("NewService() error = %v", err)
 	}
 
-	_, err = service.Update(context.Background(), UpdateRequest{Confirmation: &fakeUpdateConfirmation{confirmed: true}})
-	if !errors.Is(err, failure) || !strings.Contains(err.Error(), "failed to remove staged artifacts") {
-		t.Fatalf("Update() error = %v, want staged cleanup failure", err)
+	result, err := service.Update(context.Background(), UpdateRequest{Confirmation: &fakeUpdateConfirmation{confirmed: true}})
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if len(result.Failures) != 1 || result.Failures[0].AppID != installed.ID || !strings.Contains(result.Failures[0].Error, failure.Error()) || !strings.Contains(result.Failures[0].Error, "failed to remove staged artifacts") {
+		t.Fatalf("Update().Failures = %#v, want staged cleanup failure", result.Failures)
 	}
 
 	if got, want := deps.saved.App.ID, installed.ID; got != want {
@@ -2352,15 +2427,23 @@ type fakeGitHubReleaseFinder struct {
 	tag               string
 	method            string
 	release           GitHubRelease
+	releases          map[string]GitHubRelease
 	err               error
+	errors            map[string]error
 }
 
 func (f *fakeGitHubReleaseFinder) LatestRelease(ctx context.Context, repo string, includePrerelease bool) (GitHubRelease, error) {
 	f.repo = repo
 	f.includePrerelease = includePrerelease
 	f.method = "latest"
+	if err := f.errors[repo]; err != nil {
+		return GitHubRelease{}, err
+	}
 	if f.err != nil {
 		return GitHubRelease{}, f.err
+	}
+	if release, ok := f.releases[repo]; ok {
+		return release, nil
 	}
 
 	return f.release, nil

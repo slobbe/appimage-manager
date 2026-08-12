@@ -76,25 +76,34 @@ func NewCommand(rt *clienv.Runtime, service service) *cobra.Command {
 				return err
 			}
 			reporter.Wait()
+			if !rt.Config.JSON {
+				writeUpdateFailures(cmd.ErrOrStderr(), result.Failures)
+			}
 
 			return output.Write(
 				cmd.OutOrStdout(),
 				rt.Config.JSON,
 				struct {
-					Status  string                `json:"status"`
-					Action  string                `json:"action"`
-					Target  string                `json:"target,omitempty"`
-					Applied bool                  `json:"applied"`
-					Updates []app.UpdateCandidate `json:"updates"`
+					Status   string                `json:"status"`
+					Action   string                `json:"action"`
+					Target   string                `json:"target,omitempty"`
+					Applied  bool                  `json:"applied"`
+					Updates  []app.UpdateCandidate `json:"updates"`
+					Failures []app.UpdateFailure   `json:"failures"`
 				}{
-					Status:  "ok",
-					Action:  "update",
-					Target:  req.Target,
-					Applied: result.Applied,
-					Updates: result.Updates,
+					Status:   "ok",
+					Action:   "update",
+					Target:   req.Target,
+					Applied:  result.Applied,
+					Updates:  result.Updates,
+					Failures: result.Failures,
 				},
 				func(w io.Writer) error {
 					if len(result.Updates) == 0 {
+						if len(result.Failures) > 0 {
+							fmt.Fprintln(w, "No updates found for the apps checked successfully")
+							return nil
+						}
 						fmt.Fprintln(w, "All apps up-to-date")
 						return nil
 					}
@@ -109,6 +118,10 @@ func NewCommand(rt *clienv.Runtime, service service) *cobra.Command {
 					}
 					if req.Target != "" {
 						fmt.Fprintf(w, "%sSuccessfully updated %s!%s\n", green, req.Target, reset)
+						return nil
+					}
+					if len(result.Failures) > 0 {
+						fmt.Fprintf(w, "%sFinished updating available apps; %d skipped.%s\n", green, len(result.Failures), reset)
 						return nil
 					}
 					fmt.Fprintf(w, "%sSuccessfully updated all apps!%s\n", green, reset)
@@ -239,6 +252,12 @@ func (p updatePrompter) ConfirmUpdates(ctx context.Context, updates []app.Update
 		fmt.Fprintln(p.out)
 	}
 	return prompt.ConfirmYesNo(ctx, p.in, p.out, "Update all apps? (y/n) ", p.autoConfirm)
+}
+
+func writeUpdateFailures(w io.Writer, failures []app.UpdateFailure) {
+	for _, failure := range failures {
+		fmt.Fprintf(w, "Skipped [%s]: %s\n", failure.AppID, failure.Error)
+	}
 }
 
 func writeUpdateCandidates(w io.Writer, updates []app.UpdateCandidate) {
