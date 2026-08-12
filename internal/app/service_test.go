@@ -609,6 +609,32 @@ func TestServiceUpdateSkipsBrokenAppAndAppliesOtherBulkUpdates(t *testing.T) {
 	}
 }
 
+func TestServiceUpdateReturnsCancellationBeforeRecordingAssetFailure(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	deps := integrationTestDeps()
+	installed := testInstalledApp(t)
+	installed.UpdateSource = domain.NewGitHubUpdateSource("owner/example", false)
+	deps.apps.listApps = []domain.App{installed}
+	deps.ServiceDeps.GitHubReleases = &fakeGitHubReleaseFinder{
+		release:            testGitHubReleaseWithTag("v2.0.0", "Example.deb"),
+		afterLatestRelease: cancel,
+	}
+	service, err := NewService(deps.ServiceDeps)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+
+	result, err := service.Update(ctx, UpdateRequest{})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Update() error = %v, want context.Canceled", err)
+	}
+	if len(result.Failures) != 0 {
+		t.Fatalf("Update().Failures = %#v, want none", result.Failures)
+	}
+}
+
 func TestServiceUpdateTargetReturnsAppSpecificPlanningFailure(t *testing.T) {
 	t.Parallel()
 
@@ -2422,20 +2448,24 @@ func assertRemovedPaths(t *testing.T, got []string, want []string) {
 }
 
 type fakeGitHubReleaseFinder struct {
-	repo              string
-	includePrerelease bool
-	tag               string
-	method            string
-	release           GitHubRelease
-	releases          map[string]GitHubRelease
-	err               error
-	errors            map[string]error
+	repo               string
+	includePrerelease  bool
+	tag                string
+	method             string
+	release            GitHubRelease
+	releases           map[string]GitHubRelease
+	err                error
+	errors             map[string]error
+	afterLatestRelease func()
 }
 
 func (f *fakeGitHubReleaseFinder) LatestRelease(ctx context.Context, repo string, includePrerelease bool) (GitHubRelease, error) {
 	f.repo = repo
 	f.includePrerelease = includePrerelease
 	f.method = "latest"
+	if f.afterLatestRelease != nil {
+		f.afterLatestRelease()
+	}
 	if err := f.errors[repo]; err != nil {
 		return GitHubRelease{}, err
 	}

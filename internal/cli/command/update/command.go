@@ -101,8 +101,8 @@ func NewCommand(rt *clienv.Runtime, service service) *cobra.Command {
 				func(w io.Writer) error {
 					if len(result.Updates) == 0 {
 						if len(result.Failures) > 0 {
-							fmt.Fprintln(w, "No updates found for the apps checked successfully")
-							return nil
+							_, err := fmt.Fprintln(w, "No updates found for the apps checked successfully")
+							return err
 						}
 						fmt.Fprintln(w, "All apps up-to-date")
 						return nil
@@ -121,7 +121,7 @@ func NewCommand(rt *clienv.Runtime, service service) *cobra.Command {
 						return nil
 					}
 					if len(result.Failures) > 0 {
-						fmt.Fprintf(w, "%sFinished updating available apps; %d skipped.%s\n", green, len(result.Failures), reset)
+						fmt.Fprintf(w, "%sFinished updating available apps; %d update errors.%s\n", green, len(result.Failures), reset)
 						return nil
 					}
 					fmt.Fprintf(w, "%sSuccessfully updated all apps!%s\n", green, reset)
@@ -256,7 +256,7 @@ func (p updatePrompter) ConfirmUpdates(ctx context.Context, updates []app.Update
 
 func writeUpdateFailures(w io.Writer, failures []app.UpdateFailure) {
 	for _, failure := range failures {
-		fmt.Fprintf(w, "Skipped [%s]: %s\n", failure.AppID, failure.Error)
+		fmt.Fprintf(w, "Update error [%s]: %s\n", failure.AppID, failure.Error)
 	}
 }
 
