@@ -488,6 +488,10 @@ func (s *service) planGitHubUpdates(ctx context.Context, target string, activity
 		}
 		asset, err := selectGitHubUpdateAsset(release, installedApp.UpdateSource)
 		if err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				task.Fail(ctxErr)
+				return nil, nil, nil, ctxErr
+			}
 			if !bulk {
 				task.Fail(err)
 				return nil, nil, nil, err

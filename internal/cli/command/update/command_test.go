@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -332,11 +333,29 @@ func TestCommandReportsPartialBulkUpdateWithoutReturningError(t *testing.T) {
 		t.Fatalf("ExecuteContext() error = %v", err)
 	}
 
-	if !strings.Contains(stdout.String(), "Finished updating available apps; 1 skipped.") {
+	if !strings.Contains(stdout.String(), "Finished updating available apps; 1 update errors.") {
 		t.Fatalf("stdout = %q, want partial success message", stdout.String())
 	}
-	if got, want := stderr.String(), "Skipped [localsend]: release has no AppImage assets\n"; got != want {
+	if got, want := stderr.String(), "Update error [localsend]: release has no AppImage assets\n"; got != want {
 		t.Fatalf("stderr = %q, want %q", got, want)
+	}
+}
+
+func TestCommandReturnsWriterErrorForFailuresWithoutUpdates(t *testing.T) {
+	wantErr := errors.New("write failed")
+	service := &fakeService{updateResult: app.UpdateResult{
+		Applied:  true,
+		Failures: []app.UpdateFailure{{AppID: "localsend", Error: "release has no AppImage assets"}},
+	}}
+	stderr := &bytes.Buffer{}
+	cmd := NewCommand(clienv.New(failingWriter{err: wantErr}, stderr), service)
+	cmd.SetOut(failingWriter{err: wantErr})
+	cmd.SetErr(stderr)
+	cmd.SetArgs(nil)
+
+	err := cmd.ExecuteContext(context.Background())
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("ExecuteContext() error = %v, want %v", err, wantErr)
 	}
 }
 
@@ -406,6 +425,14 @@ func TestCommandJSONAutoConfirmsUpdates(t *testing.T) {
 	if payload.Status != "ok" || payload.Action != "update" || !payload.Applied {
 		t.Fatalf("payload = %#v, want ok update applied", payload)
 	}
+}
+
+type failingWriter struct {
+	err error
+}
+
+func (w failingWriter) Write(p []byte) (int, error) {
+	return 0, w.err
 }
 
 type fakeService struct {
