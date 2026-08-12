@@ -410,15 +410,15 @@ func (s *service) Update(ctx context.Context, req UpdateRequest) (UpdateResult, 
 		activity = NoopActivityReporter{}
 	}
 
-	plans, candidates, err := s.planGitHubUpdates(ctx, req.Target, activity)
+	plans, candidates, failures, err := s.planGitHubUpdates(ctx, req.Target, activity)
 	if err != nil {
 		return UpdateResult{}, err
 	}
 	if req.CheckOnly {
-		return UpdateResult{Applied: false, Updates: candidates}, nil
+		return UpdateResult{Applied: false, Updates: candidates, Failures: failures}, nil
 	}
 	if len(plans) == 0 {
-		return UpdateResult{Applied: true, Updates: nil}, nil
+		return UpdateResult{Applied: true, Failures: failures}, nil
 	}
 
 	if req.Confirmation != nil {
@@ -427,17 +427,21 @@ func (s *service) Update(ctx context.Context, req UpdateRequest) (UpdateResult, 
 			return UpdateResult{}, err
 		}
 		if !confirmed {
-			return UpdateResult{Applied: false, Updates: candidates}, nil
+			return UpdateResult{Applied: false, Updates: candidates, Failures: failures}, nil
 		}
 	}
 
+	bulk := strings.TrimSpace(req.Target) == ""
 	for _, plan := range plans {
 		if err := s.applyGitHubUpdate(ctx, activity, plan); err != nil {
-			return UpdateResult{}, err
+			if !bulk || ctx.Err() != nil {
+				return UpdateResult{}, err
+			}
+			failures = append(failures, updateFailure(plan.app.ID, err))
 		}
 	}
 
-	return UpdateResult{Applied: true, Updates: candidates}, nil
+	return UpdateResult{Applied: true, Updates: candidates, Failures: failures}, nil
 }
 
 type githubUpdatePlan struct {
@@ -447,38 +451,49 @@ type githubUpdatePlan struct {
 	version domain.Version
 }
 
-func (s *service) planGitHubUpdates(ctx context.Context, target string, activity ActivityReporter) ([]githubUpdatePlan, []UpdateCandidate, error) {
+func (s *service) planGitHubUpdates(ctx context.Context, target string, activity ActivityReporter) ([]githubUpdatePlan, []UpdateCandidate, []UpdateFailure, error) {
 	task := activity.Start(ctx, Activity{Kind: ActivityKindCheckingUpdates})
 	apps, err := s.updateScope(ctx, target)
 	if err != nil {
 		task.Fail(err)
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
+	bulk := strings.TrimSpace(target) == ""
 	plans := make([]githubUpdatePlan, 0)
 	candidates := make([]UpdateCandidate, 0)
+	failures := make([]UpdateFailure, 0)
 	for _, installedApp := range apps {
 		if err := ctx.Err(); err != nil {
 			task.Fail(err)
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		if installedApp.UpdateSource.Kind != domain.UpdateSourceKindGitHub || strings.TrimSpace(installedApp.UpdateSource.Repo) == "" {
 			continue
 		}
 		if s.githubReleases == nil {
-			task.Fail(errors.New("github release finder is required"))
-			return nil, nil, errors.New("github release finder is required")
+			err := errors.New("github release finder is required")
+			task.Fail(err)
+			return nil, nil, nil, err
 		}
 
 		release, err := s.githubReleaseForUpdateSource(ctx, installedApp.UpdateSource)
 		if err != nil {
-			task.Fail(err)
-			return nil, nil, err
+			if !bulk || ctx.Err() != nil {
+				task.Fail(err)
+				return nil, nil, nil, err
+			}
+			failures = append(failures, updateFailure(installedApp.ID, err))
+			continue
 		}
 		asset, err := selectGitHubUpdateAsset(release, installedApp.UpdateSource)
 		if err != nil {
-			task.Fail(err)
-			return nil, nil, err
+			if !bulk {
+				task.Fail(err)
+				return nil, nil, nil, err
+			}
+			failures = append(failures, updateFailure(installedApp.ID, err))
+			continue
 		}
 		version, ok := updateVersion(release, asset)
 		if !ok || !installedApp.HasUpdate(version) {
@@ -494,7 +509,11 @@ func (s *service) planGitHubUpdates(ctx context.Context, target string, activity
 	}
 	task.Done("Checked integrated apps")
 
-	return plans, candidates, nil
+	return plans, candidates, failures, nil
+}
+
+func updateFailure(appID string, err error) UpdateFailure {
+	return UpdateFailure{AppID: appID, Error: err.Error()}
 }
 
 func (s *service) githubReleaseForUpdateSource(ctx context.Context, source domain.UpdateSource) (GitHubRelease, error) {
