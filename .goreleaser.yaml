@@ -32,4 +32,4 @@ checksum:
 release:
   prerelease: auto
   make_latest: "{{ if .Prerelease }}false{{ else }}true{{ end }}"
-  name_template: "{{ .Version }}"
+  name_template: "aim {{ .Version }}"

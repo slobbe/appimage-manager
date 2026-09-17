@@ -1,6 +1,6 @@
 module github.com/slobbe/appimage-manager
 
-go 1.25.12
+go 1.26.8
 
 require (
 	github.com/pelletier/go-toml/v2 v2.4.0
