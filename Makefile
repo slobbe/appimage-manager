@@ -36,6 +36,17 @@ fmt-check:
 		exit 1; \
 	fi
 
+.PHONY: tidy-check
+tidy-check:
+	@tmp="$$(mktemp -d)"; \
+	cp go.mod go.sum "$$tmp"; \
+	trap 'cp "$$tmp/go.mod" go.mod; cp "$$tmp/go.sum" go.sum; rm -rf "$$tmp"' EXIT; \
+	status=0; \
+	go mod tidy || status=$$?; \
+	diff -u "$$tmp/go.mod" go.mod || status=1; \
+	diff -u "$$tmp/go.sum" go.sum || status=1; \
+	exit $$status
+
 .PHONY: test-architecture
 test-architecture:
 	@! grep -R '"github.com/slobbe/appimage-manager/internal/infra' internal/app internal/cli internal/domain --include='*.go'
@@ -65,7 +76,7 @@ install-tools:
 	go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
 
 .PHONY: check
-check: fmt-check build test vet
+check: fmt-check tidy-check build test vet
 
 .PHONY: verify
 verify: check test-architecture

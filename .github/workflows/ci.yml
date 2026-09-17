@@ -9,19 +9,30 @@ on:
 permissions:
   contents: read
 
+env:
+  GORELEASER_VERSION: v2.18.2
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   quality:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Setup Go
         uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
+          cache-dependency-path: go.sum
 
       - name: Check formatting
         run: |
@@ -36,16 +47,20 @@ jobs:
 
   coverage:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Setup Go
         uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
+          cache-dependency-path: go.sum
 
       - name: Check coverage
         run: |
@@ -74,18 +89,42 @@ jobs:
           path: coverage.out
           if-no-files-found: error
 
-  audit:
+  race:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Setup Go
         uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
+          cache-dependency-path: go.sum
+
+      - name: Run race detector
+        run: make test-race
+
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
 
       - name: Install audit tools
         run: |
@@ -98,22 +137,25 @@ jobs:
 
   goreleaser:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup Go
         uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
+          cache-dependency-path: go.sum
 
-      - name: Check GoReleaser config
+      - name: Validate release snapshot
         uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
-          version: "v2.17.1"
-          args: check
+          version: ${{ env.GORELEASER_VERSION }}
+          args: release --snapshot --clean
