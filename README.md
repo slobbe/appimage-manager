@@ -98,7 +98,11 @@ aim paths     # show aim's config/storage/cache paths
 
 ## Global flags
 
-- `--json`: emit machine-readable JSON where supported
+- `--json`: emit machine-readable JSON where supported; this does not confirm
+  mutations
+- `--yes`: automatically confirm mutation prompts
+- `--non-interactive`: fail instead of prompting for input; combine with
+  `--yes` to approve mutations in automation
 - `--version`: print the current aim version
 
 ## More help

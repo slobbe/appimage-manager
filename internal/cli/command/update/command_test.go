@@ -18,7 +18,9 @@ func TestCommandPrintsAllAppsUpToDate(t *testing.T) {
 	}
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
-	cmd := NewCommand(clienv.New(stdout, stderr), service)
+	rt := clienv.New(stdout, stderr)
+	rt.Config.NonInteractive = true
+	cmd := NewCommand(rt, service)
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
 	cmd.SetArgs(nil)
@@ -160,6 +162,134 @@ func TestCommandJSONCheckOnlyIncludesUpdatesWithoutPrompting(t *testing.T) {
 	}
 	if service.confirmationCalled {
 		t.Fatal("service called update confirmation for JSON check-only update")
+	}
+}
+
+func TestCommandJSONStillRequiresConfirmation(t *testing.T) {
+	candidate := app.UpdateCandidate{ID: "example-app", CurrentVersion: "1.2.3", NewVersion: "2.0.0"}
+	service := &fakeService{updateCandidates: []app.UpdateCandidate{candidate}}
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	rt := clienv.New(stdout, stderr)
+	rt.Config.JSON = true
+	cmd := NewCommand(rt, service)
+	cmd.SetOut(stdout)
+	cmd.SetErr(stderr)
+	cmd.SetIn(strings.NewReader("n\n"))
+
+	if err := cmd.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("ExecuteContext() error = %v", err)
+	}
+
+	var payload struct {
+		Applied bool `json:"applied"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v; stdout = %q", err, stdout.String())
+	}
+	if payload.Applied {
+		t.Fatal("payload.Applied = true, want false after rejecting JSON-mode confirmation")
+	}
+	if service.confirmed {
+		t.Fatal("confirmation = true, want false; --json must not auto-confirm")
+	}
+	if strings.Contains(stdout.String(), "Update all apps?") {
+		t.Fatalf("stdout = %q, want JSON only", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "Update all apps? (y/n)") {
+		t.Fatalf("stderr = %q, want confirmation prompt", stderr.String())
+	}
+}
+
+func TestCommandYesAutoConfirmsWithoutReadingInput(t *testing.T) {
+	candidate := app.UpdateCandidate{ID: "example-app", CurrentVersion: "1.2.3", NewVersion: "2.0.0"}
+	service := &fakeService{updateCandidates: []app.UpdateCandidate{candidate}}
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	rt := clienv.New(stdout, stderr)
+	rt.Config.Yes = true
+	cmd := NewCommand(rt, service)
+	cmd.SetOut(stdout)
+	cmd.SetErr(stderr)
+	cmd.SetIn(strings.NewReader(""))
+
+	if err := cmd.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("ExecuteContext() error = %v", err)
+	}
+
+	if !service.confirmed {
+		t.Fatal("confirmation = false, want true with --yes")
+	}
+	if strings.Contains(stdout.String(), "(y/n)") {
+		t.Fatalf("stdout = %q, want no prompt with --yes", stdout.String())
+	}
+}
+
+func TestCommandNonInteractiveFailsWhenConfirmationIsRequired(t *testing.T) {
+	candidate := app.UpdateCandidate{ID: "example-app", CurrentVersion: "1.2.3", NewVersion: "2.0.0"}
+	service := &fakeService{updateCandidates: []app.UpdateCandidate{candidate}}
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	rt := clienv.New(stdout, stderr)
+	rt.Config.JSON = true
+	rt.Config.NonInteractive = true
+	cmd := NewCommand(rt, service)
+	cmd.SetOut(stdout)
+	cmd.SetErr(stderr)
+	cmd.SetIn(strings.NewReader("y\n"))
+	cmd.SilenceUsage = true
+
+	err := cmd.ExecuteContext(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "confirmation required in non-interactive mode; rerun with --yes") {
+		t.Fatalf("ExecuteContext() error = %v, want non-interactive confirmation error", err)
+	}
+	if service.confirmed {
+		t.Fatal("confirmation = true, want false")
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q, want no partial JSON", stdout.String())
+	}
+}
+
+func TestCommandYesWorksWithNonInteractive(t *testing.T) {
+	candidate := app.UpdateCandidate{ID: "example-app", CurrentVersion: "1.2.3", NewVersion: "2.0.0"}
+	service := &fakeService{updateCandidates: []app.UpdateCandidate{candidate}}
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	rt := clienv.New(stdout, stderr)
+	rt.Config.Yes = true
+	rt.Config.NonInteractive = true
+	cmd := NewCommand(rt, service)
+	cmd.SetOut(stdout)
+	cmd.SetErr(stderr)
+	cmd.SetIn(strings.NewReader(""))
+
+	if err := cmd.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("ExecuteContext() error = %v", err)
+	}
+	if !service.confirmed {
+		t.Fatal("confirmation = false, want true with --yes --non-interactive")
+	}
+}
+
+func TestCommandCheckOnlyWorksWithNonInteractiveWithoutYes(t *testing.T) {
+	candidate := app.UpdateCandidate{ID: "example-app", CurrentVersion: "1.2.3", NewVersion: "2.0.0"}
+	service := &fakeService{updateCandidates: []app.UpdateCandidate{candidate}}
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	rt := clienv.New(stdout, stderr)
+	rt.Config.NonInteractive = true
+	cmd := NewCommand(rt, service)
+	cmd.SetOut(stdout)
+	cmd.SetErr(stderr)
+	cmd.SetIn(strings.NewReader(""))
+	cmd.SetArgs([]string{"--check"})
+
+	if err := cmd.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("ExecuteContext() error = %v", err)
+	}
+	if service.confirmationCalled {
+		t.Fatal("service called confirmation for --check --non-interactive")
 	}
 }
 
@@ -390,13 +520,14 @@ func TestCommandJSONIncludesBulkUpdateFailures(t *testing.T) {
 	}
 }
 
-func TestCommandJSONAutoConfirmsUpdates(t *testing.T) {
+func TestCommandJSONWithYesAutoConfirmsUpdates(t *testing.T) {
 	candidate := app.UpdateCandidate{ID: "example-app", CurrentVersion: "1.2.3", NewVersion: "2.0.0"}
 	service := &fakeService{updateCandidates: []app.UpdateCandidate{candidate}}
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 	rt := clienv.New(stdout, stderr)
 	rt.Config.JSON = true
+	rt.Config.Yes = true
 	cmd := NewCommand(rt, service)
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
@@ -411,7 +542,7 @@ func TestCommandJSONAutoConfirmsUpdates(t *testing.T) {
 		t.Fatal("service did not call update confirmation")
 	}
 	if !service.confirmed {
-		t.Fatal("confirmation = false, want true for JSON mode")
+		t.Fatal("confirmation = false, want true for JSON mode with --yes")
 	}
 
 	var payload struct {

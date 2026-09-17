@@ -63,6 +63,18 @@ func NewRootCommand(rt *clienv.Runtime, service app.Service, version string) *co
 		false,
 		"output command results as JSON",
 	)
+	cmd.PersistentFlags().BoolVar(
+		&rt.Config.Yes,
+		"yes",
+		false,
+		"automatically confirm mutation prompts",
+	)
+	cmd.PersistentFlags().BoolVar(
+		&rt.Config.NonInteractive,
+		"non-interactive",
+		false,
+		"fail instead of prompting for input",
+	)
 
 	cmd.CompletionOptions.HiddenDefaultCmd = true
 

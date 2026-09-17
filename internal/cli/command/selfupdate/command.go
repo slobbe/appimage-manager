@@ -38,9 +38,12 @@ func NewCommand(rt *clienv.Runtime, service service) *cobra.Command {
 				Prerelease: prerelease,
 				Activity:   reporter,
 				Confirmation: selfUpdatePrompter{
-					in:          cmd.InOrStdin(),
-					out:         cmd.OutOrStdout(),
-					autoConfirm: rt.Config.JSON,
+					in:  cmd.InOrStdin(),
+					out: confirmationOutput(cmd, rt.Config.JSON),
+					options: prompt.ConfirmOptions{
+						AutoConfirm:    rt.Config.Yes,
+						NonInteractive: rt.Config.NonInteractive,
+					},
 				},
 			}
 
@@ -89,12 +92,19 @@ func NewCommand(rt *clienv.Runtime, service service) *cobra.Command {
 }
 
 type selfUpdatePrompter struct {
-	in          io.Reader
-	out         io.Writer
-	autoConfirm bool
+	in      io.Reader
+	out     io.Writer
+	options prompt.ConfirmOptions
 }
 
 func (p selfUpdatePrompter) ConfirmSelfUpdate(ctx context.Context, update app.SelfUpdateCandidate) (bool, error) {
 	question := fmt.Sprintf("Update aim from %s to %s? (y/n) ", update.CurrentVersion, update.NewVersion)
-	return prompt.ConfirmYesNo(ctx, p.in, p.out, question, p.autoConfirm)
+	return prompt.ConfirmYesNo(ctx, p.in, p.out, question, p.options)
+}
+
+func confirmationOutput(cmd *cobra.Command, jsonOutput bool) io.Writer {
+	if jsonOutput {
+		return cmd.ErrOrStderr()
+	}
+	return cmd.OutOrStdout()
 }

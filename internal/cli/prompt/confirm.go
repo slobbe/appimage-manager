@@ -8,12 +8,24 @@ import (
 	"strings"
 )
 
-func ConfirmYesNo(ctx context.Context, in io.Reader, out io.Writer, question string, autoConfirm bool) (bool, error) {
+type ConfirmOptions struct {
+	AutoConfirm    bool
+	NonInteractive bool
+}
+
+func (o ConfirmOptions) RequiresInput() bool {
+	return !o.AutoConfirm && !o.NonInteractive
+}
+
+func ConfirmYesNo(ctx context.Context, in io.Reader, out io.Writer, question string, options ConfirmOptions) (bool, error) {
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
-	if autoConfirm {
+	if options.AutoConfirm {
 		return true, nil
+	}
+	if options.NonInteractive {
+		return false, fmt.Errorf("confirmation required in non-interactive mode; rerun with --yes")
 	}
 
 	if _, err := fmt.Fprint(out, question); err != nil {

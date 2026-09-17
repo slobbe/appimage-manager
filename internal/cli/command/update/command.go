@@ -61,9 +61,12 @@ func NewCommand(rt *clienv.Runtime, service service) *cobra.Command {
 				CheckOnly: checkOnly,
 				Activity:  reporter,
 				Confirmation: updatePrompter{
-					in:          cmd.InOrStdin(),
-					out:         cmd.OutOrStdout(),
-					autoConfirm: rt.Config.JSON,
+					in:  cmd.InOrStdin(),
+					out: confirmationOutput(cmd, rt.Config.JSON),
+					options: prompt.ConfirmOptions{
+						AutoConfirm:    rt.Config.Yes,
+						NonInteractive: rt.Config.NonInteractive,
+					},
 				},
 			}
 			if len(args) > 0 {
@@ -241,17 +244,24 @@ func unsetUpdateSource(cmd *cobra.Command, rt *clienv.Runtime, service service, 
 }
 
 type updatePrompter struct {
-	in          io.Reader
-	out         io.Writer
-	autoConfirm bool
+	in      io.Reader
+	out     io.Writer
+	options prompt.ConfirmOptions
 }
 
 func (p updatePrompter) ConfirmUpdates(ctx context.Context, updates []app.UpdateCandidate) (bool, error) {
-	if !p.autoConfirm {
+	if p.options.RequiresInput() {
 		writeUpdateCandidates(p.out, updates)
 		fmt.Fprintln(p.out)
 	}
-	return prompt.ConfirmYesNo(ctx, p.in, p.out, "Update all apps? (y/n) ", p.autoConfirm)
+	return prompt.ConfirmYesNo(ctx, p.in, p.out, "Update all apps? (y/n) ", p.options)
+}
+
+func confirmationOutput(cmd *cobra.Command, jsonOutput bool) io.Writer {
+	if jsonOutput {
+		return cmd.ErrOrStderr()
+	}
+	return cmd.OutOrStdout()
 }
 
 func writeUpdateFailures(w io.Writer, failures []app.UpdateFailure) {

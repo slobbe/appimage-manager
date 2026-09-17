@@ -9,7 +9,9 @@ type Runtime struct {
 }
 
 type Config struct {
-	JSON bool
+	JSON           bool
+	Yes            bool
+	NonInteractive bool
 }
 
 func New(out io.Writer, err io.Writer) *Runtime {
