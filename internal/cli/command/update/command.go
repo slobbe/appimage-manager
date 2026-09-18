@@ -14,11 +14,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const (
-	green = "\033[32m"
-	reset = "\033[0m"
-)
-
 type service interface {
 	Update(ctx context.Context, req app.UpdateRequest) (app.UpdateResult, error)
 	SetUpdateSource(ctx context.Context, req app.SetUpdateSourceRequest) (app.SetUpdateSourceResult, error)
@@ -35,14 +30,16 @@ func NewCommand(rt *clienv.Runtime, service service) *cobra.Command {
 	var checkOnly bool
 
 	cmd := &cobra.Command{
-		Use:     "update [appimage]",
-		Aliases: []string{"u"},
-		Short:   "Update integrated AppImages",
-		Long:    "Check integrated AppImages for updates and optionally update them.",
-		Args:    cobra.MaximumNArgs(1),
+		Use:           "update [appimage]",
+		Aliases:       []string{"u"},
+		Short:         "Update integrated AppImages",
+		Long:          "Check integrated AppImages for updates and optionally update them.",
+		Args:          cobra.MaximumNArgs(1),
+		SilenceErrors: true,
+		SilenceUsage:  true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if checkOnly && (setID != "" || unsetID != "" || githubRepo != "" || assetPattern != "" || embedded || prerelease) {
-				return fmt.Errorf("--check cannot be combined with update source flags")
+				return clienv.UsageError(fmt.Errorf("--check cannot be combined with update source flags"))
 			}
 			if setID != "" || unsetID != "" || githubRepo != "" || assetPattern != "" || embedded || prerelease {
 				return runUpdateSourceCommand(cmd, rt, service, updateSourceFlags{
@@ -55,7 +52,7 @@ func NewCommand(rt *clienv.Runtime, service service) *cobra.Command {
 				}, args)
 			}
 
-			reporter := activity.NewReporter(cmd.ErrOrStderr(), !rt.Config.JSON)
+			reporter := activity.NewReporter(cmd.ErrOrStderr(), rt.ActivityEnabled(cmd.ErrOrStderr()))
 
 			req := app.UpdateRequest{
 				CheckOnly: checkOnly,
@@ -80,57 +77,112 @@ func NewCommand(rt *clienv.Runtime, service service) *cobra.Command {
 			}
 			reporter.Wait()
 			if !rt.Config.JSON {
-				writeUpdateFailures(cmd.ErrOrStderr(), result.Failures)
+				if err := writeUpdateFailures(cmd.ErrOrStderr(), result.Failures); err != nil {
+					return err
+				}
+				if err := writeUpdateSkips(cmd.ErrOrStderr(), result.Skipped); err != nil {
+					return err
+				}
+				if err := output.WriteWarnings(cmd.ErrOrStderr(), result.Warnings); err != nil {
+					return err
+				}
 			}
 
-			return output.Write(
+			status := updateStatus(req, result)
+			updated := updatedCount(result)
+			err = output.Write(
 				cmd.OutOrStdout(),
 				rt.Config.JSON,
 				struct {
-					Status   string                `json:"status"`
-					Action   string                `json:"action"`
-					Target   string                `json:"target,omitempty"`
-					Applied  bool                  `json:"applied"`
-					Updates  []app.UpdateCandidate `json:"updates"`
-					Failures []app.UpdateFailure   `json:"failures"`
+					Status    string                 `json:"status"`
+					Action    string                 `json:"action"`
+					Target    string                 `json:"target,omitempty"`
+					Applied   bool                   `json:"applied"`
+					Checked   int                    `json:"checked"`
+					Available int                    `json:"available"`
+					Updated   int                    `json:"updated"`
+					Failed    int                    `json:"failed"`
+					Skipped   []app.UpdateSkip       `json:"skipped"`
+					Updates   []app.UpdateCandidate  `json:"updates"`
+					Failures  []app.UpdateFailure    `json:"failures"`
+					Warnings  []app.OperationWarning `json:"warnings"`
 				}{
-					Status:   "ok",
-					Action:   "update",
-					Target:   req.Target,
-					Applied:  result.Applied,
-					Updates:  result.Updates,
-					Failures: result.Failures,
+					Status:    status,
+					Action:    "update",
+					Target:    req.Target,
+					Applied:   result.Applied,
+					Checked:   result.Checked,
+					Available: len(result.Updates),
+					Updated:   updated,
+					Failed:    len(result.Failures),
+					Skipped:   itemsOrEmpty(result.Skipped),
+					Updates:   itemsOrEmpty(result.Updates),
+					Failures:  itemsOrEmpty(result.Failures),
+					Warnings:  itemsOrEmpty(result.Warnings),
 				},
 				func(w io.Writer) error {
-					if len(result.Updates) == 0 {
+					if req.CheckOnly {
+						if len(result.Updates) > 0 {
+							if _, err := fmt.Fprintln(w, "Updates available:"); err != nil {
+								return err
+							}
+							if err := writeUpdateCandidates(w, result.Updates); err != nil {
+								return err
+							}
+							if len(result.Failures) > 0 {
+								_, err := fmt.Fprintf(w, "%d app update check(s) failed.\n", len(result.Failures))
+								return err
+							}
+							return nil
+						}
 						if len(result.Failures) > 0 {
-							_, err := fmt.Fprintln(w, "No updates found for the apps checked successfully")
+							_, err := fmt.Fprintf(w, "No updates found for apps checked successfully; %d check(s) failed.\n", len(result.Failures))
 							return err
 						}
-						fmt.Fprintln(w, "All apps up-to-date")
-						return nil
-					}
-					if req.CheckOnly {
-						fmt.Fprintln(w, "Updates available:")
-						writeUpdateCandidates(w, result.Updates)
-						return nil
-					}
-					if !result.Applied {
-						fmt.Fprintln(w, "Update canceled")
-						return nil
-					}
-					if req.Target != "" {
-						fmt.Fprintf(w, "%sSuccessfully updated %s!%s\n", green, req.Target, reset)
-						return nil
 					}
 					if len(result.Failures) > 0 {
-						fmt.Fprintf(w, "%sFinished updating available apps; %d update errors.%s\n", green, len(result.Failures), reset)
-						return nil
+						if updated > 0 {
+							_, err := fmt.Fprintf(w, "Updated %d app(s); %d failed.\n", updated, len(result.Failures))
+							return err
+						}
+						_, err := fmt.Fprintf(w, "No updates were applied; %d app(s) failed.\n", len(result.Failures))
+						return err
 					}
-					fmt.Fprintf(w, "%sSuccessfully updated all apps!%s\n", green, reset)
-					return nil
+					if len(result.Updates) == 0 {
+						if len(result.Skipped) > 0 {
+							_, err := fmt.Fprintf(w, "No supported update source for %d app(s).\n", len(result.Skipped))
+							return err
+						}
+						_, err := fmt.Fprintln(w, "All apps up-to-date")
+						return err
+					}
+					if !result.Applied {
+						_, err := fmt.Fprintln(w, "Update canceled")
+						return err
+					}
+					if req.Target != "" {
+						if len(result.Warnings) > 0 {
+							_, err := fmt.Fprintln(w, rt.Success(w, fmt.Sprintf("Updated %s with warnings.", req.Target)))
+							return err
+						}
+						_, err := fmt.Fprintln(w, rt.Success(w, fmt.Sprintf("Successfully updated %s!", req.Target)))
+						return err
+					}
+					if len(result.Warnings) > 0 {
+						_, err := fmt.Fprintln(w, rt.Success(w, fmt.Sprintf("Updated %d app(s) with warnings.", updated)))
+						return err
+					}
+					_, err := fmt.Fprintln(w, rt.Success(w, "Successfully updated all apps!"))
+					return err
 				},
 			)
+			if err != nil {
+				return err
+			}
+			if len(result.Failures) > 0 {
+				return clienv.SilentFailure()
+			}
+			return nil
 		},
 	}
 
@@ -156,31 +208,31 @@ type updateSourceFlags struct {
 
 func runUpdateSourceCommand(cmd *cobra.Command, rt *clienv.Runtime, service service, flags updateSourceFlags, args []string) error {
 	if len(args) > 0 {
-		return fmt.Errorf("update source flags do not accept positional arguments")
+		return clienv.UsageError(fmt.Errorf("update source flags do not accept positional arguments"))
 	}
 	if flags.setID != "" && flags.unsetID != "" {
-		return fmt.Errorf("provide either --set or --unset, not both")
+		return clienv.UsageError(fmt.Errorf("provide either --set or --unset, not both"))
 	}
 	if flags.unsetID != "" {
 		if flags.githubRepo != "" || flags.assetPattern != "" || flags.embedded || flags.prerelease {
-			return fmt.Errorf("--unset cannot be combined with --github, --asset, --embedded, or --prerelease")
+			return clienv.UsageError(fmt.Errorf("--unset cannot be combined with --github, --asset, --embedded, or --prerelease"))
 		}
 		return unsetUpdateSource(cmd, rt, service, flags.unsetID)
 	}
 	if flags.setID == "" {
-		return fmt.Errorf("--github, --asset, --embedded, and --prerelease require --set")
+		return clienv.UsageError(fmt.Errorf("--github, --asset, --embedded, and --prerelease require --set"))
 	}
 	if flags.assetPattern != "" && flags.githubRepo == "" {
-		return fmt.Errorf("--asset requires --github")
+		return clienv.UsageError(fmt.Errorf("--asset requires --github"))
 	}
 	if flags.githubRepo != "" && flags.embedded {
-		return fmt.Errorf("provide either --github or --embedded, not both")
+		return clienv.UsageError(fmt.Errorf("provide either --github or --embedded, not both"))
 	}
 	if flags.githubRepo == "" && !flags.embedded {
-		return fmt.Errorf("--set requires --github or --embedded")
+		return clienv.UsageError(fmt.Errorf("--set requires --github or --embedded"))
 	}
 	if flags.embedded && flags.prerelease {
-		return fmt.Errorf("--prerelease can only be used with --github")
+		return clienv.UsageError(fmt.Errorf("--prerelease can only be used with --github"))
 	}
 
 	return setUpdateSource(cmd, rt, service, flags)
@@ -213,8 +265,8 @@ func setUpdateSource(cmd *cobra.Command, rt *clienv.Runtime, service service, fl
 			Kind:   string(result.UpdateSource.Kind),
 		},
 		func(w io.Writer) error {
-			fmt.Fprintf(w, "%sSet update source for %s.%s\n", green, result.ID, reset)
-			return nil
+			_, err := fmt.Fprintln(w, rt.Success(w, fmt.Sprintf("Set update source for %s.", result.ID)))
+			return err
 		},
 	)
 }
@@ -237,8 +289,8 @@ func unsetUpdateSource(cmd *cobra.Command, rt *clienv.Runtime, service service, 
 			ID:     id,
 		},
 		func(w io.Writer) error {
-			fmt.Fprintf(w, "%sUnset update source for %s.%s\n", green, id, reset)
-			return nil
+			_, err := fmt.Fprintln(w, rt.Success(w, fmt.Sprintf("Unset update source for %s.", id)))
+			return err
 		},
 	)
 }
@@ -251,8 +303,12 @@ type updatePrompter struct {
 
 func (p updatePrompter) ConfirmUpdates(ctx context.Context, updates []app.UpdateCandidate) (bool, error) {
 	if p.options.RequiresInput() {
-		writeUpdateCandidates(p.out, updates)
-		fmt.Fprintln(p.out)
+		if err := writeUpdateCandidates(p.out, updates); err != nil {
+			return false, err
+		}
+		if _, err := fmt.Fprintln(p.out); err != nil {
+			return false, err
+		}
 	}
 	return prompt.ConfirmYesNo(ctx, p.in, p.out, "Update all apps? (y/n) ", p.options)
 }
@@ -264,13 +320,73 @@ func confirmationOutput(cmd *cobra.Command, jsonOutput bool) io.Writer {
 	return cmd.OutOrStdout()
 }
 
-func writeUpdateFailures(w io.Writer, failures []app.UpdateFailure) {
+func writeUpdateFailures(w io.Writer, failures []app.UpdateFailure) error {
 	for _, failure := range failures {
-		fmt.Fprintf(w, "Update error [%s]: %s\n", failure.AppID, failure.Error)
+		if _, err := fmt.Fprintf(w, "Update error [%s]: %s\n", failure.AppID, failure.Error); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
-func writeUpdateCandidates(w io.Writer, updates []app.UpdateCandidate) {
+func writeUpdateSkips(w io.Writer, skipped []app.UpdateSkip) error {
+	for _, skip := range skipped {
+		if skip.SourceKind == "" {
+			if _, err := fmt.Fprintf(w, "Skipped [%s]: %s\n", skip.AppID, skip.Reason); err != nil {
+				return err
+			}
+			continue
+		}
+		if _, err := fmt.Fprintf(w, "Skipped [%s]: %s (%s)\n", skip.AppID, skip.Reason, skip.SourceKind); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func updateStatus(req app.UpdateRequest, result app.UpdateResult) string {
+	if len(result.Failures) > 0 {
+		if result.Checked > len(result.Failures) || updatedCount(result) > 0 || len(result.Skipped) > 0 {
+			return "partial_failure"
+		}
+		return "failed"
+	}
+	if !req.CheckOnly && !result.Applied && len(result.Updates) > 0 {
+		return "canceled"
+	}
+	if req.CheckOnly && len(result.Updates) > 0 {
+		return "updates_available"
+	}
+	if updatedCount(result) > 0 {
+		if len(result.Warnings) > 0 {
+			return "updated_with_warnings"
+		}
+		return "updated"
+	}
+	if result.Checked > 0 && result.Checked == len(result.Skipped) {
+		return "skipped"
+	}
+	return "up_to_date"
+}
+
+func updatedCount(result app.UpdateResult) int {
+	if result.AppliedCount > 0 {
+		return result.AppliedCount
+	}
+	if result.Applied && len(result.Failures) == 0 {
+		return len(result.Updates)
+	}
+	return 0
+}
+
+func itemsOrEmpty[T any](items []T) []T {
+	if items == nil {
+		return []T{}
+	}
+	return items
+}
+
+func writeUpdateCandidates(w io.Writer, updates []app.UpdateCandidate) error {
 	idWidth := 0
 	versionWidth := 0
 	for _, update := range updates {
@@ -279,7 +395,7 @@ func writeUpdateCandidates(w io.Writer, updates []app.UpdateCandidate) {
 	}
 
 	for _, update := range updates {
-		fmt.Fprintf(
+		if _, err := fmt.Fprintf(
 			w,
 			"%-*s %-*s -> %s\n",
 			idWidth,
@@ -287,6 +403,9 @@ func writeUpdateCandidates(w io.Writer, updates []app.UpdateCandidate) {
 			versionWidth,
 			update.CurrentVersion,
 			update.NewVersion,
-		)
+		); err != nil {
+			return err
+		}
 	}
+	return nil
 }

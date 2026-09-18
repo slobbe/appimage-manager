@@ -114,7 +114,7 @@ func TestCommandPrintsJSON(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
 		t.Fatalf("json.Unmarshal() error = %v; stdout = %q", err, stdout.String())
 	}
-	if payload.Status != "ok" || payload.Action != "set_id" || payload.PreviousID != "old-id" || payload.ID != "new-id" || !payload.Changed {
+	if payload.Status != "changed" || payload.Action != "set_id" || payload.PreviousID != "old-id" || payload.ID != "new-id" || !payload.Changed {
 		t.Fatalf("payload = %#v, want set_id result", payload)
 	}
 	if stderr.Len() != 0 {

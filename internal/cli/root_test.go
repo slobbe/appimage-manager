@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"strings"
 	"testing"
 
 	"github.com/slobbe/appimage-manager/internal/app"
@@ -35,6 +36,20 @@ func TestRootGlobalConfirmationFlagsReachMutationCommands(t *testing.T) {
 	}
 	if !service.confirmed {
 		t.Fatal("update confirmation = false, want true")
+	}
+}
+
+func TestRootRejectsInvalidColorMode(t *testing.T) {
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	cmd := NewRootCommand(clienv.New(stdout, stderr), &rootTestService{}, "test")
+	cmd.SetOut(stdout)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"--color=sometimes", "update"})
+
+	err := cmd.ExecuteContext(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "must be auto, always, or never") {
+		t.Fatalf("ExecuteContext() error = %v, want invalid color mode", err)
 	}
 }
 

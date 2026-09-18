@@ -12,11 +12,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const (
-	bold  = "\033[1m"
-	reset = "\033[0m"
-)
-
 type service interface {
 	Info(ctx context.Context, req app.InfoRequest) (app.InfoResult, error)
 }
@@ -42,8 +37,7 @@ func NewCommand(rt *clienv.Runtime, service service) *cobra.Command {
 				rt.Config.JSON,
 				output.InfoResultJSON(result),
 				func(w io.Writer) error {
-					writeInfo(w, result)
-					return nil
+					return writeInfo(w, result, rt)
 				},
 			)
 		},
@@ -52,20 +46,39 @@ func NewCommand(rt *clienv.Runtime, service service) *cobra.Command {
 	return cmd
 }
 
-func writeInfo(w io.Writer, result app.InfoResult) {
-	fmt.Fprintf(w, "%s%s%s\n", bold, title(result), reset)
-	writeInstallationStatus(w, result)
-	fmt.Fprintf(w, "%-17s %s\n", "Exec path:", result.ExecPath)
-	writeSource(w, result)
-	writeUpdateSource(w, result)
+func writeInfo(w io.Writer, result app.InfoResult, rt *clienv.Runtime) error {
+	writer := &infoWriter{w: w}
+	writer.line(rt.Emphasis(w, title(result)))
+	writeInstallationStatus(writer, result)
+	writer.field("Exec path:", result.ExecPath)
+	writeSource(writer, result)
+	writeUpdateSource(writer, result)
+	return writer.err
 }
 
-func writeInstallationStatus(w io.Writer, result app.InfoResult) {
+type infoWriter struct {
+	w   io.Writer
+	err error
+}
+
+func (w *infoWriter) line(value string) {
+	if w.err == nil {
+		_, w.err = fmt.Fprintln(w.w, value)
+	}
+}
+
+func (w *infoWriter) field(label string, value any) {
+	if w.err == nil {
+		_, w.err = fmt.Fprintf(w.w, "%-17s %v\n", label, value)
+	}
+}
+
+func writeInstallationStatus(w *infoWriter, result app.InfoResult) {
 	status := "not installed"
 	if result.Installed {
 		status = "installed"
 	}
-	fmt.Fprintf(w, "%-17s %s\n", "Status:", status)
+	w.field("Status:", status)
 }
 
 func title(result app.InfoResult) string {
@@ -81,68 +94,68 @@ func title(result app.InfoResult) string {
 	return fmt.Sprintf("[%s] %s (v%s)", result.ID, result.Name, version)
 }
 
-func writeSource(w io.Writer, info app.InfoResult) {
+func writeSource(w *infoWriter, info app.InfoResult) {
 	source := info.Source
 	kind := string(source.Kind)
 	if kind == "" {
 		kind = "unknown"
 	}
-	fmt.Fprintf(w, "%-17s %s\n", "Source:", kind)
+	w.field("Source:", kind)
 
 	switch string(source.Kind) {
 	case "local":
-		fmt.Fprintf(w, "%-17s %s\n", "Original file:", source.LocalFile.Path)
+		w.field("Original file:", source.LocalFile.Path)
 		if !source.LocalFile.IntegratedAt.IsZero() {
-			fmt.Fprintf(w, "%-17s %s\n", "Integrated at:", output.FormatSourceTime(source.LocalFile.IntegratedAt))
+			w.field("Integrated at:", output.FormatSourceTime(source.LocalFile.IntegratedAt))
 		}
 	case "github":
-		fmt.Fprintf(w, "%-17s %s\n", "Repository:", source.GitHubRelease.Repo)
-		fmt.Fprintf(w, "%-17s %s\n", "Release tag:", source.GitHubRelease.Tag)
-		fmt.Fprintf(w, "%-17s %s\n", "Asset:", source.GitHubRelease.Asset)
+		w.field("Repository:", source.GitHubRelease.Repo)
+		w.field("Release tag:", source.GitHubRelease.Tag)
+		w.field("Asset:", source.GitHubRelease.Asset)
 		if !source.GitHubRelease.DownloadedAt.IsZero() {
-			fmt.Fprintf(w, "%-17s %s\n", "Downloaded at:", output.FormatSourceTime(source.GitHubRelease.DownloadedAt))
+			w.field("Downloaded at:", output.FormatSourceTime(source.GitHubRelease.DownloadedAt))
 		}
 	}
 }
 
-func writeUpdateSource(w io.Writer, info app.InfoResult) {
+func writeUpdateSource(w *infoWriter, info app.InfoResult) {
 	source := info.UpdateSource
 	kind := string(source.Kind)
 	if kind == "" {
 		kind = "unknown"
 	}
-	fmt.Fprintf(w, "%-17s %s\n", "Update source:", kind)
-	fmt.Fprintf(w, "%-17s %t\n", "Embedded update:", source.Embedded)
+	w.field("Update source:", kind)
+	w.field("Embedded update:", source.Embedded)
 	if source.Raw != "" {
-		fmt.Fprintf(w, "%-17s %s\n", "Raw update:", source.Raw)
+		w.field("Raw update:", source.Raw)
 	}
 	if source.Transport != "" {
-		fmt.Fprintf(w, "%-17s %s\n", "Transport:", source.Transport)
+		w.field("Transport:", source.Transport)
 	}
 	switch string(source.Kind) {
 	case "github":
-		fmt.Fprintf(w, "%-17s %s\n", "Update repo:", source.Repo)
+		w.field("Update repo:", source.Repo)
 		if source.ReleaseTag != "" {
-			fmt.Fprintf(w, "%-17s %s\n", "Release tag:", source.ReleaseTag)
+			w.field("Release tag:", source.ReleaseTag)
 		}
 		if source.AssetPattern != "" {
-			fmt.Fprintf(w, "%-17s %s\n", "Asset pattern:", source.AssetPattern)
+			w.field("Asset pattern:", source.AssetPattern)
 		}
 		if source.ZsyncAssetPattern != "" {
-			fmt.Fprintf(w, "%-17s %s\n", "Zsync pattern:", source.ZsyncAssetPattern)
+			w.field("Zsync pattern:", source.ZsyncAssetPattern)
 		}
-		fmt.Fprintf(w, "%-17s %t\n", "Prereleases:", source.Prerelease)
+		w.field("Prereleases:", source.Prerelease)
 	case "local_file":
-		fmt.Fprintf(w, "%-17s %s\n", "Update path:", source.Path)
+		w.field("Update path:", source.Path)
 		writePreservedUpdateSourceStatus(w)
 	case "zsync":
-		fmt.Fprintf(w, "%-17s %s\n", "Zsync URL:", source.URL)
+		w.field("Zsync URL:", source.URL)
 		writePreservedUpdateSourceStatus(w)
 	case "unsupported":
 		writePreservedUpdateSourceStatus(w)
 	}
 }
 
-func writePreservedUpdateSourceStatus(w io.Writer) {
-	fmt.Fprintf(w, "%-17s %s\n", "Update support:", "preserved; updates not applied by aim yet")
+func writePreservedUpdateSourceStatus(w *infoWriter) {
+	w.field("Update support:", "preserved; updates not applied by aim yet")
 }

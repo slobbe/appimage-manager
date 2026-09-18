@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/slobbe/appimage-manager/internal/cli/clienv"
+
 	"github.com/spf13/cobra"
 	"github.com/spf13/cobra/doc"
 )
@@ -34,7 +36,7 @@ func newManCommand(root *cobra.Command) *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if dir == "" {
-				return fmt.Errorf("--dir is required")
+				return clienv.UsageError(fmt.Errorf("--dir is required"))
 			}
 
 			cleanDir := filepath.Clean(dir)
@@ -55,8 +57,8 @@ func newManCommand(root *cobra.Command) *cobra.Command {
 				return fmt.Errorf("generate man pages: %w", err)
 			}
 
-			fmt.Fprintf(cmd.OutOrStdout(), "Generated man pages in %s\n", cleanDir)
-			return nil
+			_, err := fmt.Fprintf(cmd.OutOrStdout(), "Generated man pages in %s\n", cleanDir)
+			return err
 		},
 	}
 
@@ -86,7 +88,7 @@ func newCompletionCommand(root *cobra.Command) *cobra.Command {
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if dir == "" {
-				return fmt.Errorf("--dir is required")
+				return clienv.UsageError(fmt.Errorf("--dir is required"))
 			}
 
 			cleanDir := filepath.Clean(dir)
@@ -121,8 +123,8 @@ func newCompletionCommand(root *cobra.Command) *cobra.Command {
 				return fmt.Errorf("generate %s completion: %w", shell, err)
 			}
 
-			fmt.Fprintf(cmd.OutOrStdout(), "Generated %s completion in %s\n", shell, path)
-			return nil
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Generated %s completion in %s\n", shell, path)
+			return err
 		},
 	}
 

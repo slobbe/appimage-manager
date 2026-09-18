@@ -12,11 +12,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const (
-	bold  = "\033[1m"
-	reset = "\033[0m"
-)
-
 type service interface {
 	List(ctx context.Context, req app.ListRequest) (app.ListResult, error)
 }
@@ -39,7 +34,7 @@ func NewCommand(rt *clienv.Runtime, service service) *cobra.Command {
 				rt.Config.JSON,
 				result,
 				func(w io.Writer) error {
-					return writeTable(w, result.Items)
+					return writeTable(w, result.Items, rt)
 				},
 			)
 		},
@@ -48,7 +43,7 @@ func NewCommand(rt *clienv.Runtime, service service) *cobra.Command {
 	return cmd
 }
 
-func writeTable(w io.Writer, items []app.ListItem) error {
+func writeTable(w io.Writer, items []app.ListItem, rt *clienv.Runtime) error {
 	idWidth := len("ID")
 	nameWidth := len("Name")
 
@@ -60,9 +55,13 @@ func writeTable(w io.Writer, items []app.ListItem) error {
 	const gap = 2
 	format := fmt.Sprintf("%%-%ds%%-%ds%%s\n", idWidth+gap, nameWidth+gap)
 
-	fmt.Fprintf(w, bold+format+reset, "ID", "Name", "Version")
+	if _, err := fmt.Fprint(w, rt.Emphasis(w, fmt.Sprintf(format, "ID", "Name", "Version"))); err != nil {
+		return err
+	}
 	for _, item := range items {
-		fmt.Fprintf(w, format, item.ID, item.Name, item.Version)
+		if _, err := fmt.Fprintf(w, format, item.ID, item.Name, item.Version); err != nil {
+			return err
+		}
 	}
 
 	return nil

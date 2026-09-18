@@ -16,11 +16,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const (
-	green = "\033[32m"
-	reset = "\033[0m"
-)
-
 type service interface {
 	Add(ctx context.Context, req app.AddRequest) (app.AddResult, error)
 }
@@ -55,7 +50,7 @@ func NewCommand(rt *clienv.Runtime, service service) *cobra.Command {
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			reporter := activity.NewReporter(cmd.ErrOrStderr(), !rt.Config.JSON)
+			reporter := activity.NewReporter(cmd.ErrOrStderr(), rt.ActivityEnabled(cmd.ErrOrStderr()))
 
 			req := app.AddRequest{
 				GitHubRepo:   githubRepo,
@@ -97,8 +92,8 @@ func NewCommand(rt *clienv.Runtime, service service) *cobra.Command {
 					ID:         result.App.ID,
 				},
 				func(w io.Writer) error {
-					fmt.Fprintf(w, "%sSuccessfully integrated %s [%s]!%s\n", green, result.App.Name, result.App.ID, reset)
-					return nil
+					_, err := fmt.Fprintln(w, rt.Success(w, fmt.Sprintf("Successfully integrated %s [%s]!", result.App.Name, result.App.ID)))
+					return err
 				},
 			)
 		},

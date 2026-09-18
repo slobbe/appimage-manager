@@ -25,7 +25,7 @@ func NewCommand(rt *clienv.Runtime, service service) *cobra.Command {
 		Long:    "Remove an AppImage.",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			reporter := activity.NewReporter(cmd.ErrOrStderr(), !rt.Config.JSON)
+			reporter := activity.NewReporter(cmd.ErrOrStderr(), rt.ActivityEnabled(cmd.ErrOrStderr()))
 
 			req := app.RemoveRequest{
 				Name:     args[0],
@@ -51,8 +51,8 @@ func NewCommand(rt *clienv.Runtime, service service) *cobra.Command {
 					Name:   req.Name,
 				},
 				func(w io.Writer) error {
-					fmt.Fprintf(w, "\033[32mSuccessfully removed %s!\033[0m\n", req.Name)
-					return nil
+					_, err := fmt.Fprintln(w, rt.Success(w, fmt.Sprintf("Successfully removed %s!", req.Name)))
+					return err
 				},
 			)
 		},

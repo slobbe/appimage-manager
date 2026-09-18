@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 
@@ -151,8 +152,8 @@ func TestCommandJSONCheckOnlyIncludesUpdatesWithoutPrompting(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
 		t.Fatalf("json.Unmarshal() error = %v; stdout = %q", err, stdout.String())
 	}
-	if payload.Status != "ok" || payload.Action != "update" || payload.Target != "example-app" || payload.Applied {
-		t.Fatalf("payload = %#v, want ok update target not applied", payload)
+	if payload.Status != "updates_available" || payload.Action != "update" || payload.Target != "example-app" || payload.Applied {
+		t.Fatalf("payload = %#v, want available update target not applied", payload)
 	}
 	if len(payload.Updates) != 1 || payload.Updates[0] != candidate {
 		t.Fatalf("payload updates = %#v, want %#v", payload.Updates, []app.UpdateCandidate{candidate})
@@ -294,7 +295,7 @@ func TestCommandCheckOnlyWorksWithNonInteractiveWithoutYes(t *testing.T) {
 }
 
 func TestCommandJSONIncludesTarget(t *testing.T) {
-	service := &fakeService{updateResult: app.UpdateResult{Applied: true}}
+	service := &fakeService{updateResult: app.UpdateResult{Checked: 1}}
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 	rt := clienv.New(stdout, stderr)
@@ -317,8 +318,8 @@ func TestCommandJSONIncludesTarget(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
 		t.Fatalf("json.Unmarshal() error = %v; stdout = %q", err, stdout.String())
 	}
-	if payload.Status != "ok" || payload.Action != "update" || payload.Target != "example-app" || !payload.Applied {
-		t.Fatalf("payload = %#v, want ok update target applied", payload)
+	if payload.Status != "up_to_date" || payload.Action != "update" || payload.Target != "example-app" || payload.Applied {
+		t.Fatalf("payload = %#v, want up-to-date target", payload)
 	}
 	if got, want := service.target, "example-app"; got != want {
 		t.Fatalf("UpdateRequest.Target = %q, want %q", got, want)
@@ -446,11 +447,13 @@ func TestCommandJSONSetUpdateSource(t *testing.T) {
 	}
 }
 
-func TestCommandReportsPartialBulkUpdateWithoutReturningError(t *testing.T) {
+func TestCommandReportsPartialBulkUpdateAndReturnsSilentFailure(t *testing.T) {
 	service := &fakeService{updateResult: app.UpdateResult{
-		Applied:  true,
-		Updates:  []app.UpdateCandidate{{ID: "helium", CurrentVersion: "1.0.0", NewVersion: "2.0.0"}},
-		Failures: []app.UpdateFailure{{AppID: "localsend", Error: "release has no AppImage assets"}},
+		Applied:      true,
+		Checked:      2,
+		AppliedCount: 1,
+		Updates:      []app.UpdateCandidate{{ID: "helium", CurrentVersion: "1.0.0", NewVersion: "2.0.0"}},
+		Failures:     []app.UpdateFailure{{AppID: "localsend", Error: "release has no AppImage assets"}},
 	}}
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
@@ -459,11 +462,9 @@ func TestCommandReportsPartialBulkUpdateWithoutReturningError(t *testing.T) {
 	cmd.SetErr(stderr)
 	cmd.SetArgs(nil)
 
-	if err := cmd.ExecuteContext(context.Background()); err != nil {
-		t.Fatalf("ExecuteContext() error = %v", err)
-	}
+	assertSilentFailure(t, cmd.ExecuteContext(context.Background()))
 
-	if !strings.Contains(stdout.String(), "Finished updating available apps; 1 update errors.") {
+	if !strings.Contains(stdout.String(), "Updated 1 app(s); 1 failed.") {
 		t.Fatalf("stdout = %q, want partial success message", stdout.String())
 	}
 	if got, want := stderr.String(), "Update error [localsend]: release has no AppImage assets\n"; got != want {
@@ -489,9 +490,44 @@ func TestCommandReturnsWriterErrorForFailuresWithoutUpdates(t *testing.T) {
 	}
 }
 
+func TestCommandReturnsWriterErrorForSuccessfulOutput(t *testing.T) {
+	wantErr := errors.New("write failed")
+	service := &fakeService{updateResult: app.UpdateResult{Checked: 1}}
+	cmd := NewCommand(clienv.New(failingWriter{err: wantErr}, io.Discard), service)
+	cmd.SetOut(failingWriter{err: wantErr})
+
+	err := cmd.ExecuteContext(context.Background())
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("ExecuteContext() error = %v, want %v", err, wantErr)
+	}
+}
+
+func TestCommandCheckReportsCandidatesAndFailures(t *testing.T) {
+	service := &fakeService{updateResult: app.UpdateResult{
+		Checked: 2,
+		Updates: []app.UpdateCandidate{{
+			ID: "ready", CurrentVersion: "1.0.0", NewVersion: "2.0.0",
+		}},
+		Failures: []app.UpdateFailure{{AppID: "broken", Error: "check failed"}},
+	}}
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	cmd := NewCommand(clienv.New(stdout, stderr), service)
+	cmd.SetOut(stdout)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{"--check"})
+
+	assertSilentFailure(t, cmd.ExecuteContext(context.Background()))
+	if !strings.Contains(stdout.String(), "Updates available:") ||
+		!strings.Contains(stdout.String(), "[ready]") ||
+		!strings.Contains(stdout.String(), "1 app update check(s) failed.") {
+		t.Fatalf("stdout = %q, want candidates and partial check summary", stdout.String())
+	}
+}
+
 func TestCommandJSONIncludesBulkUpdateFailures(t *testing.T) {
 	failure := app.UpdateFailure{AppID: "localsend", Error: "release has no AppImage assets"}
-	service := &fakeService{updateResult: app.UpdateResult{Applied: true, Failures: []app.UpdateFailure{failure}}}
+	service := &fakeService{updateResult: app.UpdateResult{Applied: true, Checked: 1, Failures: []app.UpdateFailure{failure}}}
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 	rt := clienv.New(stdout, stderr)
@@ -501,9 +537,7 @@ func TestCommandJSONIncludesBulkUpdateFailures(t *testing.T) {
 	cmd.SetErr(stderr)
 	cmd.SetArgs(nil)
 
-	if err := cmd.ExecuteContext(context.Background()); err != nil {
-		t.Fatalf("ExecuteContext() error = %v", err)
-	}
+	assertSilentFailure(t, cmd.ExecuteContext(context.Background()))
 
 	var payload struct {
 		Status   string              `json:"status"`
@@ -512,11 +546,49 @@ func TestCommandJSONIncludesBulkUpdateFailures(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
 		t.Fatalf("json.Unmarshal() error = %v; stdout = %q", err, stdout.String())
 	}
-	if payload.Status != "ok" || len(payload.Failures) != 1 || payload.Failures[0] != failure {
-		t.Fatalf("payload = %#v, want ok with failure %#v", payload, failure)
+	if payload.Status != "failed" || len(payload.Failures) != 1 || payload.Failures[0] != failure {
+		t.Fatalf("payload = %#v, want failed with failure %#v", payload, failure)
 	}
 	if stderr.Len() != 0 {
 		t.Fatalf("stderr = %q, want empty JSON stderr", stderr.String())
+	}
+}
+
+func TestCommandJSONReportsSkippedUpdateSources(t *testing.T) {
+	skip := app.UpdateSkip{
+		AppID:      "example-app",
+		Reason:     app.UpdateSkipReasonUnsupportedSource,
+		SourceKind: "zsync",
+	}
+	service := &fakeService{updateResult: app.UpdateResult{
+		Applied: true,
+		Checked: 1,
+		Skipped: []app.UpdateSkip{skip},
+	}}
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	rt := clienv.New(stdout, stderr)
+	rt.Config.JSON = true
+	cmd := NewCommand(rt, service)
+	cmd.SetOut(stdout)
+	cmd.SetErr(stderr)
+
+	if err := cmd.ExecuteContext(context.Background()); err != nil {
+		t.Fatalf("ExecuteContext() error = %v", err)
+	}
+
+	var payload struct {
+		Status  string           `json:"status"`
+		Skipped []app.UpdateSkip `json:"skipped"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v; stdout = %q", err, stdout.String())
+	}
+	if payload.Status != "skipped" || len(payload.Skipped) != 1 || payload.Skipped[0] != skip {
+		t.Fatalf("payload = %#v, want skipped source %#v", payload, skip)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty", stderr.String())
 	}
 }
 
@@ -553,8 +625,16 @@ func TestCommandJSONWithYesAutoConfirmsUpdates(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
 		t.Fatalf("json.Unmarshal() error = %v; stdout = %q", err, stdout.String())
 	}
-	if payload.Status != "ok" || payload.Action != "update" || !payload.Applied {
-		t.Fatalf("payload = %#v, want ok update applied", payload)
+	if payload.Status != "updated" || payload.Action != "update" || !payload.Applied {
+		t.Fatalf("payload = %#v, want updated result", payload)
+	}
+}
+
+func assertSilentFailure(t *testing.T, err error) {
+	t.Helper()
+	code, message := clienv.ResolveExit(err)
+	if code != clienv.ExitFailure || message != nil {
+		t.Fatalf("ResolveExit(%v) = (%d, %v), want silent failure", err, code, message)
 	}
 }
 
@@ -607,7 +687,7 @@ func (s *fakeService) Update(ctx context.Context, req app.UpdateRequest) (app.Up
 		return s.updateResult, nil
 	}
 	if req.CheckOnly {
-		return app.UpdateResult{Applied: false, Updates: s.updateCandidates}, nil
+		return app.UpdateResult{Applied: false, Checked: len(s.updateCandidates), Updates: s.updateCandidates}, nil
 	}
 
 	confirmed := true
@@ -620,5 +700,9 @@ func (s *fakeService) Update(ctx context.Context, req app.UpdateRequest) (app.Up
 		}
 	}
 	s.confirmed = confirmed
-	return app.UpdateResult{Applied: confirmed, Updates: s.updateCandidates}, nil
+	result := app.UpdateResult{Applied: confirmed, Checked: len(s.updateCandidates), Updates: s.updateCandidates}
+	if confirmed {
+		result.AppliedCount = len(s.updateCandidates)
+	}
+	return result, nil
 }

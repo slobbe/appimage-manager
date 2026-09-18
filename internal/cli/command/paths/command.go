@@ -33,11 +33,15 @@ func NewCommand(rt *clienv.Runtime, service service) *cobra.Command {
 				rt.Config.JSON,
 				result,
 				func(w io.Writer) error {
-					fmt.Fprintf(w, "Config file:  %s\n", result.ConfigFile)
-					fmt.Fprintf(w, "AppImage dir: %s\n", result.AppImageDir)
-					fmt.Fprintf(w, "Desktop dir:  %s\n", result.DesktopDir)
-					fmt.Fprintf(w, "Icon dir:     %s\n", result.IconDir)
-					return nil
+					_, err := fmt.Fprintf(
+						w,
+						"Config file:  %s\nAppImage dir: %s\nDesktop dir:  %s\nIcon dir:     %s\n",
+						result.ConfigFile,
+						result.AppImageDir,
+						result.DesktopDir,
+						result.IconDir,
+					)
+					return err
 				},
 			)
 		},

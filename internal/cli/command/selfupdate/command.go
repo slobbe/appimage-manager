@@ -14,11 +14,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const (
-	green = "\033[32m"
-	reset = "\033[0m"
-)
-
 type service interface {
 	SelfUpdate(ctx context.Context, req app.SelfUpdateRequest) (app.SelfUpdateResult, error)
 }
@@ -32,7 +27,7 @@ func NewCommand(rt *clienv.Runtime, service service) *cobra.Command {
 		Long:  "Update the aim CLI.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			reporter := activity.NewReporter(cmd.ErrOrStderr(), !rt.Config.JSON)
+			reporter := activity.NewReporter(cmd.ErrOrStderr(), rt.ActivityEnabled(cmd.ErrOrStderr()))
 
 			req := app.SelfUpdateRequest{
 				Prerelease: prerelease,
@@ -64,7 +59,7 @@ func NewCommand(rt *clienv.Runtime, service service) *cobra.Command {
 					From    string `json:"from"`
 					To      string `json:"to"`
 				}{
-					Status:  "ok",
+					Status:  selfUpdateStatus(result),
 					Action:  "selfupdate",
 					Applied: result.Applied,
 					From:    result.Update.CurrentVersion,
@@ -72,15 +67,15 @@ func NewCommand(rt *clienv.Runtime, service service) *cobra.Command {
 				},
 				func(w io.Writer) error {
 					if !result.Applied {
-						fmt.Fprintln(w, "Self-update canceled")
-						return nil
+						_, err := fmt.Fprintln(w, "Self-update canceled")
+						return err
 					}
 					if result.Update.CurrentVersion == result.Update.NewVersion {
-						fmt.Fprintf(w, "%saim is already up-to-date (%s).%s\n", green, result.Update.NewVersion, reset)
-						return nil
+						_, err := fmt.Fprintln(w, rt.Success(w, fmt.Sprintf("aim is already up-to-date (%s).", result.Update.NewVersion)))
+						return err
 					}
-					fmt.Fprintf(w, "%sSuccessfully updated aim to %s!%s\n", green, result.Update.NewVersion, reset)
-					return nil
+					_, err := fmt.Fprintln(w, rt.Success(w, fmt.Sprintf("Successfully updated aim to %s!", result.Update.NewVersion)))
+					return err
 				},
 			)
 		},
@@ -89,6 +84,16 @@ func NewCommand(rt *clienv.Runtime, service service) *cobra.Command {
 	cmd.Flags().BoolVar(&prerelease, "prerelease", false, "allow installing the latest prerelease")
 
 	return cmd
+}
+
+func selfUpdateStatus(result app.SelfUpdateResult) string {
+	if !result.Applied {
+		return "canceled"
+	}
+	if result.Update.CurrentVersion == result.Update.NewVersion {
+		return "up_to_date"
+	}
+	return "updated"
 }
 
 type selfUpdatePrompter struct {

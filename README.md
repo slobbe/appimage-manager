@@ -19,10 +19,10 @@ aim --version
 Install a specific version:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/slobbe/appimage-manager/main/scripts/install.sh | AIM_VERSION=v0.17.0 sh
+curl -fsSL https://raw.githubusercontent.com/slobbe/appimage-manager/main/scripts/install.sh | AIM_VERSION=v0.18.0 sh
 ```
 
-`AIM_VERSION` accepts either `0.17.0`, `v0.17.0`, or a prerelease tag such as `v0.17.0-rc.1`.
+`AIM_VERSION` accepts either `0.18.0`, `v0.18.0`, or a prerelease tag such as `v0.18.0-rc.1`.
 
 The installer places `aim` in `~/.local/bin` by default and generates man pages and shell completions locally from the installed binary.
 
@@ -103,7 +103,77 @@ aim paths     # show aim's config/storage/cache paths
 - `--yes`: automatically confirm mutation prompts
 - `--non-interactive`: fail instead of prompting for input; combine with
   `--yes` to approve mutations in automation
+- `--color=auto|always|never`: control color in human-readable output; `auto`
+  honors `NO_COLOR` and only uses color on a terminal
 - `--version`: print the current aim version
+
+## Automation contract
+
+`--json` writes command results to stdout and keeps prompts and diagnostics on
+stderr. `update` and `selfupdate` still require `--yes` when run
+non-interactively and an update is available.
+
+Exit codes are:
+
+- `0`: success, no-op, or user cancellation
+- `1`: an operational failure, including a partial bulk-update failure
+- `2`: invalid flags or arguments
+
+Update JSON uses explicit statuses including `updated`, `up_to_date`,
+`updates_available`, `canceled`, `skipped`, `partial_failure`, and `failed`.
+It also includes checked, available, updated, failed, and skipped counts or
+collections. A committed operation that could not finish cleanup reports
+warnings rather than claiming that the entire operation failed.
+
+## Configuration and data
+
+Run `aim paths` to print the effective paths for the current environment. By
+default, aim uses:
+
+- `~/.config/aim/config.toml` for configuration
+- `~/.local/share/aim/apps.json` for managed-app state
+- `~/.local/share/aim/appimages` for installed AppImages
+- `~/.local/share/applications` for desktop entries
+- `~/.local/share/icons` for icons
+
+The locations follow `XDG_CONFIG_HOME` and `XDG_DATA_HOME` when those variables
+are set. The currently supported configuration setting is:
+
+```toml
+appimage_dir = "~/Applications"
+```
+
+`appimage_dir` changes where managed AppImages are installed. Desktop entries,
+icons, and state continue to use their XDG data locations.
+
+## Support and trust boundaries
+
+- aim runs on Linux. Release archives are currently published for `amd64` and
+  `arm64`.
+- Desktop integration follows the XDG desktop-entry and icon conventions.
+  Refresh behavior depends on the desktop tools available on the host.
+- GitHub release sources are the only update sources currently applied.
+  Embedded `zsync`, `local_file`, and unsupported metadata is retained for
+  inspection but is not applied yet.
+- Inspecting, adding, or updating an AppImage executes its extraction and
+  update-information modes as the current user. Only manage AppImages you
+  trust.
+- GitHub downloads use HTTPS and release metadata, but publisher signatures are
+  not currently verified by aim.
+
+## Recovery
+
+aim stages integration and update work before replacing managed files. If a
+command fails, read the complete error before retrying and run `aim info <id>`
+to inspect the recorded paths and source. `aim paths` locates the state file
+and managed directories.
+
+Before manually repairing files, back up `apps.json` and the affected managed
+artifacts. Mutating workflows coordinate through an operation lock, while
+repository writes also use an adjacent `apps.json.lock` file. This prevents
+overlapping aim processes from racing artifact and state changes. Automated
+diagnosis, repair, cleanup, and user-facing rollback are planned but are not
+available yet.
 
 ## More help
 
