@@ -8,11 +8,11 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/slobbe/appimage-manager/internal/app"
 	"github.com/slobbe/appimage-manager/internal/domain"
+	"golang.org/x/sys/unix"
 )
 
 // Repository persists integrated apps in a JSON file.
@@ -29,9 +29,7 @@ var _ app.AppRepository = Repository{}
 
 const currentSchemaVersion = 2
 
-// repositoryMu only serializes repository writes inside this process.
-// ponytail: concurrent CLI processes can still race and lose updates; add file locking if that becomes a real user problem.
-var repositoryMu sync.Mutex
+const lockRetryInterval = 10 * time.Millisecond
 
 type databaseFile struct {
 	SchemaVersion int         `json:"schema_version"`
@@ -213,6 +211,46 @@ func (r Repository) Delete(ctx context.Context, id string) error {
 	return app.ErrAppNotFound
 }
 
+// ReplaceID atomically replaces previousID with domainApp in one locked write.
+func (r Repository) ReplaceID(ctx context.Context, previousID string, domainApp domain.App) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := r.validate(); err != nil {
+		return err
+	}
+	previousID = strings.TrimSpace(previousID)
+	if previousID == "" || strings.TrimSpace(domainApp.ID) == "" {
+		return fmt.Errorf("replace app id: previous and new app ids are required")
+	}
+
+	unlock, err := r.lock(ctx)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
+	db, err := r.load(ctx)
+	if err != nil {
+		return err
+	}
+	previousIndex := -1
+	for i, record := range db.Apps {
+		if record.ID == domainApp.ID && record.ID != previousID {
+			return fmt.Errorf("replace app id: app id %q already exists", domainApp.ID)
+		}
+		if record.ID == previousID {
+			previousIndex = i
+		}
+	}
+	if previousIndex < 0 {
+		return app.ErrAppNotFound
+	}
+	db.Apps[previousIndex] = recordFromDomainApp(domainApp)
+	sortAppRecords(db.Apps)
+	return r.save(ctx, db)
+}
+
 func (r Repository) validate() error {
 	if strings.TrimSpace(r.Path) == "" {
 		return fmt.Errorf("storage path is required")
@@ -226,13 +264,47 @@ func (r Repository) lock(ctx context.Context) (func(), error) {
 		return nil, err
 	}
 
-	repositoryMu.Lock()
-	if err := ctx.Err(); err != nil {
-		repositoryMu.Unlock()
-		return nil, err
+	directory := filepath.Dir(r.Path)
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		return nil, fmt.Errorf("create app database directory %q for lock: %w", directory, err)
 	}
 
-	return repositoryMu.Unlock, nil
+	lockPath := r.Path + ".lock"
+	lockFile, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("open app database lock %q: %w", lockPath, err)
+	}
+
+	closeLock := func() {
+		_ = unix.Flock(int(lockFile.Fd()), unix.LOCK_UN)
+		_ = lockFile.Close()
+	}
+
+	timer := time.NewTimer(0)
+	defer timer.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			_ = lockFile.Close()
+			return nil, fmt.Errorf("acquire app database lock %q: %w", lockPath, ctx.Err())
+		case <-timer.C:
+		}
+
+		err := unix.Flock(int(lockFile.Fd()), unix.LOCK_EX|unix.LOCK_NB)
+		if err == nil {
+			if err := ctx.Err(); err != nil {
+				closeLock()
+				return nil, fmt.Errorf("acquire app database lock %q: %w", lockPath, err)
+			}
+			return closeLock, nil
+		}
+		if err != unix.EWOULDBLOCK && err != unix.EAGAIN && err != unix.EINTR {
+			_ = lockFile.Close()
+			return nil, fmt.Errorf("acquire app database lock %q: %w", lockPath, err)
+		}
+
+		timer.Reset(lockRetryInterval)
+	}
 }
 
 func (r Repository) load(ctx context.Context) (databaseFile, error) {

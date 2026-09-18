@@ -5,16 +5,40 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/slobbe/appimage-manager/internal/app"
 )
 
+const (
+	maxRequestAttempts = 3
+	retryBaseDelay     = 100 * time.Millisecond
+)
+
+var defaultHTTPClient = &http.Client{
+	Timeout: 30 * time.Minute,
+	Transport: &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		DialContext:           (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: 30 * time.Second,
+		IdleConnTimeout:       90 * time.Second,
+	},
+}
+
 // Downloader downloads remote assets to local files.
-type Downloader struct{}
+type Downloader struct {
+	HTTPClient *http.Client
+}
+
+func NewDownloader(httpClient *http.Client) Downloader {
+	return Downloader{HTTPClient: httpClient}
+}
 
 var _ app.AssetDownloader = Downloader{}
 
@@ -35,7 +59,7 @@ func (d Downloader) Download(ctx context.Context, source app.DownloadSource, des
 	}
 	req.Header.Set("User-Agent", "aim")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := d.do(req)
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return app.DownloadedFile{}, ctxErr
@@ -90,6 +114,51 @@ func (d Downloader) Download(ctx context.Context, source app.DownloadSource, des
 	}
 
 	return app.DownloadedFile{Path: destinationPath, SizeBytes: written}, nil
+}
+
+func (d Downloader) httpClient() *http.Client {
+	if d.HTTPClient != nil {
+		return d.HTTPClient
+	}
+	return defaultHTTPClient
+}
+
+func (d Downloader) do(req *http.Request) (*http.Response, error) {
+	var lastErr error
+	for attempt := 0; attempt < maxRequestAttempts; attempt++ {
+		if attempt > 0 {
+			timer := time.NewTimer(retryBaseDelay * time.Duration(1<<(attempt-1)))
+			select {
+			case <-req.Context().Done():
+				timer.Stop()
+				return nil, req.Context().Err()
+			case <-timer.C:
+			}
+		}
+
+		resp, err := d.httpClient().Do(req.Clone(req.Context()))
+		if err == nil {
+			if !isTransientStatus(resp.StatusCode) || attempt == maxRequestAttempts-1 {
+				return resp, nil
+			}
+			resp.Body.Close()
+			continue
+		}
+		if resp != nil {
+			resp.Body.Close()
+		}
+		if err := req.Context().Err(); err != nil {
+			return nil, err
+		}
+		lastErr = err
+	}
+	return nil, lastErr
+}
+
+func isTransientStatus(status int) bool {
+	return status == http.StatusBadGateway ||
+		status == http.StatusServiceUnavailable ||
+		status == http.StatusGatewayTimeout
 }
 
 func copyWithProgress(ctx context.Context, dst io.Writer, src io.Reader, progress app.DownloadProgress) (int64, error) {

@@ -155,8 +155,81 @@ func TestClientLatestReleaseReturnsDecodeError(t *testing.T) {
 func TestClientLatestReleaseValidatesRepo(t *testing.T) {
 	t.Parallel()
 
-	_, err := NewClient().LatestRelease(context.Background(), "owner/repo/extra", false)
+	_, err := NewClient(nil).LatestRelease(context.Background(), "owner/repo/extra", false)
 	if err == nil || !strings.Contains(err.Error(), "owner/repo") {
 		t.Fatalf("LatestRelease() error = %v, want repo format error", err)
+	}
+}
+
+func TestClientRetriesTransientGET(t *testing.T) {
+	t.Parallel()
+
+	attempts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if attempts < 3 {
+			http.Error(w, "temporary", http.StatusServiceUnavailable)
+			return
+		}
+		fmt.Fprint(w, `{"tag_name":"v1.0.0"}`)
+	}))
+	defer server.Close()
+
+	release, err := (Client{BaseURL: server.URL, HTTPClient: server.Client()}).LatestRelease(context.Background(), "owner/repo", false)
+	if err != nil {
+		t.Fatalf("LatestRelease() error = %v", err)
+	}
+	if release.TagName != "v1.0.0" || attempts != 3 {
+		t.Fatalf("release tag = %q, attempts = %d; want v1.0.0 after 3 attempts", release.TagName, attempts)
+	}
+}
+
+func TestClientReportsRateLimitReset(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-RateLimit-Remaining", "0")
+		w.Header().Set("X-RateLimit-Reset", "1735689600")
+		http.Error(w, "limited", http.StatusForbidden)
+	}))
+	defer server.Close()
+
+	_, err := (Client{BaseURL: server.URL, HTTPClient: server.Client()}).LatestRelease(context.Background(), "owner/repo", false)
+	if err == nil || !strings.Contains(err.Error(), "rate limited, retry after 2025-01-01T00:00:00Z") {
+		t.Fatalf("LatestRelease() error = %v, want actionable rate-limit reset", err)
+	}
+}
+
+func TestClientReportsRetryAfter(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "120")
+		http.Error(w, "limited", http.StatusTooManyRequests)
+	}))
+	defer server.Close()
+
+	_, err := (Client{BaseURL: server.URL, HTTPClient: server.Client()}).LatestRelease(context.Background(), "owner/repo", false)
+	if err == nil || !strings.Contains(err.Error(), "retry after 120 seconds") {
+		t.Fatalf("LatestRelease() error = %v, want Retry-After guidance", err)
+	}
+}
+
+func TestClientDoesNotMislabelHeaderlessForbiddenAsRateLimit(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.Client())
+	client.BaseURL = server.URL
+	_, err := client.LatestRelease(context.Background(), "owner/repo", false)
+	if err == nil {
+		t.Fatal("LatestRelease() error = nil, want forbidden error")
+	}
+	if strings.Contains(strings.ToLower(err.Error()), "rate limit") {
+		t.Fatalf("LatestRelease() error = %q, want no unsupported rate-limit diagnosis", err)
 	}
 }

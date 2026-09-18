@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/slobbe/appimage-manager/internal/app"
 )
@@ -67,6 +68,57 @@ func TestDownloaderReturnsHTTPError(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "502") {
 		t.Fatalf("Download() error = %v, want 502 error", err)
 	}
+}
+
+func TestDownloaderRetriesTransientGETBeforeWriting(t *testing.T) {
+	t.Parallel()
+
+	attempts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if attempts < 3 {
+			http.Error(w, "temporary", http.StatusBadGateway)
+			return
+		}
+		fmt.Fprint(w, "complete")
+	}))
+	defer server.Close()
+
+	destination := filepath.Join(t.TempDir(), "file")
+	result, err := NewDownloader(server.Client()).Download(context.Background(), app.DownloadSource{URL: server.URL}, destination, nil)
+	if err != nil {
+		t.Fatalf("Download() error = %v", err)
+	}
+	if result.SizeBytes != int64(len("complete")) || attempts != 3 {
+		t.Fatalf("size = %d, attempts = %d; want %d after 3 attempts", result.SizeBytes, attempts, len("complete"))
+	}
+}
+
+func TestDownloaderClientTimeoutBoundsStalledResponseBody(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "10")
+		w.WriteHeader(http.StatusOK)
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+
+	client := server.Client()
+	client.Timeout = 100 * time.Millisecond
+	destination := filepath.Join(t.TempDir(), "file")
+	started := time.Now()
+	_, err := NewDownloader(client).Download(context.Background(), app.DownloadSource{URL: server.URL}, destination, nil)
+	if err == nil {
+		t.Fatal("Download() error = nil, want response body timeout")
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("Download() took %s, want bounded timeout", elapsed)
+	}
+	assertNoDownloadFiles(t, destination)
 }
 
 func TestDownloaderRejectsOversizedResponseBody(t *testing.T) {

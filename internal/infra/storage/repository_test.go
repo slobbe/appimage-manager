@@ -141,7 +141,7 @@ func TestRepositoryConcurrentSavesPreserveAllApps(t *testing.T) {
 	t.Parallel()
 
 	for iteration := 0; iteration < 100; iteration++ {
-		repo := NewRepository(filepath.Join(t.TempDir(), "apps.json"))
+		path := filepath.Join(t.TempDir(), "apps.json")
 		apps := []domain.App{
 			testApp(t, "alpha", "Alpha", "1.0.0"),
 			testApp(t, "bravo", "Bravo", "1.0.0"),
@@ -156,7 +156,9 @@ func TestRepositoryConcurrentSavesPreserveAllApps(t *testing.T) {
 			go func() {
 				defer wg.Done()
 				<-start
-				errors <- repo.Save(context.Background(), stored)
+				// Each instance represents a separate aim process. An in-memory
+				// repository mutex cannot coordinate these read-modify-write cycles.
+				errors <- NewRepository(path).Save(context.Background(), stored)
 			}()
 		}
 
@@ -169,7 +171,7 @@ func TestRepositoryConcurrentSavesPreserveAllApps(t *testing.T) {
 			}
 		}
 
-		stored, err := repo.List(context.Background())
+		stored, err := NewRepository(path).List(context.Background())
 		if err != nil {
 			t.Fatalf("iteration %d: List() error = %v", iteration, err)
 		}
@@ -182,6 +184,59 @@ func TestRepositoryConcurrentSavesPreserveAllApps(t *testing.T) {
 				t.Fatalf("iteration %d: stored app IDs = %v, want %s present", iteration, got, app.ID)
 			}
 		}
+	}
+}
+
+func TestRepositoryLockAcquisitionRespectsContextCancellation(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "apps.json")
+	holder := NewRepository(path)
+	unlock, err := holder.lock(context.Background())
+	if err != nil {
+		t.Fatalf("holder lock() error = %v", err)
+	}
+	defer unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	err = NewRepository(path).Save(ctx, testApp(t, "example", "Example", "1.0.0"))
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Save() error = %v, want context.DeadlineExceeded", err)
+	}
+	if !strings.Contains(err.Error(), path+".lock") {
+		t.Fatalf("Save() error = %q, want lock path", err)
+	}
+	if _, statErr := os.Stat(path); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("database stat error = %v, want database not written", statErr)
+	}
+}
+
+func TestRepositoryReplaceIDCommitsOneStateTransition(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "apps.json")
+	repo := NewRepository(path)
+	original := testApp(t, "old-id", "Example", "1.0.0")
+	if err := repo.Save(context.Background(), original); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	replacement := original
+	replacement.ID = "new-id"
+
+	if err := repo.ReplaceID(context.Background(), original.ID, replacement); err != nil {
+		t.Fatalf("ReplaceID() error = %v", err)
+	}
+	if _, err := repo.Find(context.Background(), original.ID); !errors.Is(err, app.ErrAppNotFound) {
+		t.Fatalf("Find(old ID) error = %v, want not found", err)
+	}
+	stored, err := repo.Find(context.Background(), replacement.ID)
+	if err != nil {
+		t.Fatalf("Find(new ID) error = %v", err)
+	}
+	if stored.ID != replacement.ID {
+		t.Fatalf("stored ID = %q, want %q", stored.ID, replacement.ID)
 	}
 }
 

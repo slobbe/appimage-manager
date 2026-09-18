@@ -32,6 +32,26 @@ func (i Installer) Install(ctx context.Context, sourcePath string, appID string)
 	if strings.TrimSpace(sourcePath) == "" {
 		return "", errors.New("icon source path is required")
 	}
+	destination, err := i.Destination(sourcePath, appID)
+	if err != nil {
+		return "", err
+	}
+	destinationDir := filepath.Dir(destination)
+	if err := os.MkdirAll(destinationDir, 0o755); err != nil {
+		return "", fmt.Errorf("create icon install directory %q: %w", destinationDir, err)
+	}
+
+	if err := fileutil.CopyFile(ctx, sourcePath, destination); err != nil {
+		return "", fmt.Errorf("install icon %q to %q: %w", sourcePath, destination, err)
+	}
+
+	return destination, nil
+}
+
+func (i Installer) Destination(sourcePath string, appID string) (string, error) {
+	if strings.TrimSpace(sourcePath) == "" {
+		return "", errors.New("icon source path is required")
+	}
 	if strings.TrimSpace(appID) == "" {
 		return "", errors.New("app id is required")
 	}
@@ -41,19 +61,8 @@ func (i Installer) Install(ctx context.Context, sourcePath string, appID string)
 	if !isSupportedIconPath(sourcePath) && !isDirIcon(sourcePath) {
 		return "", fmt.Errorf("icon source path %q has unsupported extension", sourcePath)
 	}
-
 	extension := installedIconExtension(sourcePath)
-	destinationDir := filepath.Join(i.Dir, "hicolor", iconThemeSizeDir(extension), "apps")
-	if err := os.MkdirAll(destinationDir, 0o755); err != nil {
-		return "", fmt.Errorf("create icon install directory %q: %w", destinationDir, err)
-	}
-
-	destination := filepath.Join(destinationDir, appID+extension)
-	if err := fileutil.CopyFile(ctx, sourcePath, destination); err != nil {
-		return "", fmt.Errorf("install icon %q to %q: %w", sourcePath, destination, err)
-	}
-
-	return destination, nil
+	return filepath.Join(i.Dir, "hicolor", iconThemeSizeDir(extension), "apps", appID+extension), nil
 }
 
 func installedIconExtension(sourcePath string) string {

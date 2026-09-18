@@ -19,4 +19,10 @@ type AppRepository interface {
 	Find(ctx context.Context, id string) (domain.App, error)
 	List(ctx context.Context) ([]domain.App, error)
 	Delete(ctx context.Context, id string) error
+	ReplaceID(ctx context.Context, previousID string, app domain.App) error
+}
+
+// MutationLocker serializes workflows that mutate managed artifacts and state.
+type MutationLocker interface {
+	Lock(ctx context.Context) (unlock func(), err error)
 }

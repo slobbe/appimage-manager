@@ -64,6 +64,9 @@ func TestExtractorMakesAppImageOwnerExecutable(t *testing.T) {
 
 	tmp := t.TempDir()
 	appImagePath := writeFakeAppImage(t, tmp, `#!/bin/sh
+if [ "$1" = "--appimage-updateinformation" ]; then
+  exit 0
+fi
 mkdir squashfs-root
 `)
 	if err := os.Chmod(appImagePath, 0o600); err != nil {

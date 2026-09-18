@@ -36,19 +36,40 @@ type IconFile struct {
 
 // AppImageInstaller installs an AppImage into the app library.
 type AppImageInstaller interface {
+	Destination(appID string) (string, error)
 	Install(ctx context.Context, sourcePath string, appID string) (string, error)
 }
 
 // ArtifactRemover removes installed files created by aim.
 type ArtifactRemover func(ctx context.Context, path string) error
 
+// ArtifactBackupManager snapshots installed artifacts before a replacement.
+type ArtifactBackupManager interface {
+	Existing(ctx context.Context, paths []string) ([]string, error)
+	Backup(ctx context.Context, paths []string) (ArtifactBackup, error)
+}
+
+// ArtifactBackup restores a snapshot or discards it after commit.
+type ArtifactBackup interface {
+	Restore(ctx context.Context) error
+	Close() error
+	Location() string
+}
+
+type ArtifactPathInspector interface {
+	Exists(ctx context.Context, path string) (bool, error)
+	SameFile(ctx context.Context, first string, second string) (bool, error)
+}
+
 // IconInstaller installs an icon into the icon directory.
 type IconInstaller interface {
+	Destination(sourcePath string, appID string) (string, error)
 	Install(ctx context.Context, sourcePath string, appID string) (string, error)
 }
 
 // DesktopEntryInstaller installs a desktop entry into the applications directory.
 type DesktopEntryInstaller interface {
+	Destination(appID string) (string, error)
 	Install(ctx context.Context, appID string, content []byte) (string, error)
 }
 

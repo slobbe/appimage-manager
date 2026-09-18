@@ -58,10 +58,34 @@ type UpdateFailure struct {
 	Error string `json:"error"`
 }
 
+type UpdateSkipReason string
+
+const (
+	UpdateSkipReasonNoSource          UpdateSkipReason = "no_update_source"
+	UpdateSkipReasonInvalidSource     UpdateSkipReason = "invalid_update_source"
+	UpdateSkipReasonUnsupportedSource UpdateSkipReason = "unsupported_update_source"
+)
+
+type UpdateSkip struct {
+	AppID      string           `json:"app_id"`
+	Reason     UpdateSkipReason `json:"reason"`
+	SourceKind string           `json:"source_kind,omitempty"`
+}
+
+type OperationWarning struct {
+	AppID string `json:"app_id,omitempty"`
+	Kind  string `json:"kind"`
+	Error string `json:"error"`
+}
+
 type UpdateResult struct {
-	Applied  bool
-	Updates  []UpdateCandidate
-	Failures []UpdateFailure
+	Applied      bool
+	Checked      int
+	AppliedCount int
+	Updates      []UpdateCandidate
+	Failures     []UpdateFailure
+	Skipped      []UpdateSkip
+	Warnings     []OperationWarning
 }
 
 type SetUpdateSourceRequest struct {
@@ -93,6 +117,7 @@ type SetIDResult struct {
 	ID         string
 	App        domain.App
 	Changed    bool
+	Warnings   []OperationWarning
 }
 
 type ListRequest struct{}

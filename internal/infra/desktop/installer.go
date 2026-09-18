@@ -28,11 +28,9 @@ func (i Installer) Install(ctx context.Context, appID string, content []byte) (s
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	if strings.TrimSpace(appID) == "" {
-		return "", errors.New("app id is required")
-	}
-	if strings.TrimSpace(i.Dir) == "" {
-		return "", errors.New("desktop entry install directory is required")
+	destination, err := i.Destination(appID)
+	if err != nil {
+		return "", err
 	}
 	if len(content) == 0 {
 		return "", errors.New("desktop entry content is required")
@@ -42,12 +40,21 @@ func (i Installer) Install(ctx context.Context, appID string, content []byte) (s
 		return "", fmt.Errorf("create desktop entry install directory %q: %w", i.Dir, err)
 	}
 
-	destination := filepath.Join(i.Dir, appID+".desktop")
 	if err := writeDesktopFile(ctx, destination, content); err != nil {
 		return "", fmt.Errorf("install desktop entry to %q: %w", destination, err)
 	}
 
 	return destination, nil
+}
+
+func (i Installer) Destination(appID string) (string, error) {
+	if strings.TrimSpace(appID) == "" {
+		return "", errors.New("app id is required")
+	}
+	if strings.TrimSpace(i.Dir) == "" {
+		return "", errors.New("desktop entry install directory is required")
+	}
+	return filepath.Join(i.Dir, appID+".desktop"), nil
 }
 
 func writeDesktopFile(ctx context.Context, destination string, content []byte) error {

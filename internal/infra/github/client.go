@@ -7,12 +7,20 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/slobbe/appimage-manager/internal/app"
 )
 
-const defaultBaseURL = "https://api.github.com"
+const (
+	defaultBaseURL     = "https://api.github.com"
+	maxRequestAttempts = 3
+	retryBaseDelay     = 100 * time.Millisecond
+)
+
+var defaultHTTPClient = &http.Client{Timeout: 30 * time.Second}
 
 // Client looks up release metadata from the GitHub REST API.
 type Client struct {
@@ -21,8 +29,8 @@ type Client struct {
 }
 
 // NewClient creates a GitHub release finder that uses the public GitHub API.
-func NewClient() Client {
-	return Client{BaseURL: defaultBaseURL}
+func NewClient(httpClient *http.Client) Client {
+	return Client{HTTPClient: httpClient, BaseURL: defaultBaseURL}
 }
 
 var _ app.GitHubReleaseFinder = Client{}
@@ -104,7 +112,7 @@ func (c Client) fetchRelease(ctx context.Context, repo string, requestURL string
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 	req.Header.Set("User-Agent", "aim")
 
-	resp, err := c.httpClient().Do(req)
+	resp, err := c.do(req)
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return app.GitHubRelease{}, ctxErr
@@ -114,7 +122,7 @@ func (c Client) fetchRelease(ctx context.Context, repo string, requestURL string
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return app.GitHubRelease{}, fmt.Errorf("fetch github releases for %s: github returned %s", repo, resp.Status)
+		return app.GitHubRelease{}, fmt.Errorf("fetch github releases for %s: %s", repo, githubHTTPError(resp))
 	}
 
 	var releases []githubReleaseResponse
@@ -142,7 +150,7 @@ func (c Client) fetchSingleRelease(ctx context.Context, repo string, requestURL 
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 	req.Header.Set("User-Agent", "aim")
 
-	resp, err := c.httpClient().Do(req)
+	resp, err := c.do(req)
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return app.GitHubRelease{}, ctxErr
@@ -152,7 +160,7 @@ func (c Client) fetchSingleRelease(ctx context.Context, repo string, requestURL 
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return app.GitHubRelease{}, fmt.Errorf("fetch %s for %s: github returned %s", label, repo, resp.Status)
+		return app.GitHubRelease{}, fmt.Errorf("fetch %s for %s: %s", label, repo, githubHTTPError(resp))
 	}
 
 	var release githubReleaseResponse
@@ -208,7 +216,73 @@ func (c Client) httpClient() *http.Client {
 		return c.HTTPClient
 	}
 
-	return http.DefaultClient
+	return defaultHTTPClient
+}
+
+func (c Client) do(req *http.Request) (*http.Response, error) {
+	var lastErr error
+	for attempt := 0; attempt < maxRequestAttempts; attempt++ {
+		if attempt > 0 {
+			timer := time.NewTimer(retryBaseDelay * time.Duration(1<<(attempt-1)))
+			select {
+			case <-req.Context().Done():
+				timer.Stop()
+				return nil, req.Context().Err()
+			case <-timer.C:
+			}
+		}
+
+		resp, err := c.httpClient().Do(req.Clone(req.Context()))
+		if err == nil {
+			if !isTransientStatus(resp.StatusCode) || attempt == maxRequestAttempts-1 {
+				return resp, nil
+			}
+			resp.Body.Close()
+			continue
+		}
+		if resp != nil {
+			resp.Body.Close()
+		}
+		if err := req.Context().Err(); err != nil {
+			return nil, err
+		}
+		lastErr = err
+	}
+	return nil, lastErr
+}
+
+func isTransientStatus(status int) bool {
+	return status == http.StatusBadGateway ||
+		status == http.StatusServiceUnavailable ||
+		status == http.StatusGatewayTimeout
+}
+
+func githubHTTPError(resp *http.Response) string {
+	message := "github returned " + resp.Status
+	if resp.StatusCode != http.StatusForbidden && resp.StatusCode != http.StatusTooManyRequests {
+		return message
+	}
+
+	if retryAfter := strings.TrimSpace(resp.Header.Get("Retry-After")); retryAfter != "" {
+		if seconds, err := strconv.ParseInt(retryAfter, 10, 64); err == nil {
+			return fmt.Sprintf("%s; rate limited, retry after %d seconds", message, seconds)
+		}
+		if retryAt, err := http.ParseTime(retryAfter); err == nil {
+			return fmt.Sprintf("%s; rate limited, retry after %s", message, retryAt.UTC().Format(time.RFC3339))
+		}
+	}
+	if reset := strings.TrimSpace(resp.Header.Get("X-RateLimit-Reset")); reset != "" {
+		if unix, err := strconv.ParseInt(reset, 10, 64); err == nil {
+			return fmt.Sprintf("%s; rate limited, retry after %s", message, time.Unix(unix, 0).UTC().Format(time.RFC3339))
+		}
+	}
+	if remaining := strings.TrimSpace(resp.Header.Get("X-RateLimit-Remaining")); remaining == "0" {
+		return message + "; GitHub API rate limit exhausted"
+	}
+	if resp.StatusCode == http.StatusForbidden {
+		return message
+	}
+	return message + "; GitHub API request was rate limited"
 }
 
 type githubReleaseResponse struct {

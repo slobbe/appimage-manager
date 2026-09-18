@@ -26,11 +26,14 @@ type service struct {
 	iconInstaller               IconInstaller
 	desktopEntryInstaller       DesktopEntryInstaller
 	artifactRemover             ArtifactRemover
+	artifactBackups             ArtifactBackupManager
+	artifactPaths               ArtifactPathInspector
 	desktopIntegrationRefresher DesktopIntegrationRefresher
 	githubReleases              GitHubReleaseFinder
 	downloads                   AssetDownloader
 	selfUpdater                 SelfUpdater
 	apps                        AppRepository
+	mutations                   MutationLocker
 }
 
 type ServiceDeps struct {
@@ -42,12 +45,15 @@ type ServiceDeps struct {
 	IconInstaller               IconInstaller
 	DesktopEntryInstaller       DesktopEntryInstaller
 	ArtifactRemover             ArtifactRemover
+	ArtifactBackups             ArtifactBackupManager
+	ArtifactPaths               ArtifactPathInspector
 	DesktopIntegrationRefresher DesktopIntegrationRefresher
 	GitHubReleases              GitHubReleaseFinder
 	Downloads                   AssetDownloader
 	SelfUpdater                 SelfUpdater
 	CurrentVersion              string
 	Apps                        AppRepository
+	Mutations                   MutationLocker
 }
 
 func NewService(deps ServiceDeps) (Service, error) {
@@ -61,11 +67,14 @@ func NewService(deps ServiceDeps) (Service, error) {
 		iconInstaller:               deps.IconInstaller,
 		desktopEntryInstaller:       deps.DesktopEntryInstaller,
 		artifactRemover:             deps.ArtifactRemover,
+		artifactBackups:             deps.ArtifactBackups,
+		artifactPaths:               deps.ArtifactPaths,
 		desktopIntegrationRefresher: deps.DesktopIntegrationRefresher,
 		githubReleases:              deps.GitHubReleases,
 		downloads:                   deps.Downloads,
 		selfUpdater:                 deps.SelfUpdater,
 		apps:                        deps.Apps,
+		mutations:                   deps.Mutations,
 	}
 	if err := service.validate(); err != nil {
 		return nil, err
@@ -97,6 +106,11 @@ func (s *service) Add(ctx context.Context, req AddRequest) (AddResult, error) {
 	if err := ctx.Err(); err != nil {
 		return AddResult{}, err
 	}
+	unlock, err := s.mutations.Lock(ctx)
+	if err != nil {
+		return AddResult{}, err
+	}
+	defer unlock()
 
 	activity := req.Activity
 	if activity == nil {
@@ -354,6 +368,11 @@ func (s *service) Remove(ctx context.Context, req RemoveRequest) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	unlock, err := s.mutations.Lock(ctx)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	if req.Name == "" {
 		return errors.New("app name is required")
 	}
@@ -404,21 +423,37 @@ func (s *service) Update(ctx context.Context, req UpdateRequest) (UpdateResult, 
 	if err := ctx.Err(); err != nil {
 		return UpdateResult{}, err
 	}
+	unlock, err := s.mutations.Lock(ctx)
+	if err != nil {
+		return UpdateResult{}, err
+	}
+	defer unlock()
 
 	activity := req.Activity
 	if activity == nil {
 		activity = NoopActivityReporter{}
 	}
 
-	plans, candidates, failures, err := s.planGitHubUpdates(ctx, req.Target, activity)
+	plans, candidates, failures, skipped, checked, err := s.planGitHubUpdates(ctx, req.Target, activity)
 	if err != nil {
 		return UpdateResult{}, err
 	}
 	if req.CheckOnly {
-		return UpdateResult{Applied: false, Updates: candidates, Failures: failures}, nil
+		return UpdateResult{
+			Applied:  false,
+			Checked:  checked,
+			Updates:  candidates,
+			Failures: failures,
+			Skipped:  skipped,
+		}, nil
 	}
 	if len(plans) == 0 {
-		return UpdateResult{Applied: true, Failures: failures}, nil
+		return UpdateResult{
+			Applied:  false,
+			Checked:  checked,
+			Failures: failures,
+			Skipped:  skipped,
+		}, nil
 	}
 
 	if req.Confirmation != nil {
@@ -427,21 +462,40 @@ func (s *service) Update(ctx context.Context, req UpdateRequest) (UpdateResult, 
 			return UpdateResult{}, err
 		}
 		if !confirmed {
-			return UpdateResult{Applied: false, Updates: candidates, Failures: failures}, nil
+			return UpdateResult{
+				Applied:  false,
+				Checked:  checked,
+				Updates:  candidates,
+				Failures: failures,
+				Skipped:  skipped,
+			}, nil
 		}
 	}
 
-	bulk := strings.TrimSpace(req.Target) == ""
+	var warnings []OperationWarning
+	appliedCount := 0
 	for _, plan := range plans {
-		if err := s.applyGitHubUpdate(ctx, activity, plan); err != nil {
-			if !bulk || ctx.Err() != nil {
+		applyWarnings, err := s.applyGitHubUpdate(ctx, activity, plan)
+		warnings = append(warnings, applyWarnings...)
+		if err != nil {
+			if ctx.Err() != nil {
 				return UpdateResult{}, err
 			}
 			failures = append(failures, updateFailure(plan.app.ID, err))
+			continue
 		}
+		appliedCount++
 	}
 
-	return UpdateResult{Applied: true, Updates: candidates, Failures: failures}, nil
+	return UpdateResult{
+		Applied:      appliedCount > 0,
+		Checked:      checked,
+		AppliedCount: appliedCount,
+		Updates:      candidates,
+		Failures:     failures,
+		Skipped:      skipped,
+		Warnings:     warnings,
+	}, nil
 }
 
 type githubUpdatePlan struct {
@@ -451,37 +505,46 @@ type githubUpdatePlan struct {
 	version domain.Version
 }
 
-func (s *service) planGitHubUpdates(ctx context.Context, target string, activity ActivityReporter) ([]githubUpdatePlan, []UpdateCandidate, []UpdateFailure, error) {
+func (s *service) planGitHubUpdates(ctx context.Context, target string, activity ActivityReporter) ([]githubUpdatePlan, []UpdateCandidate, []UpdateFailure, []UpdateSkip, int, error) {
 	task := activity.Start(ctx, Activity{Kind: ActivityKindCheckingUpdates})
 	apps, err := s.updateScope(ctx, target)
 	if err != nil {
 		task.Fail(err)
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, 0, err
 	}
 
-	bulk := strings.TrimSpace(target) == ""
 	plans := make([]githubUpdatePlan, 0)
 	candidates := make([]UpdateCandidate, 0)
 	failures := make([]UpdateFailure, 0)
+	skipped := make([]UpdateSkip, 0)
 	for _, installedApp := range apps {
 		if err := ctx.Err(); err != nil {
 			task.Fail(err)
-			return nil, nil, nil, err
+			return nil, nil, nil, nil, 0, err
 		}
-		if installedApp.UpdateSource.Kind != domain.UpdateSourceKindGitHub || strings.TrimSpace(installedApp.UpdateSource.Repo) == "" {
+		if installedApp.UpdateSource.Kind != domain.UpdateSourceKindGitHub {
+			skipped = append(skipped, updateSkip(installedApp))
+			continue
+		}
+		if strings.TrimSpace(installedApp.UpdateSource.Repo) == "" {
+			skipped = append(skipped, UpdateSkip{
+				AppID:      installedApp.ID,
+				Reason:     UpdateSkipReasonInvalidSource,
+				SourceKind: string(installedApp.UpdateSource.Kind),
+			})
 			continue
 		}
 		if s.githubReleases == nil {
 			err := errors.New("github release finder is required")
 			task.Fail(err)
-			return nil, nil, nil, err
+			return nil, nil, nil, nil, 0, err
 		}
 
 		release, err := s.githubReleaseForUpdateSource(ctx, installedApp.UpdateSource)
 		if err != nil {
-			if !bulk || ctx.Err() != nil {
+			if ctx.Err() != nil {
 				task.Fail(err)
-				return nil, nil, nil, err
+				return nil, nil, nil, nil, 0, err
 			}
 			failures = append(failures, updateFailure(installedApp.ID, err))
 			continue
@@ -490,11 +553,7 @@ func (s *service) planGitHubUpdates(ctx context.Context, target string, activity
 		if err != nil {
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				task.Fail(ctxErr)
-				return nil, nil, nil, ctxErr
-			}
-			if !bulk {
-				task.Fail(err)
-				return nil, nil, nil, err
+				return nil, nil, nil, nil, 0, ctxErr
 			}
 			failures = append(failures, updateFailure(installedApp.ID, err))
 			continue
@@ -513,11 +572,23 @@ func (s *service) planGitHubUpdates(ctx context.Context, target string, activity
 	}
 	task.Done("Checked integrated apps")
 
-	return plans, candidates, failures, nil
+	return plans, candidates, failures, skipped, len(apps), nil
 }
 
 func updateFailure(appID string, err error) UpdateFailure {
 	return UpdateFailure{AppID: appID, Error: err.Error()}
+}
+
+func updateSkip(installedApp domain.App) UpdateSkip {
+	sourceKind := string(installedApp.UpdateSource.Kind)
+	if installedApp.UpdateSource.Kind == domain.UpdateSourceKindUnknown {
+		return UpdateSkip{AppID: installedApp.ID, Reason: UpdateSkipReasonNoSource}
+	}
+	return UpdateSkip{
+		AppID:      installedApp.ID,
+		Reason:     UpdateSkipReasonUnsupportedSource,
+		SourceKind: sourceKind,
+	}
 }
 
 func (s *service) githubReleaseForUpdateSource(ctx context.Context, source domain.UpdateSource) (GitHubRelease, error) {
@@ -557,14 +628,14 @@ func (s *service) updateScope(ctx context.Context, target string) ([]domain.App,
 	return []domain.App{installedApp}, nil
 }
 
-func (s *service) applyGitHubUpdate(ctx context.Context, activity ActivityReporter, plan githubUpdatePlan) error {
+func (s *service) applyGitHubUpdate(ctx context.Context, activity ActivityReporter, plan githubUpdatePlan) (warnings []OperationWarning, resultErr error) {
 	if s.downloads == nil {
-		return errors.New("asset downloader is required")
+		return nil, errors.New("asset downloader is required")
 	}
 
 	workspacePath, cleanup, err := createWorkspace(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer cleanup()
 
@@ -584,7 +655,7 @@ func (s *service) applyGitHubUpdate(ctx context.Context, activity ActivityReport
 	}, downloadPath, download)
 	if err != nil {
 		download.Fail(err)
-		return err
+		return nil, err
 	}
 	download.Done("Downloaded " + plan.asset.Name)
 
@@ -593,50 +664,76 @@ func (s *service) applyGitHubUpdate(ctx context.Context, activity ActivityReport
 		integratePath = downloadPath
 	}
 	source := domain.NewGitHubReleaseSource(plan.app.UpdateSource.Repo, plan.release.TagName, plan.asset.Name, plan.asset.DownloadURL, plan.asset.SizeBytes, time.Now())
-	stageID := updateArtifactID(plan.app.ID, plan.version)
-	result, err := s.addLocalWithOptions(ctx, AddRequest{
+	metadata, err := s.inspectLocalAppImageInWorkspace(ctx, AddRequest{
 		Path:       integratePath,
 		GitHubRepo: plan.app.UpdateSource.Repo,
 		Prerelease: plan.app.UpdateSource.Prerelease,
 		Activity:   activity,
-	}, activity, addLocalOptions{
-		source:          source,
-		fallbackVersion: plan.release.TagName,
-		appID:           stageID,
-		saveApp:         false,
-	})
+	}, source, plan.release.TagName, plan.app.ID, integrationSource, workspacePath)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	stagedApp := result.App
 
 	var rollback rollbackStack
 	committed := false
+	var backup ArtifactBackup
 	defer func() {
 		if !committed {
-			rollback.run(ctx)
+			rollbackErr := rollback.run(ctx)
+			resultErr = errors.Join(resultErr, rollbackErr)
+			if rollbackErr != nil && backup != nil {
+				resultErr = errors.Join(resultErr, fmt.Errorf("artifact backup retained at %q", backup.Location()))
+				return
+			}
+		}
+		if backup == nil {
+			return
+		}
+		if err := backup.Close(); err != nil {
+			if committed {
+				warnings = append(warnings, operationWarning(plan.app.ID, "backup-cleanup", err))
+				return
+			}
+			resultErr = errors.Join(resultErr, fmt.Errorf("discard artifact backup: %w", err))
 		}
 	}()
-	addAppRollback(&rollback, s, stagedApp)
-
-	updatedApp, err := s.promoteStagedUpdate(ctx, stagedApp, plan.app.ID, plan.app.UpdateSource)
+	destinations, err := s.installationDestinations(metadata.iconFile.Path, plan.app.ID)
 	if err != nil {
-		return err
+		return nil, err
+	}
+	if err := s.preflightReplacement(ctx, destinations, plan.app); err != nil {
+		return nil, err
+	}
+	backupPaths := append([]string{
+		plan.app.AppImagePath,
+		plan.app.IconPath,
+		plan.app.DesktopEntryPath,
+	}, destinations...)
+	backup, err = s.artifactBackups.Backup(ctx, backupPaths)
+	if err != nil {
+		return nil, fmt.Errorf("back up installed artifacts for %s: %w", plan.app.ID, err)
+	}
+	rollback.add(backup.Restore)
+
+	updatedApp, err := s.installUpdate(ctx, integratePath, metadata, source, plan.app.ID, plan.app.UpdateSource, &rollback)
+	if err != nil {
+		return nil, err
 	}
 
 	if err := s.apps.Save(ctx, updatedApp); err != nil {
-		return err
+		return nil, err
 	}
 	committed = true
 
-	if err := s.removeInstalledAppArtifacts(ctx, stagedApp); err != nil {
-		return fmt.Errorf("updated %s but failed to remove staged artifacts: %w", plan.app.ID, err)
-	}
 	if err := s.removeReplacedArtifacts(ctx, plan.app, updatedApp); err != nil {
-		return fmt.Errorf("updated %s but failed to remove replaced artifacts: %w", plan.app.ID, err)
+		warnings = append(warnings, operationWarning(plan.app.ID, "replaced-artifact-cleanup", err))
 	}
-
-	return nil
+	if s.desktopIntegrationRefresher != nil {
+		if err := s.desktopIntegrationRefresher.Refresh(ctx); err != nil {
+			warnings = append(warnings, operationWarning(plan.app.ID, "desktop-refresh", err))
+		}
+	}
+	return warnings, nil
 }
 
 func (s *service) extractionPath(ctx context.Context, sourcePath string, workspacePath string) (string, error) {
@@ -696,20 +793,21 @@ func pathWithin(path string, dir string) bool {
 	return rel == "." || (rel != "" && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
 }
 
-func (s *service) promoteStagedUpdate(ctx context.Context, stagedApp domain.App, targetID string, updateSource domain.UpdateSource) (domain.App, error) {
-	metadata, err := s.inspectInstalledAppImageForID(ctx, stagedApp.AppImagePath)
+func (s *service) installUpdate(ctx context.Context, appImagePath string, metadata localAppImageMetadata, source domain.Source, targetID string, updateSource domain.UpdateSource, rollback *rollbackStack) (domain.App, error) {
+	installedAppImagePath, err := s.appImageInstaller.Install(ctx, appImagePath, targetID)
 	if err != nil {
 		return domain.App{}, err
 	}
-
-	installedAppImagePath, err := s.appImageInstaller.Install(ctx, stagedApp.AppImagePath, targetID)
+	rollback.add(func(ctx context.Context) error {
+		return removeInstalledArtifact(ctx, installedAppImagePath, s.artifactRemover)
+	})
+	installedIconPath, err := s.iconInstaller.Install(ctx, metadata.iconFile.Path, targetID)
 	if err != nil {
 		return domain.App{}, err
 	}
-	installedIconPath, err := s.iconInstaller.Install(ctx, stagedApp.IconPath, targetID)
-	if err != nil {
-		return domain.App{}, err
-	}
+	rollback.add(func(ctx context.Context) error {
+		return removeInstalledArtifact(ctx, installedIconPath, s.artifactRemover)
+	})
 
 	updatedDesktopEntry := metadata.desktopEntry.
 		WithExec(installedAppImagePath).
@@ -718,17 +816,20 @@ func (s *service) promoteStagedUpdate(ctx context.Context, stagedApp domain.App,
 	if err != nil {
 		return domain.App{}, err
 	}
+	rollback.add(func(ctx context.Context) error {
+		return removeInstalledArtifact(ctx, installedDesktopEntryPath, s.artifactRemover)
+	})
 
 	updatedApp := domain.NewAppFromDesktopEntry(metadata.desktopEntry, domain.AppInput{
 		ID:               targetID,
 		AppImagePath:     installedAppImagePath,
 		DesktopEntryPath: installedDesktopEntryPath,
 		IconPath:         installedIconPath,
-		Source:           stagedApp.Source,
+		Source:           source,
 		UpdateSource:     updateSource,
 	})
 	if updatedApp.Version.IsZero() {
-		updatedApp.Version = stagedApp.Version
+		updatedApp.Version = metadata.app.Version
 	}
 	return updatedApp, nil
 }
@@ -745,19 +846,15 @@ func addAppRollback(rollback *rollbackStack, s *service, installedApp domain.App
 	})
 }
 
-func updateArtifactID(appID string, version domain.Version) string {
-	versionText := strings.NewReplacer(".", "-", "+", "-", "~", "-").Replace(version.String())
-	versionSlug := domain.Slugify(versionText)
-	if versionSlug == "" {
-		return appID + "-update"
-	}
-	return appID + "-" + versionSlug
-}
-
 func (s *service) SetID(ctx context.Context, req SetIDRequest) (SetIDResult, error) {
 	if err := ctx.Err(); err != nil {
 		return SetIDResult{}, err
 	}
+	unlock, err := s.mutations.Lock(ctx)
+	if err != nil {
+		return SetIDResult{}, err
+	}
+	defer unlock()
 	currentID := strings.TrimSpace(req.CurrentID)
 	if currentID == "" {
 		return SetIDResult{}, errors.New("current app id is required")
@@ -788,7 +885,7 @@ func (s *service) SetID(ctx context.Context, req SetIDRequest) (SetIDResult, err
 	return result, nil
 }
 
-func (s *service) setID(ctx context.Context, req SetIDRequest, currentID string) (SetIDResult, error) {
+func (s *service) setID(ctx context.Context, req SetIDRequest, currentID string) (result SetIDResult, resultErr error) {
 	installedApp, err := s.apps.Find(ctx, currentID)
 	if err != nil {
 		return SetIDResult{}, err
@@ -819,13 +916,42 @@ func (s *service) setID(ctx context.Context, req SetIDRequest, currentID string)
 		return SetIDResult{}, err
 	}
 
+	destinations, err := s.installationDestinations(installedApp.IconPath, targetID)
+	if err != nil {
+		return SetIDResult{}, err
+	}
+	existing, err := s.artifactBackups.Existing(ctx, destinations)
+	if err != nil {
+		return SetIDResult{}, fmt.Errorf("inspect destinations for %s: %w", targetID, err)
+	}
+	if len(existing) > 0 {
+		return SetIDResult{}, fmt.Errorf("cannot change app id to %q: destination artifacts already exist", targetID)
+	}
+
 	var rollback rollbackStack
 	committed := false
+	backup, err := s.artifactBackups.Backup(ctx, destinations)
+	if err != nil {
+		return SetIDResult{}, fmt.Errorf("back up existing artifacts for %s: %w", targetID, err)
+	}
 	defer func() {
 		if !committed {
-			rollback.run(ctx)
+			rollbackErr := rollback.run(ctx)
+			resultErr = errors.Join(resultErr, rollbackErr)
+			if rollbackErr != nil {
+				resultErr = errors.Join(resultErr, fmt.Errorf("artifact backup retained at %q", backup.Location()))
+				return
+			}
+		}
+		if err := backup.Close(); err != nil {
+			if committed {
+				result.Warnings = append(result.Warnings, operationWarning(targetID, "backup-cleanup", err))
+				return
+			}
+			resultErr = errors.Join(resultErr, fmt.Errorf("discard artifact backup: %w", err))
 		}
 	}()
+	rollback.add(backup.Restore)
 
 	installedAppImagePath, err := s.appImageInstaller.Install(ctx, installedApp.AppImagePath, targetID)
 	if err != nil {
@@ -862,25 +988,73 @@ func (s *service) setID(ctx context.Context, req SetIDRequest, currentID string)
 		Source:           installedApp.Source,
 		UpdateSource:     installedApp.UpdateSource,
 	})
-	rollback.add(func(ctx context.Context) error {
-		return s.apps.Delete(ctx, updatedApp.ID)
-	})
-	if err := s.apps.Save(ctx, updatedApp); err != nil {
-		return SetIDResult{}, err
-	}
-	if err := s.apps.Delete(ctx, installedApp.ID); err != nil {
+	if err := s.apps.ReplaceID(ctx, installedApp.ID, updatedApp); err != nil {
 		return SetIDResult{}, err
 	}
 	committed = true
 
+	result = SetIDResult{PreviousID: installedApp.ID, ID: updatedApp.ID, App: updatedApp, Changed: true}
 	if err := s.removeReplacedArtifacts(ctx, installedApp, updatedApp); err != nil {
-		return SetIDResult{}, fmt.Errorf("updated id from %s to %s but failed to remove replaced artifacts: %w", installedApp.ID, updatedApp.ID, err)
+		result.Warnings = append(result.Warnings, operationWarning(updatedApp.ID, "replaced-artifact-cleanup", err))
 	}
 	if s.desktopIntegrationRefresher != nil {
-		_ = s.desktopIntegrationRefresher.Refresh(ctx)
+		if err := s.desktopIntegrationRefresher.Refresh(ctx); err != nil {
+			result.Warnings = append(result.Warnings, operationWarning(updatedApp.ID, "desktop-refresh", err))
+		}
 	}
 
-	return SetIDResult{PreviousID: installedApp.ID, ID: updatedApp.ID, App: updatedApp, Changed: true}, nil
+	return result, nil
+}
+
+func (s *service) installationDestinations(iconSource string, appID string) ([]string, error) {
+	appImagePath, err := s.appImageInstaller.Destination(appID)
+	if err != nil {
+		return nil, err
+	}
+	iconPath, err := s.iconInstaller.Destination(iconSource, appID)
+	if err != nil {
+		return nil, err
+	}
+	desktopPath, err := s.desktopEntryInstaller.Destination(appID)
+	if err != nil {
+		return nil, err
+	}
+	return []string{appImagePath, iconPath, desktopPath}, nil
+}
+
+func (s *service) preflightReplacement(ctx context.Context, destinations []string, previous domain.App) error {
+	managed := []string{previous.AppImagePath, previous.IconPath, previous.DesktopEntryPath}
+	for _, destination := range destinations {
+		exists, err := s.artifactPaths.Exists(ctx, destination)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			continue
+		}
+		managedDestination := false
+		for _, path := range managed {
+			if path == "" {
+				continue
+			}
+			same, err := s.artifactPaths.SameFile(ctx, destination, path)
+			if err != nil {
+				return err
+			}
+			if same {
+				managedDestination = true
+				break
+			}
+		}
+		if !managedDestination {
+			return fmt.Errorf("update destination %q already exists and is not the managed artifact", destination)
+		}
+	}
+	return nil
+}
+
+func operationWarning(appID string, kind string, err error) OperationWarning {
+	return OperationWarning{AppID: appID, Kind: kind, Error: err.Error()}
 }
 
 type installedAppImageIDMetadata struct {
@@ -912,36 +1086,49 @@ func (s *service) inspectInstalledAppImageForID(ctx context.Context, appImagePat
 }
 
 func (s *service) removeInstalledAppArtifacts(ctx context.Context, installedApp domain.App) error {
-	if err := removeInstalledArtifact(ctx, installedApp.DesktopEntryPath, s.artifactRemover); err != nil {
-		return err
-	}
-	if err := removeInstalledArtifact(ctx, installedApp.IconPath, s.artifactRemover); err != nil {
-		return err
-	}
-	if err := removeInstalledArtifact(ctx, installedApp.AppImagePath, s.artifactRemover); err != nil {
-		return err
-	}
-	return nil
+	return errors.Join(
+		removeInstalledArtifact(ctx, installedApp.DesktopEntryPath, s.artifactRemover),
+		removeInstalledArtifact(ctx, installedApp.IconPath, s.artifactRemover),
+		removeInstalledArtifact(ctx, installedApp.AppImagePath, s.artifactRemover),
+	)
 }
 
 func (s *service) removeReplacedArtifacts(ctx context.Context, previous domain.App, next domain.App) error {
-	if previous.DesktopEntryPath != "" && previous.DesktopEntryPath != next.DesktopEntryPath {
+	var failures []error
+	if remove, err := s.shouldRemoveReplacedArtifact(ctx, previous.DesktopEntryPath, next.DesktopEntryPath); err != nil {
+		failures = append(failures, err)
+	} else if remove {
 		if err := s.artifactRemover(ctx, previous.DesktopEntryPath); err != nil {
-			return err
+			failures = append(failures, err)
 		}
 	}
-	if previous.IconPath != "" && previous.IconPath != next.IconPath {
+	if remove, err := s.shouldRemoveReplacedArtifact(ctx, previous.IconPath, next.IconPath); err != nil {
+		failures = append(failures, err)
+	} else if remove {
 		if err := s.artifactRemover(ctx, previous.IconPath); err != nil {
-			return err
+			failures = append(failures, err)
 		}
 	}
-	if previous.AppImagePath != "" && previous.AppImagePath != next.AppImagePath {
+	if remove, err := s.shouldRemoveReplacedArtifact(ctx, previous.AppImagePath, next.AppImagePath); err != nil {
+		failures = append(failures, err)
+	} else if remove {
 		if err := s.artifactRemover(ctx, previous.AppImagePath); err != nil {
-			return err
+			failures = append(failures, err)
 		}
 	}
 
-	return nil
+	return errors.Join(failures...)
+}
+
+func (s *service) shouldRemoveReplacedArtifact(ctx context.Context, previous string, next string) (bool, error) {
+	if previous == "" || previous == next {
+		return false, nil
+	}
+	same, err := s.artifactPaths.SameFile(ctx, previous, next)
+	if err != nil {
+		return false, err
+	}
+	return !same, nil
 }
 
 func updateVersion(release GitHubRelease, asset GitHubReleaseAsset) (domain.Version, bool) {
@@ -955,6 +1142,11 @@ func (s *service) SetUpdateSource(ctx context.Context, req SetUpdateSourceReques
 	if err := ctx.Err(); err != nil {
 		return SetUpdateSourceResult{}, err
 	}
+	unlock, err := s.mutations.Lock(ctx)
+	if err != nil {
+		return SetUpdateSourceResult{}, err
+	}
+	defer unlock()
 
 	id := strings.TrimSpace(req.ID)
 	if id == "" {
@@ -1024,6 +1216,11 @@ func (s *service) UnsetUpdateSource(ctx context.Context, req UnsetUpdateSourceRe
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	unlock, err := s.mutations.Lock(ctx)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 
 	id := strings.TrimSpace(req.ID)
 	if id == "" {
@@ -1270,8 +1467,17 @@ func (s *service) validate() error {
 	if s.artifactRemover == nil {
 		return fmt.Errorf("artifact remover is required")
 	}
+	if s.artifactBackups == nil {
+		return fmt.Errorf("artifact backup manager is required")
+	}
+	if s.artifactPaths == nil {
+		return fmt.Errorf("artifact path inspector is required")
+	}
 	if s.apps == nil {
 		return fmt.Errorf("app repository is required")
+	}
+	if s.mutations == nil {
+		return fmt.Errorf("mutation locker is required")
 	}
 
 	return nil

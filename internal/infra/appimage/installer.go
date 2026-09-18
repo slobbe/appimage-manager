@@ -33,18 +33,15 @@ func (i Installer) Install(ctx context.Context, sourcePath string, appID string)
 	if strings.TrimSpace(sourcePath) == "" {
 		return "", errors.New("appimage source path is required")
 	}
-	if strings.TrimSpace(appID) == "" {
-		return "", errors.New("app id is required")
-	}
-	if strings.TrimSpace(i.Dir) == "" {
-		return "", errors.New("appimage install directory is required")
+	destination, err := i.Destination(appID)
+	if err != nil {
+		return "", err
 	}
 
 	if err := os.MkdirAll(i.Dir, 0o755); err != nil {
 		return "", fmt.Errorf("create appimage install directory %q: %w", i.Dir, err)
 	}
 
-	destination := filepath.Join(i.Dir, appID+".AppImage")
 	if err := fileutil.CopyFile(ctx, sourcePath, destination); err != nil {
 		return "", fmt.Errorf("install appimage %q to %q: %w", sourcePath, destination, err)
 	}
@@ -53,4 +50,14 @@ func (i Installer) Install(ctx context.Context, sourcePath string, appID string)
 	}
 
 	return destination, nil
+}
+
+func (i Installer) Destination(appID string) (string, error) {
+	if strings.TrimSpace(appID) == "" {
+		return "", errors.New("app id is required")
+	}
+	if strings.TrimSpace(i.Dir) == "" {
+		return "", errors.New("appimage install directory is required")
+	}
+	return filepath.Join(i.Dir, appID+".AppImage"), nil
 }
