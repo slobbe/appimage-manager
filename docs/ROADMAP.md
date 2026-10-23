@@ -1,54 +1,42 @@
 ## Roadmap
 
-The roadmap prioritizes reliability and trust before expanding the number of
-acquisition sources or adding a graphical interface.
+The roadmap focuses on making aim a trustworthy CLI package manager for AppImages. Priorities are listed in order; a graphical interface is out of scope.
 
-### Phase 1: predictable and recoverable core
+### 1. Broader update support
 
-- separate output formatting from confirmation with `--json`, `--yes`, and
-  `--non-interactive`
-- define exit codes and JSON statuses for no-op, cancellation, skipped work,
-  partial failure, and failure
-- report missing and unsupported update sources explicitly
-- make color terminal-aware and honor `NO_COLOR`
-- strengthen update and ID-change transactions, including rollback failure
-  reporting and committed-with-warning outcomes
-- prevent concurrent `aim` processes from silently losing state updates
-- add explicit HTTP timeouts and GitHub rate-limit diagnostics
-- add black-box CLI tests covering output, exit status, cancellation, and
-  temporary XDG environments
-- document configuration, support boundaries, and recovery basics
+- support embedded static-URL update sources and `zsync` updates
+- distinguish resolving `zsync` metadata from performing differential downloads
+- expand beyond GitHub with additional release providers
+- preserve explicit source selection and report unsupported sources clearly
 
-### Phase 2: trustworthy update engine
+### 2. Previous-version retention, rollback, and pinning
 
-- introduce a common update-provider interface and implement `zsync`
-- support local-file updates for development and controlled environments
-- persist and display update verification policy, with optional digest or
-  signature verification
-- replace script-based self-update with verified, atomic binary replacement
-- retain the previous version after an update and support pinning and rollback
-- add GitHub authentication and improved rate-limit handling
+- retain the previous working version after an update
+- add an explicit rollback workflow that restores the AppImage and its integration
+- support version pinning to exclude selected apps from routine updates
+- define retention and cleanup behavior for previous versions
 
-### Phase 3: diagnosis and lifecycle completion
+### 3. Download verification and publisher authenticity
 
-- expand `diagnose` checks and add `repair`, `clean`, and update history workflows
-- detect missing files, broken records, orphaned artifacts, invalid update
-  metadata, and stale staging files
-- add dry-run support to destructive operations
+- define, persist, and display verification policy for update sources
+- support digest verification for download integrity
+- support signature verification for publisher authenticity where available
+- report verification outcomes and distinguish unverified downloads from verified ones
+- apply verification to aim's self-update workflow
+
+### 4. Repair, cleanup, and history
+
+- expand `diagnose` to detect missing files, broken records, orphaned artifacts,
+  invalid update metadata, and stale staging files
+- add `repair` and `clean` workflows with previews for destructive changes
+- record update history and make recovery actions discoverable
 - make common partial failures recoverable without manually editing `apps.json`
 
-### Phase 4: broader acquisition and customization
+### 5. Stable machine-readable contracts
 
-- add direct HTTPS URL installation with optional SHA-256 verification
-- support initial metadata overrides such as app ID, name, and icon
-- discover and import existing AppImages
-- support multiple update targets and include/exclude filters
-- add GitLab or a generic release-feed adapter
-
-### Phase 5: 1.0 readiness
-
-- stabilize the JSON schema, exit-code contract, and persisted-state migrations
-- publish signed releases, SBOMs, and build provenance
-- smoke-test release archives and representative AppImages
-- publish a support matrix, security policy, and recovery/release runbooks
-- define compatibility, rollback, and corruption-recovery guarantees
+- version and stabilize JSON schemas for inspection and mutation results
+- stabilize exit codes and statuses for no-op, cancellation, skipped work,
+  partial failure, and failure
+- preserve predictable stdout/stderr separation and non-interactive behavior
+- define compatibility and migration guarantees for persisted state
+- verify these contracts with black-box CLI tests
