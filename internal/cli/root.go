@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/slobbe/appimage-manager/internal/cli/presentation"
 
 	"github.com/slobbe/appimage-manager/internal/cli/command/add"
+	"github.com/slobbe/appimage-manager/internal/cli/command/diagnose"
 	"github.com/slobbe/appimage-manager/internal/cli/command/gen"
 	"github.com/slobbe/appimage-manager/internal/cli/command/id"
 	"github.com/slobbe/appimage-manager/internal/cli/command/info"
@@ -40,6 +42,15 @@ func Execute(
 	cmd.SetErr(errOut)
 
 	if err := cmd.ExecuteContext(ctx); err != nil {
+
+		var diagnosticExit *diagnose.ExitError
+		if errors.As(err, &diagnosticExit) {
+			if diagnosticExit.Err != nil {
+				fmt.Fprintln(errOut, diagnosticExit.Err)
+			}
+			return diagnosticExit.Code
+		}
+
 		code, message := clienv.ResolveExit(err)
 		if code == clienv.ExitFailure && strings.HasPrefix(err.Error(), "unknown command ") {
 			code = clienv.ExitUsage
@@ -48,6 +59,7 @@ func Execute(
 			fmt.Fprintln(errOut, message)
 		}
 		return code
+
 	}
 
 	return clienv.ExitSuccess
@@ -102,6 +114,7 @@ func NewRootCommand(rt *clienv.Runtime, service app.Service, version string) *co
 	cmd.CompletionOptions.HiddenDefaultCmd = true
 
 	cmd.AddCommand(add.NewCommand(rt, service))
+	cmd.AddCommand(diagnose.NewCommand(rt, service))
 	cmd.AddCommand(remove.NewCommand(rt, service))
 	cmd.AddCommand(update.NewCommand(rt, service))
 	cmd.AddCommand(id.NewCommand(rt, service))

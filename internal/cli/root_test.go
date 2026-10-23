@@ -3,6 +3,8 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -55,8 +57,10 @@ func TestRootRejectsInvalidColorMode(t *testing.T) {
 
 type rootTestService struct {
 	app.Service
-	update    app.UpdateCandidate
-	confirmed bool
+	update       app.UpdateCandidate
+	confirmed    bool
+	diagnosis    app.DiagnoseResult
+	diagnosisErr error
 }
 
 func (s *rootTestService) Update(ctx context.Context, req app.UpdateRequest) (app.UpdateResult, error) {
@@ -66,6 +70,40 @@ func (s *rootTestService) Update(ctx context.Context, req app.UpdateRequest) (ap
 	}
 	s.confirmed = confirmed
 	return app.UpdateResult{Applied: confirmed, Updates: []app.UpdateCandidate{s.update}}, nil
+}
+
+func (s *rootTestService) Diagnose(context.Context, app.DiagnoseRequest) (app.DiagnoseResult, error) {
+	return s.diagnosis, s.diagnosisErr
+}
+
+func TestExecuteDiagnoseExitCodes(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		status app.DiagnosticStatus
+		err    error
+		code   int
+	}{
+		{"healthy", app.DiagnosticPass, nil, 0},
+		{"warning", app.DiagnosticWarning, nil, 1},
+		{"unknown", app.DiagnosticUnknown, nil, 2},
+		{"failed", "", errors.New("probe failed"), 2},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := &rootTestService{diagnosis: app.DiagnoseResult{Findings: []app.DiagnosticFinding{{ID: "test", Status: tt.status}}}, diagnosisErr: tt.err}
+			var out, errOut bytes.Buffer
+			code := Execute(context.Background(), []string{"--json", "--yes", "--non-interactive", "diagnose"}, &out, &errOut, svc, "test")
+			if code != tt.code {
+				t.Fatalf("code = %d, want %d", code, tt.code)
+			}
+			if tt.err == nil {
+				if !json.Valid(out.Bytes()) || errOut.Len() != 0 {
+					t.Fatalf("stdout=%q stderr=%q", out.String(), errOut.String())
+				}
+			} else if out.Len() != 0 || errOut.String() != "probe failed\n" {
+				t.Fatalf("stdout=%q stderr=%q", out.String(), errOut.String())
+			}
+		})
+	}
 }
 
 type failingReader struct{}

@@ -7,6 +7,7 @@ import (
 )
 
 type Service interface {
+	Diagnose(ctx context.Context, req DiagnoseRequest) (DiagnoseResult, error)
 	Add(ctx context.Context, req AddRequest) (AddResult, error)
 	Remove(ctx context.Context, req RemoveRequest) error
 	Update(ctx context.Context, req UpdateRequest) (UpdateResult, error)

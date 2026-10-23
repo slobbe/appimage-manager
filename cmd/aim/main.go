@@ -16,6 +16,7 @@ import (
 	"github.com/slobbe/appimage-manager/internal/infra/appimage"
 	"github.com/slobbe/appimage-manager/internal/infra/config"
 	"github.com/slobbe/appimage-manager/internal/infra/desktop"
+	"github.com/slobbe/appimage-manager/internal/infra/diagnostics"
 	"github.com/slobbe/appimage-manager/internal/infra/download"
 	"github.com/slobbe/appimage-manager/internal/infra/fileutil"
 	"github.com/slobbe/appimage-manager/internal/infra/github"
@@ -55,6 +56,7 @@ func main() {
 	}
 
 	service, err := app.NewService(app.ServiceDeps{
+		HostDiagnostics:             diagnostics.Probe{},
 		Config:                      cfg,
 		AppImages:                   appimage.Extractor{},
 		DesktopEntries:              desktop.Discoverer{},

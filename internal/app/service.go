@@ -17,6 +17,7 @@ import (
 // service implements application workflows using app-defined ports. It owns
 // orchestration only; all filesystem work is delegated to infra adapters.
 type service struct {
+	hostDiagnostics             HostDiagnostics
 	config                      Config
 	currentVersion              string
 	appImages                   AppImageExtractor
@@ -37,6 +38,7 @@ type service struct {
 }
 
 type ServiceDeps struct {
+	HostDiagnostics             HostDiagnostics
 	Config                      Config
 	AppImages                   AppImageExtractor
 	DesktopEntries              DesktopEntryDiscoverer
@@ -58,6 +60,7 @@ type ServiceDeps struct {
 
 func NewService(deps ServiceDeps) (Service, error) {
 	service := &service{
+		hostDiagnostics:             deps.HostDiagnostics,
 		config:                      deps.Config,
 		currentVersion:              deps.CurrentVersion,
 		appImages:                   deps.AppImages,
