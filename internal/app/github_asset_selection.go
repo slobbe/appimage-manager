@@ -9,75 +9,152 @@ import (
 	"unicode"
 )
 
-func selectGitHubAppImageAsset(release GitHubRelease) (GitHubReleaseAsset, error) {
-	return selectGitHubAppImageAssetForArch(release, runtime.GOARCH)
+func selectGitHubAppImageAssetMatchingPattern(release GitHubRelease, pattern string) (GitHubReleaseAsset, error) {
+	return selectGitHubAppImageAssetWithSelection(release, runtime.GOARCH, githubAssetSelection{pattern: pattern})
 }
 
-func selectGitHubAppImageAssetMatchingPattern(release GitHubRelease, pattern string) (GitHubReleaseAsset, error) {
-	pattern = strings.TrimSpace(pattern)
-	candidates := make([]GitHubReleaseAsset, 0)
+func selectGitHubAppImageAssetForArch(release GitHubRelease, goarch string) (GitHubReleaseAsset, error) {
+	return selectGitHubAppImageAssetWithSelection(release, goarch, githubAssetSelection{})
+}
+
+type githubAssetSelection struct {
+	pattern         string
+	excludePatterns []string
+	preferPatterns  []string
+}
+
+func validateGitHubAssetSelection(selection githubAssetSelection) error {
+	if pattern := strings.TrimSpace(selection.pattern); pattern != "" {
+		if err := validateGitHubAssetPattern(pattern); err != nil {
+			return fmt.Errorf("invalid GitHub asset pattern %q: %w", pattern, err)
+		}
+	}
+	for _, group := range []struct {
+		name     string
+		patterns []string
+	}{
+		{name: "exclude", patterns: selection.excludePatterns},
+		{name: "prefer", patterns: selection.preferPatterns},
+	} {
+		for _, pattern := range group.patterns {
+			pattern = strings.TrimSpace(pattern)
+			if pattern == "" {
+				return fmt.Errorf("GitHub asset %s pattern must not be blank", group.name)
+			}
+			if err := validateGitHubAssetPattern(pattern); err != nil {
+				return fmt.Errorf("invalid GitHub asset %s pattern %q: %w", group.name, pattern, err)
+			}
+		}
+	}
+	return nil
+}
+
+func validateGitHubAssetPattern(pattern string) error {
+	// Match(pattern, "") can return before checking later chunks (e.g. "x*[").
+	// Mirror filepath.scanChunk's escape/class boundaries and let Match validate
+	// each chunk; matchChunk checks its entire chunk even after a mismatch.
+	start := 0
+	inClass := false
+	for i := 0; i < len(pattern); i++ {
+		switch pattern[i] {
+		case '\\':
+			if filepath.Separator != '\\' {
+				i++
+			}
+		case '[':
+			inClass = true
+		case ']':
+			inClass = false
+		case '*':
+			if !inClass {
+				if _, err := filepath.Match(pattern[start:i], ""); err != nil {
+					return err
+				}
+				start = i + 1
+			}
+		}
+	}
+	_, err := filepath.Match(pattern[start:], "")
+	return err
+}
+
+func selectGitHubAppImageAssetWithSelection(release GitHubRelease, goarch string, selection githubAssetSelection) (GitHubReleaseAsset, error) {
+	if err := validateGitHubAssetSelection(selection); err != nil {
+		return GitHubReleaseAsset{}, err
+	}
+
+	pattern := strings.TrimSpace(selection.pattern)
+	candidates := make([]GitHubReleaseAsset, 0, len(release.Assets))
 	for _, asset := range release.Assets {
 		if !isAppImageAssetName(asset.Name) {
 			continue
 		}
-		matched, err := filepath.Match(pattern, asset.Name)
-		if err != nil {
-			return GitHubReleaseAsset{}, fmt.Errorf("invalid GitHub asset pattern %q: %w", pattern, err)
+		if pattern != "" && !matchesGitHubAssetPatterns(asset.Name, []string{pattern}) {
+			continue
 		}
-		if matched {
-			candidates = append(candidates, asset)
-		}
+		candidates = append(candidates, asset)
 	}
 	if len(candidates) == 0 {
-		return GitHubReleaseAsset{}, fmt.Errorf("release %s has no AppImage assets matching pattern %q", releaseLabel(release), pattern)
-	}
-	if len(candidates) > 1 {
-		return GitHubReleaseAsset{}, fmt.Errorf("release %s has multiple AppImage assets matching pattern %q: %s", releaseLabel(release), pattern, assetNames(candidates))
+		if pattern != "" {
+			return GitHubReleaseAsset{}, fmt.Errorf("release %s has no AppImage assets matching pattern %q", releaseLabel(release), pattern)
+		}
+		return GitHubReleaseAsset{}, fmt.Errorf("release %s has no AppImage assets", releaseLabel(release))
 	}
 
+	remaining := make([]GitHubReleaseAsset, 0, len(candidates))
+	for _, asset := range candidates {
+		if !matchesGitHubAssetPatterns(asset.Name, selection.excludePatterns) {
+			remaining = append(remaining, asset)
+		}
+	}
+	candidates = remaining
+	if len(candidates) == 0 {
+		return GitHubReleaseAsset{}, fmt.Errorf("release %s has no AppImage assets remaining after exclusions", releaseLabel(release))
+	}
+
+	if pattern == "" {
+		bestScore := scoreAppImageAsset(candidates[0].Name, goarch)
+		remaining = nil
+		for _, asset := range candidates {
+			score := scoreAppImageAsset(asset.Name, goarch)
+			if score > bestScore {
+				bestScore = score
+				remaining = nil
+			}
+			if score == bestScore {
+				remaining = append(remaining, asset)
+			}
+		}
+		candidates = remaining
+	}
+
+	preferred := make([]GitHubReleaseAsset, 0, len(candidates))
+	for _, asset := range candidates {
+		if matchesGitHubAssetPatterns(asset.Name, selection.preferPatterns) {
+			preferred = append(preferred, asset)
+		}
+	}
+	if len(preferred) > 0 {
+		candidates = preferred
+	}
+	if len(candidates) > 1 {
+		if pattern != "" {
+			return GitHubReleaseAsset{}, fmt.Errorf("release %s has multiple AppImage assets matching pattern %q: %s", releaseLabel(release), pattern, assetNames(candidates))
+		}
+		return GitHubReleaseAsset{}, fmt.Errorf("release %s has multiple matching AppImage assets for architecture %q: %s", releaseLabel(release), goarch, assetNames(candidates))
+	}
 	return candidates[0], nil
 }
 
-func selectGitHubAppImageAssetForArch(release GitHubRelease, goarch string) (GitHubReleaseAsset, error) {
-	candidates := appImageAssetCandidates(release.Assets)
-	if len(candidates) == 0 {
-		return GitHubReleaseAsset{}, fmt.Errorf("release %s has no AppImage assets", releaseLabel(release))
-	}
-	if len(candidates) == 1 {
-		return candidates[0].asset, nil
-	}
-
-	for i := range candidates {
-		candidates[i].score = scoreAppImageAsset(candidates[i].asset.Name, goarch)
-	}
-	sort.SliceStable(candidates, func(i, j int) bool {
-		if candidates[i].score == candidates[j].score {
-			return candidates[i].asset.Name < candidates[j].asset.Name
-		}
-		return candidates[i].score > candidates[j].score
-	})
-
-	if len(candidates) > 1 && candidates[0].score == candidates[1].score {
-		return GitHubReleaseAsset{}, fmt.Errorf("release %s has multiple matching AppImage assets for architecture %q: %s", releaseLabel(release), goarch, assetCandidateNames(candidates))
-	}
-
-	return candidates[0].asset, nil
-}
-
-type appImageAssetCandidate struct {
-	asset GitHubReleaseAsset
-	score int
-}
-
-func appImageAssetCandidates(assets []GitHubReleaseAsset) []appImageAssetCandidate {
-	candidates := make([]appImageAssetCandidate, 0, len(assets))
-	for _, asset := range assets {
-		if isAppImageAssetName(asset.Name) {
-			candidates = append(candidates, appImageAssetCandidate{asset: asset})
+func matchesGitHubAssetPatterns(name string, patterns []string) bool {
+	for _, pattern := range patterns {
+		// Patterns are validated before inspecting any assets.
+		matched, _ := filepath.Match(strings.TrimSpace(pattern), name)
+		if matched {
+			return true
 		}
 	}
-
-	return candidates
+	return false
 }
 
 func isAppImageAssetName(name string) bool {
@@ -316,13 +393,5 @@ func assetNames(assets []GitHubReleaseAsset) string {
 		names = append(names, asset.Name)
 	}
 	sort.Strings(names)
-	return strings.Join(names, ", ")
-}
-
-func assetCandidateNames(candidates []appImageAssetCandidate) string {
-	names := make([]string, 0, len(candidates))
-	for _, candidate := range candidates {
-		names = append(names, candidate.asset.Name)
-	}
 	return strings.Join(names, ", ")
 }

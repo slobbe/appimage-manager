@@ -54,17 +54,19 @@ type sourceRecord struct {
 }
 
 type updateSourceRecord struct {
-	Embedded          bool   `json:"embedded"`
-	Kind              string `json:"kind"`
-	Raw               string `json:"raw,omitempty"`
-	Transport         string `json:"transport,omitempty"`
-	Repo              string `json:"repo,omitempty"`
-	Path              string `json:"path,omitempty"`
-	Prerelease        bool   `json:"prerelease,omitempty"`
-	ReleaseTag        string `json:"release_tag,omitempty"`
-	AssetPattern      string `json:"asset_pattern,omitempty"`
-	ZsyncAssetPattern string `json:"zsync_asset_pattern,omitempty"`
-	URL               string `json:"url,omitempty"`
+	Embedded             bool     `json:"embedded"`
+	Kind                 string   `json:"kind"`
+	Raw                  string   `json:"raw,omitempty"`
+	Transport            string   `json:"transport,omitempty"`
+	Repo                 string   `json:"repo,omitempty"`
+	Path                 string   `json:"path,omitempty"`
+	Prerelease           bool     `json:"prerelease,omitempty"`
+	ReleaseTag           string   `json:"release_tag,omitempty"`
+	AssetPattern         string   `json:"asset_pattern,omitempty"`
+	AssetExcludePatterns []string `json:"asset_exclude_patterns,omitempty"`
+	AssetPreferPatterns  []string `json:"asset_prefer_patterns,omitempty"`
+	ZsyncAssetPattern    string   `json:"zsync_asset_pattern,omitempty"`
+	URL                  string   `json:"url,omitempty"`
 }
 
 type localFileSourceRecord struct {
@@ -400,17 +402,19 @@ func recordFromDomainUpdateSource(source domain.UpdateSource) *updateSourceRecor
 	switch source.Kind {
 	case domain.UpdateSourceKindGitHub, domain.UpdateSourceKindLocalFile, domain.UpdateSourceKindZsync, domain.UpdateSourceKindUnsupported:
 		return &updateSourceRecord{
-			Embedded:          source.Embedded,
-			Kind:              string(source.Kind),
-			Raw:               source.Raw,
-			Transport:         source.Transport,
-			Repo:              source.Repo,
-			Path:              source.Path,
-			Prerelease:        source.Prerelease,
-			ReleaseTag:        source.ReleaseTag,
-			AssetPattern:      source.AssetPattern,
-			ZsyncAssetPattern: source.ZsyncAssetPattern,
-			URL:               source.URL,
+			Embedded:             source.Embedded,
+			Kind:                 string(source.Kind),
+			Raw:                  source.Raw,
+			Transport:            source.Transport,
+			Repo:                 source.Repo,
+			Path:                 source.Path,
+			Prerelease:           source.Prerelease,
+			ReleaseTag:           source.ReleaseTag,
+			AssetPattern:         source.AssetPattern,
+			AssetExcludePatterns: source.AssetExcludePatterns,
+			AssetPreferPatterns:  source.AssetPreferPatterns,
+			ZsyncAssetPattern:    source.ZsyncAssetPattern,
+			URL:                  source.URL,
 		}
 	default:
 		return nil
@@ -422,17 +426,19 @@ func (r *updateSourceRecord) toDomainUpdateSource() domain.UpdateSource {
 		return domain.UpdateSource{}
 	}
 	return domain.UpdateSource{
-		Embedded:          r.Embedded,
-		Kind:              domain.UpdateSourceKind(r.Kind),
-		Raw:               strings.TrimSpace(r.Raw),
-		Transport:         strings.TrimSpace(r.Transport),
-		Repo:              strings.TrimSpace(r.Repo),
-		Path:              strings.TrimSpace(r.Path),
-		Prerelease:        r.Prerelease,
-		ReleaseTag:        strings.TrimSpace(r.ReleaseTag),
-		AssetPattern:      strings.TrimSpace(r.AssetPattern),
-		ZsyncAssetPattern: strings.TrimSpace(r.ZsyncAssetPattern),
-		URL:               strings.TrimSpace(r.URL),
+		Embedded:             r.Embedded,
+		Kind:                 domain.UpdateSourceKind(r.Kind),
+		Raw:                  strings.TrimSpace(r.Raw),
+		Transport:            strings.TrimSpace(r.Transport),
+		Repo:                 strings.TrimSpace(r.Repo),
+		Path:                 strings.TrimSpace(r.Path),
+		Prerelease:           r.Prerelease,
+		ReleaseTag:           strings.TrimSpace(r.ReleaseTag),
+		AssetPattern:         strings.TrimSpace(r.AssetPattern),
+		AssetExcludePatterns: r.AssetExcludePatterns,
+		AssetPreferPatterns:  r.AssetPreferPatterns,
+		ZsyncAssetPattern:    strings.TrimSpace(r.ZsyncAssetPattern),
+		URL:                  strings.TrimSpace(r.URL),
 	}
 }
 

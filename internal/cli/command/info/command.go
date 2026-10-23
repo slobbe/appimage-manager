@@ -141,6 +141,12 @@ func writeUpdateSource(w *infoWriter, info app.InfoResult) {
 		if source.AssetPattern != "" {
 			w.field("Asset pattern:", source.AssetPattern)
 		}
+		for _, pattern := range source.AssetExcludePatterns {
+			w.field("Asset exclude:", pattern)
+		}
+		for _, pattern := range source.AssetPreferPatterns {
+			w.field("Asset prefer:", pattern)
+		}
 		if source.ZsyncAssetPattern != "" {
 			w.field("Zsync pattern:", source.ZsyncAssetPattern)
 		}

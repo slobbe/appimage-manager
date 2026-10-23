@@ -37,6 +37,7 @@ aim add ./Example.AppImage
 aim add --github owner/repo
 aim add --github owner/repo --asset '*x86_64.AppImage'
 aim add --github owner/repo --prerelease
+aim add --github owner/repo --exclude '*debug*' --exclude '*minimal*' --prefer '*portable*'
 ```
 
 ### Check and apply updates
@@ -56,11 +57,27 @@ aim update example-app
 aim update --set example-app --github owner/repo
 aim update --set example-app --github owner/repo --asset '*x86_64.AppImage'
 aim update --set example-app --github owner/repo --prerelease
+aim update --set example-app --github owner/repo --exclude '*debug*' --prefer '*portable*' --prefer '*full*'
 aim update --set example-app --embedded
 aim update --unset example-app
 ```
 
-Use `--asset` with Go `filepath.Match`-style patterns when a GitHub release has multiple AppImage assets, such as different architectures or flavors. `--embedded` preserves update metadata found inside the AppImage, but only embedded GitHub release sources are applied by `aim update` today.
+Use `--asset`, `--exclude`, and `--prefer` to select among GitHub release assets, such as different architectures or flavors. All three use Go `filepath.Match` syntax, not regular expressions: `*` matches any sequence of non-separator characters, `?` matches one non-separator character, and `[abc]` or `[a-z]` matches a character class (`[^abc]` negates it). Patterns match the entire asset name and are case-sensitive. Quote patterns to prevent shell expansion.
+
+`--exclude` and `--prefer` are repeatable and require `--github`, but do not require `--asset`. For updates, use them with `--set --github`; they cannot be combined with `--check`, `--unset`, or `--embedded`. Each occurrence is one pattern; commas are literal, not pattern separators. Empty or whitespace-only patterns are rejected.
+
+Asset selection proceeds in this order:
+
+1. Keep AppImage assets.
+2. Apply `--asset`, if supplied.
+3. Remove assets matching **any** `--exclude` pattern (OR).
+4. Only when `--asset` is absent, keep the assets with the highest automatic selection score.
+5. Keep assets matching **any** `--prefer` pattern (OR). If none match, retain the candidates from the previous step.
+6. Require exactly one remaining asset; otherwise selection fails.
+
+Exclusion is strict; preference is a soft tie-breaker and cannot restore excluded or lower-scoring assets. These patterns are saved with the GitHub update source for future updates. `aim info` shows them in human-readable output and as `asset_exclude_patterns` / `asset_prefer_patterns` arrays under `update_source` in JSON (omitted when empty).
+
+`--embedded` preserves update metadata found inside the AppImage, but only embedded GitHub release sources are applied by `aim update` today.
 
 ### Remove an AppImage
 

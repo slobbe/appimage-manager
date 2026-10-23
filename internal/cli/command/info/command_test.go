@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -204,6 +206,74 @@ func TestCommandHelpDescribesIntegratedAndLocalAppImages(t *testing.T) {
 	for _, want := range []string{"integrated AppImage", "local AppImage file", "executing the AppImage", "inspect only AppImages you trust"} {
 		if !strings.Contains(cmd.Long, want) {
 			t.Fatalf("Long = %q, want it to contain %q", cmd.Long, want)
+		}
+	}
+}
+
+func TestCommandPrintsSavedAssetFilters(t *testing.T) {
+	for _, jsonOutput := range []bool{false, true} {
+		t.Run(strconv.FormatBool(jsonOutput), func(t *testing.T) {
+			result := app.InfoResult{ID: "example-app", Name: "Example App"}
+			result.UpdateSource.Kind = "github"
+			result.UpdateSource.AssetExcludePatterns = []string{"*arm*", "*debug,test*"}
+			result.UpdateSource.AssetPreferPatterns = []string{"*portable*", "*one,two*"}
+			service := &fakeService{infoResult: result}
+			stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+			rt := clienv.New(stdout, stderr)
+			rt.Config.JSON = jsonOutput
+			cmd := NewCommand(rt, service)
+			cmd.SetOut(stdout)
+			cmd.SetErr(stderr)
+			cmd.SetArgs([]string{"example-app"})
+			if err := cmd.ExecuteContext(context.Background()); err != nil {
+				t.Fatalf("ExecuteContext() error = %v", err)
+			}
+			if jsonOutput {
+				var payload struct {
+					UpdateSource struct {
+						Exclude []string `json:"asset_exclude_patterns"`
+						Prefer  []string `json:"asset_prefer_patterns"`
+					} `json:"update_source"`
+				}
+				if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+					t.Fatal(err)
+				}
+				if !reflect.DeepEqual(payload.UpdateSource.Exclude, result.UpdateSource.AssetExcludePatterns) || !reflect.DeepEqual(payload.UpdateSource.Prefer, result.UpdateSource.AssetPreferPatterns) {
+					t.Fatalf("update_source = %#v, want saved asset filters", payload.UpdateSource)
+				}
+			} else {
+				for _, want := range []string{"Asset exclude:    *arm*", "Asset exclude:    *debug,test*", "Asset prefer:     *portable*", "Asset prefer:     *one,two*"} {
+					if !strings.Contains(stdout.String(), want) {
+						t.Fatalf("stdout = %q, want %q", stdout.String(), want)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestCommandOmitsEmptyAssetFilters(t *testing.T) {
+	for _, empty := range [][]string{nil, {}} {
+		for _, jsonOutput := range []bool{false, true} {
+			result := app.InfoResult{ID: "example-app"}
+			result.UpdateSource.Kind = "github"
+			result.UpdateSource.AssetExcludePatterns = empty
+			result.UpdateSource.AssetPreferPatterns = empty
+			stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+			rt := clienv.New(stdout, stderr)
+			rt.Config.JSON = jsonOutput
+			cmd := NewCommand(rt, &fakeService{infoResult: result})
+			cmd.SetOut(stdout)
+			cmd.SetErr(stderr)
+			cmd.SetArgs([]string{"example-app"})
+			if err := cmd.ExecuteContext(context.Background()); err != nil {
+				t.Fatalf("ExecuteContext() error = %v", err)
+			}
+			for _, unwanted := range []string{"Asset exclude:", "Asset prefer:", "asset_exclude_patterns", "asset_prefer_patterns"} {
+				if strings.Contains(stdout.String(), unwanted) {
+					t.Fatalf("stdout = %q, want %q omitted", stdout.String(), unwanted)
+				}
+			}
 		}
 	}
 }

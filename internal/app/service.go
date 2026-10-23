@@ -120,8 +120,12 @@ func (s *service) Add(ctx context.Context, req AddRequest) (AddResult, error) {
 		activity = NoopActivityReporter{}
 	}
 
-	if strings.TrimSpace(req.AssetPattern) != "" && strings.TrimSpace(req.GitHubRepo) == "" {
-		return AddResult{}, errors.New("asset pattern requires github repo")
+	selection := githubAssetSelection{pattern: req.AssetPattern, excludePatterns: req.AssetExcludePatterns, preferPatterns: req.AssetPreferPatterns}
+	if (strings.TrimSpace(req.AssetPattern) != "" || len(req.AssetExcludePatterns) > 0 || len(req.AssetPreferPatterns) > 0) && strings.TrimSpace(req.GitHubRepo) == "" {
+		return AddResult{}, errors.New("asset selection patterns require github repo")
+	}
+	if err := validateGitHubAssetSelection(selection); err != nil {
+		return AddResult{}, err
 	}
 	if strings.TrimSpace(req.GitHubRepo) != "" {
 		return s.addFromGitHub(ctx, req, activity)
@@ -183,12 +187,11 @@ func (s *service) addFromGitHub(ctx context.Context, req AddRequest, activity Ac
 	}
 	check.Done("Checked " + repo)
 
-	var asset GitHubReleaseAsset
-	if strings.TrimSpace(req.AssetPattern) != "" {
-		asset, err = selectGitHubAppImageAssetMatchingPattern(release, req.AssetPattern)
-	} else {
-		asset, err = selectGitHubAppImageAsset(release)
-	}
+	asset, err := selectGitHubAppImageAssetWithSelection(release, runtime.GOARCH, githubAssetSelection{
+		pattern:         req.AssetPattern,
+		excludePatterns: req.AssetExcludePatterns,
+		preferPatterns:  req.AssetPreferPatterns,
+	})
 	if err != nil {
 		return AddResult{}, err
 	}
@@ -225,11 +228,13 @@ func (s *service) addFromGitHub(ctx context.Context, req AddRequest, activity Ac
 
 	source := domain.NewGitHubReleaseSource(repo, release.TagName, asset.Name, asset.DownloadURL, asset.SizeBytes, time.Now())
 	return s.addLocalWithOptions(ctx, AddRequest{
-		Path:         integratePath,
-		GitHubRepo:   repo,
-		AssetPattern: req.AssetPattern,
-		Prerelease:   req.Prerelease,
-		Activity:     activity,
+		Path:                 integratePath,
+		GitHubRepo:           repo,
+		AssetPattern:         req.AssetPattern,
+		AssetExcludePatterns: req.AssetExcludePatterns,
+		AssetPreferPatterns:  req.AssetPreferPatterns,
+		Prerelease:           req.Prerelease,
+		Activity:             activity,
 	}, activity, addLocalOptions{
 		source:          source,
 		fallbackVersion: release.TagName,
@@ -612,10 +617,11 @@ func (s *service) githubReleaseForUpdateSource(ctx context.Context, source domai
 }
 
 func selectGitHubUpdateAsset(release GitHubRelease, source domain.UpdateSource) (GitHubReleaseAsset, error) {
-	if strings.TrimSpace(source.AssetPattern) != "" {
-		return selectGitHubAppImageAssetMatchingPattern(release, source.AssetPattern)
-	}
-	return selectGitHubAppImageAsset(release)
+	return selectGitHubAppImageAssetWithSelection(release, runtime.GOARCH, githubAssetSelection{
+		pattern:         source.AssetPattern,
+		excludePatterns: source.AssetExcludePatterns,
+		preferPatterns:  source.AssetPreferPatterns,
+	})
 }
 
 func (s *service) updateScope(ctx context.Context, target string) ([]domain.App, error) {
@@ -1161,8 +1167,11 @@ func (s *service) SetUpdateSource(ctx context.Context, req SetUpdateSourceReques
 	if strings.TrimSpace(req.GitHubRepo) == "" && !req.Embedded {
 		return SetUpdateSourceResult{}, errors.New("update source is required")
 	}
-	if strings.TrimSpace(req.AssetPattern) != "" && strings.TrimSpace(req.GitHubRepo) == "" {
-		return SetUpdateSourceResult{}, errors.New("asset pattern requires github repo")
+	if (strings.TrimSpace(req.AssetPattern) != "" || len(req.AssetExcludePatterns) > 0 || len(req.AssetPreferPatterns) > 0) && strings.TrimSpace(req.GitHubRepo) == "" {
+		return SetUpdateSourceResult{}, errors.New("asset selection patterns require github repo")
+	}
+	if err := validateGitHubAssetSelection(githubAssetSelection{pattern: req.AssetPattern, excludePatterns: req.AssetExcludePatterns, preferPatterns: req.AssetPreferPatterns}); err != nil {
+		return SetUpdateSourceResult{}, err
 	}
 
 	installedApp, err := s.apps.Find(ctx, id)
@@ -1178,6 +1187,8 @@ func (s *service) SetUpdateSource(ctx context.Context, req SetUpdateSourceReques
 		}
 		updateSource = domain.NewGitHubUpdateSource(repo, req.Prerelease)
 		updateSource.AssetPattern = strings.TrimSpace(req.AssetPattern)
+		updateSource.AssetExcludePatterns = append([]string(nil), req.AssetExcludePatterns...)
+		updateSource.AssetPreferPatterns = append([]string(nil), req.AssetPreferPatterns...)
 	} else {
 		updateSource, err = s.embeddedUpdateSource(ctx, installedApp)
 		if err != nil {
@@ -1437,6 +1448,8 @@ func integrationSource(req AddRequest, embeddedUpdateInfo string) domain.UpdateS
 	if req.GitHubRepo != "" {
 		updateSource := domain.NewGitHubUpdateSource(req.GitHubRepo, req.Prerelease)
 		updateSource.AssetPattern = strings.TrimSpace(req.AssetPattern)
+		updateSource.AssetExcludePatterns = append([]string(nil), req.AssetExcludePatterns...)
+		updateSource.AssetPreferPatterns = append([]string(nil), req.AssetPreferPatterns...)
 		return updateSource
 	}
 

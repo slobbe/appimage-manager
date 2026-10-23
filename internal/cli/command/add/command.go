@@ -23,6 +23,8 @@ type service interface {
 func NewCommand(rt *clienv.Runtime, service service) *cobra.Command {
 	var githubRepo string
 	var assetPattern string
+	var assetExcludePatterns []string
+	var assetPreferPatterns []string
 	var prerelease bool
 
 	cmd := &cobra.Command{
@@ -36,6 +38,22 @@ func NewCommand(rt *clienv.Runtime, service service) *cobra.Command {
 			}
 			if assetPattern != "" && githubRepo == "" {
 				return fmt.Errorf("--asset requires --github")
+			}
+			for _, flag := range []struct {
+				name     string
+				patterns []string
+			}{
+				{"exclude", assetExcludePatterns},
+				{"prefer", assetPreferPatterns},
+			} {
+				if len(flag.patterns) > 0 && strings.TrimSpace(githubRepo) == "" {
+					return fmt.Errorf("--%s requires --github", flag.name)
+				}
+				for _, pattern := range flag.patterns {
+					if strings.TrimSpace(pattern) == "" {
+						return fmt.Errorf("--%s pattern must not be empty", flag.name)
+					}
+				}
 			}
 			if githubRepo == "" && len(args) != 1 {
 				return fmt.Errorf("requires exactly one appimage path unless --github is used")
@@ -53,10 +71,12 @@ func NewCommand(rt *clienv.Runtime, service service) *cobra.Command {
 			reporter := activity.NewReporter(cmd.ErrOrStderr(), rt.ActivityEnabled(cmd.ErrOrStderr()))
 
 			req := app.AddRequest{
-				GitHubRepo:   githubRepo,
-				AssetPattern: assetPattern,
-				Prerelease:   prerelease,
-				Activity:     reporter,
+				GitHubRepo:           githubRepo,
+				AssetPattern:         assetPattern,
+				AssetExcludePatterns: assetExcludePatterns,
+				AssetPreferPatterns:  assetPreferPatterns,
+				Prerelease:           prerelease,
+				Activity:             reporter,
 			}
 			if len(args) == 1 {
 				path, err := normalizeLocalAppImagePath(args[0])
@@ -101,6 +121,8 @@ func NewCommand(rt *clienv.Runtime, service service) *cobra.Command {
 
 	cmd.Flags().StringVar(&githubRepo, "github", "", "download and add an AppImage from a GitHub repository in owner/repo format")
 	cmd.Flags().StringVar(&assetPattern, "asset", "", "match the GitHub AppImage asset name using filepath.Match syntax")
+	cmd.Flags().StringArrayVar(&assetExcludePatterns, "exclude", nil, "exclude GitHub AppImage asset names matching filepath.Match syntax (repeatable; requires --github)")
+	cmd.Flags().StringArrayVar(&assetPreferPatterns, "prefer", nil, "prefer GitHub AppImage asset names matching filepath.Match syntax, falling back if none match (repeatable; requires --github)")
 	cmd.Flags().BoolVar(&prerelease, "prerelease", false, "include GitHub prereleases when adding from --github")
 
 	return cmd

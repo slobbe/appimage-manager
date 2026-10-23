@@ -1632,7 +1632,7 @@ func TestServiceSetUpdateSourceSetsGitHubSource(t *testing.T) {
 	if !result.UpdateSource.Prerelease {
 		t.Fatal("UpdateSource.Prerelease = false, want true")
 	}
-	if got, want := deps.saved.App.UpdateSource, result.UpdateSource; got != want {
+	if got, want := deps.saved.App.UpdateSource, result.UpdateSource; !reflect.DeepEqual(got, want) {
 		t.Fatalf("saved UpdateSource = %#v, want %#v", got, want)
 	}
 }
@@ -1668,7 +1668,7 @@ func TestServiceSetUpdateSourceSetsEmbeddedSource(t *testing.T) {
 	if got := result.UpdateSource.Raw; got != raw {
 		t.Fatalf("UpdateSource.Raw = %q, want %q", got, raw)
 	}
-	if got, want := deps.saved.App.UpdateSource, result.UpdateSource; got != want {
+	if got, want := deps.saved.App.UpdateSource, result.UpdateSource; !reflect.DeepEqual(got, want) {
 		t.Fatalf("saved UpdateSource = %#v, want %#v", got, want)
 	}
 }
@@ -1813,7 +1813,7 @@ func TestServiceInfoReturnsInstalledApp(t *testing.T) {
 	if got, want := result.Source, installed.Source; got != want {
 		t.Fatalf("Info().Source = %#v, want %#v", got, want)
 	}
-	if got, want := result.UpdateSource, installed.UpdateSource; got != want {
+	if got, want := result.UpdateSource, installed.UpdateSource; !reflect.DeepEqual(got, want) {
 		t.Fatalf("Info().UpdateSource = %#v, want %#v", got, want)
 	}
 }

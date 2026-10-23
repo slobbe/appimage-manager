@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -646,7 +647,72 @@ func (w failingWriter) Write(p []byte) (int, error) {
 	return 0, w.err
 }
 
+func TestCommandSetGitHubAssetFilters(t *testing.T) {
+	for _, asset := range []string{"", "Example-*.AppImage"} {
+		t.Run(asset, func(t *testing.T) {
+			service := &fakeService{}
+			stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+			cmd := NewCommand(clienv.New(stdout, stderr), service)
+			cmd.SetOut(stdout)
+			cmd.SetErr(stderr)
+			args := []string{"--set", "example-app", "--github", "owner/repo", "--exclude", "*arm*", "--exclude", "*debug,test*", "--prefer", "*portable*", "--prefer", "*one,two*"}
+			if asset != "" {
+				args = append(args, "--asset", asset)
+			}
+			cmd.SetArgs(args)
+			if err := cmd.ExecuteContext(context.Background()); err != nil {
+				t.Fatalf("ExecuteContext() error = %v", err)
+			}
+			if got, want := service.setReq.AssetExcludePatterns, []string{"*arm*", "*debug,test*"}; !reflect.DeepEqual(got, want) {
+				t.Fatalf("AssetExcludePatterns = %q, want %q", got, want)
+			}
+			if got, want := service.setReq.AssetPreferPatterns, []string{"*portable*", "*one,two*"}; !reflect.DeepEqual(got, want) {
+				t.Fatalf("AssetPreferPatterns = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestCommandRejectsInvalidAssetFilters(t *testing.T) {
+	for _, flag := range []string{"--exclude", "--prefer"} {
+		for _, tc := range []struct {
+			args []string
+			want string
+		}{
+			{[]string{flag, "*debug*"}, "require --set"},
+			{[]string{flag + "="}, "require --set"},
+			{[]string{"--github", "owner/repo", flag, "*debug*"}, "require --set"},
+			{[]string{"--set", "example-app", flag, "*debug*"}, flag + " requires --github"},
+			{[]string{"--set", "example-app", "--embedded", flag, "*debug*"}, flag + " requires --github"},
+			{[]string{"--set", "example-app", "--embedded", "--github", "owner/repo", flag, "*debug*"}, "provide either --github or --embedded"},
+			{[]string{"--unset", "example-app", flag, "*debug*"}, "--unset cannot be combined"},
+			{[]string{"--unset", "example-app", flag + "="}, "--unset cannot be combined"},
+			{[]string{"--check", flag, "*debug*"}, "--check cannot be combined"},
+			{[]string{"--check", flag + "="}, "--check cannot be combined"},
+			{[]string{"example-app", flag, "*debug*"}, "do not accept positional arguments"},
+			{[]string{"--set", "example-app", "--github", "owner/repo", flag, ""}, flag + " pattern must not be empty"},
+			{[]string{"--set", "example-app", "--github", "owner/repo", flag, "*valid*", flag, " \t "}, flag + " pattern must not be empty"},
+		} {
+			t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
+				service := &fakeService{}
+				stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+				cmd := NewCommand(clienv.New(stdout, stderr), service)
+				cmd.SetOut(stdout)
+				cmd.SetErr(stderr)
+				cmd.SetArgs(tc.args)
+				if err := cmd.ExecuteContext(context.Background()); err == nil || !strings.Contains(err.Error(), tc.want) {
+					t.Fatalf("ExecuteContext() error = %v, want %q", err, tc.want)
+				}
+				if service.updateCalled || !reflect.DeepEqual(service.setReq, app.SetUpdateSourceRequest{}) || service.unsetReq.ID != "" {
+					t.Fatal("service was called for invalid flags")
+				}
+			})
+		}
+	}
+}
+
 type fakeService struct {
+	updateCalled       bool
 	updateResult       app.UpdateResult
 	updateCandidates   []app.UpdateCandidate
 	updateErr          error
@@ -678,6 +744,7 @@ func (s *fakeService) UnsetUpdateSource(ctx context.Context, req app.UnsetUpdate
 }
 
 func (s *fakeService) Update(ctx context.Context, req app.UpdateRequest) (app.UpdateResult, error) {
+	s.updateCalled = true
 	s.target = req.Target
 	s.checkOnly = req.CheckOnly
 	if s.updateErr != nil {

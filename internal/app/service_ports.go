@@ -21,11 +21,13 @@ type Service interface {
 }
 
 type AddRequest struct {
-	Path         string
-	GitHubRepo   string
-	AssetPattern string
-	Prerelease   bool
-	Activity     ActivityReporter
+	Path                 string
+	GitHubRepo           string
+	AssetPattern         string
+	AssetExcludePatterns []string
+	AssetPreferPatterns  []string
+	Prerelease           bool
+	Activity             ActivityReporter
 }
 
 type AddResult struct {
@@ -90,11 +92,13 @@ type UpdateResult struct {
 }
 
 type SetUpdateSourceRequest struct {
-	ID           string
-	GitHubRepo   string
-	AssetPattern string
-	Prerelease   bool
-	Embedded     bool
+	ID                   string
+	GitHubRepo           string
+	AssetPattern         string
+	AssetExcludePatterns []string
+	AssetPreferPatterns  []string
+	Prerelease           bool
+	Embedded             bool
 }
 
 type SetUpdateSourceResult struct {

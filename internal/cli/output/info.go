@@ -18,17 +18,19 @@ type InfoJSON struct {
 }
 
 type UpdateSourceJSON struct {
-	Embedded          bool   `json:"embedded"`
-	Kind              string `json:"kind"`
-	Raw               string `json:"raw,omitempty"`
-	Transport         string `json:"transport,omitempty"`
-	Repo              string `json:"repo,omitempty"`
-	Path              string `json:"path,omitempty"`
-	Prerelease        bool   `json:"prerelease,omitempty"`
-	ReleaseTag        string `json:"release_tag,omitempty"`
-	AssetPattern      string `json:"asset_pattern,omitempty"`
-	ZsyncAssetPattern string `json:"zsync_asset_pattern,omitempty"`
-	URL               string `json:"url,omitempty"`
+	AssetExcludePatterns []string `json:"asset_exclude_patterns,omitempty"`
+	AssetPreferPatterns  []string `json:"asset_prefer_patterns,omitempty"`
+	Embedded             bool     `json:"embedded"`
+	Kind                 string   `json:"kind"`
+	Raw                  string   `json:"raw,omitempty"`
+	Transport            string   `json:"transport,omitempty"`
+	Repo                 string   `json:"repo,omitempty"`
+	Path                 string   `json:"path,omitempty"`
+	Prerelease           bool     `json:"prerelease,omitempty"`
+	ReleaseTag           string   `json:"release_tag,omitempty"`
+	AssetPattern         string   `json:"asset_pattern,omitempty"`
+	ZsyncAssetPattern    string   `json:"zsync_asset_pattern,omitempty"`
+	URL                  string   `json:"url,omitempty"`
 }
 
 type SourceJSON struct {
@@ -67,17 +69,19 @@ func InfoResultJSON(info app.InfoResult) InfoJSON {
 func updateSourceJSON(info app.InfoResult) UpdateSourceJSON {
 	source := info.UpdateSource
 	return UpdateSourceJSON{
-		Embedded:          source.Embedded,
-		Kind:              string(source.Kind),
-		Raw:               source.Raw,
-		Transport:         source.Transport,
-		Repo:              source.Repo,
-		Path:              source.Path,
-		Prerelease:        source.Prerelease,
-		ReleaseTag:        source.ReleaseTag,
-		AssetPattern:      source.AssetPattern,
-		ZsyncAssetPattern: source.ZsyncAssetPattern,
-		URL:               source.URL,
+		Embedded:             source.Embedded,
+		Kind:                 string(source.Kind),
+		Raw:                  source.Raw,
+		Transport:            source.Transport,
+		Repo:                 source.Repo,
+		Path:                 source.Path,
+		Prerelease:           source.Prerelease,
+		ReleaseTag:           source.ReleaseTag,
+		AssetPattern:         source.AssetPattern,
+		AssetExcludePatterns: source.AssetExcludePatterns,
+		AssetPreferPatterns:  source.AssetPreferPatterns,
+		ZsyncAssetPattern:    source.ZsyncAssetPattern,
+		URL:                  source.URL,
 	}
 }
 

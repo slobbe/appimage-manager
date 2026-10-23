@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -87,6 +88,118 @@ func TestRepositorySaveAndFindEmbeddedUpdateSource(t *testing.T) {
 		if !strings.Contains(string(bytes), want) {
 			t.Fatalf("database = %s, want field %s", bytes, want)
 		}
+	}
+}
+
+func TestRepositorySaveAndFindAssetPatterns(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name    string
+		exclude []string
+		prefer  []string
+	}{
+		{name: "exclude", exclude: []string{"*-arm64.AppImage", "*-debug.AppImage"}},
+		{name: "prefer", prefer: []string{"*-x86_64.AppImage", "*-amd64.AppImage"}},
+		{
+			name:    "exclude and prefer",
+			exclude: []string{"*-arm64.AppImage", "*-debug.AppImage"},
+			prefer:  []string{"*-x86_64.AppImage", "*-amd64.AppImage"},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			repo := NewRepository(filepath.Join(t.TempDir(), "apps.json"))
+			stored := testApp(t, "example", "Example", "1.2.3")
+			stored.UpdateSource.AssetPattern = "Example-*.AppImage"
+			stored.UpdateSource.AssetExcludePatterns = tt.exclude
+			stored.UpdateSource.AssetPreferPatterns = tt.prefer
+			if err := repo.Save(context.Background(), stored); err != nil {
+				t.Fatalf("Save() error = %v", err)
+			}
+
+			found, err := repo.Find(context.Background(), stored.ID)
+			if err != nil {
+				t.Fatalf("Find() error = %v", err)
+			}
+			assertApp(t, found, stored)
+
+			bytes, err := os.ReadFile(repo.Path)
+			if err != nil {
+				t.Fatalf("read database: %v", err)
+			}
+			var db struct {
+				Apps []struct {
+					UpdateSource struct {
+						Exclude []string `json:"asset_exclude_patterns"`
+						Prefer  []string `json:"asset_prefer_patterns"`
+					} `json:"update_source"`
+				} `json:"apps"`
+			}
+			if err := json.Unmarshal(bytes, &db); err != nil {
+				t.Fatalf("unmarshal database: %v", err)
+			}
+			if len(db.Apps) != 1 {
+				t.Fatalf("stored apps = %d, want 1", len(db.Apps))
+			}
+			if got := db.Apps[0].UpdateSource; !reflect.DeepEqual(got.Exclude, tt.exclude) || !reflect.DeepEqual(got.Prefer, tt.prefer) {
+				t.Fatalf("stored asset patterns = %#v, want exclude %v, prefer %v", got, tt.exclude, tt.prefer)
+			}
+		})
+	}
+}
+
+func TestRepositoryFindWithoutAssetPatterns(t *testing.T) {
+	t.Parallel()
+
+	repo := NewRepository(filepath.Join(t.TempDir(), "apps.json"))
+	const database = `{"schema_version":2,"apps":[{"id":"example","name":"Example","app_image_path":"/apps/example.AppImage","update_source":{"embedded":false,"kind":"github","repo":"owner/example","asset_pattern":"Example-*.AppImage"}}]}`
+	if err := os.WriteFile(repo.Path, []byte(database), 0o644); err != nil {
+		t.Fatalf("write database: %v", err)
+	}
+
+	found, err := repo.Find(context.Background(), "example")
+	if err != nil {
+		t.Fatalf("Find() error = %v", err)
+	}
+	want := domain.NewGitHubUpdateSource("owner/example", false)
+	want.AssetPattern = "Example-*.AppImage"
+	if !reflect.DeepEqual(found.UpdateSource, want) {
+		t.Fatalf("UpdateSource = %#v, want %#v", found.UpdateSource, want)
+	}
+}
+
+func TestRepositorySaveOmitsEmptyAssetPatterns(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name     string
+		patterns []string
+	}{
+		{name: "nil"},
+		{name: "empty", patterns: []string{}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			repo := NewRepository(filepath.Join(t.TempDir(), "apps.json"))
+			stored := testApp(t, "example", "Example", "1.2.3")
+			stored.UpdateSource.AssetExcludePatterns = tt.patterns
+			stored.UpdateSource.AssetPreferPatterns = tt.patterns
+			if err := repo.Save(context.Background(), stored); err != nil {
+				t.Fatalf("Save() error = %v", err)
+			}
+			bytes, err := os.ReadFile(repo.Path)
+			if err != nil {
+				t.Fatalf("read database: %v", err)
+			}
+			for _, field := range []string{"asset_exclude_patterns", "asset_prefer_patterns"} {
+				if strings.Contains(string(bytes), `"`+field+`"`) {
+					t.Fatalf("database contains %s, want omitted: %s", field, bytes)
+				}
+			}
+		})
 	}
 }
 
@@ -422,7 +535,7 @@ func assertApp(t *testing.T, got domain.App, want domain.App) {
 		got.DesktopEntryPath != want.DesktopEntryPath ||
 		got.IconPath != want.IconPath ||
 		got.Source != want.Source ||
-		got.UpdateSource != want.UpdateSource {
+		!reflect.DeepEqual(got.UpdateSource, want.UpdateSource) {
 		t.Fatalf("app = %#v, want %#v", got, want)
 	}
 }

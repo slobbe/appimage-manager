@@ -49,17 +49,19 @@ const (
 )
 
 type UpdateSource struct {
-	Embedded          bool
-	Kind              UpdateSourceKind
-	Raw               string
-	Transport         string
-	Repo              string
-	Path              string
-	Prerelease        bool
-	ReleaseTag        string
-	AssetPattern      string
-	ZsyncAssetPattern string
-	URL               string
+	Embedded             bool
+	Kind                 UpdateSourceKind
+	Raw                  string
+	Transport            string
+	Repo                 string
+	Path                 string
+	Prerelease           bool
+	ReleaseTag           string
+	AssetPattern         string
+	AssetExcludePatterns []string
+	AssetPreferPatterns  []string
+	ZsyncAssetPattern    string
+	URL                  string
 }
 
 func NewLocalFileUpdateSource(path string) UpdateSource {
