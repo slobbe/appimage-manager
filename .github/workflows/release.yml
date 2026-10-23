@@ -20,7 +20,7 @@ permissions:
   contents: write
 
 env:
-  GORELEASER_VERSION: v2.18.2
+  GORELEASER_VERSION: v2.19.0
 
 concurrency:
   group: release-${{ github.event.workflow_run.head_sha || github.sha || github.event.inputs.tag || github.run_id }}

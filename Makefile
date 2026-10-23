@@ -2,7 +2,7 @@ BIN := ./bin/aim
 VERSION ?= 0.0.0-dev
 LDFLAGS := -X main.version=$(VERSION)
 GOVULNCHECK ?= $(shell go env GOPATH)/bin/govulncheck
-GOVULNCHECK_VERSION ?= v1.3.0
+GOVULNCHECK_VERSION ?= v1.9.0
 
 .PHONY: build
 build:

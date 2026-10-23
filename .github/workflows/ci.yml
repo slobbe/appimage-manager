@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 env:
-  GORELEASER_VERSION: v2.18.2
+  GORELEASER_VERSION: v2.19.0
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
