@@ -43,7 +43,7 @@ jobs:
           fi
 
       - name: Verify build, tests, vet, and architecture
-        run: make verify
+        run: make check test
 
   coverage:
     runs-on: ubuntu-latest
@@ -107,7 +107,7 @@ jobs:
           cache-dependency-path: go.sum
 
       - name: Run race detector
-        run: make test-race
+        run: make test RACE=1
 
   audit:
     runs-on: ubuntu-latest
