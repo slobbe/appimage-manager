@@ -1,7 +1,7 @@
 .DEFAULT_GOAL := help
 
 BIN := ./bin/aim
-VERSION ?= 0.0.0-dev
+VERSION ?= 0.19.0-dev
 ARGS ?= --help
 RACE ?= 0
 LDFLAGS := -X main.version=$(VERSION)
