@@ -118,10 +118,8 @@ Run `aim paths` to print the effective paths for the current environment. By def
 The locations follow `XDG_CONFIG_HOME` and `XDG_DATA_HOME` when those variables are set. The currently supported configuration setting is:
 
 ```toml
-appimage_dir = "~/Applications"
+appimage_dir = "~/Applications" # location for installed AppImages
 ```
-
-`appimage_dir` changes where managed AppImages are installed. Desktop entries, icons, and state continue to use their XDG data locations.
 
 ## License
 
