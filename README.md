@@ -2,10 +2,10 @@
 
 A CLI to install, integrate, inspect, and update AppImages on Linux.
 
-![](https://shieldcn.dev/group/github/ci/slobbe/appimage-manager+github/release/slobbe/appimage-manager+github/license/slobbe/appimage-manager.svg?variant=branded&size=sm)
+![Badges](https://shieldcn.dev/group/github/ci/slobbe/appimage-manager+github/release/slobbe/appimage-manager+github/license/slobbe/appimage-manager.svg?variant=secondary&size=sm)
 
 > [!NOTE]
-> This project is still a **work in progress** and breaking changes may happen at any time while in `v0.x.x`.
+> `aim` is still in **beta**. Expect occasional bugs and breaking changes. Feedback is welcome.
 
 ## Install
 
@@ -88,7 +88,7 @@ aim selfupdate
 aim selfupdate --prerelease
 ```
 
-## Other useful commands and aliases
+### Other useful commands and aliases
 
 ```sh
 aim list                # list all managed AppImages
@@ -99,16 +99,13 @@ aim --help              # show help for aim
 man aim                 # show man page for aim
 ```
 
-## Global flags
+### Global flags
 
-- `--json`: emit machine-readable JSON where supported; this does not confirm
-  mutations
 - `--yes`: automatically confirm mutation prompts
 - `--non-interactive`: fail instead of prompting for input
 - `--color=auto|always|never`: control color in human-readable output
-- `--version`: print the current aim version
 
-## Configuration and data
+## Configuration
 
 Run `aim paths` to print the effective paths for the current environment. By default, aim uses:
 
