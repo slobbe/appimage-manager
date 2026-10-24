@@ -2,7 +2,7 @@
 
 A CLI to install, integrate, inspect, and update AppImages on Linux.
 
-![ci status](https://img.shields.io/github/actions/workflow/status/slobbe/appimage-manager/ci.yml?label=ci) ![release](https://img.shields.io/github/v/release/slobbe/appimage-manager?label=release) ![license](https://img.shields.io/github/license/slobbe/appimage-manager?label=license)
+![ci status](https://github.com/slobbe/appimage-manager/actions/workflows/ci.yml/badge.svg) ![go version](https://img.shields.io/github/go-mod/go-version/slobbe/appimage-manager) ![release](https://img.shields.io/github/v/release/slobbe/appimage-manager) ![license](https://img.shields.io/github/license/slobbe/appimage-manager)
 
 > [!NOTE]
 > `aim` is still in **beta**. Expect occasional bugs and breaking changes. Feedback is welcome.
