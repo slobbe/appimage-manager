@@ -125,6 +125,13 @@ Infra implements app-defined interfaces and is wired from `cmd/aim`.
 
 `internal/infra` must not import `internal/cli` or directly perform terminal prompts/progress rendering.
 
+## Changelog
+
+- Keep entries concise and short, with one bullet per feature, fix, or change.
+- Focus on behavior useful to users, not implementation details.
+- Group entries under `Changed`, `Fixed`, and `New`; omit empty groups.
+- Write changelog entries in the past tense.
+
 ## Git Conventions
 
 - Use focused commits that group related changes.
