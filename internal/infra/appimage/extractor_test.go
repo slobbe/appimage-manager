@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -160,8 +161,14 @@ func writeFakeAppImage(t *testing.T, dir string, script string) string {
 	t.Helper()
 
 	path := filepath.Join(dir, "fake.AppImage")
-	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
-		t.Fatalf("write fake appimage: %v", err)
+	// Write in a child so parallel execs cannot inherit a writable descriptor
+	// from this process and transiently prevent execution with ETXTBSY.
+	cmd := exec.Command("/bin/sh", "-c", `printf '%s' "$1" > "$2"`, "write-fake-appimage", script, path)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("write fake appimage: %v: %s", err, output)
+	}
+	if err := os.Chmod(path, 0o700); err != nil {
+		t.Fatalf("chmod fake appimage: %v", err)
 	}
 
 	return path
