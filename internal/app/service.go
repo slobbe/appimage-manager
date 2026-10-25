@@ -480,10 +480,23 @@ func (s *service) Update(ctx context.Context, req UpdateRequest) (UpdateResult, 
 		}
 	}
 
+	downloads, err := s.downloadGitHubUpdates(ctx, activity, plans)
+	if err != nil {
+		return UpdateResult{}, err
+	}
+	defer cleanupUpdateDownloads(downloads)
+
 	var warnings []OperationWarning
 	appliedCount := 0
-	for _, plan := range plans {
-		applyWarnings, err := s.applyGitHubUpdate(ctx, activity, plan)
+	for i, plan := range plans {
+		if err := ctx.Err(); err != nil {
+			return UpdateResult{}, err
+		}
+		if downloads[i].err != nil {
+			failures = append(failures, updateFailure(plan.app.ID, downloads[i].err))
+			continue
+		}
+		applyWarnings, err := s.applyGitHubUpdate(ctx, activity, plan, downloads[i])
 		warnings = append(warnings, applyWarnings...)
 		if err != nil {
 			if ctx.Err() != nil {
@@ -511,76 +524,6 @@ type githubUpdatePlan struct {
 	release GitHubRelease
 	asset   GitHubReleaseAsset
 	version domain.Version
-}
-
-func (s *service) planGitHubUpdates(ctx context.Context, target string, activity ActivityReporter) ([]githubUpdatePlan, []UpdateCandidate, []UpdateFailure, []UpdateSkip, int, error) {
-	task := activity.Start(ctx, Activity{Kind: ActivityKindCheckingUpdates})
-	apps, err := s.updateScope(ctx, target)
-	if err != nil {
-		task.Fail(err)
-		return nil, nil, nil, nil, 0, err
-	}
-
-	plans := make([]githubUpdatePlan, 0)
-	candidates := make([]UpdateCandidate, 0)
-	failures := make([]UpdateFailure, 0)
-	skipped := make([]UpdateSkip, 0)
-	for _, installedApp := range apps {
-		if err := ctx.Err(); err != nil {
-			task.Fail(err)
-			return nil, nil, nil, nil, 0, err
-		}
-		if installedApp.UpdateSource.Kind != domain.UpdateSourceKindGitHub {
-			skipped = append(skipped, updateSkip(installedApp))
-			continue
-		}
-		if strings.TrimSpace(installedApp.UpdateSource.Repo) == "" {
-			skipped = append(skipped, UpdateSkip{
-				AppID:      installedApp.ID,
-				Reason:     UpdateSkipReasonInvalidSource,
-				SourceKind: string(installedApp.UpdateSource.Kind),
-			})
-			continue
-		}
-		if s.githubReleases == nil {
-			err := errors.New("github release finder is required")
-			task.Fail(err)
-			return nil, nil, nil, nil, 0, err
-		}
-
-		release, err := s.githubReleaseForUpdateSource(ctx, installedApp.UpdateSource)
-		if err != nil {
-			if ctx.Err() != nil {
-				task.Fail(err)
-				return nil, nil, nil, nil, 0, err
-			}
-			failures = append(failures, updateFailure(installedApp.ID, err))
-			continue
-		}
-		asset, err := selectGitHubUpdateAsset(release, installedApp.UpdateSource)
-		if err != nil {
-			if ctxErr := ctx.Err(); ctxErr != nil {
-				task.Fail(ctxErr)
-				return nil, nil, nil, nil, 0, ctxErr
-			}
-			failures = append(failures, updateFailure(installedApp.ID, err))
-			continue
-		}
-		version, ok := updateVersion(release, asset)
-		if !ok || !installedApp.HasUpdate(version) {
-			continue
-		}
-
-		plans = append(plans, githubUpdatePlan{app: installedApp, release: release, asset: asset, version: version})
-		candidates = append(candidates, UpdateCandidate{
-			ID:             installedApp.ID,
-			CurrentVersion: installedApp.Version.String(),
-			NewVersion:     version.String(),
-		})
-	}
-	task.Done("Checked integrated apps")
-
-	return plans, candidates, failures, skipped, len(apps), nil
 }
 
 func updateFailure(appID string, err error) UpdateFailure {
@@ -637,41 +580,9 @@ func (s *service) updateScope(ctx context.Context, target string) ([]domain.App,
 	return []domain.App{installedApp}, nil
 }
 
-func (s *service) applyGitHubUpdate(ctx context.Context, activity ActivityReporter, plan githubUpdatePlan) (warnings []OperationWarning, resultErr error) {
-	if s.downloads == nil {
-		return nil, errors.New("asset downloader is required")
-	}
-
-	workspacePath, cleanup, err := createWorkspace(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer cleanup()
-
-	downloadPath := filepath.Join(workspacePath, filepath.Base(plan.asset.Name))
-	download := activity.Start(ctx, Activity{
-		Kind:      ActivityKindDownloading,
-		AppID:     plan.app.ID,
-		Repo:      plan.app.UpdateSource.Repo,
-		AssetName: plan.asset.Name,
-		Total:     plan.asset.SizeBytes,
-		Unit:      ActivityUnitBytes,
-	})
-	downloaded, err := s.downloads.Download(ctx, DownloadSource{
-		URL:       plan.asset.DownloadURL,
-		FileName:  plan.asset.Name,
-		SizeBytes: plan.asset.SizeBytes,
-	}, downloadPath, download)
-	if err != nil {
-		download.Fail(err)
-		return nil, err
-	}
-	download.Done("Downloaded " + plan.asset.Name)
-
-	integratePath := downloaded.Path
-	if integratePath == "" {
-		integratePath = downloadPath
-	}
+func (s *service) applyGitHubUpdate(ctx context.Context, activity ActivityReporter, plan githubUpdatePlan, downloaded preparedUpdateDownload) (warnings []OperationWarning, resultErr error) {
+	workspacePath := downloaded.workspacePath
+	integratePath := downloaded.path
 	source := domain.NewGitHubReleaseSource(plan.app.UpdateSource.Repo, plan.release.TagName, plan.asset.Name, plan.asset.DownloadURL, plan.asset.SizeBytes, time.Now())
 	metadata, err := s.inspectLocalAppImageInWorkspace(ctx, AddRequest{
 		Path:       integratePath,

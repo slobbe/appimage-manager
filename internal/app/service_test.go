@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -2678,6 +2679,7 @@ func assertRemovedPaths(t *testing.T, got []string, want []string) {
 }
 
 type fakeGitHubReleaseFinder struct {
+	mu                 sync.Mutex
 	repo               string
 	includePrerelease  bool
 	tag                string
@@ -2690,6 +2692,8 @@ type fakeGitHubReleaseFinder struct {
 }
 
 func (f *fakeGitHubReleaseFinder) LatestRelease(ctx context.Context, repo string, includePrerelease bool) (GitHubRelease, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.repo = repo
 	f.includePrerelease = includePrerelease
 	f.method = "latest"
@@ -2710,6 +2714,8 @@ func (f *fakeGitHubReleaseFinder) LatestRelease(ctx context.Context, repo string
 }
 
 func (f *fakeGitHubReleaseFinder) LatestPrerelease(ctx context.Context, repo string) (GitHubRelease, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.repo = repo
 	f.method = "latest-prerelease"
 	if f.err != nil {
@@ -2720,6 +2726,8 @@ func (f *fakeGitHubReleaseFinder) LatestPrerelease(ctx context.Context, repo str
 }
 
 func (f *fakeGitHubReleaseFinder) ReleaseByTag(ctx context.Context, repo string, tag string) (GitHubRelease, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.repo = repo
 	f.tag = tag
 	f.method = "tag"
@@ -2731,6 +2739,7 @@ func (f *fakeGitHubReleaseFinder) ReleaseByTag(ctx context.Context, repo string,
 }
 
 type fakeAssetDownloader struct {
+	mu              sync.Mutex
 	source          DownloadSource
 	destinationPath string
 	progress        DownloadProgress
@@ -2739,20 +2748,23 @@ type fakeAssetDownloader struct {
 }
 
 func (f *fakeAssetDownloader) Download(ctx context.Context, source DownloadSource, destinationPath string, progress DownloadProgress) (DownloadedFile, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.source = source
 	f.destinationPath = destinationPath
 	f.progress = progress
 	if f.err != nil {
 		return DownloadedFile{}, f.err
 	}
-	if f.downloaded.Path == "" {
-		f.downloaded.Path = destinationPath
+	downloaded := f.downloaded
+	if downloaded.Path == "" {
+		downloaded.Path = destinationPath
 	}
-	if err := os.WriteFile(f.downloaded.Path, []byte("appimage"), 0o755); err != nil {
+	if err := os.WriteFile(downloaded.Path, []byte("appimage"), 0o755); err != nil {
 		return DownloadedFile{}, err
 	}
 
-	return f.downloaded, nil
+	return downloaded, nil
 }
 
 type fakeAppRepository struct {

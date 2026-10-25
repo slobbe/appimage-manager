@@ -6,6 +6,7 @@ import "context"
 //
 // Implementations belong in infrastructure. The app layer uses this port to
 // decide which release asset should be downloaded and integrated.
+// Implementations must support concurrent calls.
 type GitHubReleaseFinder interface {
 	LatestRelease(ctx context.Context, repo string, includePrerelease bool) (GitHubRelease, error)
 	LatestPrerelease(ctx context.Context, repo string) (GitHubRelease, error)
@@ -35,6 +36,7 @@ type GitHubReleaseAsset struct {
 //
 // Implementations should write atomically when possible and honor context
 // cancellation. Progress is optional; implementations should tolerate nil.
+// Implementations must support concurrent calls with distinct destination paths.
 type AssetDownloader interface {
 	Download(ctx context.Context, source DownloadSource, destinationPath string, progress DownloadProgress) (DownloadedFile, error)
 }

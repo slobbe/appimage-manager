@@ -2,6 +2,7 @@ package app
 
 import "context"
 
+// ActivityReporter implementations must support concurrent activity creation.
 type ActivityReporter interface {
 	Start(ctx context.Context, activity Activity) ActivityTask
 }
