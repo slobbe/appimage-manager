@@ -718,6 +718,7 @@ type fakeService struct {
 	updateErr          error
 	target             string
 	checkOnly          bool
+	ignoreReleaseAge   bool
 	setReq             app.SetUpdateSourceRequest
 	unsetReq           app.UnsetUpdateSourceRequest
 	confirmationCalled bool
@@ -747,6 +748,7 @@ func (s *fakeService) Update(ctx context.Context, req app.UpdateRequest) (app.Up
 	s.updateCalled = true
 	s.target = req.Target
 	s.checkOnly = req.CheckOnly
+	s.ignoreReleaseAge = req.IgnoreReleaseAge
 	if s.updateErr != nil {
 		return app.UpdateResult{}, s.updateErr
 	}

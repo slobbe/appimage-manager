@@ -123,7 +123,7 @@ func TestConcurrentUpdateChecksOverlapBoundAndOrder(t *testing.T) {
 	var checked int
 	var err error
 	go func() {
-		plans, candidates, failures, skips, checked, err = s.planGitHubUpdates(ctx, "", activity)
+		plans, candidates, failures, skips, _, checked, err = s.planGitHubUpdates(ctx, "", activity, false)
 		close(finished)
 	}()
 	// All four must start before any can finish, proving actual overlap.
@@ -196,7 +196,7 @@ func TestConcurrentUpdateChecksFailureIsolationAndSkips(t *testing.T) {
 	finished := make(chan struct{})
 	go func() {
 		defer close(finished)
-		plans, candidates, failures, skips, checked, err := s.planGitHubUpdates(ctx, "", NoopActivityReporter{})
+		plans, candidates, failures, skips, _, checked, err := s.planGitHubUpdates(ctx, "", NoopActivityReporter{}, false)
 		if err != nil || checked != 8 {
 			t.Errorf("checked=%d err=%v", checked, err)
 			return
@@ -248,7 +248,7 @@ func TestConcurrentUpdateChecksCancellationWaitsAndStopsScheduling(t *testing.T)
 	activity := &concurrentChecksActivity{}
 	finished := make(chan error, 1)
 	go func() {
-		plans, candidates, failures, skips, checked, err := s.planGitHubUpdates(ctx, "", activity)
+		plans, candidates, failures, skips, _, checked, err := s.planGitHubUpdates(ctx, "", activity, false)
 		if plans != nil || candidates != nil || failures != nil || skips != nil || checked != 0 {
 			t.Error("canceled planning returned partial results")
 		}
@@ -310,7 +310,7 @@ func TestConcurrentUpdateChecksScopeAndErrors(t *testing.T) {
 				})
 			}
 			activity := &concurrentChecksActivity{}
-			plans, candidates, _, _, checked, err := s.planGitHubUpdates(ctx, tc.target, activity)
+			plans, candidates, _, _, _, checked, err := s.planGitHubUpdates(ctx, tc.target, activity, false)
 			if tc.missingFinder {
 				if err == nil || err.Error() != "github release finder is required" {
 					t.Fatalf("err=%v", err)
@@ -339,7 +339,7 @@ func TestConcurrentUpdateChecksNoEligibleApps(t *testing.T) {
 			// A check-only planning pass needs neither a finder nor mutation adapters.
 			s := &service{apps: concurrentChecksRepository{apps: apps}}
 			activity := &concurrentChecksActivity{}
-			plans, candidates, failures, skips, checked, err := s.planGitHubUpdates(context.Background(), "", activity)
+			plans, candidates, failures, skips, _, checked, err := s.planGitHubUpdates(context.Background(), "", activity, false)
 			if err != nil || checked != count || len(plans) != 0 || len(candidates) != 0 || len(failures) != 0 || len(skips) != count {
 				t.Fatalf("checked=%d plans=%v candidates=%v failures=%v skips=%v err=%v", checked, plans, candidates, failures, skips, err)
 			}

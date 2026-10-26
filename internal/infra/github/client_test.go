@@ -7,6 +7,9 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/slobbe/appimage-manager/internal/app"
 )
 
 func TestClientLatestReleaseMapsGitHubResponse(t *testing.T) {
@@ -82,6 +85,86 @@ func TestClientLatestReleaseMapsGitHubResponse(t *testing.T) {
 	}
 	if got, want := asset.SizeBytes, int64(12345); got != want {
 		t.Fatalf("asset.SizeBytes = %d, want %d", got, want)
+	}
+}
+
+func TestClientReleasePublishedAt(t *testing.T) {
+	t.Parallel()
+
+	for _, route := range []struct {
+		name  string
+		path  string
+		list  bool
+		fetch func(Client) (app.GitHubRelease, error)
+	}{
+		{
+			name: "latest stable", path: "/repos/owner/repo/releases/latest",
+			fetch: func(c Client) (app.GitHubRelease, error) {
+				return c.LatestRelease(context.Background(), "owner/repo", false)
+			},
+		},
+		{
+			name: "latest including prereleases", path: "/repos/owner/repo/releases", list: true,
+			fetch: func(c Client) (app.GitHubRelease, error) {
+				return c.LatestRelease(context.Background(), "owner/repo", true)
+			},
+		},
+		{
+			name: "latest prerelease", path: "/repos/owner/repo/releases", list: true,
+			fetch: func(c Client) (app.GitHubRelease, error) {
+				return c.LatestPrerelease(context.Background(), "owner/repo")
+			},
+		},
+		{
+			name: "tag", path: "/repos/owner/repo/releases/tags/v1.2.3",
+			fetch: func(c Client) (app.GitHubRelease, error) {
+				return c.ReleaseByTag(context.Background(), "owner/repo", "v1.2.3")
+			},
+		},
+	} {
+		t.Run(route.name, func(t *testing.T) {
+			t.Parallel()
+			for _, tt := range []struct {
+				name      string
+				field     string
+				want      time.Time
+				wantError bool
+			}{
+				{name: "present", field: `,"published_at":"2026-10-26T12:34:56Z"`, want: time.Date(2026, time.October, 26, 12, 34, 56, 0, time.UTC)},
+				{name: "missing"},
+				{name: "null", field: `,"published_at":null`},
+				{name: "invalid", field: `,"published_at":"invalid"`, wantError: true},
+			} {
+				t.Run(tt.name, func(t *testing.T) {
+					t.Parallel()
+					server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						if r.URL.Path != route.path {
+							t.Errorf("request path = %q, want %q", r.URL.Path, route.path)
+						}
+						body := `{"tag_name":"v1.2.3","prerelease":true` + tt.field + `}`
+						if route.list {
+							body = "[" + body + "]"
+						}
+						fmt.Fprint(w, body)
+					}))
+					defer server.Close()
+
+					release, err := route.fetch(Client{BaseURL: server.URL, HTTPClient: server.Client()})
+					if tt.wantError {
+						if err == nil || !strings.Contains(err.Error(), "decode") {
+							t.Fatalf("fetch() error = %v, want decode error", err)
+						}
+						return
+					}
+					if err != nil {
+						t.Fatalf("fetch() error = %v", err)
+					}
+					if !release.PublishedAt.Equal(tt.want) {
+						t.Fatalf("PublishedAt = %v, want %v", release.PublishedAt, tt.want)
+					}
+				})
+			}
+		})
 	}
 }
 

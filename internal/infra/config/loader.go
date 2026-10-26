@@ -14,15 +14,17 @@ import (
 )
 
 type fileConfig struct {
-	AppImageDir string `toml:"appimage_dir"`
+	AppImageDir            string `toml:"appimage_dir"`
+	MinimumReleaseAgeHours *int64 `toml:"minimum_release_age_hours"`
 }
 
 func DefaultAppConfig(dirs xdg.Dirs) app.Config {
 	return app.Config{
-		ConfigFile:  xdg.ConfigFile(dirs),
-		AppImageDir: xdg.DefaultAppImageDir(dirs),
-		DesktopDir:  xdg.DesktopDir(dirs),
-		IconDir:     xdg.IconDir(dirs),
+		ConfigFile:             xdg.ConfigFile(dirs),
+		AppImageDir:            xdg.DefaultAppImageDir(dirs),
+		DesktopDir:             xdg.DesktopDir(dirs),
+		IconDir:                xdg.IconDir(dirs),
+		MinimumReleaseAgeHours: 1,
 	}
 }
 
@@ -41,6 +43,13 @@ func Load(path string, dirs xdg.Dirs) (app.Config, error) {
 	var fileCfg fileConfig
 	if err := toml.Unmarshal(bytes, &fileCfg); err != nil {
 		return app.Config{}, fmt.Errorf("parse config file %q: %w", path, err)
+	}
+
+	if fileCfg.MinimumReleaseAgeHours != nil {
+		if *fileCfg.MinimumReleaseAgeHours < 0 {
+			return app.Config{}, errors.New("minimum_release_age_hours must be nonnegative")
+		}
+		cfg.MinimumReleaseAgeHours = *fileCfg.MinimumReleaseAgeHours
 	}
 
 	if fileCfg.AppImageDir != "" {

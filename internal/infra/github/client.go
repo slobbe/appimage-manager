@@ -286,12 +286,13 @@ func githubHTTPError(resp *http.Response) string {
 }
 
 type githubReleaseResponse struct {
-	TagName    string                       `json:"tag_name"`
-	Name       string                       `json:"name"`
-	HTMLURL    string                       `json:"html_url"`
-	Prerelease bool                         `json:"prerelease"`
-	Draft      bool                         `json:"draft"`
-	Assets     []githubReleaseAssetResponse `json:"assets"`
+	TagName     string                       `json:"tag_name"`
+	Name        string                       `json:"name"`
+	HTMLURL     string                       `json:"html_url"`
+	Prerelease  bool                         `json:"prerelease"`
+	Draft       bool                         `json:"draft"`
+	PublishedAt time.Time                    `json:"published_at"`
+	Assets      []githubReleaseAssetResponse `json:"assets"`
 }
 
 type githubReleaseAssetResponse struct {
@@ -313,12 +314,13 @@ func (r githubReleaseResponse) toAppRelease(repo string) app.GitHubRelease {
 	}
 
 	return app.GitHubRelease{
-		Repo:       repo,
-		TagName:    r.TagName,
-		Name:       r.Name,
-		URL:        r.HTMLURL,
-		Prerelease: r.Prerelease,
-		Draft:      r.Draft,
-		Assets:     assets,
+		Repo:        repo,
+		TagName:     r.TagName,
+		Name:        r.Name,
+		URL:         r.HTMLURL,
+		Prerelease:  r.Prerelease,
+		Draft:       r.Draft,
+		PublishedAt: r.PublishedAt,
+		Assets:      assets,
 	}
 }

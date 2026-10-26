@@ -1,6 +1,9 @@
 package app
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // GitHubReleaseFinder looks up GitHub release metadata for a repository.
 //
@@ -15,13 +18,14 @@ type GitHubReleaseFinder interface {
 
 // GitHubRelease is the app-layer representation of a GitHub release.
 type GitHubRelease struct {
-	Repo       string
-	TagName    string
-	Name       string
-	URL        string
-	Prerelease bool
-	Draft      bool
-	Assets     []GitHubReleaseAsset
+	Repo        string
+	TagName     string
+	Name        string
+	URL         string
+	Prerelease  bool
+	Draft       bool
+	PublishedAt time.Time
+	Assets      []GitHubReleaseAsset
 }
 
 // GitHubReleaseAsset is an asset attached to a GitHub release.

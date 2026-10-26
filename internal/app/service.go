@@ -442,9 +442,9 @@ func (s *service) Update(ctx context.Context, req UpdateRequest) (UpdateResult, 
 		activity = NoopActivityReporter{}
 	}
 
-	plans, candidates, failures, skipped, checked, err := s.planGitHubUpdates(ctx, req.Target, activity)
+	plans, candidates, failures, skipped, deferred, checked, err := s.planGitHubUpdates(ctx, req.Target, activity, req.IgnoreReleaseAge)
 	if err != nil {
-		return UpdateResult{}, err
+		return UpdateResult{Deferred: deferred}, err
 	}
 	if req.CheckOnly {
 		return UpdateResult{
@@ -453,6 +453,7 @@ func (s *service) Update(ctx context.Context, req UpdateRequest) (UpdateResult, 
 			Updates:  candidates,
 			Failures: failures,
 			Skipped:  skipped,
+			Deferred: deferred,
 		}, nil
 	}
 	if len(plans) == 0 {
@@ -461,13 +462,14 @@ func (s *service) Update(ctx context.Context, req UpdateRequest) (UpdateResult, 
 			Checked:  checked,
 			Failures: failures,
 			Skipped:  skipped,
+			Deferred: deferred,
 		}, nil
 	}
 
 	if req.Confirmation != nil {
 		confirmed, err := req.Confirmation.ConfirmUpdates(ctx, candidates)
 		if err != nil {
-			return UpdateResult{}, err
+			return UpdateResult{Deferred: deferred}, err
 		}
 		if !confirmed {
 			return UpdateResult{
@@ -476,13 +478,14 @@ func (s *service) Update(ctx context.Context, req UpdateRequest) (UpdateResult, 
 				Updates:  candidates,
 				Failures: failures,
 				Skipped:  skipped,
+				Deferred: deferred,
 			}, nil
 		}
 	}
 
 	downloads, err := s.downloadGitHubUpdates(ctx, activity, plans)
 	if err != nil {
-		return UpdateResult{}, err
+		return UpdateResult{Deferred: deferred}, err
 	}
 	defer cleanupUpdateDownloads(downloads)
 
@@ -490,7 +493,7 @@ func (s *service) Update(ctx context.Context, req UpdateRequest) (UpdateResult, 
 	appliedCount := 0
 	for i, plan := range plans {
 		if err := ctx.Err(); err != nil {
-			return UpdateResult{}, err
+			return UpdateResult{Deferred: deferred}, err
 		}
 		if downloads[i].err != nil {
 			failures = append(failures, updateFailure(plan.app.ID, downloads[i].err))
@@ -500,7 +503,7 @@ func (s *service) Update(ctx context.Context, req UpdateRequest) (UpdateResult, 
 		warnings = append(warnings, applyWarnings...)
 		if err != nil {
 			if ctx.Err() != nil {
-				return UpdateResult{}, err
+				return UpdateResult{Deferred: deferred}, err
 			}
 			failures = append(failures, updateFailure(plan.app.ID, err))
 			continue
@@ -515,6 +518,7 @@ func (s *service) Update(ctx context.Context, req UpdateRequest) (UpdateResult, 
 		Updates:      candidates,
 		Failures:     failures,
 		Skipped:      skipped,
+		Deferred:     deferred,
 		Warnings:     warnings,
 	}, nil
 }

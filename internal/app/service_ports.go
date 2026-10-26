@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"time"
 
 	"github.com/slobbe/appimage-manager/internal/domain"
 )
@@ -40,10 +41,11 @@ type RemoveRequest struct {
 }
 
 type UpdateRequest struct {
-	Target       string
-	CheckOnly    bool
-	Activity     ActivityReporter
-	Confirmation UpdateConfirmation
+	IgnoreReleaseAge bool
+	Target           string
+	CheckOnly        bool
+	Activity         ActivityReporter
+	Confirmation     UpdateConfirmation
 }
 
 type UpdateConfirmation interface {
@@ -54,6 +56,14 @@ type UpdateCandidate struct {
 	ID             string
 	CurrentVersion string
 	NewVersion     string
+}
+
+type UpdateDeferred struct {
+	AppID                  string    `json:"app_id"`
+	CurrentVersion         string    `json:"current_version"`
+	NewVersion             string    `json:"new_version"`
+	PublishedAt            time.Time `json:"published_at"`
+	MinimumReleaseAgeHours int64     `json:"minimum_release_age_hours"`
 }
 
 type UpdateFailure struct {
@@ -86,6 +96,7 @@ type UpdateResult struct {
 	Checked      int
 	AppliedCount int
 	Updates      []UpdateCandidate
+	Deferred     []UpdateDeferred
 	Failures     []UpdateFailure
 	Skipped      []UpdateSkip
 	Warnings     []OperationWarning

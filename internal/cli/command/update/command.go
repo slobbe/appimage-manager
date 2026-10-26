@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math/big"
 	"strings"
+	"time"
 
 	"github.com/slobbe/appimage-manager/internal/app"
 	"github.com/slobbe/appimage-manager/internal/cli/activity"
@@ -31,6 +33,7 @@ func NewCommand(rt *clienv.Runtime, service service) *cobra.Command {
 	var embedded bool
 	var prerelease bool
 	var checkOnly bool
+	var ignoreReleaseAge bool
 
 	cmd := &cobra.Command{
 		Use:           "update [appimage]",
@@ -41,6 +44,13 @@ func NewCommand(rt *clienv.Runtime, service service) *cobra.Command {
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if cmd.Flags().Changed("ignore-release-age") {
+				for _, name := range []string{"set", "unset", "github", "asset", "exclude", "prefer", "embedded", "prerelease"} {
+					if cmd.Flags().Changed(name) {
+						return clienv.UsageError(fmt.Errorf("--ignore-release-age cannot be combined with update source flags"))
+					}
+				}
+			}
 			if checkOnly && (setID != "" || unsetID != "" || githubRepo != "" || assetPattern != "" || len(assetExcludePatterns) > 0 || len(assetPreferPatterns) > 0 || embedded || prerelease) {
 				return clienv.UsageError(fmt.Errorf("--check cannot be combined with update source flags"))
 			}
@@ -60,8 +70,9 @@ func NewCommand(rt *clienv.Runtime, service service) *cobra.Command {
 			reporter := activity.NewReporter(cmd.ErrOrStderr(), rt.ActivityEnabled(cmd.ErrOrStderr()))
 
 			req := app.UpdateRequest{
-				CheckOnly: checkOnly,
-				Activity:  reporter,
+				CheckOnly:        checkOnly,
+				IgnoreReleaseAge: ignoreReleaseAge,
+				Activity:         reporter,
 				Confirmation: updatePrompter{
 					in:  cmd.InOrStdin(),
 					out: confirmationOutput(cmd, rt.Config.JSON),
@@ -109,6 +120,7 @@ func NewCommand(rt *clienv.Runtime, service service) *cobra.Command {
 					Failed    int                    `json:"failed"`
 					Skipped   []app.UpdateSkip       `json:"skipped"`
 					Updates   []app.UpdateCandidate  `json:"updates"`
+					Deferred  []app.UpdateDeferred   `json:"deferred"`
 					Failures  []app.UpdateFailure    `json:"failures"`
 					Warnings  []app.OperationWarning `json:"warnings"`
 				}{
@@ -122,10 +134,14 @@ func NewCommand(rt *clienv.Runtime, service service) *cobra.Command {
 					Failed:    len(result.Failures),
 					Skipped:   itemsOrEmpty(result.Skipped),
 					Updates:   itemsOrEmpty(result.Updates),
+					Deferred:  itemsOrEmpty(result.Deferred),
 					Failures:  itemsOrEmpty(result.Failures),
 					Warnings:  itemsOrEmpty(result.Warnings),
 				},
 				func(w io.Writer) error {
+					if err := writeUpdateDeferrals(w, result.Deferred, time.Now()); err != nil {
+						return err
+					}
 					if req.CheckOnly {
 						if len(result.Updates) > 0 {
 							if _, err := fmt.Fprintln(w, "Updates available:"); err != nil {
@@ -141,7 +157,7 @@ func NewCommand(rt *clienv.Runtime, service service) *cobra.Command {
 							return nil
 						}
 						if len(result.Failures) > 0 {
-							_, err := fmt.Fprintf(w, "No updates found for apps checked successfully; %d check(s) failed.\n", len(result.Failures))
+							_, err := fmt.Fprintf(w, "No eligible updates found for apps checked successfully; %d check(s) failed.\n", len(result.Failures))
 							return err
 						}
 					}
@@ -154,6 +170,9 @@ func NewCommand(rt *clienv.Runtime, service service) *cobra.Command {
 						return err
 					}
 					if len(result.Updates) == 0 {
+						if len(result.Deferred) > 0 {
+							return nil
+						}
 						if len(result.Skipped) > 0 {
 							_, err := fmt.Fprintf(w, "No supported update source for %d app(s).\n", len(result.Skipped))
 							return err
@@ -171,6 +190,10 @@ func NewCommand(rt *clienv.Runtime, service service) *cobra.Command {
 							return err
 						}
 						_, err := fmt.Fprintln(w, rt.Success(w, fmt.Sprintf("Successfully updated %s!", req.Target)))
+						return err
+					}
+					if len(result.Deferred) > 0 {
+						_, err := fmt.Fprintf(w, "Updated %d app(s); %d deferred.\n", updated, len(result.Deferred))
 						return err
 					}
 					if len(result.Warnings) > 0 {
@@ -200,6 +223,7 @@ func NewCommand(rt *clienv.Runtime, service service) *cobra.Command {
 	cmd.Flags().BoolVar(&embedded, "embedded", false, "set update source from embedded AppImage update information")
 	cmd.Flags().BoolVar(&prerelease, "prerelease", false, "include prereleases for GitHub update source")
 	cmd.Flags().BoolVar(&checkOnly, "check", false, "check for updates without applying them")
+	cmd.Flags().BoolVar(&ignoreReleaseAge, "ignore-release-age", false, "ignore the minimum release age for this update or check")
 
 	return cmd
 }
@@ -371,6 +395,37 @@ func writeUpdateSkips(w io.Writer, skipped []app.UpdateSkip) error {
 	return nil
 }
 
+func writeUpdateDeferrals(w io.Writer, deferred []app.UpdateDeferred, now time.Time) error {
+	for _, item := range deferred {
+		if _, err := fmt.Fprintf(w, "Deferred [%s]: %s -> %s (%s remaining before eligible).\n", item.AppID, item.CurrentVersion, item.NewVersion, releaseAgeRemaining(item, now)); err != nil {
+			return err
+		}
+	}
+	if len(deferred) > 0 {
+		_, err := fmt.Fprintln(w, "Use --ignore-release-age to bypass the minimum release age for this update or check.")
+		return err
+	}
+	return nil
+}
+
+func releaseAgeRemaining(item app.UpdateDeferred, now time.Time) string {
+	// Keep the unbounded hour setting out of time.Duration and round up to minutes.
+	seconds := new(big.Int).Mul(big.NewInt(item.MinimumReleaseAgeHours), big.NewInt(3600))
+	seconds.Add(seconds, big.NewInt(item.PublishedAt.Unix()))
+	seconds.Sub(seconds, big.NewInt(now.Unix()))
+	if item.PublishedAt.Nanosecond() > now.Nanosecond() {
+		seconds.Add(seconds, big.NewInt(1))
+	}
+	if seconds.Sign() <= 0 {
+		return "0m"
+	}
+	minutes := seconds.Add(seconds, big.NewInt(59))
+	minutes.Quo(minutes, big.NewInt(60))
+	hours, remainder := new(big.Int), new(big.Int)
+	hours.QuoRem(minutes, big.NewInt(60), remainder)
+	return fmt.Sprintf("%sh %sm", hours, remainder)
+}
+
 func updateStatus(req app.UpdateRequest, result app.UpdateResult) string {
 	if len(result.Failures) > 0 {
 		if result.Checked > len(result.Failures) || updatedCount(result) > 0 || len(result.Skipped) > 0 {
@@ -389,6 +444,9 @@ func updateStatus(req app.UpdateRequest, result app.UpdateResult) string {
 			return "updated_with_warnings"
 		}
 		return "updated"
+	}
+	if len(result.Deferred) > 0 {
+		return "deferred"
 	}
 	if result.Checked > 0 && result.Checked == len(result.Skipped) {
 		return "skipped"

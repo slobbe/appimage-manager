@@ -55,7 +55,15 @@ aim update
 
 # update a specific AppImage
 aim update example-app
+
+# check without applying updates
+aim update --check
+
+# bypass the minimum release age for this run
+aim update --ignore-release-age
 ```
+
+Updates wait until the selected release is at least **one hour old** by default. The waiting period applies only to stable-only AppImage update sources. Sources with prereleases enabled bypass it. Use `--ignore-release-age` to bypass the policy for a single update or check.
 
 ### Set or clear an update source
 
@@ -107,19 +115,21 @@ man aim                 # show man page for aim
 
 ## Configuration
 
+To configure `aim`, edit `~/.config/aim/config.toml`. Available settings are:
+
+```toml
+appimage_dir = "~/Applications" # location for installed AppImages; default is "~/.local/share/aim/appimages"
+minimum_release_age_hours = 12  # minimum age for stable-only AppImage updates; 0 disables; default is 1
+```
+
 Run `aim paths` to print the effective paths for the current environment. By default, aim uses:
 
 - `~/.config/aim/config.toml` for configuration
 - `~/.local/share/aim/apps.json` for managed-app state
-- `~/.local/share/aim/appimages` for installed AppImages
 - `~/.local/share/applications` for desktop entries
 - `~/.local/share/icons` for icons
 
-The locations follow `XDG_CONFIG_HOME` and `XDG_DATA_HOME` when those variables are set. The currently supported configuration setting is:
-
-```toml
-appimage_dir = "~/Applications" # location for installed AppImages
-```
+The locations follow `XDG_CONFIG_HOME` and `XDG_DATA_HOME` when those variables are set. The supported configuration settings are:
 
 ## License
 
