@@ -23,6 +23,7 @@ type service interface {
 func NewCommand(rt *clienv.Runtime, service service) *cobra.Command {
 	var githubRepo string
 	var assetPattern string
+	var tagPattern string
 	var assetExcludePatterns []string
 	var assetPreferPatterns []string
 	var prerelease bool
@@ -35,6 +36,9 @@ func NewCommand(rt *clienv.Runtime, service service) *cobra.Command {
 		Args: func(cmd *cobra.Command, args []string) error {
 			if githubRepo != "" && len(args) > 0 {
 				return fmt.Errorf("provide either <appimage-path> or --github, not both")
+			}
+			if cmd.Flags().Changed("tag-pattern") && strings.TrimSpace(githubRepo) == "" {
+				return fmt.Errorf("--tag-pattern requires --github")
 			}
 			if assetPattern != "" && githubRepo == "" {
 				return fmt.Errorf("--asset requires --github")
@@ -73,6 +77,7 @@ func NewCommand(rt *clienv.Runtime, service service) *cobra.Command {
 			req := app.AddRequest{
 				GitHubRepo:           githubRepo,
 				AssetPattern:         assetPattern,
+				TagPattern:           tagPattern,
 				AssetExcludePatterns: assetExcludePatterns,
 				AssetPreferPatterns:  assetPreferPatterns,
 				Prerelease:           prerelease,
@@ -121,6 +126,7 @@ func NewCommand(rt *clienv.Runtime, service service) *cobra.Command {
 
 	cmd.Flags().StringVar(&githubRepo, "github", "", "download and add an AppImage from a GitHub repository in owner/repo format")
 	cmd.Flags().StringVar(&assetPattern, "asset", "", "match the GitHub AppImage asset name using filepath.Match syntax")
+	cmd.Flags().StringVar(&tagPattern, "tag-pattern", "", "match GitHub release tag names (not titles) using case-sensitive filepath.Match syntax (requires --github)")
 	cmd.Flags().StringArrayVar(&assetExcludePatterns, "exclude", nil, "exclude GitHub AppImage asset names matching filepath.Match syntax (repeatable; requires --github)")
 	cmd.Flags().StringArrayVar(&assetPreferPatterns, "prefer", nil, "prefer GitHub AppImage asset names matching filepath.Match syntax, falling back if none match (repeatable; requires --github)")
 	cmd.Flags().BoolVar(&prerelease, "prerelease", false, "include GitHub prereleases when adding from --github")

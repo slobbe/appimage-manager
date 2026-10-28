@@ -62,6 +62,7 @@ type updateSourceRecord struct {
 	Path                 string   `json:"path,omitempty"`
 	Prerelease           bool     `json:"prerelease,omitempty"`
 	ReleaseTag           string   `json:"release_tag,omitempty"`
+	TagPattern           string   `json:"tag_pattern,omitempty"`
 	AssetPattern         string   `json:"asset_pattern,omitempty"`
 	AssetExcludePatterns []string `json:"asset_exclude_patterns,omitempty"`
 	AssetPreferPatterns  []string `json:"asset_prefer_patterns,omitempty"`
@@ -410,6 +411,7 @@ func recordFromDomainUpdateSource(source domain.UpdateSource) *updateSourceRecor
 			Path:                 source.Path,
 			Prerelease:           source.Prerelease,
 			ReleaseTag:           source.ReleaseTag,
+			TagPattern:           source.TagPattern,
 			AssetPattern:         source.AssetPattern,
 			AssetExcludePatterns: source.AssetExcludePatterns,
 			AssetPreferPatterns:  source.AssetPreferPatterns,
@@ -434,6 +436,7 @@ func (r *updateSourceRecord) toDomainUpdateSource() domain.UpdateSource {
 		Path:                 strings.TrimSpace(r.Path),
 		Prerelease:           r.Prerelease,
 		ReleaseTag:           strings.TrimSpace(r.ReleaseTag),
+		TagPattern:           strings.TrimSpace(r.TagPattern),
 		AssetPattern:         strings.TrimSpace(r.AssetPattern),
 		AssetExcludePatterns: r.AssetExcludePatterns,
 		AssetPreferPatterns:  r.AssetPreferPatterns,

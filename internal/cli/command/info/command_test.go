@@ -278,6 +278,51 @@ func TestCommandOmitsEmptyAssetFilters(t *testing.T) {
 	}
 }
 
+func TestCommandPrintsSavedTagPattern(t *testing.T) {
+	for _, pattern := range []string{"", "Release-[AB]*"} {
+		for _, jsonOutput := range []bool{false, true} {
+			result := app.InfoResult{ID: "example-app", Name: "Example App"}
+			result.UpdateSource.Kind = "github"
+			result.UpdateSource.TagPattern = pattern
+			stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+			rt := clienv.New(stdout, stderr)
+			rt.Config.JSON = jsonOutput
+			cmd := NewCommand(rt, &fakeService{infoResult: result})
+			cmd.SetOut(stdout)
+			cmd.SetErr(stderr)
+			cmd.SetArgs([]string{"example-app"})
+			if err := cmd.ExecuteContext(context.Background()); err != nil {
+				t.Fatalf("ExecuteContext() error = %v", err)
+			}
+			if jsonOutput {
+				var payload struct {
+					UpdateSource map[string]json.RawMessage `json:"update_source"`
+				}
+				if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+					t.Fatal(err)
+				}
+				value, exists := payload.UpdateSource["tag_pattern"]
+				if pattern == "" {
+					if exists {
+						t.Fatalf("stdout = %q, want tag_pattern omitted", stdout.String())
+					}
+				} else {
+					var got string
+					if err := json.Unmarshal(value, &got); err != nil || got != pattern {
+						t.Fatalf("tag_pattern = %s, want %q; error = %v", value, pattern, err)
+					}
+				}
+			} else if pattern == "" {
+				if strings.Contains(stdout.String(), "Tag pattern:") {
+					t.Fatalf("stdout = %q, want Tag pattern omitted", stdout.String())
+				}
+			} else if !strings.Contains(stdout.String(), "Tag pattern:      "+pattern) {
+				t.Fatalf("stdout = %q, want saved tag pattern %q", stdout.String(), pattern)
+			}
+		}
+	}
+}
+
 type fakeService struct {
 	infoCalled bool
 	infoReq    app.InfoRequest

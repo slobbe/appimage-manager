@@ -24,6 +24,7 @@ type Service interface {
 type AddRequest struct {
 	Path                 string
 	GitHubRepo           string
+	TagPattern           string
 	AssetPattern         string
 	AssetExcludePatterns []string
 	AssetPreferPatterns  []string
@@ -105,6 +106,7 @@ type UpdateResult struct {
 type SetUpdateSourceRequest struct {
 	ID                   string
 	GitHubRepo           string
+	TagPattern           string
 	AssetPattern         string
 	AssetExcludePatterns []string
 	AssetPreferPatterns  []string

@@ -91,6 +91,62 @@ func TestRepositorySaveAndFindEmbeddedUpdateSource(t *testing.T) {
 	}
 }
 
+func TestRepositorySaveAndFindTagPattern(t *testing.T) {
+	t.Parallel()
+
+	for _, pattern := range []string{"v1.*", ""} {
+		t.Run("pattern="+pattern, func(t *testing.T) {
+			t.Parallel()
+
+			repo := NewRepository(filepath.Join(t.TempDir(), "apps.json"))
+			stored := testApp(t, "example", "Example", "1.2.3")
+			stored.UpdateSource.TagPattern = pattern
+			if err := repo.Save(context.Background(), stored); err != nil {
+				t.Fatalf("Save() error = %v", err)
+			}
+
+			found, err := repo.Find(context.Background(), stored.ID)
+			if err != nil {
+				t.Fatalf("Find() error = %v", err)
+			}
+			assertApp(t, found, stored)
+
+			bytes, err := os.ReadFile(repo.Path)
+			if err != nil {
+				t.Fatalf("read database: %v", err)
+			}
+			if pattern == "" {
+				if containsJSONField(bytes, "tag_pattern") {
+					t.Fatalf("database contains tag_pattern, want omitted: %s", bytes)
+				}
+			} else if !strings.Contains(string(bytes), `"tag_pattern": "v1.*"`) {
+				t.Fatalf("database = %s, want tag_pattern %q", bytes, pattern)
+			}
+		})
+	}
+}
+
+func TestRepositoryFindWithoutTagPattern(t *testing.T) {
+	t.Parallel()
+
+	repo := NewRepository(filepath.Join(t.TempDir(), "apps.json"))
+	const database = `{"schema_version":2,"apps":[{"id":"example","name":"Example","app_image_path":"/apps/example.AppImage","update_source":{"embedded":false,"kind":"github","repo":"owner/example","release_tag":"latest","asset_pattern":"Example-*.AppImage"}}]}`
+	if err := os.WriteFile(repo.Path, []byte(database), 0o644); err != nil {
+		t.Fatalf("write database: %v", err)
+	}
+
+	found, err := repo.Find(context.Background(), "example")
+	if err != nil {
+		t.Fatalf("Find() error = %v", err)
+	}
+	want := domain.NewGitHubUpdateSource("owner/example", false)
+	want.ReleaseTag = "latest"
+	want.AssetPattern = "Example-*.AppImage"
+	if !reflect.DeepEqual(found.UpdateSource, want) {
+		t.Fatalf("UpdateSource = %#v, want %#v", found.UpdateSource, want)
+	}
+}
+
 func TestRepositorySaveAndFindAssetPatterns(t *testing.T) {
 	t.Parallel()
 

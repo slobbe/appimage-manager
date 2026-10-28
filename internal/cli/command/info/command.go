@@ -138,6 +138,9 @@ func writeUpdateSource(w *infoWriter, info app.InfoResult) {
 		if source.ReleaseTag != "" {
 			w.field("Release tag:", source.ReleaseTag)
 		}
+		if source.TagPattern != "" {
+			w.field("Tag pattern:", source.TagPattern)
+		}
 		if source.AssetPattern != "" {
 			w.field("Asset pattern:", source.AssetPattern)
 		}

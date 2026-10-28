@@ -28,6 +28,7 @@ type UpdateSourceJSON struct {
 	Path                 string   `json:"path,omitempty"`
 	Prerelease           bool     `json:"prerelease,omitempty"`
 	ReleaseTag           string   `json:"release_tag,omitempty"`
+	TagPattern           string   `json:"tag_pattern,omitempty"`
 	AssetPattern         string   `json:"asset_pattern,omitempty"`
 	ZsyncAssetPattern    string   `json:"zsync_asset_pattern,omitempty"`
 	URL                  string   `json:"url,omitempty"`
@@ -77,6 +78,7 @@ func updateSourceJSON(info app.InfoResult) UpdateSourceJSON {
 		Path:                 source.Path,
 		Prerelease:           source.Prerelease,
 		ReleaseTag:           source.ReleaseTag,
+		TagPattern:           source.TagPattern,
 		AssetPattern:         source.AssetPattern,
 		AssetExcludePatterns: source.AssetExcludePatterns,
 		AssetPreferPatterns:  source.AssetPreferPatterns,

@@ -2683,7 +2683,9 @@ type fakeGitHubReleaseFinder struct {
 	repo               string
 	includePrerelease  bool
 	tag                string
+	tagPattern         string
 	method             string
+	methods            []string
 	release            GitHubRelease
 	releases           map[string]GitHubRelease
 	err                error
@@ -2697,6 +2699,7 @@ func (f *fakeGitHubReleaseFinder) LatestRelease(ctx context.Context, repo string
 	f.repo = repo
 	f.includePrerelease = includePrerelease
 	f.method = "latest"
+	f.methods = append(f.methods, f.method)
 	if f.afterLatestRelease != nil {
 		f.afterLatestRelease()
 	}
@@ -2713,11 +2716,32 @@ func (f *fakeGitHubReleaseFinder) LatestRelease(ctx context.Context, repo string
 	return f.release, nil
 }
 
+func (f *fakeGitHubReleaseFinder) LatestReleaseMatchingTag(ctx context.Context, repo string, includePrerelease bool, tagPattern string) (GitHubRelease, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.repo = repo
+	f.includePrerelease = includePrerelease
+	f.tagPattern = tagPattern
+	f.method = "latest-matching-tag"
+	f.methods = append(f.methods, f.method)
+	if err := f.errors[repo]; err != nil {
+		return GitHubRelease{}, err
+	}
+	if f.err != nil {
+		return GitHubRelease{}, f.err
+	}
+	if release, ok := f.releases[repo]; ok {
+		return release, nil
+	}
+	return f.release, nil
+}
+
 func (f *fakeGitHubReleaseFinder) LatestPrerelease(ctx context.Context, repo string) (GitHubRelease, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.repo = repo
 	f.method = "latest-prerelease"
+	f.methods = append(f.methods, f.method)
 	if f.err != nil {
 		return GitHubRelease{}, f.err
 	}
@@ -2731,6 +2755,7 @@ func (f *fakeGitHubReleaseFinder) ReleaseByTag(ctx context.Context, repo string,
 	f.repo = repo
 	f.tag = tag
 	f.method = "tag"
+	f.methods = append(f.methods, f.method)
 	if f.err != nil {
 		return GitHubRelease{}, f.err
 	}

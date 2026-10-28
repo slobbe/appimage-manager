@@ -28,6 +28,7 @@ func NewCommand(rt *clienv.Runtime, service service) *cobra.Command {
 	var unsetID string
 	var githubRepo string
 	var assetPattern string
+	var tagPattern string
 	var assetExcludePatterns []string
 	var assetPreferPatterns []string
 	var embedded bool
@@ -45,21 +46,22 @@ func NewCommand(rt *clienv.Runtime, service service) *cobra.Command {
 		SilenceUsage:  true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if cmd.Flags().Changed("ignore-release-age") {
-				for _, name := range []string{"set", "unset", "github", "asset", "exclude", "prefer", "embedded", "prerelease"} {
+				for _, name := range []string{"set", "unset", "github", "asset", "tag-pattern", "exclude", "prefer", "embedded", "prerelease"} {
 					if cmd.Flags().Changed(name) {
 						return clienv.UsageError(fmt.Errorf("--ignore-release-age cannot be combined with update source flags"))
 					}
 				}
 			}
-			if checkOnly && (setID != "" || unsetID != "" || githubRepo != "" || assetPattern != "" || len(assetExcludePatterns) > 0 || len(assetPreferPatterns) > 0 || embedded || prerelease) {
+			if checkOnly && (setID != "" || unsetID != "" || githubRepo != "" || assetPattern != "" || cmd.Flags().Changed("tag-pattern") || len(assetExcludePatterns) > 0 || len(assetPreferPatterns) > 0 || embedded || prerelease) {
 				return clienv.UsageError(fmt.Errorf("--check cannot be combined with update source flags"))
 			}
-			if setID != "" || unsetID != "" || githubRepo != "" || assetPattern != "" || len(assetExcludePatterns) > 0 || len(assetPreferPatterns) > 0 || embedded || prerelease {
+			if setID != "" || unsetID != "" || githubRepo != "" || assetPattern != "" || cmd.Flags().Changed("tag-pattern") || len(assetExcludePatterns) > 0 || len(assetPreferPatterns) > 0 || embedded || prerelease {
 				return runUpdateSourceCommand(cmd, rt, service, updateSourceFlags{
 					setID:                setID,
 					unsetID:              unsetID,
 					githubRepo:           githubRepo,
 					assetPattern:         assetPattern,
+					tagPattern:           tagPattern,
 					assetExcludePatterns: assetExcludePatterns,
 					assetPreferPatterns:  assetPreferPatterns,
 					embedded:             embedded,
@@ -218,6 +220,7 @@ func NewCommand(rt *clienv.Runtime, service service) *cobra.Command {
 	cmd.Flags().StringVar(&unsetID, "unset", "", "unset update source for app ID")
 	cmd.Flags().StringVar(&githubRepo, "github", "", "set GitHub update source in owner/repo format")
 	cmd.Flags().StringVar(&assetPattern, "asset", "", "match the GitHub AppImage asset name using filepath.Match syntax")
+	cmd.Flags().StringVar(&tagPattern, "tag-pattern", "", "match GitHub release tag names (not titles) using case-sensitive filepath.Match syntax (requires --set --github)")
 	cmd.Flags().StringArrayVar(&assetExcludePatterns, "exclude", nil, "exclude GitHub AppImage asset names matching filepath.Match syntax (repeatable; requires --set --github)")
 	cmd.Flags().StringArrayVar(&assetPreferPatterns, "prefer", nil, "prefer GitHub AppImage asset names matching filepath.Match syntax, falling back if none match (repeatable; requires --set --github)")
 	cmd.Flags().BoolVar(&embedded, "embedded", false, "set update source from embedded AppImage update information")
@@ -233,6 +236,7 @@ type updateSourceFlags struct {
 	unsetID              string
 	githubRepo           string
 	assetPattern         string
+	tagPattern           string
 	assetExcludePatterns []string
 	assetPreferPatterns  []string
 	embedded             bool
@@ -247,13 +251,16 @@ func runUpdateSourceCommand(cmd *cobra.Command, rt *clienv.Runtime, service serv
 		return clienv.UsageError(fmt.Errorf("provide either --set or --unset, not both"))
 	}
 	if flags.unsetID != "" {
-		if flags.githubRepo != "" || flags.assetPattern != "" || len(flags.assetExcludePatterns) > 0 || len(flags.assetPreferPatterns) > 0 || flags.embedded || flags.prerelease {
-			return clienv.UsageError(fmt.Errorf("--unset cannot be combined with --github, --asset, --exclude, --prefer, --embedded, or --prerelease"))
+		if flags.githubRepo != "" || flags.assetPattern != "" || cmd.Flags().Changed("tag-pattern") || len(flags.assetExcludePatterns) > 0 || len(flags.assetPreferPatterns) > 0 || flags.embedded || flags.prerelease {
+			return clienv.UsageError(fmt.Errorf("--unset cannot be combined with --github, --asset, --tag-pattern, --exclude, --prefer, --embedded, or --prerelease"))
 		}
 		return unsetUpdateSource(cmd, rt, service, flags.unsetID)
 	}
 	if flags.setID == "" {
-		return clienv.UsageError(fmt.Errorf("--github, --asset, --exclude, --prefer, --embedded, and --prerelease require --set"))
+		return clienv.UsageError(fmt.Errorf("--github, --asset, --tag-pattern, --exclude, --prefer, --embedded, and --prerelease require --set"))
+	}
+	if cmd.Flags().Changed("tag-pattern") && strings.TrimSpace(flags.githubRepo) == "" {
+		return clienv.UsageError(fmt.Errorf("--tag-pattern requires --github"))
 	}
 	if flags.assetPattern != "" && flags.githubRepo == "" {
 		return clienv.UsageError(fmt.Errorf("--asset requires --github"))
@@ -292,6 +299,7 @@ func setUpdateSource(cmd *cobra.Command, rt *clienv.Runtime, service service, fl
 		ID:                   flags.setID,
 		GitHubRepo:           flags.githubRepo,
 		AssetPattern:         flags.assetPattern,
+		TagPattern:           flags.tagPattern,
 		AssetExcludePatterns: flags.assetExcludePatterns,
 		AssetPreferPatterns:  flags.assetPreferPatterns,
 		Prerelease:           flags.prerelease,

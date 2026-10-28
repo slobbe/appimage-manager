@@ -43,9 +43,12 @@ aim add --github owner/repo
 
 # add a prerelease version from a GitHub release
 aim add --github owner/repo --prerelease
+
+# track releases with matching tag names
+aim add --github owner/repo --tag-pattern 'desktop-*'
 ```
 
-Use `--asset`, `--exclude`, and `--prefer` to select more precisely among GitHub release assets. 
+Use `--asset`, `--exclude`, and `--prefer` to select more precisely among GitHub release assets.
 
 ### Check and apply updates
 
@@ -74,6 +77,9 @@ aim update --set example-app --github owner/repo
 # set a prerelease version from a GitHub release
 aim update --set example-app --github owner/repo --prerelease
 
+# persist a tag filter for future updates
+aim update --set example-app --github owner/repo --tag-pattern 'desktop-*'
+
 # set embedded update source
 aim update --set example-app --embedded
 
@@ -81,7 +87,7 @@ aim update --set example-app --embedded
 aim update --unset example-app
 ```
 
-Use `--asset`, `--exclude`, and `--prefer` to select more precisely among GitHub release assets. 
+Use `--asset`, `--exclude`, and `--prefer` to select more precisely among GitHub release assets.
 
 ### Remove an AppImage
 

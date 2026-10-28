@@ -12,6 +12,7 @@ import (
 // Implementations must support concurrent calls.
 type GitHubReleaseFinder interface {
 	LatestRelease(ctx context.Context, repo string, includePrerelease bool) (GitHubRelease, error)
+	LatestReleaseMatchingTag(ctx context.Context, repo string, includePrerelease bool, tagPattern string) (GitHubRelease, error)
 	LatestPrerelease(ctx context.Context, repo string) (GitHubRelease, error)
 	ReleaseByTag(ctx context.Context, repo string, tag string) (GitHubRelease, error)
 }

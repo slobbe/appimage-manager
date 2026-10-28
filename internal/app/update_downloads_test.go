@@ -68,6 +68,10 @@ func (stagedReleases) LatestRelease(_ context.Context, repo string, _ bool) (Git
 	return release, nil
 }
 
+func (r stagedReleases) LatestReleaseMatchingTag(ctx context.Context, repo string, includePrerelease bool, _ string) (GitHubRelease, error) {
+	return r.LatestRelease(ctx, repo, includePrerelease)
+}
+
 func (r stagedReleases) LatestPrerelease(ctx context.Context, repo string) (GitHubRelease, error) {
 	return r.LatestRelease(ctx, repo, true)
 }

@@ -39,6 +39,9 @@ type concurrentChecksFinder func(context.Context, string) (GitHubRelease, error)
 func (f concurrentChecksFinder) LatestRelease(ctx context.Context, repo string, _ bool) (GitHubRelease, error) {
 	return f(ctx, repo)
 }
+func (f concurrentChecksFinder) LatestReleaseMatchingTag(ctx context.Context, repo string, _ bool, _ string) (GitHubRelease, error) {
+	return f(ctx, repo)
+}
 func (f concurrentChecksFinder) LatestPrerelease(ctx context.Context, repo string) (GitHubRelease, error) {
 	return f(ctx, repo)
 }

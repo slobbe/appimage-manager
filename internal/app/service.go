@@ -120,6 +120,9 @@ func (s *service) Add(ctx context.Context, req AddRequest) (AddResult, error) {
 		activity = NoopActivityReporter{}
 	}
 
+	if err := validateGitHubTagPattern(req.GitHubRepo, req.TagPattern); err != nil {
+		return AddResult{}, err
+	}
 	selection := githubAssetSelection{pattern: req.AssetPattern, excludePatterns: req.AssetExcludePatterns, preferPatterns: req.AssetPreferPatterns}
 	if (strings.TrimSpace(req.AssetPattern) != "" || len(req.AssetExcludePatterns) > 0 || len(req.AssetPreferPatterns) > 0) && strings.TrimSpace(req.GitHubRepo) == "" {
 		return AddResult{}, errors.New("asset selection patterns require github repo")
@@ -180,7 +183,7 @@ func (s *service) addFromGitHub(ctx context.Context, req AddRequest, activity Ac
 	}
 
 	check := activity.Start(ctx, Activity{Kind: ActivityKindCheckingGitHub, Repo: repo})
-	release, err := s.githubReleases.LatestRelease(ctx, repo, req.Prerelease)
+	release, err := s.githubReleaseForUpdateSource(ctx, domain.UpdateSource{Repo: repo, Prerelease: req.Prerelease, TagPattern: req.TagPattern})
 	if err != nil {
 		check.Fail(err)
 		return AddResult{}, err
@@ -230,6 +233,7 @@ func (s *service) addFromGitHub(ctx context.Context, req AddRequest, activity Ac
 	return s.addLocalWithOptions(ctx, AddRequest{
 		Path:                 integratePath,
 		GitHubRepo:           repo,
+		TagPattern:           req.TagPattern,
 		AssetPattern:         req.AssetPattern,
 		AssetExcludePatterns: req.AssetExcludePatterns,
 		AssetPreferPatterns:  req.AssetPreferPatterns,
@@ -547,6 +551,12 @@ func updateSkip(installedApp domain.App) UpdateSkip {
 }
 
 func (s *service) githubReleaseForUpdateSource(ctx context.Context, source domain.UpdateSource) (GitHubRelease, error) {
+	if pattern := strings.TrimSpace(source.TagPattern); pattern != "" {
+		if err := validateGitHubTagPattern(source.Repo, pattern); err != nil {
+			return GitHubRelease{}, err
+		}
+		return s.githubReleases.LatestReleaseMatchingTag(ctx, source.Repo, source.Prerelease, pattern)
+	}
 	if !source.Embedded || strings.TrimSpace(source.ReleaseTag) == "" {
 		return s.githubReleases.LatestRelease(ctx, source.Repo, source.Prerelease)
 	}
@@ -1085,6 +1095,9 @@ func (s *service) SetUpdateSource(ctx context.Context, req SetUpdateSourceReques
 	if (strings.TrimSpace(req.AssetPattern) != "" || len(req.AssetExcludePatterns) > 0 || len(req.AssetPreferPatterns) > 0) && strings.TrimSpace(req.GitHubRepo) == "" {
 		return SetUpdateSourceResult{}, errors.New("asset selection patterns require github repo")
 	}
+	if err := validateGitHubTagPattern(req.GitHubRepo, req.TagPattern); err != nil {
+		return SetUpdateSourceResult{}, err
+	}
 	if err := validateGitHubAssetSelection(githubAssetSelection{pattern: req.AssetPattern, excludePatterns: req.AssetExcludePatterns, preferPatterns: req.AssetPreferPatterns}); err != nil {
 		return SetUpdateSourceResult{}, err
 	}
@@ -1101,6 +1114,7 @@ func (s *service) SetUpdateSource(ctx context.Context, req SetUpdateSourceReques
 			return SetUpdateSourceResult{}, errors.New("github repo must be in owner/repo format")
 		}
 		updateSource = domain.NewGitHubUpdateSource(repo, req.Prerelease)
+		updateSource.TagPattern = strings.TrimSpace(req.TagPattern)
 		updateSource.AssetPattern = strings.TrimSpace(req.AssetPattern)
 		updateSource.AssetExcludePatterns = append([]string(nil), req.AssetExcludePatterns...)
 		updateSource.AssetPreferPatterns = append([]string(nil), req.AssetPreferPatterns...)
@@ -1362,6 +1376,7 @@ func withFallbackVersion(entry domain.DesktopEntry, fallbackVersion string) doma
 func integrationSource(req AddRequest, embeddedUpdateInfo string) domain.UpdateSource {
 	if req.GitHubRepo != "" {
 		updateSource := domain.NewGitHubUpdateSource(req.GitHubRepo, req.Prerelease)
+		updateSource.TagPattern = strings.TrimSpace(req.TagPattern)
 		updateSource.AssetPattern = strings.TrimSpace(req.AssetPattern)
 		updateSource.AssetExcludePatterns = append([]string(nil), req.AssetExcludePatterns...)
 		updateSource.AssetPreferPatterns = append([]string(nil), req.AssetPreferPatterns...)
@@ -1369,6 +1384,20 @@ func integrationSource(req AddRequest, embeddedUpdateInfo string) domain.UpdateS
 	}
 
 	return domain.NewEmbeddedUpdateSource(embeddedUpdateInfo)
+}
+
+func validateGitHubTagPattern(repo, pattern string) error {
+	pattern = strings.TrimSpace(pattern)
+	if pattern == "" {
+		return nil
+	}
+	if strings.TrimSpace(repo) == "" {
+		return errors.New("tag pattern requires github repo")
+	}
+	if err := validateGitHubAssetPattern(pattern); err != nil {
+		return fmt.Errorf("invalid GitHub tag pattern %q: %w", pattern, err)
+	}
+	return nil
 }
 
 func validGitHubRepo(repo string) bool {

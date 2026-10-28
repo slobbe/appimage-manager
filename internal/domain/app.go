@@ -57,6 +57,7 @@ type UpdateSource struct {
 	Path                 string
 	Prerelease           bool
 	ReleaseTag           string
+	TagPattern           string
 	AssetPattern         string
 	AssetExcludePatterns []string
 	AssetPreferPatterns  []string

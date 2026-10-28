@@ -711,6 +711,64 @@ func TestCommandRejectsInvalidAssetFilters(t *testing.T) {
 	}
 }
 
+func TestCommandPassesGitHubTagPattern(t *testing.T) {
+	for _, pattern := range []string{"", "v2.*", "Release-[AB]*"} {
+		for _, prerelease := range []bool{false, true} {
+			service := &fakeService{}
+			stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+			cmd := NewCommand(clienv.New(stdout, stderr), service)
+			cmd.SetOut(stdout)
+			cmd.SetErr(stderr)
+			args := []string{"--set", "example-app", "--github", "owner/repo", "--asset", "Example-*.AppImage"}
+			if pattern != "" {
+				args = append(args, "--tag-pattern", pattern)
+			}
+			if prerelease {
+				args = append(args, "--prerelease")
+			}
+			cmd.SetArgs(args)
+			if err := cmd.ExecuteContext(context.Background()); err != nil {
+				t.Fatalf("ExecuteContext() error = %v", err)
+			}
+			if service.setReq.TagPattern != pattern || service.setReq.Prerelease != prerelease || service.setReq.AssetPattern != "Example-*.AppImage" {
+				t.Fatalf("SetUpdateSourceRequest = %#v, want pattern %q and prerelease %v", service.setReq, pattern, prerelease)
+			}
+		}
+	}
+}
+
+func TestCommandRejectsInvalidTagPatternCombinations(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"--tag-pattern", "v2.*"}, "require --set"},
+		{[]string{"--github", "owner/repo", "--tag-pattern", "v2.*"}, "require --set"},
+		{[]string{"--set", "example-app", "--tag-pattern", "v2.*"}, "--tag-pattern requires --github"},
+		{[]string{"--set", "example-app", "--embedded", "--tag-pattern", "v2.*"}, "--tag-pattern requires --github"},
+		{[]string{"--set", "example-app", "--embedded", "--github", "owner/repo", "--tag-pattern", "v2.*"}, "provide either --github or --embedded"},
+		{[]string{"--unset", "example-app", "--tag-pattern", "v2.*"}, "--unset cannot be combined"},
+		{[]string{"--unset", "example-app", "--tag-pattern", ""}, "--unset cannot be combined"},
+		{[]string{"--check", "--tag-pattern", "v2.*"}, "--check cannot be combined"},
+		{[]string{"--ignore-release-age", "--tag-pattern", "v2.*"}, "--ignore-release-age cannot be combined"},
+	} {
+		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
+			service := &fakeService{}
+			stdout, stderr := &bytes.Buffer{}, &bytes.Buffer{}
+			cmd := NewCommand(clienv.New(stdout, stderr), service)
+			cmd.SetOut(stdout)
+			cmd.SetErr(stderr)
+			cmd.SetArgs(tc.args)
+			if err := cmd.ExecuteContext(context.Background()); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("ExecuteContext() error = %v, want %q", err, tc.want)
+			}
+			if service.updateCalled || service.setReq.ID != "" || service.unsetReq.ID != "" {
+				t.Fatal("service was called for invalid flags")
+			}
+		})
+	}
+}
+
 type fakeService struct {
 	updateCalled       bool
 	updateResult       app.UpdateResult
