@@ -2,7 +2,7 @@
 
 Notable changes to AppImage Manager are documented here, starting with v0.20.0.
 
-## v0.20.0 (unreleased)
+## v0.20.0 (2026-10-28)
 
 ### New
 
