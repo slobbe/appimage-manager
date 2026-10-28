@@ -2,10 +2,10 @@
 
 A CLI to install, integrate, inspect, and update AppImages on Linux.
 
-[![ci status](https://github.com/slobbe/appimage-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/slobbe/appimage-manager/actions/workflows/ci.yml) [![release](https://img.shields.io/github/v/release/slobbe/appimage-manager)](https://github.com/slobbe/appimage-manager/releases) [![go version](https://img.shields.io/github/go-mod/go-version/slobbe/appimage-manager)](go.mod) [![license](https://img.shields.io/github/license/slobbe/appimage-manager)](LICENSE)
+[![ci status](https://github.com/slobbe/appimage-manager/actions/workflows/ci.yml/badge.svg)](https://github.com/slobbe/appimage-manager/actions/workflows/ci.yml) [![go version](https://img.shields.io/github/go-mod/go-version/slobbe/appimage-manager)](go.mod) [![release](https://img.shields.io/github/v/release/slobbe/appimage-manager)](https://github.com/slobbe/appimage-manager/releases) [![license](https://img.shields.io/github/license/slobbe/appimage-manager)](LICENSE)
 
 > [!NOTE]
-> `aim` is still in **beta**. Expect occasional bugs and breaking changes. Feedback is welcome.
+> `aim` is still in **beta**. Expect occasional bugs and breaking changes.
 
 ## Install
 
@@ -15,20 +15,19 @@ Install the latest release using the [install script](scripts/install.sh):
 curl -fsSL https://raw.githubusercontent.com/slobbe/appimage-manager/main/scripts/install.sh | sh
 ```
 
+The installer places `aim` in `~/.local/bin` and generates man pages and shell completions locally from the installed binary.
+
+If `aim` is not found, make sure `~/.local/bin` is on your `PATH`.
+
 <details>
 <summary>Install a specific version</summary>
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/slobbe/appimage-manager/main/scripts/install.sh \
-  | AIM_VERSION=0.18.0 sh
+  | AIM_VERSION=0.19.0 sh
 ```
 
-`AIM_VERSION` accepts either a stable version like `0.18.0` or a prerelease version such as `v0.19.0-dev.1`.
 </details>
-
-The installer places `aim` in `~/.local/bin` by default and generates man pages and shell completions locally from the installed binary.
-
-If `aim` is not found, make sure `~/.local/bin` is on your `PATH`.
 
 ## Common commands
 
